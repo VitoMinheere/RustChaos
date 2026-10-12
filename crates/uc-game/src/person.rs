@@ -180,13 +180,14 @@ pub enum Sfx {
     Hurt { kind: u8 },
     KnockedOut { kind: u8 },
     Footstep { player: bool },
-    Jump,
+    /// The effort of a jump, from whoever made it.
+    Jump { kind: u8 },
     Land,
     Grab,
     /// Darci makes an arrest.
     Arrest,
-    /// Darci knocked someone out.
-    Taunt,
+    /// The player knocked someone out and crows about it.
+    Taunt { kind: u8 },
     /// An enemy spots the player.
     Alert { kind: u8 },
     /// A mission message with recording number `n` (if it was recorded).
@@ -555,6 +556,12 @@ impl Person {
         self.aggro && !self.is_down() && !self.removed
     }
 
+    /// Arrests are Darci's own: `set_person_croutch` only looks for someone to cuff when the
+    /// person doing it is `PERSON_DARCI`.
+    pub fn can_arrest(&self) -> bool {
+        self.player && self.kind == uc_world::character::person::DARCI
+    }
+
     pub fn is_dummy(&self) -> bool {
         self.ai == crate::script::PCOM_AI_FIGHT_TEST
     }
@@ -876,7 +883,7 @@ impl Person {
     }
 
     fn jump(&mut self, vel: Vec2) {
-        self.cues.push(Sfx::Jump);
+        self.cues.push(Sfx::Jump { kind: self.kind });
         self.state = State::Fall { vy: JUMP_SPEED, vel };
         self.fig.restart(if vel.length() > 1.0 { anim::RUN_JUMP } else { anim::STANDING_JUMP }, Play::Once);
         self.fig.set_speed(1.5);
@@ -1360,10 +1367,13 @@ impl Person {
         // Wish direction relative to facing: x = right, y = forward.
         let rel = vec2(c.wish.dot(vec2(-f.y, f.x)), c.wish.dot(f));
 
-        if c.action {
+        // Only Darci arrests people: the original asks for `PERSON_DARCI` before it even
+        // looks for someone to cuff (`set_person_croutch`, fallen/Source/Person.cpp), so
+        // Nitro Car's thug can't.
+        if c.action && self.can_arrest() {
             // Arrest a downed opponent.
             let downed = snaps.iter().enumerate().find(|&(j, s)| {
-                j != me && s.present && s.down && !s.arrested && !s.player && self.player
+                j != me && s.present && s.down && !s.arrested && !s.player
                     && flat(s.pos, self.fig.pos).length() < ARREST_RANGE && (s.pos.y - self.fig.pos.y).abs() < 64.0
             });
             if let Some((j, s)) = downed {

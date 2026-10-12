@@ -114,7 +114,8 @@ fn nitro_car_script_runs_to_a_win() {
 
     // Mako is a thug, not Darci: the only mission so far where `create_player` says so.
     assert_eq!(r.g.player().unwrap().kind, ptype::THUG_RASTA);
-    assert_eq!(r.g.player_name(), "Thug");
+    assert_eq!(r.g.player_name(), "Mako", "the mission's own dialogue calls him that throughout");
+    assert!(!r.g.player().unwrap().can_arrest(), "a gang thug doesn't arrest people");
 
     // Cliffy and Zit wait at the hangout, guarding Mako (ai 8, standing still).
     for way in [3, 4] {

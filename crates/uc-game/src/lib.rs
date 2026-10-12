@@ -180,6 +180,18 @@ pub struct Game {
     taken: BTreeSet<usize>,
     /// Explosions and fires burning.
     pub pyro: Pyro,
+    /// What to call the player, for the HUD and for their lines in a conversation.
+    player_name: &'static str,
+}
+
+/// What a mission calls the player. The original's panel carries no name at all (it just
+/// picks Darci's face or Roper's), so these are this engine's own: the person's type, except
+/// where the mission's own dialogue keeps calling them something, as Nitro Car's does Mako.
+fn player_name(mission: &str, kind: u8) -> &'static str {
+    match mission.to_ascii_lowercase().as_str() {
+        "bankbomb1" => "Mako",
+        _ => ptype::name(kind),
+    }
 }
 
 impl Game {
@@ -192,7 +204,7 @@ impl Game {
             outcome: None, time: 0.0, rng: 1, sounds: Vec::new(), fight_timer: 0.0, sprinting: false,
             items: Vec::new(), cutscene: None, convo: None, used: false, vehicles: Vec::new(), veh_by_way: HashMap::new(),
             barrels: Vec::new(), sign: None, target: None, stats: [0; 4], badges: [0; 4], found: BTreeSet::new(),
-            taken: BTreeSet::new(), pyro: Pyro::default(),
+            taken: BTreeSet::new(), pyro: Pyro::default(), player_name: "",
         };
         if !scripted {
             g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI);
@@ -253,6 +265,7 @@ impl Game {
     fn spawn_player(&mut self, level: &Level, pos: Vec3, angle: f32, way: usize, kind: u8) {
         if self.player.is_none() {
             self.player = self.spawn(level, kind, true, way, pos, angle);
+            self.player_name = player_name(&level.mission.mission_name, kind);
         }
     }
 
@@ -512,14 +525,15 @@ impl Game {
     fn speaker(&self, way: usize) -> &'static str {
         let p = if way == 0 { self.player } else { self.by_way.get(&way).copied() };
         match p.map(|i| &self.people[i]) {
-            Some(p) if p.player || matches!(p.kind, ptype::COP | ptype::ROPER) => ptype::name(p.kind),
+            Some(p) if p.player => self.player_name,
+            Some(p) if matches!(p.kind, ptype::COP | ptype::ROPER) => ptype::name(p.kind),
             _ => "",
         }
     }
 
-    /// What to call the player: Darci in most missions, a thug in Nitro Car.
+    /// What to call the player.
     pub fn player_name(&self) -> &'static str {
-        self.player().map_or("", |p| ptype::name(p.kind))
+        self.player_name
     }
 
     /// Fly-bys and conversations move on.
@@ -959,7 +973,8 @@ impl Game {
                     let was_down = self.people[victim].is_down();
                     self.people[victim].take_hit(from, damage, ko, high, low, weapon);
                     if !was_down && self.people[victim].is_down() && Some(attacker) == self.player {
-                        self.people[attacker].cues.push(Sfx::Taunt);
+                        let kind = self.people[attacker].kind;
+                        self.people[attacker].cues.push(Sfx::Taunt { kind });
                     }
                     self.drop_weapon(victim);
                 }
@@ -995,7 +1010,8 @@ impl Game {
                         let was_down = self.people[victim].is_down();
                         self.people[victim].take_hit(from, damage, ko, true, false, weapon);
                         if !was_down && self.people[victim].is_down() && Some(attacker) == self.player {
-                            self.people[attacker].cues.push(Sfx::Taunt);
+                            let kind = self.people[attacker].kind;
+                            self.people[attacker].cues.push(Sfx::Taunt { kind });
                         }
                         self.drop_weapon(victim);
                     }
