@@ -38,6 +38,7 @@ pub mod waypoint {
     pub const GROUP_DEATH: u8 = 34;
     pub const CONVERSATION: u8 = 35;
     pub const INCREMENT: u8 = 37;
+    pub const RESET_COUNTER: u8 = 46;
     pub const GROUP_RESET: u8 = 44;
     pub const EXTEND: u8 = 50;
     pub const MOVE_THING: u8 = 51;

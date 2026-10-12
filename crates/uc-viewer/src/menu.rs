@@ -10,8 +10,8 @@ use uc_render::Overlay;
 
 /// Missions that play from start to finish here; the rest load, run what they can and are
 /// good for exploring.
-const PLAYABLE: [&str; 11] = ["ftutor1", "assault1", "testdrive1a", "fight1", "fight2", "police1", "testdrive2",
-                              "testdrive3", "police2", "Bankbomb1", "police3"];
+const PLAYABLE: [&str; 12] = ["ftutor1", "assault1", "testdrive1a", "fight1", "fight2", "police1", "testdrive2",
+                              "testdrive3", "police2", "Bankbomb1", "police3", "Gangorder2"];
 
 pub struct Entry {
     /// The mission file's name, without `.ucm`.

@@ -159,6 +159,9 @@ pub struct Beacon {
 
 pub const PCOM_AI_FIGHT_TEST: u8 = 12;
 
+/// `EWAY_counter[7]`: how many cops have been killed.
+const COPS_KILLED: usize = 7;
+
 /// `PT_*` (an event point's player type) to `PERSON_*`, through `PLAYER_*`
 /// (`ELEV_load_level` in elev.cpp and `PLAYER_create` in Player.cpp): Nitro Car's Mako is a
 /// rasta thug.
@@ -287,7 +290,7 @@ impl Script {
                 | CREATE_TARGET | CAMERA_WAYPOINT | MESSAGE | NAV_BEACON | KILL_WAYPOINT | INCREMENT | ADJUST_ENEMY
                 | END_GAME_WIN | END_GAME_LOSE | BONUS_POINTS | GROUP_LIFE | GROUP_DEATH | GROUP_RESET | EXTEND
                 | MOVE_THING | CONVERSATION | CREATE_BARREL | CREATE_VEHICLE | STALL_CAR | SIGN | CONE_PENALTIES
-                | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT);
+                | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT | RESET_COUNTER);
             if !supported {
                 let name = uc_formats::ucm::names::WAYPOINT.get(ep.kind as usize).copied().unwrap_or("?");
                 unsupported.push(format!("{} {}", ep.index, name));
@@ -306,6 +309,13 @@ impl Script {
     fn rand(&mut self) -> u32 {
         self.rng = self.rng.wrapping_mul(69069).wrapping_add(1);
         self.rng >> 16
+    }
+
+    /// A cop has been killed. The original keeps the tally in counter 7, bumped wherever
+    /// someone dies (`PERSON_COP` in Person.cpp), and missions read it: Rat Catch's Boss wants
+    /// five of them as a punishment.
+    pub fn note_cop_killed(&mut self) {
+        self.counters[COPS_KILLED] = self.counters[COPS_KILLED].saturating_add(1);
     }
 
     /// The player started a punch / kick (for punched_and_kicked triggers).
@@ -584,6 +594,11 @@ impl Script {
                     *c += 1;
                 }
             }
+            // `Data[0]` names the counter, or clears the lot when it's zero.
+            waypoint::RESET_COUNTER => match self.counters.get_mut(d[0] as usize) {
+                Some(c) if d[0] != 0 => *c = 0,
+                _ => self.counters = [0; 16],
+            },
             waypoint::END_GAME_WIN | waypoint::END_GAME_LOSE if !self.finished => {
                 self.finished = true;
                 self.commands.push(if ep.kind == waypoint::END_GAME_WIN { Command::Win } else { Command::Lose });
