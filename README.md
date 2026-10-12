@@ -117,6 +117,8 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 **The Jump walkthrough:** Barnaby is on a ledge of the tower east of the station (the "Brooks Tower" beacon). Walk straight up to him, by the ladder from the level where the cop waits, and he talks, then runs off the edge. Come from behind instead. Climb the tall building to the west (ladders from the street by the cop who says "It's up this way"), jump for the zip line on its roof, and ride it down onto Barnaby's ledge behind him.
 
+**Mist:** some missions lay sheets of ground mist (`create_mist`), low over the street and shimmering where they lie. The original's own `fog.tga` isn't in the retail release, so the sheet is drawn with a cloud generated at startup, as the blob shadows are.
+
 **Explosions:** a car bomb going off throws out a flash, a fireball, a ring of dust and burning debris, and leaves a fire behind. People within three squares are knocked down or killed, the player included. The `visual_effect` points a mission sets off elsewhere are the same effects without the blast: the original's shockwave for those never fires, thanks to a typo in the 1999 code (`if (ew->ed.subtype=!16)` assigns rather than compares), and this follows it.
 
 **Doors:** a door is shut and solid until a mission opens it, which is the only way one ever opens — the original has no walking into them and no "use" on them either, and `DOOR_open`'s only caller is the mission script.
@@ -226,6 +228,7 @@ Without an install, the data tests print a note and pass. That's what CI sees: `
 - event points beyond the set these missions use (bombs, steam, platforms, mist...). The viewer prints which points of a mission are ignored; `cargo run -p uc-game --example unsupported` lists them for every mission at once;
 - ambient city life: the original's random civilians and traffic (`fake_civs`, `fake_cars`). Scripted civilians do stroll about;
 - a warehouse's own ambience (`warefx`): there is one ambience track so far, the city's;
+- the gusts that push ground mist aside as someone walks through it (`MIST_gust`);
 - hanging from ledges and traversing them;
 - stars, the skyline and moon;
 - animated prims (`LoadGameThing`).

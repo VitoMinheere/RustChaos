@@ -14,6 +14,7 @@
 //! kept together and people are pushed apart.
 
 pub mod goals;
+pub mod mist;
 pub mod person;
 pub mod pyro;
 pub mod script;
@@ -24,6 +25,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use uc_world::character::person as ptype;
 use uc_world::{Batch, Level};
 
+pub use mist::Mists;
 pub use person::{Controls, Person, Sfx, State, Weapon};
 pub use pyro::Pyro;
 pub use script::Shot;
@@ -182,6 +184,8 @@ pub struct Game {
     dead_cops: BTreeSet<usize>,
     /// Explosions and fires burning.
     pub pyro: Pyro,
+    /// Sheets of ground mist the mission has laid down.
+    pub mists: Mists,
     /// What to call the player, for the HUD and for their lines in a conversation.
     player_name: &'static str,
 }
@@ -206,7 +210,8 @@ impl Game {
             outcome: None, time: 0.0, rng: 1, sounds: Vec::new(), fight_timer: 0.0, sprinting: false,
             items: Vec::new(), cutscene: None, convo: None, used: false, vehicles: Vec::new(), veh_by_way: HashMap::new(),
             barrels: Vec::new(), sign: None, target: None, stats: [0; 4], badges: [0; 4], found: BTreeSet::new(),
-            taken: BTreeSet::new(), dead_cops: BTreeSet::new(), pyro: Pyro::default(), player_name: "",
+            taken: BTreeSet::new(), dead_cops: BTreeSet::new(), pyro: Pyro::default(), mists: Mists::default(),
+            player_name: "",
         };
         if !scripted {
             g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
@@ -485,6 +490,7 @@ impl Game {
                     };
                     self.sign = Some((text.to_string(), 2.5));
                 }
+                Command::Mist { pos } => self.mists.create(pos.x, pos.z),
                 Command::OpenDoor { pos } => {
                     if !level.ground.open_door_near(pos.x, pos.z) {
                         // The original says so too, on its console.
@@ -1268,6 +1274,11 @@ impl Game {
             uc_world::level::prim_batches(prim, |v| it.pos + Vec3::new(c * v.x + s * v.z, v.y + lift, -s * v.x + c * v.z),
                                           lighter.as_ref(), &mut out);
         }
+        // Ground mist: flat sheets blended over whatever is under them.
+        let secs = self.time;
+        self.mists.quads(secs, |p, uv| {
+            out.entry(uc_world::MIST).or_default().quad(p, uv, [[255, 255, 255, 90]; 4]);
+        });
         // Explosions and fire: round puffs turned to face the camera, the bright ones added
         // to the scene and the smoke blended over it.
         for puff in &self.pyro.puffs {
