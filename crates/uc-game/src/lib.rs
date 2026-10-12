@@ -207,12 +207,12 @@ impl Game {
             taken: BTreeSet::new(), pyro: Pyro::default(), player_name: "",
         };
         if !scripted {
-            g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI);
+            g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
         }
         // Run the first tick now so the player exists straight away.
         g.run_script(0.0, level);
         if g.player.is_none() {
-            g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI);
+            g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
         }
         g
     }
@@ -262,10 +262,15 @@ impl Game {
         Some(i)
     }
 
-    fn spawn_player(&mut self, level: &Level, pos: Vec3, angle: f32, way: usize, kind: u8) {
+    fn spawn_player(&mut self, level: &Level, pos: Vec3, angle: f32, way: usize, kind: u8, has: u8) {
         if self.player.is_none() {
             self.player = self.spawn(level, kind, true, way, pos, angle);
             self.player_name = player_name(&level.mission.mission_name, kind);
+            // Carried, not drawn: `PCOM_create_player` only raises `FLAGS_HAS_GUN`, which puts
+            // the pistol in the weapon list (`PANEL_ADDWEAPON`) for the player to pick.
+            if let Some(i) = self.player {
+                self.people[i].give(Weapon::from_has(has));
+            }
         }
     }
 
@@ -346,8 +351,8 @@ impl Game {
         self.script = Some(script);
         for c in commands {
             match c {
-                Command::SpawnPlayer { way, pos, angle, person } => {
-                    self.spawn_player(level, pos, angle, way, person);
+                Command::SpawnPlayer { way, pos, angle, person, has } => {
+                    self.spawn_player(level, pos, angle, way, person, has);
                     if let Some(p) = self.player {
                         self.by_way.insert(way, p);
                     }

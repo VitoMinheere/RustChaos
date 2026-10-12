@@ -401,7 +401,15 @@ impl World {
                 None => p.weapon.name().to_string(),
             };
             let col = if p.rounds() == Some(0) { [240, 90, 70, 255] } else { white };
-            o.text(bx + bw + 8.0 * s, by - 2.0 * s, s, col, &weapon);
+            let mut wx = bx + bw + 8.0 * s + o.text(bx + bw + 8.0 * s, by - 2.0 * s, s, col, &weapon);
+            // What else is being carried, dimmer: press G for it.
+            for (w, rounds) in p.stowed() {
+                let text = match rounds {
+                    Some(n) => format!("  {} {n}", w.name()),
+                    None => format!("  {}", w.name()),
+                };
+                wx += o.text(wx, by - 2.0 * s, s, [170, 170, 160, 200], &text);
+            }
             // Badge stats (gold for those raised in this mission; kept when it's won).
             let mut x = bx;
             for (k, name) in ["STA", "STR", "REF", "CON"].iter().enumerate() {

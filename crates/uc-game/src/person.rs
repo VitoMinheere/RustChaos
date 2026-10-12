@@ -539,6 +539,17 @@ impl Person {
         self.weapon.slot().map(|s| if self.player { self.ammo[s] } else { u32::MAX })
     }
 
+    /// Everything carried besides what's in hand, with the rounds left in each gun: the
+    /// original's panel lists these too (`PANEL_ADDWEAPON`), so a weapon picked up or handed
+    /// over at the start can be seen without cycling to it.
+    pub fn stowed(&self) -> Vec<(Weapon, Option<u32>)> {
+        let melee = (self.melee != Weapon::None).then_some((self.melee, None));
+        let guns = Weapon::GUNS.iter().enumerate()
+            .filter(|(s, _)| self.guns & (1 << s) != 0)
+            .map(|(s, &g)| (g, Some(self.ammo[s])));
+        melee.into_iter().chain(guns).filter(|&(w, _)| w != self.weapon).collect()
+    }
+
     /// Puts away what's in hand and takes out the next weapon carried (bare hands last).
     pub fn next_weapon(&mut self) {
         let carried: Vec<Weapon> = [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47]

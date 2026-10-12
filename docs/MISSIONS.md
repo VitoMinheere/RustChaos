@@ -72,7 +72,7 @@ Export a shipped mission with `uc mission export` to see real chains.
 
 | Type | Parameters |
 |---|---|
-| `create_player` (2) | `data[0]` = `PT_*` (1 Darci, 2 Roper, 3 cop, 4 gang); `data[1]` = flag |
+| `create_player` (2) | `data[0]` = `PT_*` (1 Darci, 2 Roper, 3 cop, 4 gang); `data[1]` ≠ 0 means they start with nothing, 0 hands them a loaded pistol (`has = (subtype & 8) ? 0 : PCOM_HAS_GUN` in `EWAY_DO_CREATE_PLAYER`) |
 | `create_enemies` (3) | `data[0]` = `ET_*` type in low 16 bits, count in high 16 bits; `data[1]` = follow target; `data[3]` = `PCOM_MOVE_*` − 1; `data[4]` = bent flags, zone in bits 8+; `data[5]` = `PCOM_AI_*` low 16 bits, skill high 16 bits; `data[7]` = bodyguard/assassin target event point |
 | `message` (12) | `data[1]` = duration, `data[2]` = who says it |
 | `nav_beacon` (27) | `data[1]` = target |

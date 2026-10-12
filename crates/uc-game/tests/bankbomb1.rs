@@ -117,6 +117,14 @@ fn nitro_car_script_runs_to_a_win() {
     assert_eq!(r.g.player_name(), "Mako", "the mission's own dialogue calls him that throughout");
     assert!(!r.g.player().unwrap().can_arrest(), "a gang thug doesn't arrest people");
 
+    // The mission hands him a loaded pistol: its create_player point leaves Data[1] clear,
+    // which is what `EWAY_DO_CREATE_PLAYER` reads as `PCOM_HAS_GUN`. It is carried, not
+    // drawn, so it shows in the weapons he has on him rather than in his hands.
+    let me = r.g.player().unwrap();
+    assert_eq!(me.weapon, uc_game::Weapon::None, "the pistol starts stowed, as the original leaves it");
+    assert!(me.has(uc_game::Weapon::Pistol), "Mako should start carrying a pistol");
+    assert_eq!(me.stowed(), vec![(uc_game::Weapon::Pistol, Some(15))], "a pistol holds fifteen rounds");
+
     // Cliffy and Zit wait at the hangout, guarding Mako (ai 8, standing still).
     for way in [3, 4] {
         let i = r.g.people.iter().position(|p| p.way == way).expect("one of the boys");

@@ -110,8 +110,9 @@ pub struct Shot {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
-    /// `person`: the `PERSON_*` type the player takes on (Darci in most missions).
-    SpawnPlayer { way: usize, pos: Vec3, angle: f32, person: u8 },
+    /// `person`: the `PERSON_*` type the player takes on (Darci in most missions);
+    /// `has`: the `HAS_*` weapons they start carrying.
+    SpawnPlayer { way: usize, pos: Vec3, angle: f32, person: u8, has: u8 },
     SpawnEnemy { way: usize, pos: Vec3, angle: f32, spec: EnemySpec },
     /// Change the AI of the person created by `way`.
     /// `other`: an assassin's mark (event point); `mv`: the new `PCOM_MOVE_*`; `colour` and
@@ -169,6 +170,15 @@ fn player_person(pt: i32) -> u8 {
         4 => THUG_RASTA,
         _ => DARCI,
     }
+}
+
+/// What the player starts carrying. `Data[1]` is a "no gun" flag: the loader folds it into
+/// the player's subtype (`ELEV_load_level`) and `EWAY_DO_CREATE_PLAYER` reads it back out as
+/// `has = (subtype & 8) ? 0 : PCOM_HAS_GUN`, so a point that leaves it clear hands over a
+/// loaded pistol. Every training and street mission sets it and starts Darci empty-handed;
+/// Nitro Car doesn't, so Mako is carrying one from the off.
+fn player_has(d1: i32) -> u8 {
+    if d1 != 0 { 0 } else { 1 }
 }
 
 /// `ET_*` (enemy type) to `PERSON_*` (convert_ET_to_PT in elev.cpp).
@@ -472,7 +482,8 @@ impl Script {
         let d = ep.data;
         match ep.kind {
             waypoint::CREATE_PLAYER => {
-                self.commands.push(Command::SpawnPlayer { way: i, pos, angle, person: player_person(d[0]) })
+                let spawn = Command::SpawnPlayer { way: i, pos, angle, person: player_person(d[0]), has: player_has(d[1]) };
+                self.commands.push(spawn);
             }
             waypoint::CREATE_ENEMIES => {
                 let ai = (d[5] & 0xFFFF) as u8;
