@@ -148,6 +148,9 @@ pub enum Command {
     OpenDoor { pos: Vec3 },
     /// Lay a sheet of ground mist centred on `pos` (`EWAY_DO_CREATE_MIST`).
     Mist { pos: Vec3 },
+    /// Play the game's sound `id` at `pos`. `replace` is `play_glue_wave`'s type 1, which cuts
+    /// off whatever it last started rather than letting them overlap.
+    Sound { id: usize, pos: Vec3, replace: bool },
     Win,
     Lose,
 }
@@ -303,7 +306,7 @@ impl Script {
                 | CREATE_TARGET | CAMERA_WAYPOINT | MESSAGE | NAV_BEACON | KILL_WAYPOINT | INCREMENT | ADJUST_ENEMY
                 | END_GAME_WIN | END_GAME_LOSE | BONUS_POINTS | GROUP_LIFE | GROUP_DEATH | GROUP_RESET | EXTEND
                 | MOVE_THING | CONVERSATION | CREATE_BARREL | CREATE_VEHICLE | STALL_CAR | SIGN | CONE_PENALTIES
-                | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT | RESET_COUNTER | ACTIVATE_PRIM | CREATE_MIST);
+                | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT | RESET_COUNTER | ACTIVATE_PRIM | CREATE_MIST | SOUND_EFFECT);
             // An `activate_prim` only counts as supported when it opens a door: the fences
             // and the cameras are still to do.
             let supported = supported && (ep.kind != ACTIVATE_PRIM || ep.data[0] == activate::DOOR);
@@ -572,6 +575,10 @@ impl Script {
             // Only the door kind does anything here; an electric fence or a security camera
             // is left for later (and the camera does nothing in the original either).
             waypoint::CREATE_MIST => self.commands.push(Command::Mist { pos }),
+            // `Data[0]` picks `play_glue_wave`'s type and `Data[1]` is the sound's id.
+            waypoint::SOUND_EFFECT => {
+                self.commands.push(Command::Sound { id: d[1].max(0) as usize, pos, replace: d[0] == 1 })
+            }
             waypoint::ACTIVATE_PRIM if d[0] == activate::DOOR => {
                 self.commands.push(Command::OpenDoor { pos })
             }

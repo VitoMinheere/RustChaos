@@ -150,7 +150,7 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 5. Climb the ladder onto the central building. Use side and back kicks on three of the four trainers, then grab the last one and finish him.
 
 **Sound**, all from the game's own recordings:
-- **Effects:** punches, swings, footsteps, landings, grunts and knockouts. They are placed in the world, so they fade with distance and pan with the camera.
+- **Effects:** punches, swings, footsteps, landings, grunts and knockouts, and whatever a mission asks for by id (`sound_effect` points, through the game's own `sound_list` table). They are placed in the world, so they fade with distance and pan with the camera.
 - **Darci's voice:** she calls out arrests and sometimes taunts after a knockout.
 - **Enemy shouts:** thugs shout when they spot her.
 - **Music:** it follows the action. Fight and sprint themes come from the mission's music world (`levels\mworlds.txt`, as in the original), the mission-complete or failure cue plays at the end, and city ambience plays underneath.
