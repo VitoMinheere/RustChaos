@@ -33,16 +33,17 @@ All of it was checked against the GOG release: the police station lobby, the Uni
 - Physical Training (`assault1`): fly-bys, the instructor's conversation, the course clock, crate stairs, the zip line and the stop-the-clock switch;
 - Driving Bronze, Silver and Gold (`testdrive1a`, `testdrive2`, `testdrive3`): the squad car (arcade physics, the original's meshes), lap checkpoints, parking and direction checks, road signs, cones. People dodge cars coming at them, and the handbrake slides the car;
 - RTA (`police1`), the first street mission: the abandoned car, the homicide call, witnesses and conversations, rooftop muggers, "person seen" triggers (`can_a_see_b`), assassins with their own mark (`ai_other`: the crash cops go after the drunk driver), wandering civilians (`PCOM_MOVE_WANDER`) and badges (`create_treasure`, with their stat bonuses carried between missions);
-- The Jump (`police2`): the jumper who runs off the roof if approached head on (patrols, `PCOM_MOVE_PATROL`, follow the points of their colour and group; fall damage after `person_hit_ground`), and the zip line that brings Darci down behind him.
+- The Jump (`police2`): the jumper who runs off the roof if approached head on (patrols, `PCOM_MOVE_PATROL`, follow the points of their colour and group; fall damage after `person_hit_ground`), and the zip line that brings Darci down behind him;
+- Nitro Car (`Bankbomb1`), the first mission played as somebody else: `create_player`'s `PT_GANG` makes Mako a rasta thug (`PLAYER_THUG`, Player.cpp). Two car bombs driven across town and left to go off (`lock_vehicle` and `create_vehicle`'s `VK_*` keys; a `kill_waypoint` on a car wrecks it where it stands and sets off a shockwave that catches the player, then forgets it was ever created so the "car destroyed" lose points stop watching), explosions and fire (`visual_effect` to `PYRO_construct`), bodyguards who follow Mako and see off whoever comes at him (`PCOM_AI_BODYGUARD`, `PCOM_MOVE_FOLLOW`, invulnerable twenty blocks away), and the `specific_item_held` trigger.
 
 The viewer saves completed missions, best times and badges, and the menu shows them. The HUD has a minimap rendered from overhead.
 
 Darci picks up and fires the pistol, shotgun and AK-47 (the original's damage, ammo per clip and animations), with a sticky auto-target she can cycle, and enemies show health bars.
 
-Tests in `uc-game/tests/` check each of them (`missions.rs` runs the scripts to the end), plus RTA's and The Jump's scripts (`rta.rs`, `jump.rs`), the moves (`moves.rs`) and the guns (`guns.rs`: pickups, ammo, switching, and a bot shooting its way through Combat Gold's waves).
+Tests in `uc-game/tests/` check each of them (`missions.rs` runs the scripts to the end), plus RTA's, The Jump's and Nitro Car's scripts (`rta.rs`, `jump.rs`, `bankbomb1.rs`), the moves (`moves.rs`) and the guns (`guns.rs`: pickups, ammo, switching, and a bot shooting its way through Combat Gold's waves).
 
 **Next steps, toward a game that keeps the original's atmosphere:**
-- **The city's life:** random civilians and traffic (`fake_civs`, `fake_cars`), drivers (`PCOM_AI_DRIVER`), fire and smoke (`visual_effect`), doors and the remaining cutscene types;
+- **The city's life:** random civilians and traffic (`fake_civs`, `fake_cars`), drivers (`PCOM_AI_DRIVER`), doors and the remaining cutscene types;
 - the MIB's minigun, grenades and muzzle flashes;
 - fence vaulting, ledge hanging and traversing;
 - sky details (stars, moon, skyline).

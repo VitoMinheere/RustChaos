@@ -23,6 +23,14 @@ pub const TYPES: [(u8, u8, f32, f32, f32, f32); 9] = [
     (27, 87, 120.0, 150.0, -165.0, 30.0),  // Wildcat van
 ];
 
+/// Whether a `create_vehicle` point's key (`VK_*`, `Data[3]`) leaves the car locked: anything
+/// but `VK_UNLOCKED` does, since the keys it asks for are never anywhere to be found
+/// (`ELEV_load_level` turns them all into `SPECIAL_KEY`, and `VK_LOCKED` into a special that
+/// doesn't exist at all).
+pub fn locked_by_key(vk: i32) -> bool {
+    vk != 0
+}
+
 /// `VT_*` (an event point's vehicle type, fallen/Headers/Mission.h) to `VEH_TYPE_*`.
 pub fn from_vt(vt: i32) -> u8 {
     match vt {
@@ -82,6 +90,10 @@ pub struct Vehicle {
     pub driver: Option<usize>,
     /// Stopped by the mission (`stall_car`).
     pub stalled: bool,
+    /// Nobody can get in: either the event point said so (`VK_LOCKED`, or a key Darci never
+    /// finds) or a `lock_vehicle` point has locked it since. The original keeps a `key` on the
+    /// vehicle and locks it by asking for a special that doesn't exist (`EWAY_DO_LOCK_VEHICLE`).
+    pub locked: bool,
     /// Body tilt from the ground under the wheels (radians).
     pub pitch: f32,
     pub roll: f32,
@@ -90,10 +102,10 @@ pub struct Vehicle {
 }
 
 impl Vehicle {
-    pub fn new(way: usize, kind: u8, pos: Vec3, yaw: f32) -> Vehicle {
+    pub fn new(way: usize, kind: u8, pos: Vec3, yaw: f32, locked: bool) -> Vehicle {
         Vehicle {
             way, kind: kind.min(8), pos, yaw, speed: 0.0, slip: 0.0, slide: 0.0, steer: 0.0, health: 300, driver: None, stalled: false,
-            pitch: 0.0, roll: 0.0, wheel_spin: 0.0,
+            locked, pitch: 0.0, roll: 0.0, wheel_spin: 0.0,
         }
     }
 

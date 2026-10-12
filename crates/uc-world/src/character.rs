@@ -126,6 +126,18 @@ pub mod person {
     pub fn uses_darci_meshes(t: u8) -> bool {
         matches!(t, DARCI | SLAG_TART | SLAG_FATUGLY | HOSTAGE)
     }
+
+    /// What to call someone of this type, for the HUD and for who is saying a line. The
+    /// original's panel has no name on it (it just picks Darci's or Roper's face): these are
+    /// this engine's own, so a mission played as somebody else reads right.
+    pub const NAME: [&str; 15] = [
+        "Darci", "Roper", "Cop", "Civilian", "Thug", "Thug", "Thug", "Woman", "Woman", "Hostage",
+        "Workman", "Tramp", "MIB", "MIB", "MIB",
+    ];
+
+    pub fn name(t: u8) -> &'static str {
+        NAME.get(t as usize).copied().unwrap_or("")
+    }
 }
 
 /// The loaded character files.

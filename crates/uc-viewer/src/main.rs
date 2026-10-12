@@ -342,7 +342,7 @@ impl World {
     }
 
     fn dynamic(&self) -> BTreeMap<u32, Batch> {
-        self.game.batches(&self.level)
+        self.game.batches(&self.level, self.camera().pos * uc_world::UNIT)
     }
 
     /// Builds the level and uploads it to the renderer.
@@ -390,7 +390,7 @@ impl World {
         if let Some(p) = self.game.player() {
             // Health bar.
             let frac = (p.health.max(0) as f32 / p.max_health as f32).clamp(0.0, 1.0);
-            o.text(12.0 * s, 10.0 * s, s, white, "DARCI");
+            o.text(12.0 * s, 10.0 * s, s, white, &self.game.player_name().to_uppercase());
             let (bx, by, bw, bh) = (12.0 * s, 20.0 * s, 80.0 * s, 5.0 * s);
             o.rect(bx - s, by - s, bw + 2.0 * s, bh + 2.0 * s, [0, 0, 0, 160]);
             let col = if frac > 0.5 { [90, 200, 90, 255] } else if frac > 0.25 { [230, 190, 60, 255] } else { [220, 60, 50, 255] };

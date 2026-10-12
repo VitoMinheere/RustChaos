@@ -82,6 +82,9 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         Sfx::Cone => at(audio, vec!["Cone1.wav".into()], 0.8),
         Sfx::Skid => at(audio, numbered("Skid", 1..=3, ".wav"), 0.8),
         Sfx::CarDoor => at(audio, vec!["DoorOpenCls1.wav".into()], 0.8),
+        // `S_EXPLODE_START + 0..2` (fallen/Headers/sound_id.h), as `PYRO_construct` plays
+        // for a fireball.
+        Sfx::Explosion => at(audio, numbered("f_EXPLD", 1..=3, ".wav"), 1.0),
         Sfx::Won => audio.sting("GeneralMusic/Complete.wav"),
         Sfx::Lost => audio.sting("GeneralMusic/Dead2.wav"),
     }

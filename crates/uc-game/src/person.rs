@@ -138,6 +138,8 @@ impl Weapon {
 
 /// `PCOM_BENT_ROBOT`: ignores everything and everyone.
 const BENT_ROBOT: u8 = 1 << 5;
+/// `PCOM_AI_BODYGUARD`: guards the person their `other` point created, and follows them.
+pub const AI_BODYGUARD: u8 = 8;
 
 /// Speeds in world units per second (a map square is 256). Chosen by eye.
 const WALK_SPEED: f32 = 190.0;
@@ -209,6 +211,8 @@ pub enum Sfx {
     /// Getting into or out of a car.
     CarDoor,
     Pickup,
+    /// A bomb or a car going up.
+    Explosion,
     Won,
     Lost,
 }
@@ -444,6 +448,12 @@ pub struct Person {
     zip_cooldown: f32,
     /// Seconds left of the muzzle flash after a shot.
     pub flash: f32,
+    /// `PCOM_MOVE_FOLLOW`: the event point that created the person to keep up with
+    /// (0 = the player), from the point's `Data[1]`.
+    pub follow: usize,
+    /// Out of reach: a bodyguard more than twenty blocks from the player can't be hurt, so a
+    /// mission isn't lost to a scuffle nobody saw (`PCOM_AI_BODYGUARD`, pcom.cpp).
+    pub invulnerable: bool,
     /// `ai_other`: for assassins, the event point that created the person to kill (0 = the
     /// player).
     pub other: usize,
@@ -495,7 +505,8 @@ impl Person {
         Person {
             fig, way, player, kind, ai: 0, bent: 0, ko_moves: 0, health, max_health: health, state: State::Move,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 3], knocked_out: false, down_timer: 0.0,
-            block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
+            block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
+            invulnerable: false, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
         }
     }
 
@@ -553,6 +564,12 @@ impl Person {
         !self.player && self.bent & BENT_ROBOT == 0 && matches!(self.ai, 2 | 3 | 4 | 6 | 12 | 13 | 17 | 18 | 19 | 21)
     }
 
+    /// Closes in on its `foe` and swings: anyone hostile to the player, and a bodyguard who
+    /// has someone to see off (`PCOM_find_bodyguard_victim` hands them a target).
+    pub fn fights(&self) -> bool {
+        self.hostile() || (self.ai == AI_BODYGUARD && self.bent & BENT_ROBOT == 0 && self.foe.is_some())
+    }
+
     /// How close the player must come before this enemy notices (world units): guards watch
     /// their post, gangs and MIB look further, assassins and followers hunt from anywhere.
     fn aggro_range(&self) -> f32 {
@@ -560,6 +577,8 @@ impl Person {
             return 64.0 * 256.0;
         }
         match self.ai {
+            // A bodyguard's sphere for someone going for their client (`0x800`).
+            AI_BODYGUARD => 8.0 * 256.0,
             2 => 4.0 * 256.0,
             6 | 13 => 5.0 * 256.0,
             4 | 18 | 19 => 8.0 * 256.0,
@@ -614,7 +633,7 @@ impl Person {
 
     /// Whose blows can land on whom: the player can hit anybody, the AI only its foe.
     fn opponents(&self, j: usize, other: &Snap) -> bool {
-        if self.player { !other.player } else { self.hostile() && self.foe == Some(j) }
+        if self.player { !other.player } else { self.fights() && self.foe == Some(j) }
     }
 
     /// The nearest standing opponent within `range`.
@@ -642,7 +661,8 @@ impl Person {
             c.run = true;
             return c;
         }
-        let Some(p) = player.map(|p| snaps[p]) else { return c };
+        // Nobody to fight: walk the patrol, follow whoever is being followed, or stroll.
+        let Some(p) = player.map(|p| snaps[p]) else { return self.wander(c, ground, dt, rand) };
         let d = flat(p.pos, self.fig.pos);
         let dist = d.length();
         let dy = (p.pos.y - self.fig.pos.y).abs();
@@ -654,7 +674,7 @@ impl Person {
             }
             return c;
         }
-        if !self.hostile() || !p.present || p.down || p.in_car {
+        if !self.fights() || !p.present || p.down || p.in_car {
             self.aggro = false;
             return self.wander(c, ground, dt, rand);
         }
@@ -1528,7 +1548,7 @@ impl Person {
     /// their `ko_moves`; everyone else loses health.
     #[allow(clippy::too_many_arguments)]
     pub fn take_hit(&mut self, from: Vec3, damage: i32, ko_flag: u8, high: bool, low: bool, weapon: Weapon) {
-        if self.removed || self.is_down() || matches!(self.state, State::InCar { .. }) {
+        if self.removed || self.invulnerable || self.is_down() || matches!(self.state, State::InCar { .. }) {
             return;
         }
         let front = flat(from, self.fig.pos).dot(self.fig.facing()) > 0.0;

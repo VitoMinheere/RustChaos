@@ -14,7 +14,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
 use std::collections::{BTreeMap, HashMap};
 use uc_formats::txc::Texture;
-use uc_world::{Batch, Layer, Vertex, WorldGeometry, SHADOW, UNTEXTURED};
+use uc_world::{Batch, Layer, Vertex, WorldGeometry, GLOW, SHADOW, UNTEXTURED};
 use wgpu::util::DeviceExt;
 
 pub use overlay::Overlay;
@@ -113,6 +113,7 @@ pub struct Renderer {
     textures: HashMap<u32, wgpu::BindGroup>,
     white: wgpu::BindGroup,
     shadow_pipeline: wgpu::RenderPipeline,
+    glow_pipeline: wgpu::RenderPipeline,
     shadow_tex: wgpu::BindGroup,
     statics: Option<(wgpu::Buffer, wgpu::Buffer)>,
     chunks: Vec<ChunkDraws>,
@@ -305,6 +306,50 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        // Explosions: the same round blobs added to the scene instead of blended over it.
+        let glow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("glow pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4],
+                })],
+            },
+            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_glow"),
+                compilation_options: Default::default(),
+                // The shader premultiplies by the alpha it works out, so both factors are one.
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent::OVER,
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         let shadow_tex = make_texture(&device, &queue, &tex_layout, &sampler, &blob_texture());
 
         // Overlay: same pass (so same MSAA and depth format), no depth test, alpha blending.
@@ -369,7 +414,7 @@ impl Renderer {
         let font = make_texture_levels(&device, &queue, &tex_layout, &font_sampler, &font_tex, 1);
         Renderer {
             device, queue, format, pipeline, globals_buf, globals_bg, tex_layout, sampler,
-            textures: HashMap::new(), white, shadow_pipeline, shadow_tex,
+            textures: HashMap::new(), white, shadow_pipeline, glow_pipeline, shadow_tex,
             statics: None, chunks: Vec::new(), dynamic: None, targets: None,
             overlay_pipeline, screen_buf, screen_bg, font, overlay_buf: None, backdrop: None, minimap: None, stats: Stats::default(),
         }
@@ -648,17 +693,22 @@ impl Renderer {
             if let (Some((vb, ib, _, _)), false) = (&self.dynamic, dyn_ranges.is_empty()) {
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                for &(page, first, count) in dyn_ranges.iter().filter(|r| r.0 != SHADOW) {
+                for &(page, first, count) in dyn_ranges.iter().filter(|r| r.0 != SHADOW && r.0 != GLOW) {
                     pass.set_bind_group(1, self.textures.get(&page).unwrap_or(&self.white), &[]);
                     pass.draw_indexed(first..first + count, 0, 0..1);
                     stats.draw_calls += 1;
                     stats.triangles += count as usize / 3;
                 }
-                for &(_, first, count) in dyn_ranges.iter().filter(|r| r.0 == SHADOW) {
-                    pass.set_pipeline(&self.shadow_pipeline);
-                    pass.set_bind_group(1, &self.shadow_tex, &[]);
-                    pass.draw_indexed(first..first + count, 0, 0..1);
-                    stats.draw_calls += 1;
+                // Blobs last, over the solid geometry: shadows, blood and smoke blended
+                // first, then the fire of an explosion added on top of them.
+                pass.set_bind_group(1, &self.shadow_tex, &[]);
+                for (page, pipeline) in [(SHADOW, &self.shadow_pipeline), (GLOW, &self.glow_pipeline)] {
+                    for &(_, first, count) in dyn_ranges.iter().filter(|r| r.0 == page) {
+                        pass.set_pipeline(pipeline);
+                        pass.draw_indexed(first..first + count, 0, 0..1);
+                        stats.draw_calls += 1;
+                        stats.triangles += count as usize / 3;
+                    }
                 }
             }
             if overlay_count > 0 {
