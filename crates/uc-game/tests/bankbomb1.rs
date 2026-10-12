@@ -300,6 +300,75 @@ fn the_boys_keep_up_with_mako() {
     assert!(dash > run * 1.2, "sprinting after Mako ({dash:.0}) should beat running after him ({run:.0})");
 }
 
+/// Having seen off a cop, the boys go back to following Mako. Someone in a fight is given
+/// nowhere to walk to, so a bodyguard who stayed keyed up after their target went down would
+/// stand rooted to the spot for the rest of the mission.
+#[test]
+fn the_boys_get_going_again_once_the_cop_is_down() {
+    use uc_game::person::Pace;
+    let Some(mut r) = start() else { return };
+    r.play(2.0, Controls::default());
+    let zit = r.g.people.iter().position(|p| p.way == 3).expect("Zit");
+    r.g.people[zit].mv = 5;
+    r.g.people[zit].follow = 1;
+
+    // A cop walks up to Mako, who is standing with his escort.
+    let home = r.g.people[zit].fig.pos;
+    r.stand(home + vec3(260.0, 0.0, 0.0));
+    let cop = r.g.people.iter().position(|p| p.kind == ptype::COP && !p.removed).expect("a cop");
+    r.g.people[cop].fig.pos = r.g.player().unwrap().fig.pos + vec3(200.0, 0.0, 0.0);
+    r.play(1.5, Controls::default());
+    assert_eq!(r.g.people[zit].foe, Some(cop), "Zit should go for the cop");
+
+    // Zit puts him down. Mako then walks off, and Zit must come after him.
+    let from = r.g.people[zit].fig.pos;
+    r.g.people[cop].take_hit(from, 10_000, ko::FINISHERS, false, false, uc_game::Weapon::None);
+    r.play(1.0, Controls::default());
+    assert_eq!(r.g.people[zit].foe, None, "Zit should let a downed cop be");
+    assert!(!r.g.people[zit].aggro(), "Zit should calm down once the cop is out of it");
+
+    r.stand(home + vec3(2400.0, 0.0, 0.0));
+    r.play(DT * 2.0, Controls::default());
+    assert_eq!(r.g.people[zit].pace, Pace::Run, "Zit should be running after Mako again");
+    let moved = r.top_speed(zit, 1.5, Controls::default());
+    assert!(moved > uc_game::person::WALK_SPEED, "Zit is stuck: his best was {moved:.0} a second");
+}
+
+/// A bodyguard won't set off after someone they can't see. Nothing here finds a route round
+/// a corner, so one that did would walk into the wall between them and stand against it for
+/// the rest of the mission, still aiming at a cop it could never reach. The original gives up
+/// on a target it can't work out how to get to as well (`PCOM_AI_SUBSTATE_CANTFIND`).
+#[test]
+fn the_boys_dont_set_off_after_a_cop_behind_a_wall() {
+    use uc_game::person::Pace;
+    let Some(mut r) = start() else { return };
+    r.play(2.0, Controls::default());
+    let zit = r.g.people.iter().position(|p| p.way == 3).expect("Zit");
+    // As `adjust_enemy` point 77 leaves him once he's been asked along.
+    r.g.people[zit].mv = 5;
+    r.g.people[zit].follow = 1;
+    r.g.people[zit].bent = 0;
+    let home = r.g.people[zit].fig.pos;
+
+    // The yard's east wall is about 470 on from Zit: put Mako and a cop beyond it.
+    let cop = r.g.people.iter().position(|p| p.kind == ptype::COP && !p.removed).expect("a cop");
+    r.g.people[cop].fig.pos = home + vec3(1400.0, 0.0, 0.0);
+    r.stand(home + vec3(900.0, 0.0, 0.0));
+    r.play(3.0, Controls::default());
+    let eye = vec3(0.0, 140.0, 0.0);
+    let clear = r.level.ground.line_of_sight(home + eye, r.g.people[cop].fig.pos + eye);
+    assert!(!clear, "this test wants a wall between Zit and the cop");
+    assert_eq!(r.g.people[zit].foe, None, "Zit shouldn't lock on to a cop he can't see");
+
+    // He's still Mako's man, and still going after him rather than rooted to the spot.
+    assert_eq!(r.g.people[zit].pace, Pace::Run);
+    r.g.people[zit].fig.pos = home;
+    r.stand(home + vec3(2400.0, 0.0, 0.0));
+    r.play(DT * 2.0, Controls::default());
+    let moved = r.top_speed(zit, 1.5, Controls::default());
+    assert!(moved > uc_game::person::WALK_SPEED, "Zit is stuck: his best was {moved:.0} a second");
+}
+
 /// The boys guard Mako: a blow landed on him must not turn them on him. Being hit makes
 /// anyone go aggro and the player counts as their own foe, which once had them shooting the
 /// man they were escorting.
@@ -334,3 +403,4 @@ fn the_boys_never_turn_on_mako() {
     r.play(2.0, Controls::default());
     assert_eq!(r.g.people[zit].foe, Some(cop), "Zit should see off the cop on Mako");
 }
+

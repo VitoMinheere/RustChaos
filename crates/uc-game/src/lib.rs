@@ -910,8 +910,15 @@ impl Game {
                 // Being hit makes anyone go `aggro`, the player included, and the player
                 // counts as their own foe, so without this a bodyguard would turn on the very
                 // person they are guarding the moment a cop landed a blow on them.
+                // They have to be able to see them, too, and keep seeing them: without any
+                // route-finding here, a bodyguard who sets off after someone round a corner
+                // walks into the wall between them and stands there for the rest of the
+                // mission. The original gives up as well when it can't work out how to get
+                // there (`PCOM_AI_SUBSTATE_CANTFIND` in `PCOM_set_person_ai_follow`) and
+                // waits until `can_a_see_b` says the way is clear again.
                 (person::AI_BODYGUARD, w) => {
                     let client = if w == 0 { player } else { self.by_way.get(&w).copied() };
+                    let eye = Vec3::new(0.0, 140.0, 0.0);
                     self.people
                         .iter()
                         .enumerate()
@@ -919,6 +926,7 @@ impl Game {
                             *j != i && o.hostile() && o.aggro() && !o.is_dead()
                                 && (o.foe == client || o.foe == Some(i))
                                 && (o.fig.pos - p.fig.pos).length() < 8.0 * 256.0
+                                && level.ground.line_of_sight(p.fig.pos + eye, o.fig.pos + eye)
                         })
                         .min_by(|a, b| {
                             let d = |o: &Person| (o.fig.pos - p.fig.pos).length();
@@ -1176,13 +1184,18 @@ impl Game {
         }
         // Cars: body and wheels (front wheels turned by the steering), and a long shadow.
         for v in &self.vehicles {
-            let (body, wheel, wx, fz, rz, dy) = vehicle::TYPES[v.kind as usize];
+            let (body, wheel, wx, fz, rz) = vehicle::TYPES[v.kind as usize];
             // The meshes are modelled nose towards -z: turn them round to face the way it drives.
+            // They sit on the road as modelled, so the body goes down as it is.
             if let Some(prim) = level.item_prims.get(&body) {
-                uc_world::level::prim_batches(prim, |p| v.place(Vec3::new(-p.x, p.y + dy, -p.z)), lighter.as_ref(), &mut out);
+                uc_world::level::prim_batches(prim, |p| v.place(Vec3::new(-p.x, p.y, -p.z)), lighter.as_ref(), &mut out);
             }
             if let Some(prim) = level.item_prims.get(&wheel) {
                 let (ss, cs) = v.wheel_spin.sin_cos();
+                // A wheel is modelled about its axle, so it rides on its own radius: the vans
+                // and the jeep run on a bigger one than the cars do.
+                let (lo, hi) = uc_world::level::prim_bounds(prim);
+                let radius = (hi.y - lo.y) / 2.0;
                 // Wheel positions mirrored like the body; the ones towards the nose steer.
                 for (x, z, front) in [(wx, -rz, true), (-wx, -rz, true), (wx, -fz, false), (-wx, -fz, false)] {
                     let (st, ct) = if front { (v.steer * 0.5).sin_cos() } else { (0.0, 1.0) };
@@ -1190,7 +1203,7 @@ impl Game {
                         // Spin about the axle (x), then steer about y.
                         let r = Vec3::new(p.x, cs * p.y - ss * p.z, ss * p.y + cs * p.z);
                         let r = Vec3::new(ct * r.x - st * r.z, r.y, st * r.x + ct * r.z);
-                        v.place(r + Vec3::new(x, 38.0, z))
+                        v.place(r + Vec3::new(x, radius, z))
                     };
                     uc_world::level::prim_batches(prim, place, lighter.as_ref(), &mut out);
                 }

@@ -9,18 +9,24 @@ use uc_formats::iam::Map;
 use uc_world::ground::Ground;
 
 /// `VEH_TYPE_*` (fallen/Headers/vehicle.h) and their meshes from `veh_info`
-/// (fallen/Source/vehicle.cpp): (body prim, wheel prim, wheel x, front wheel z, rear wheel z,
-/// body height above the ground).
-pub const TYPES: [(u8, u8, f32, f32, f32, f32); 9] = [
-    (88, 87, 120.0, 150.0, -165.0, 30.0),  // van
-    (108, 220, 85.0, 160.0, -120.0, 30.0), // car
-    (155, 220, 85.0, 160.0, -120.0, 30.0), // taxi
-    (150, 220, 85.0, 160.0, -120.0, 30.0), // police
-    (159, 87, 120.0, 150.0, -165.0, 30.0), // ambulance
-    (90, 87, 120.0, 150.0, -165.0, 30.0),  // jeep
-    (91, 87, 120.0, 150.0, -165.0, 30.0),  // meat wagon
-    (131, 220, 85.0, 160.0, -120.0, 30.0), // sedan
-    (27, 87, 120.0, 150.0, -165.0, 30.0),  // Wildcat van
+/// (fallen/Source/vehicle.cpp): (body prim, wheel prim, wheel x, front wheel z, rear wheel z).
+///
+/// The wheel positions are the table's `DX` and `DZ`; there is no height here because the
+/// prims carry their own. They share one space with the road at y = 0, so a body needs no
+/// lifting at all: a car's sills are modelled 6 to 8 above it and a van's 40 to 42, which is
+/// the ground clearance each is meant to have. A wheel is modelled centred on its axle, so it
+/// is the one thing that has to be raised, by its own radius: 38 for a car's, 51 for the
+/// larger one the vans and the jeep run on.
+pub const TYPES: [(u8, u8, f32, f32, f32); 9] = [
+    (88, 87, 120.0, 150.0, -165.0),  // van
+    (108, 220, 85.0, 160.0, -120.0), // car
+    (155, 220, 85.0, 160.0, -120.0), // taxi
+    (150, 220, 85.0, 160.0, -120.0), // police
+    (159, 87, 120.0, 150.0, -165.0), // ambulance
+    (90, 87, 120.0, 150.0, -165.0),  // jeep
+    (91, 87, 120.0, 150.0, -165.0),  // meat wagon
+    (131, 220, 85.0, 160.0, -120.0), // sedan
+    (27, 87, 120.0, 150.0, -165.0),  // Wildcat van
 ];
 
 /// Whether a `create_vehicle` point's key (`VK_*`, `Data[3]`) leaves the car locked: anything

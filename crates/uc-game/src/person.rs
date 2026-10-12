@@ -703,7 +703,13 @@ impl Person {
             return c;
         }
         // Nobody to fight: walk the patrol, follow whoever is being followed, or stroll.
-        let Some(p) = player.map(|p| snaps[p]) else { return self.wander(c, ground, dt, rand) };
+        // Dropping `aggro` matters as much as the walking does: the game only gives someone
+        // somewhere to go while they aren't in a fight, so a bodyguard whose man went down
+        // would otherwise stand there for good.
+        let Some(p) = player.map(|p| snaps[p]) else {
+            self.aggro = false;
+            return self.wander(c, ground, dt, rand);
+        };
         let d = flat(p.pos, self.fig.pos);
         let dist = d.length();
         let dy = (p.pos.y - self.fig.pos.y).abs();
@@ -1622,11 +1628,16 @@ impl Person {
         }
         self.aggro = true;
         self.attack_timer = self.attack_timer.max(0.8);
-        self.cues.push(match weapon {
-            Weapon::Knife => Sfx::Stab,
-            Weapon::Bat => Sfx::BatHit,
-            _ => Sfx::Hit { heavy: knocked_down || damage >= 25 },
-        });
+        // A bullet landing makes no thump of its own: all the original adds is a spark
+        // (`PYRO_hitspang`), and it keeps the ricochets for shots that miss. The gun going
+        // off and the victim's own voice carry it, so a shot mustn't sound like a punch.
+        if !weapon.is_gun() {
+            self.cues.push(match weapon {
+                Weapon::Knife => Sfx::Stab,
+                Weapon::Bat => Sfx::BatHit,
+                _ => Sfx::Hit { heavy: knocked_down || damage >= 25 },
+            });
+        }
         self.cues.push(if knocked_out { Sfx::KnockedOut { kind: self.kind } } else { Sfx::Hurt { kind: self.kind } });
         if knocked_down {
             if knocked_out {
