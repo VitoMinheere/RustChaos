@@ -146,7 +146,7 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 - **Darci's voice:** she calls out arrests and sometimes taunts after a knockout.
 - **Enemy shouts:** thugs shout when they spot her.
 - **Music:** it follows the action. Fight and sprint themes come from the mission's music world (`levels\mworlds.txt`, as in the original), the mission-complete or failure cue plays at the end, and city ambience plays underneath.
-- **Mission messages and conversations:** they play their recordings (`talk2\<mission>.ucm<n>.wav`, where `n` is the message's own speech number, as in the original). The combat tutorial has none; the other training missions and RTA have nearly all of theirs.
+- **Mission messages and conversations:** they play their recordings (`talk2\<mission>.ucm<n>.wav`, where `n` is the message's own speech number, as in the original). They are said one at a time: skipping a fly-by on brings the next line up before the one before it has finished, so a line that arrives early waits its turn rather than talking over it. The combat tutorial has none; the other training missions and RTA have nearly all of theirs.
 
 The HUD shows Darci's health, the weapon in hand and its rounds, enemy health bars, the target and the mission's messages. A minimap in the top right shows the city from above, north up, made once per level by rendering it from overhead (ground floors show through warehouse roofs). Darci is the white dot, the mission's beacons are gold (pinned to the edge when further away) and enemies in a fight are red. The beacons are listed underneath with their distances. It zooms out while driving. The window title shows FPS and how many chunks and draw calls the frame used.
 

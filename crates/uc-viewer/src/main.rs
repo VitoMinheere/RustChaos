@@ -686,12 +686,14 @@ impl Sound {
     fn start(&mut self, world: &World) {
         self.music_world = uc_audio::music_world(&world.args.game, &world.level.name, world.level.mission.music_world);
         self.mood = Mood::Calm;
+        self.audio.hush();
         self.audio.music(None);
         self.audio.ambience(Some("f_CTYAMB.wav"), 0.35);
     }
 
     /// Back to the menu: quiet.
     fn stop(&mut self) {
+        self.audio.hush();
         self.audio.music(None);
         self.audio.ambience(None, 0.0);
         self.audio.engine(None);
@@ -858,6 +860,10 @@ impl App {
         }
         if inp.hit(KeyCode::KeyR) || pad.hit(Button::Start) {
             w.restart();
+            // Starting over shouldn't be talked over by the run before it.
+            if let Some(s) = self.sound.as_mut() {
+                s.audio.hush();
+            }
             if !w.third_person {
                 w.fly = FlyCam::from(w.start);
             }

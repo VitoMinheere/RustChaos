@@ -9,7 +9,7 @@ pub mod wav;
 
 use glam::Vec3;
 use rodio::{ChannelCount, SampleRate, Source};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::num::NonZero;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -143,8 +143,23 @@ pub struct Audio {
     ambience: Option<Arc<Control>>,
     engine: Option<Arc<Control>>,
     rng: u32,
+    /// The line being said, and the ones waiting behind it. A mission's voices are said one
+    /// at a time: skipping a fly-by or a message brings the next one up before this one has
+    /// finished, and two voices at once are just noise.
+    speaking: Option<Said>,
+    waiting: VecDeque<Arc<Clip>>,
     pub sfx_volume: f32,
     pub music_volume: f32,
+}
+
+/// How many spoken lines will wait their turn. Skipping through a run of them shouldn't leave
+/// the mission talking about the last scene halfway through the next one.
+const MAX_WAITING: usize = 3;
+
+/// A line being said: its handle, and the seconds left of it.
+struct Said {
+    control: Arc<Control>,
+    left: f32,
 }
 
 impl Audio {
@@ -154,6 +169,7 @@ impl Audio {
         sink.log_on_drop(false);
         Ok(Audio {
             sink, game: game.to_path_buf(), cache: HashMap::new(), music: Vec::new(), ambience: None, engine: None, rng: 12345,
+            speaking: None, waiting: VecDeque::new(),
             sfx_volume: 0.8, music_volume: 0.55,
         })
     }
@@ -215,7 +231,7 @@ impl Audio {
     pub fn voice(&mut self, mission: &str, point: usize) -> bool {
         match self.load(&format!("talk2\\{mission}.ucm{point}.wav")) {
             Some(c) => {
-                self.start(c, 1.0, 1.0, self.sfx_volume, false);
+                self.say(c);
                 true
             }
             None => false,
@@ -228,11 +244,42 @@ impl Audio {
         let letter = (b'A' + (line as u8).min(25)) as char;
         match self.load(&format!("talk2\\{mission}.ucm{point}{letter}.wav")) {
             Some(c) => {
-                self.start(c, 1.0, 1.0, self.sfx_volume, false);
+                self.say(c);
                 true
             }
             None => false,
         }
+    }
+
+    /// Says a line, or stands it behind one already being said.
+    fn say(&mut self, clip: Arc<Clip>) {
+        if self.speaking.is_some() {
+            if self.waiting.len() < MAX_WAITING {
+                self.waiting.push_back(clip);
+            }
+            return;
+        }
+        self.speak(clip);
+    }
+
+    fn speak(&mut self, clip: Arc<Clip>) {
+        let left = clip.seconds();
+        let control = self.start(clip, 1.0, 1.0, self.sfx_volume, false);
+        self.speaking = Some(Said { control, left });
+    }
+
+    /// Stops whatever is being said and drops the rest: a mission restarting or the player
+    /// going back to the menu shouldn't be talked over by the one before.
+    pub fn hush(&mut self) {
+        if let Some(s) = self.speaking.take() {
+            s.control.stop.store(true, Ordering::Relaxed);
+        }
+        self.waiting.clear();
+    }
+
+    /// Whether a line is being said, and how many are waiting their turn.
+    pub fn speaking(&self) -> (bool, usize) {
+        (self.speaking.is_some(), self.waiting.len())
     }
 
     /// A looping background sound (`None` for silence).
@@ -296,8 +343,18 @@ impl Audio {
         }
     }
 
-    /// Advances music fades.
+    /// Advances music fades and the queue of spoken lines.
     pub fn update(&mut self, dt: f32) {
+        // The line being said runs down, and the next one waiting starts when it's over.
+        if let Some(s) = &mut self.speaking {
+            s.left -= dt;
+            if s.left <= 0.0 {
+                self.speaking = None;
+                if let Some(next) = self.waiting.pop_front() {
+                    self.speak(next);
+                }
+            }
+        }
         let step = dt / FADE_SECONDS;
         for t in &mut self.music {
             t.level = if t.level < t.target { (t.level + step).min(t.target) } else { (t.level - step).max(t.target) };
