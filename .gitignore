@@ -1,0 +1,4 @@
+/target/
+screenshots/
+# Extracted or upscaled game textures: never commit these
+pages*/

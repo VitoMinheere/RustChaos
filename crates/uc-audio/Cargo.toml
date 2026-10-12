@@ -1,0 +1,11 @@
+[package]
+name = "uc-audio"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Urban Chaos sound: WAV/IMA ADPCM decoding, sound effects, music, mission voices"
+
+[dependencies]
+uc-formats = { path = "../uc-formats" }
+glam = "0.34"
+rodio = { version = "0.22.2", default-features = false, features = ["playback"] }

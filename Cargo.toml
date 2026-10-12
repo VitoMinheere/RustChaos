@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/uc-formats", "crates/uc-world", "crates/uc-game", "crates/uc-audio", "crates/uc-render", "crates/uc-viewer", "crates/uc-tools"]
+
+[workspace.package]
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/VitoMinheere/RustChaos"
+
+[profile.dev]
+# Decoding textures and building meshes is slow without optimisation.
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

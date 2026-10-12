@@ -1,0 +1,223 @@
+# RustChaos
+
+A rewrite of Mucky Foot's *Urban Chaos* (1999) in Rust that keeps the original's look and feel: its levels, textures, lighting, characters, sounds and mission scripts, played in a new engine.
+
+**You need your own copy of the game.** RustChaos contains no game data. It reads everything (maps, missions, textures, sounds) from an installed copy of Urban Chaos, such as the GOG release. It is a fan project, not affiliated with or endorsed by the game's rights holders.
+
+The engine's behaviour is ported from the game's [released source code](https://github.com/dizzy2003/MuckyFoot-UrbanChaos) (MIT licence); see [NOTICE.md](NOTICE.md). Comments in the code name the original files and functions, such as `fallen/Source/eway.cpp`: those paths are in that repository, not this one.
+
+What's there:
+- **Rendering:** the original textures and the game's own baked lighting, with distance fog into each level's sky colour.
+- **Play:** start at the mission menu (the game's own list and title art). The training missions play from start to finish:
+  - the combat tutorial (`ftutor1`);
+  - Combat Silver and Combat Gold (`fight1`, `fight2`): timed waves of skilled and armed enemies;
+  - Physical Training (`assault1`): the assault course against the clock;
+  - Driving Bronze, Silver and Gold (`testdrive1a`, `testdrive2`, `testdrive3`): laps in the squad car.
+
+  The first street missions, RTA (`police1`) and The Jump (`police2`), play to the end too, though the city is still quieter than the original's.
+- **Missions:** read, edit and write them as JSON.
+
+No game data is included; everything is read from your install.
+
+## Crates
+
+| Crate | What it is | Depends on |
+|---|---|---|
+| `uc-formats` | Readers (and a mission writer) for the game's files: maps `.iam`, missions `.ucm`, texture clumps `.txc`, prims `.prm`, wall styles `style.tma`, lighting `.lgt`, characters/animations `.all`. Also the wall-geometry, lighting, ground-height and collision rules ported from the engine. Optional `json` feature: missions as JSON. | std only (`serde` with `json`) |
+| `uc-world` | Renderer-independent world: loads a mission's level and builds chunked, lit geometry (floor, kerbs, roofs, walls, props, cables, ladders); poses and animates people (every person type, with Darci's animation set); knows where people can stand (terrain, roofs, ladders, walls). Any renderer can draw it. | `uc-formats`, `glam` |
+| `uc-game` | Gameplay: one state machine for every person (moves, combos, slide tackle, grapples, arrests, jumping, ledges, ladders, falling), a small fight AI and the mission-script runner (event points: messages, beacons, spawns, counters, win/lose). | `uc-world` |
+| `uc-audio` | Sound from your install: a WAV decoder (PCM and IMA ADPCM, which every voice line uses), positional sound effects, music that crossfades between the original's dynamic tracks, and mission voice lines (`talk2\<mission>.ucm<n>.wav`, by each message's speech number). Built on `rodio`. | `uc-formats` |
+| `uc-render` | wgpu renderer: mipmapped textures, alpha cut-outs, distance fog, 4× MSAA, frustum culling per 8×8-square chunk, offscreen rendering for screenshots. | `uc-world`, `wgpu` |
+| `uc-viewer` | The app (winit): plays a mission with a HUD, sound and gamepad support, or explores a level; free camera; headless screenshots. | all of the above |
+| `uc-tools` | `uc` command-line tool: missions to and from JSON. | `uc-formats` |
+
+## Build
+
+**Windows, GNU toolchain (no Visual Studio needed):**
+
+```
+rustup default stable-x86_64-pc-windows-gnu
+winget install BrechtSanders.WinLibs.POSIX.MSVCRT
+```
+
+The full MinGW-w64 provides `dlltool`/`as`, which current Windows crates need on the GNU target. Open a new terminal afterwards so its `bin` folder is on PATH.
+
+**Windows, MSVC toolchain:** install Visual Studio Build Tools (C++), then use the default `stable-x86_64-pc-windows-msvc`.
+
+**Linux:** stable Rust is enough.
+
+Then, from the repository root:
+
+```
+cargo run --release -p uc-viewer                                # the mission menu
+cargo run --release -p uc-viewer -- --mission testdrive1a       # straight into a mission
+cargo run --release -p uc-viewer -- --mission police1 --explore # walk around any level without its script
+cargo run --release -p uc-viewer -- --help
+```
+
+The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG location (`C:\Program Files (x86)\GOG.com\Urban Chaos`).
+
+## Viewer controls
+
+| Input | Third person (Darci) | Free camera |
+|---|---|---|
+| WASD | Walk, relative to the camera | Fly |
+| Shift | Run | Fast |
+| Space | Jump (grabs ledges in front) | Up |
+| J or left mouse | Punch | |
+| K | Kick | |
+| Q (hold) | Block | |
+| G | Next weapon (bare hands, knife or bat, pistol, shotgun, AK-47) | |
+| T | Target the next enemy (with a gun drawn) | |
+| E (or L) | Action: arrest a downed enemy, climb a ladder; hold while running to sprint | Up |
+| C / Q | | Down |
+| Mouse | Orbit the camera (the cursor is captured) | Look |
+| M | Mouse look on/off (off: right mouse drag turns the camera) | same |
+| Mouse wheel | Zoom | |
+| Ctrl | | Slow |
+| Tab (hold) | The mission's checklist: objectives, side objectives, badges | |
+| V | Switch to free camera | Back to Darci |
+| 1 – 6 | Toggle floor / walls / props / roofs / details (cables, ladders) / people | same |
+| H | Hide the controls help | same |
+| R | Restart the mission | same |
+
+**Gamepad** (any controller `gilrs` knows):
+
+| Input | Action |
+|---|---|
+| Left stick or d-pad | Move: push partway to walk, fully to run |
+| Right stick | Camera |
+| A / Cross | Jump |
+| X / Square | Punch |
+| LB / L2 (hold) | Block |
+| RB | Next weapon |
+| Right stick click | Next target |
+| Y / Triangle | Kick |
+| B / Circle | Action (arrest, climb); hold while running to sprint |
+| Start | Restart |
+| Back / Select | Free camera |
+| F12 | Screenshot to `screenshots/` | same |
+| Esc | Quit | same |
+
+**Menu and missions:** Up/Down and Enter choose a mission; Esc in a mission goes back to the menu (Esc on the menu quits). After a win, Enter goes on to the next mission.
+
+**Progress:** each win is saved, with its time, to `%APPDATA%\urban-chaos-rs\progress.txt` (`~/.config/urban-chaos-rs/` elsewhere). The menu ticks completed missions, counts them, shows each one's best time, and the win banner says whether you beat it.
+
+**100%:** besides winning, a mission has badges to find and side objectives: the jobs that earn badges, such as arresting the extra muggers in RTA or finding officer Miles' car in The Jump. Both are read from the mission's script. The menu panel shows a checklist under the mission's title: its objectives (the "-" points of the briefing, or its last sentence for training missions), each side objective (named after what's said when it's done) and the badges found. In a mission, hold Tab for the same checklist, ticked as you go, with the mission clock. The HUD also shows `BADGES x/y   SIDE x/y`, and the win banner sums them up. Like badges, they're saved when you win, and add up across your winning runs. A mission with everything done shows `100%` in the list.
+
+**Badges:** street missions hide badges about the city, mostly on rooftops. Walk into one to raise one of Darci's stats: stamina, strength, reflexes or constitution, one of the four for each badge (the original picks at random each time; here each badge always gives the same stat, so they can be tracked). Constitution adds 10 health and strength makes her blows land 5% harder per badge. Stamina and reflexes are counted but don't do anything yet. The HUD shows the stats under Darci's health, in gold for those raised in this mission. Badges are kept once the mission is won and carry over to later missions. Replaying a mission can't collect the same badge twice.
+
+**RTA walkthrough:** follow the "Car crash" beacon and talk to the cop there. Drive the abandoned taxi to the "Vehicle Drop" at the station. Answer the homicide call: the witness in the Clunton Projects points you to Kleetus Avenue. Arrest a mugger (the first one is on a rooftop). Muggers attack while you stand about, and killing both of them, or a witness, fails the mission.
+
+**The Jump walkthrough:** Barnaby is on a ledge of the tower east of the station (the "Brooks Tower" beacon). Walk straight up to him, by the ladder from the level where the cop waits, and he talks, then runs off the edge. Come from behind instead. Climb the tall building to the west (ladders from the street by the cop who says "It's up this way"), jump for the zip line on its roof, and ride it down onto Barnaby's ledge behind him.
+
+**Falls:** landing hard hurts, and a fall of more than about five storeys kills, Darci included (as in the original).
+
+**Driving:** E next to a car gets in (and out, once it has nearly stopped). W/S or the triggers accelerate and brake/reverse, A/D or the stick steer, Space or A is the handbrake: it locks the back wheels, so the car slides round a corner (with a skid) instead of stopping. At speed, full lock and the handbrake spin the car right round (a 180 in a little over a second), ready to drive back the way it came. Nobody can hit or shoot you while you're in the car. The camera swings round behind the car; the HUD shows speed and damage. Hit walls hard enough and the car wrecks. People get out of the way of a car coming at them, as in the original, but if you catch them they go flying. Cones and barrels get knocked about.
+
+**Fighting:**
+- Hold block to stop blows from the front. Knives and bats still hurt a little, and attacks from behind get through. Skilled enemies block too.
+- Finishing moves knock people down; they get up again unless they're out of health. Arrest them while they're down.
+- Walk over a knife or baseball bat to pick it up (enemies drop theirs when knocked out); punch then swings it. Walk over a health pack to heal.
+- **Guns:** walk over a pistol, shotgun or AK-47 to pick it up (it comes loaded, and is drawn if your hands are empty), or over an ammo box for another clip. Armed enemies drop their guns when knocked out or arrested. G (or RB) switches weapon.
+- With a gun drawn, punch fires at the target in the red brackets. Holding punch keeps the AK-47 firing. Targeting picks the nearest enemy you can see, favouring those in front, and sticks with it while it can be shot. T (or a right-stick click) moves on to the next one. Damage follows the original: pistol 70, AK-47 100, and the shotgun up to 250 close up, falling off with distance (enough to knock someone down). Enemies' shots do half damage to Darci. An empty gun clicks.
+- Enemies in a fight, or hurt, show a health bar over their heads.
+- Enemies with guns shoot from range when they can see you, so close in behind cover. Blocking doesn't stop bullets.
+- Press punch or kick three times in time for a combo. The next press has to land in the second half of the move.
+- Kick while running: sliding tackle. Kick while sprinting slides further.
+- In a fight, hold back, left or right while kicking for a back or side kick.
+- Punch while walking into someone: grab them, then punch (knee) or kick (throw).
+- Walk into a low ledge (up to about half a square) to climb onto it. Higher ones need a jump.
+
+**Combat tutorial walkthrough:** the trainers only go down to the move each lesson asks for, as in the original. Fight-test dummies are invulnerable to everything else.
+1. Punch twice and kick twice. The first target then appears; follow the yellow beacon.
+2. Slide-tackle it.
+3. Use triple punches on the next two targets, then a triple kick.
+4. Knock down the next target any way you like, then arrest it with E.
+5. Climb the ladder onto the central building. Use side and back kicks on three of the four trainers, then grab the last one and finish him.
+
+**Sound**, all from the game's own recordings:
+- **Effects:** punches, swings, footsteps, landings, grunts and knockouts. They are placed in the world, so they fade with distance and pan with the camera.
+- **Darci's voice:** she calls out arrests and sometimes taunts after a knockout.
+- **Enemy shouts:** thugs shout when they spot her.
+- **Music:** it follows the action. Fight and sprint themes come from the mission's music world (`levels\mworlds.txt`, as in the original), the mission-complete or failure cue plays at the end, and city ambience plays underneath.
+- **Mission messages and conversations:** they play their recordings (`talk2\<mission>.ucm<n>.wav`, where `n` is the message's own speech number, as in the original). The combat tutorial has none; the other training missions and RTA have nearly all of theirs.
+
+The HUD shows Darci's health, the weapon in hand and its rounds, enemy health bars, the target and the mission's messages. A minimap in the top right shows the city from above, north up, made once per level by rendering it from overhead (ground floors show through warehouse roofs). Darci is the white dot, the mission's beacons are gold (pinned to the edge when further away) and enemies in a fight are red. The beacons are listed underneath with their distances. It zooms out while driving. The window title shows FPS and how many chunks and draw calls the frame used.
+
+**Options:**
+- `--mission NAME`: go straight into a mission instead of the menu; `--explore` skips its script.
+- `--mute`: no sound or music.
+- `--weapon knife|bat|pistol|shotgun|ak`: Darci starts holding it.
+- `--cam X,Y,Z,YAW,PITCH`: start in the free camera (map squares; degrees).
+- `--fog START,END` or `--no-fog`: distance fog in map squares (default 20,40).
+- `--fullbright`: no baked lighting.
+- `--linear`: smooth texture magnification instead of crisp pixels.
+- `--no-character`: leave people out.
+- `--screenshot FILE`: render one frame **without opening a window** (the menu, unless `--mission` is given). Combine with `--size WxH` and `--sim SECS` (play for a while, skipping fly-bys, punching and kicking first, then look at the nearest enemy) or `--sim-walk SECS` / `--sim-run SECS` (testing aids).
+
+## Missions as JSON
+
+```
+cargo run --release -p uc-tools -- mission export "C:\...\Urban Chaos\levels\police1.ucm" -o police1.json
+cargo run --release -p uc-tools -- mission import police1.json -o police1.ucm
+cargo run --release -p uc-tools -- mission check police1.json
+```
+
+- Event points get readable names (`"type": "create_player"`, `"trigger": "radius"`), with a `_summary` for common types.
+- Message text and cutscenes sit on the event point that uses them.
+- The default **clean** export keeps only what the game reads. `--lossless` also keeps editor leftovers, so importing reproduces the original file byte for byte.
+
+See `docs/MISSIONS.md` for what the fields mean.
+
+## Upscaled textures
+
+1. Export the textures a level uses: `cargo run --release -p uc-viewer -- --mission police1 --dump-pages pages`. This writes `pages/page_NNNN.png`.
+2. Upscale them with any tool, keeping the file names. Wrap tiling textures around their edges, treat alpha separately, and check text by hand (`docs/RUST_ROADMAP.md` §4).
+3. Run with `--overrides pages_upscaled`. Any size works; textures get mipmaps automatically.
+
+Keep extracted and upscaled textures out of the repository; they are the game's copyrighted art.
+
+## Tests and CI
+
+```
+cargo test --release --workspace
+```
+
+With an install present, the tests check:
+- every map, shipped mission, prim, lighting file and style table parses exactly;
+- all 80 parseable missions round-trip byte for byte, directly and through JSON in both modes;
+- `police1.txc` decodes completely;
+- 98.9% of the police map's wall segments find their texture;
+- Darci's animations are complete;
+- Police 1 builds every geometry layer, and every person type can be posed;
+- a bot plays the combat tutorial to the end.
+
+Without an install, the data tests print a note and pass. That's what CI sees: `.github/workflows/rust.yml` builds, tests and runs Clippy on Windows and Linux.
+
+## What is and isn't there
+
+**Drawn:**
+- terrain heights, floor textures with rotation, kerbs;
+- walls, doors and fences with styles, painted storeys and the engine's per-wall random variants;
+- rooftops and roof faces (warehouse ceilings black as on PC);
+- props;
+- overhead cables (with their sag) and ladders;
+- baked lighting (ambient, static lights, lamppost lights);
+- sky colour and distance fog;
+- Darci, with idle, walk and run animations, ground following and wall collision.
+
+**Not yet:**
+- event points beyond the training missions' and RTA's set (doors, bombs, fire and other effects...). The viewer prints which points of a mission are ignored;
+- ambient city life: the original's random civilians and traffic (`fake_civs`, `fake_cars`). Scripted civilians do stroll about;
+- hanging from ledges and traversing them;
+- stars, the skyline and moon;
+- animated prims (`LoadGameThing`).
+
+The shipped maps contain no fire-escape or interior-staircase facets, so those aren't needed. Warehouse roofs look black from outside: on PC the original takes their texture from a table only filled on PlayStation. Two-sided walls always use their front texture.
+
+See [docs/RUST_ROADMAP.md](docs/RUST_ROADMAP.md) for the plan and progress, and [docs/MISSIONS.md](docs/MISSIONS.md) for how missions work and how to edit them.
+
+## Licence
+
+RustChaos is free software under the GNU General Public License, version 3 or (at your option) any later version: see [LICENSE](LICENSE). It is derived from the Urban Chaos source code released under the MIT licence; that licence and its copyright notice are kept in [NOTICE.md](NOTICE.md). Urban Chaos and its data remain the property of their owners and are not covered by either licence.

@@ -1,0 +1,13 @@
+//! Renderer-independent Urban Chaos world: loads a mission's level from an install and
+//! produces chunked, lit geometry, posed and animated people, and the surfaces they walk on. Any renderer
+//! (the wgpu one in `uc-render`, or another) can draw the result.
+
+pub mod character;
+pub mod geometry;
+pub mod ground;
+pub mod level;
+
+pub use character::{Figure, Model, People, Play};
+pub use ground::Ground;
+pub use geometry::{Batch, Chunk, Layer, Vertex, WorldGeometry, SHADOW, UNIT, UNTEXTURED};
+pub use level::{Level, LoadOptions};

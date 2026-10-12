@@ -1,0 +1,575 @@
+//! Animated people: a set of body-part meshes posed by keyframe animation.
+//!
+//! Posing follows `FIGURE_draw` / `FIGURE_draw_prim_tween` (DDEngine/Source/figure.cpp):
+//!   world = position + R(angle) * (tween(rotation_a, rotation_b) * point + lerp(offset_a, offset_b))
+//! where R is `FIGURE_rotate_obj2(0, angle, 0)` and the rotation tween is a quaternion slerp.
+//!
+//! Every person type shares Darci's animations (`global_anim_array`, fallen/Source/Anim.cpp);
+//! only the meshes differ. So a [`Figure`] pairs an animation set with a [`Model`].
+
+use crate::geometry::{Batch, UNIT};
+use glam::{vec2, vec3, Mat3, Quat, Vec2, Vec3};
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use uc_formats::all::{AnimChunk, Element};
+use uc_formats::lgt::Lighter;
+
+/// Animation ids from fallen/Headers/animate.h.
+pub mod anim {
+    pub const STAND_READY: usize = 3;
+    pub const ON_LADDER: usize = 14;
+    pub const LAND_RIGHT: usize = 53;
+    pub const WALK: usize = 20;
+    pub const FALLING: usize = 51;
+    pub const CLIMB_UP_FENCE: usize = 45;
+    pub const LAND_ON_FENCE: usize = 57;
+    pub const CLIMB_OVER_FENCE: usize = 58;
+    pub const DEATH_SLIDE: usize = 68;
+    pub const OFF_LADDER_TOP: usize = 55;
+    pub const RUN: usize = 119;
+    pub const MID_AIR: usize = 122;
+    pub const BREATHE: usize = 124;
+    pub const PUNCH_COMBO1: usize = 146;
+    pub const PUNCH_COMBO2: usize = 147;
+    pub const PUNCH_COMBO3: usize = 148;
+    pub const KICK_COMBO1: usize = 154;
+    pub const KICK_COMBO2: usize = 155;
+    pub const KICK_COMBO3: usize = 156;
+    pub const FIGHT: usize = 159;
+    pub const KICK_LEFT: usize = 162;
+    pub const KICK_BEHIND: usize = 164;
+    pub const BLOCK_HIGH: usize = 165;
+    pub const HIT_FRONT_HI: usize = 166;
+    pub const HIT_FRONT_MID: usize = 167;
+    pub const HIT_BACK_HI: usize = 168;
+    pub const HIT_BACK_MID: usize = 169;
+    pub const KD_FRONT_MID: usize = 170;
+    pub const KD_BACK_MID: usize = 172;
+    pub const KD_BACK_LOW: usize = 174;
+    pub const KD_FRONT_LOW: usize = 175;
+    pub const KD_FRONT_LAND: usize = 176;
+    pub const KD_BACK_LAND: usize = 177;
+    pub const FIGHT_STEP_N: usize = 178;
+    pub const FIGHT_STEP_S: usize = 179;
+    pub const FIGHT_STEP_E: usize = 180;
+    pub const FIGHT_STEP_W: usize = 181;
+    pub const STANDING_JUMP: usize = 203;
+    pub const LAND_VERT: usize = 204;
+    pub const BAT_HIT1: usize = 199;
+    pub const BAT_HIT2: usize = 200;
+    pub const BAT_IDLE: usize = 201;
+    pub const RUN_JUMP: usize = 54;
+    pub const PULL_UP: usize = 332;
+    pub const SLIDER_START: usize = 216;
+    pub const SLIDER_END: usize = 217;
+    pub const SLIDER_HOLD: usize = 218;
+    pub const GRAB_ARM: usize = 226;
+    pub const GRAB_ARMV: usize = 227;
+    pub const GRAB_ARM_THROW: usize = 228;
+    pub const GRAB_ARM_THROWV: usize = 229;
+    pub const GRAB_ARM_KNEE1: usize = 230;
+    pub const GRAB_ARM_KNEE1V: usize = 231;
+    pub const GRAB_ARM_KNEE2: usize = 232;
+    pub const GRAB_ARM_KNEE2V: usize = 233;
+    pub const KICK_RIGHT: usize = 262;
+    pub const QUICK_GET_UP: usize = 264;
+    pub const KNIFE_ATTACK1: usize = 271;
+    pub const KNIFE_ATTACK2: usize = 272;
+    pub const KNIFE_ATTACK3: usize = 273;
+    pub const KNIFE_FIGHT_READY: usize = 276;
+    pub const PISTOL_SHOOT: usize = 297;
+    pub const PISTOL_AIM: usize = 298;
+    pub const PISTOL_JOG: usize = 267;
+    pub const SHOTGUN_FIRE: usize = 210;
+    pub const SHOTGUN_AIM: usize = 293;
+    pub const AK_FIRE: usize = 254;
+    pub const AK_JOG: usize = 266;
+    pub const ARREST_CROUTCH: usize = 282;
+    pub const ARREST_BE_CUFFED: usize = 283;
+}
+
+/// One game tick is NORMAL_TICK_TOCK = 1000/15 ms; the tween advances TweenStep*2 per tick.
+const TICKS_PER_SECOND: f32 = 15.0;
+
+/// Which meshes to draw: `body` picks the multi-object (`MeshID`), `person` the part table
+/// (`PersonID`) of `chunk`.
+#[derive(Clone)]
+pub struct Model {
+    pub chunk: Arc<AnimChunk>,
+    pub body: usize,
+    pub person: usize,
+}
+
+/// `PERSON_*` types (fallen/Headers/person.h).
+pub mod person {
+    pub const DARCI: u8 = 0;
+    pub const ROPER: u8 = 1;
+    pub const COP: u8 = 2;
+    pub const CIV: u8 = 3;
+    pub const THUG_RASTA: u8 = 4;
+    pub const THUG_GREY: u8 = 5;
+    pub const THUG_RED: u8 = 6;
+    pub const SLAG_TART: u8 = 7;
+    pub const SLAG_FATUGLY: u8 = 8;
+    pub const HOSTAGE: u8 = 9;
+    pub const MECHANIC: u8 = 10;
+    pub const TRAMP: u8 = 11;
+    pub const MIB1: u8 = 12;
+    pub const MIB2: u8 = 13;
+    pub const MIB3: u8 = 14;
+
+    /// `health[]` (fallen/Source/Person.cpp).
+    pub const HEALTH: [i32; 15] = [200, 400, 200, 130, 200, 200, 200, 130, 130, 200, 200, 200, 700, 700, 700];
+    /// `mesh_type[]`: which multi-object of the person's chunk.
+    pub const MESH: [usize; 15] = [0, 0, 4, 7, 0, 1, 2, 1, 2, 3, 3, 6, 5, 5, 5];
+    /// Types whose meshes come from Darci's file (`anim_type[]` == ANIM_TYPE_DARCI).
+    pub fn uses_darci_meshes(t: u8) -> bool {
+        matches!(t, DARCI | SLAG_TART | SLAG_FATUGLY | HOSTAGE)
+    }
+}
+
+/// The loaded character files.
+#[derive(Clone)]
+pub struct People {
+    /// darci1.all: Darci's meshes and everybody's animations.
+    pub darci: Arc<AnimChunk>,
+    /// rthug.all: meshes of most other people.
+    pub thug: Arc<AnimChunk>,
+    /// trainer.all: replaces the first three thug meshes in the combat tutorial.
+    pub trainer: Option<Arc<AnimChunk>>,
+}
+
+impl People {
+    /// The model for a person of `PERSON_*` type `t`; `variant` picks a civilian's look.
+    /// Roper's own skeleton isn't supported, so he borrows a thug's body.
+    pub fn model(&self, t: u8, variant: u32) -> Model {
+        let t = t.min(person::MIB3);
+        let body = person::MESH[t as usize];
+        if person::uses_darci_meshes(t) {
+            return Model { chunk: self.darci.clone(), body, person: 0 };
+        }
+        if let (Some(tr), true) = (&self.trainer, body <= 2) {
+            return Model { chunk: tr.clone(), body: 0, person: 0 };
+        }
+        let person = if t == person::CIV { 6 + (variant % 4) as usize } else { 0 };
+        Model { chunk: self.thug.clone(), body, person }
+    }
+
+    pub fn figure(&self, t: u8, variant: u32, pos: Vec3, angle: f32) -> Option<Figure> {
+        Figure::new(self.model(t, variant), self.darci.clone(), pos, angle)
+    }
+}
+
+/// An event point's `Direction` byte as an engine angle in radians.
+pub fn ep_angle(direction: u8) -> f32 {
+    direction as f32 / 256.0 * std::f32::consts::TAU
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Play {
+    Loop,
+    /// Play once and hold the last frame.
+    Once,
+}
+
+/// Plays one animation of a keyframe chain at a time.
+#[derive(Debug, Clone)]
+pub struct Animator {
+    id: usize,
+    play: Play,
+    start: usize,
+    cur: usize,
+    next: usize,
+    /// 0..256 between `cur` and `next`.
+    tween: f32,
+    /// Position of `cur` in the animation; None while blending in from the previous one.
+    index: Option<usize>,
+    len: usize,
+    done: bool,
+    /// How many times a looping animation has wrapped (never reset).
+    loops: u32,
+    /// Playback speed multiplier.
+    pub speed: f32,
+}
+
+/// Number of keyframes in animation `id` (following `next` until it ends or loops).
+fn chain_len(chunk: &AnimChunk, start: usize) -> usize {
+    let (mut f, mut n) = (start, 1);
+    while let Some(next) = chunk.keyframes[f].next {
+        if next == start || n >= 256 {
+            break;
+        }
+        f = next;
+        n += 1;
+    }
+    n
+}
+
+impl Animator {
+    fn new(chunk: &AnimChunk, id: usize) -> Option<Animator> {
+        let start = chunk.anims.get(id).copied().flatten()?;
+        Some(Animator {
+            id, play: Play::Loop, start, cur: start, next: start, tween: 0.0, index: Some(0),
+            len: chain_len(chunk, start), done: false, loops: 0, speed: 1.0,
+        })
+    }
+
+    /// Starts `id` from its first frame, blending in from the current pose. Returns false
+    /// (and changes nothing) if the animation doesn't exist.
+    fn restart(&mut self, chunk: &AnimChunk, id: usize, play: Play) -> bool {
+        let Some(start) = chunk.anims.get(id).copied().flatten() else { return false };
+        // Blend from the pose shown now: snap to whichever frame is nearer.
+        if self.tween >= 128.0 {
+            self.cur = self.next;
+        }
+        *self = Animator { id, play, start, cur: self.cur, next: start, tween: 0.0, index: None,
+                           len: chain_len(chunk, start), done: false, loops: self.loops, speed: 1.0 };
+        true
+    }
+
+    /// Starts `id` at its first frame straight away, without blending from the current pose.
+    fn restart_now(&mut self, chunk: &AnimChunk, id: usize, play: Play) -> bool {
+        if !self.restart(chunk, id, play) {
+            return false;
+        }
+        self.cur = self.start;
+        self.next = if self.len > 1 { chunk.keyframes[self.start].next.unwrap_or(self.start) } else { self.start };
+        self.index = Some(0);
+        true
+    }
+
+    fn advance(&mut self, chunk: &AnimChunk, dt: f32) {
+        if self.done {
+            return;
+        }
+        // Blending in from another animation runs at the new animation's pace (an idle
+        // pose's slow step would make every move start sluggishly).
+        let pace = if self.index.is_none() { self.next } else { self.cur };
+        let step = chunk.keyframes[pace].tween_step.max(1) as f32 * 2.0;
+        self.tween += step * TICKS_PER_SECOND * dt * self.speed;
+        while self.tween >= 256.0 {
+            self.tween -= 256.0;
+            self.cur = self.next;
+            let i = match self.index {
+                None => 0,
+                Some(_) if self.cur == self.start => {
+                    self.loops += 1;
+                    0
+                }
+                Some(i) => i + 1,
+            };
+            self.index = Some(i);
+            let at_end = i + 1 >= self.len;
+            match (at_end, self.play) {
+                (false, _) => self.next = chunk.keyframes[self.cur].next.unwrap_or(self.start),
+                (true, Play::Loop) => self.next = self.start,
+                (true, Play::Once) => {
+                    self.next = self.cur;
+                    self.tween = 0.0;
+                    self.done = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    /// 0 at the start of the animation, 1 at its last frame.
+    fn progress(&self) -> f32 {
+        match self.index {
+            None => 0.0,
+            Some(_) if self.done => 1.0,
+            Some(i) => ((i as f32 + self.tween / 256.0) / (self.len.max(2) - 1) as f32).min(1.0),
+        }
+    }
+}
+
+/// A posed, animated person in the world.
+#[derive(Clone)]
+pub struct Figure {
+    pub model: Model,
+    /// The keyframes (Darci's animation set for everybody).
+    pub anims: Arc<AnimChunk>,
+    /// Feet position in world units.
+    pub pos: Vec3,
+    /// Engine angle in radians (2048 units per turn in the original); facing is (-sin, -cos).
+    pub angle: f32,
+    /// Drawn this much lower than `pos`.
+    pub lift: f32,
+    /// Also cancel any rise of the hips above standing height (jump animations raise the
+    /// body themselves; the physics does that instead).
+    pub cancel_rise: bool,
+    /// Pin the hips at standing height above `pos`: the animation only moves the limbs, and
+    /// the caller moves `pos` along its own path (fence climbing).
+    pub pin_root: bool,
+    /// Which set of clothes (0 = the model's own, 1-3 = alternatives): the creating event
+    /// point's colour & 3 (`tex_page_offset = pcom_colour & 3`, DDEngine/Source/figure.cpp).
+    pub clothes: u8,
+    /// A gang member's jacket shows how good a fighter they are: skill / 4 (0-3).
+    pub jacket: u8,
+    animator: Animator,
+}
+
+/// `jacket_lookup[][]` (DDEngine/Source/figure.cpp): the four parts of a gang jacket, each
+/// in four colours by skill / 4 (mustard Wildcats, green, green, brown). Faces drawn from
+/// any of these pages are jacket faces (`TEXTURE_fix_prim_textures` flags them
+/// `FACE_FLAG_THUG_JACKET`, DDEngine/Source/texture.cpp).
+const JACKETS: [[u32; 4]; 4] = [
+    [64 + 21, 10 * 64 + 2, 10 * 64 + 2, 10 * 64 + 32],
+    [64 + 22, 10 * 64 + 3, 10 * 64 + 3, 10 * 64 + 33],
+    [64 + 24, 10 * 64 + 4, 10 * 64 + 4, 10 * 64 + 36],
+    [64 + 25, 10 * 64 + 5, 10 * 64 + 5, 10 * 64 + 37],
+];
+
+/// The page drawn for a jacket face modelled on `page`, for a fighter of jacket `level`.
+pub fn jacket_page(page: u32, level: u8) -> u32 {
+    let raw = page.saturating_sub(8 * 64);
+    match JACKETS.iter().find(|row| row.contains(&raw)) {
+        Some(row) => row[level.min(3) as usize] + 8 * 64,
+        None => page,
+    }
+}
+
+/// `alt_texture[]` (DDEngine/Source/texture.cpp): person pages that come in other colours,
+/// as (page, first alternative). A page `FACE_PAGE_OFFSET + 640 + k` is drawn from
+/// `21 * 64 + base + clothes - 1` instead.
+const ALT_CLOTHES: [(u32, u32); 10] = [
+    (108, 12), // legs
+    (109, 0),  // crotch
+    (111, 3),  // front
+    (112, 6),  // hat, side
+    (113, 9),  // hat, front
+    (114, 15), // female: seat
+    (115, 21), // seam
+    (116, 24), // shoe
+    (117, 18), // chest
+    (118, 27), // back
+];
+
+/// The page actually drawn for person texture `page` in clothes set `clothes`.
+pub fn clothes_page(page: u32, clothes: u8) -> u32 {
+    if clothes == 0 {
+        return page;
+    }
+    match ALT_CLOTHES.iter().find(|&&(k, _)| page == 8 * 64 + 10 * 64 + k) {
+        Some(&(_, base)) => 21 * 64 + base + clothes.min(3) as u32 - 1,
+        None => page,
+    }
+}
+
+fn mat3_rows(r: &[[f32; 3]; 3]) -> Mat3 {
+    Mat3::from_cols_array_2d(r).transpose()
+}
+
+/// The facing direction (xz) of engine angle `a`.
+pub fn facing(a: f32) -> Vec2 {
+    vec2(-a.sin(), -a.cos())
+}
+
+/// The engine angle that faces direction `d` (xz).
+pub fn angle_of(d: Vec2) -> f32 {
+    (-d.x).atan2(-d.y)
+}
+
+impl Figure {
+    pub fn new(model: Model, anims: Arc<AnimChunk>, pos: Vec3, angle: f32) -> Option<Figure> {
+        let animator = Animator::new(&anims, anim::STAND_READY)?;
+        let mut f = Figure { model, anims, pos, angle, lift: 0.0, cancel_rise: false, pin_root: false, clothes: 0, jacket: 0, animator };
+        f.play(anim::BREATHE, Play::Loop);
+        Some(f)
+    }
+
+    pub fn anim(&self) -> usize {
+        self.animator.id
+    }
+
+    pub fn facing(&self) -> Vec2 {
+        facing(self.angle)
+    }
+
+    /// Plays `id` unless it is already playing. Returns whether `id` is now playing.
+    pub fn play(&mut self, id: usize, play: Play) -> bool {
+        if self.animator.id == id {
+            return true;
+        }
+        self.animator.restart(&self.anims, id, play)
+    }
+
+    /// Plays `id` from the start even if it is already playing.
+    pub fn restart(&mut self, id: usize, play: Play) -> bool {
+        self.animator.restart(&self.anims, id, play)
+    }
+
+    /// Like `restart`, but moves the figure (in xz) so the hips stay where they are, as the
+    /// original's `locked_anim_change` does: animations that carry the body away (a knockdown
+    /// ends a body length from where it started) chain on without a jump.
+    /// The switch is immediate; any change in hip height goes into `lift` (draw offset) for
+    /// the caller to settle.
+    pub fn restart_locked(&mut self, id: usize, play: Play) -> bool {
+        let before = self.root();
+        let Some(after) = self.anim_root(id, false) else { return false };
+        let d = self.to_world(before - after);
+        self.pos += vec3(d.x, 0.0, d.z);
+        self.lift += after.y - before.y;
+        self.restart_now(id, play)
+    }
+
+    /// Plays `id` from its first frame with no blend from the current pose.
+    pub fn restart_now(&mut self, id: usize, play: Play) -> bool {
+        self.animator.restart_now(&self.anims, id, play)
+    }
+
+    /// How many times looping animations have wrapped, with the fraction of a wrap in
+    /// progress (blending from the last frame back to the first).
+    pub fn loops(&self) -> f32 {
+        let a = &self.animator;
+        let wrapping = a.index.is_some() && a.next == a.start && a.cur != a.start;
+        a.loops as f32 + if wrapping { a.tween / 256.0 } else { 0.0 }
+    }
+
+    /// Where the figure is drawn (its position less `lift` and any cancelled rise).
+    pub fn drawn_pos(&self) -> Vec3 {
+        if self.pin_root {
+            return self.pos - self.to_world(self.root() - self.stand_root());
+        }
+        let rise = if self.cancel_rise { (self.root().y - self.stand_root().y).max(0.0) } else { 0.0 };
+        self.pos - vec3(0.0, self.lift + rise, 0.0)
+    }
+
+    /// Where the hips are drawn, in world units.
+    pub fn hips(&self) -> Vec3 {
+        self.drawn_pos() + self.to_world(self.root())
+    }
+
+    /// The hips (part 0) offset in the current pose, in character space.
+    pub fn root(&self) -> Vec3 {
+        let a = &self.animator;
+        let off = |f: usize| self.anims.pose(f).map_or(Vec3::ZERO, |p| Vec3::from(p[0].offset));
+        off(a.cur).lerp(off(a.next), (a.tween / 256.0).clamp(0.0, 1.0))
+    }
+
+    /// The hips offset at the first (or `last`) frame of animation `id`.
+    pub fn anim_root(&self, id: usize, last: bool) -> Option<Vec3> {
+        let start = self.anims.anims.get(id).copied().flatten()?;
+        let mut f = start;
+        if last {
+            for _ in 1..chain_len(&self.anims, start) {
+                f = self.anims.keyframes[f].next?;
+            }
+        }
+        Some(Vec3::from(self.anims.pose(f)?[0].offset))
+    }
+
+    /// The hips offset when standing still.
+    pub fn stand_root(&self) -> Vec3 {
+        self.anim_root(anim::BREATHE, false).unwrap_or(vec3(0.0, 96.0, 0.0))
+    }
+
+    /// Where body part `part` is in the world: (rotation, position of its origin).
+    pub fn part_world(&self, part: usize) -> Option<(Mat3, Vec3)> {
+        let (rot, off) = *self.pose()?.get(part)?;
+        let (s, c) = self.angle.sin_cos();
+        let r = mat3_rows(&[[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]]);
+        Some((r * rot, self.drawn_pos() + r * off))
+    }
+
+    /// Character space to world space (rotation only).
+    pub fn to_world(&self, v: Vec3) -> Vec3 {
+        let (s, c) = self.angle.sin_cos();
+        vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z)
+    }
+
+    pub fn set_speed(&mut self, speed: f32) {
+        self.animator.speed = speed;
+    }
+
+    /// A `Once` animation has reached its last frame.
+    pub fn finished(&self) -> bool {
+        self.animator.done
+    }
+
+    /// How far through the current animation (0..1).
+    pub fn progress(&self) -> f32 {
+        self.animator.progress()
+    }
+
+    pub fn advance(&mut self, dt: f32) {
+        self.animator.advance(&self.anims, dt);
+    }
+
+    /// Turns towards direction `d` at `rate` (fraction per second, 10 = snappy).
+    pub fn turn_towards(&mut self, d: Vec2, rate: f32, dt: f32) {
+        if d.length_squared() < 1e-6 {
+            return;
+        }
+        let mut delta = angle_of(d) - self.angle;
+        delta = (delta + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        self.angle += delta * (dt * rate).min(1.0);
+    }
+
+    /// Texture pages this figure's meshes may use, in any clothes (for loading).
+    pub fn pages(&self) -> Vec<u32> {
+        let m = &self.model;
+        (0..self.anims.element_count)
+            .filter_map(|part| m.chunk.part_mesh(m.body, m.person, part))
+            .flat_map(|mesh| mesh.faces.iter())
+            .flat_map(|f| {
+                let p = f.texture().0;
+                (0..4).flat_map(move |c| [jacket_page(p, c), clothes_page(p, c)])
+            })
+            .collect()
+    }
+
+    /// The current pose of every part: (rotation, offset) in character space.
+    fn pose(&self) -> Option<Vec<(Mat3, Vec3)>> {
+        let a = &self.animator;
+        let (pa, pb) = (self.anims.pose(a.cur)?, self.anims.pose(a.next)?);
+        let t = (a.tween / 256.0).clamp(0.0, 1.0);
+        Some(pa.iter().zip(pb).map(|(ea, eb): (&Element, &Element)| {
+            let qa = Quat::from_mat3(&mat3_rows(&ea.rotation)).normalize();
+            let mut qb = Quat::from_mat3(&mat3_rows(&eb.rotation)).normalize();
+            if qa.dot(qb) < 0.0 {
+                qb = -qb;
+            }
+            (Mat3::from_quat(qa.slerp(qb, t)), Vec3::from(ea.offset).lerp(Vec3::from(eb.offset), t))
+        }).collect())
+    }
+
+    /// Adds this frame's triangles (in square units) to `out`, one batch per texture page.
+    pub fn append_batches(&self, out: &mut BTreeMap<u32, Batch>, lighter: Option<&Lighter>) {
+        let Some(pose) = self.pose() else { return };
+        let (s, c) = self.angle.sin_cos();
+        // FIGURE_rotate_obj2(pitch 0, yaw, roll 0): rows [c 0 s] [0 1 0] [-s 0 c].
+        let r = mat3_rows(&[[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]]);
+        // Light the whole body from its chest position (the original lights per point).
+        let chest = self.pos + vec3(0.0, 120.0, 0.0);
+        let pos = self.drawn_pos();
+        let m = &self.model;
+        for (part, (rot, off)) in pose.iter().enumerate() {
+            let Some(mesh) = m.chunk.part_mesh(m.body, m.person, part) else { continue };
+            let world: Vec<Vec3> = mesh
+                .points
+                .iter()
+                .map(|p| (pos + r * (*rot * vec3(p[0] as f32, p[1] as f32, p[2] as f32) + *off)) / UNIT)
+                .collect();
+            for f in &mesh.faces {
+                let (page, uv) = f.texture();
+                let page = clothes_page(jacket_page(page, self.jacket), self.clothes);
+                let pts: Vec<Vec3> = f.points.iter().map(|&i| world[i as usize]).collect();
+                let n = (pts[1] - pts[0]).cross(pts[2] - pts[0]);
+                let col = match lighter {
+                    Some(l) => {
+                        let [cr, cg, cb] = l.light(chest.to_array(), n.to_array());
+                        [(cr * 255.0) as u8, (cg * 255.0) as u8, (cb * 255.0) as u8, 255]
+                    }
+                    None => [255; 4],
+                };
+                let b = out.entry(page).or_default();
+                if pts.len() == 4 {
+                    b.quad([pts[0], pts[1], pts[2], pts[3]], [uv[0], uv[1], uv[2], uv[3]], [col; 4]);
+                } else {
+                    b.tri([pts[0], pts[1], pts[2]], [uv[0], uv[1], uv[2]], [col; 3]);
+                }
+            }
+        }
+    }
+}
