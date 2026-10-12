@@ -61,6 +61,18 @@ impl Run {
         }
     }
 
+    /// Plays `secs` seconds and returns the fastest person `i` ever moved, in world units a
+    /// second: what they manage when nothing is in the way.
+    fn top_speed(&mut self, i: usize, secs: f32, c: Controls) -> f32 {
+        let mut best: f32 = 0.0;
+        for _ in 0..(secs / DT) as usize {
+            let before = self.g.people[i].fig.pos;
+            self.play(DT, c);
+            best = best.max((self.g.people[i].fig.pos - before).length() / DT);
+        }
+        best
+    }
+
     /// Presses action for one frame (holding it would get into a car and straight back out).
     fn tap_action(&mut self) {
         self.play(DT, Controls { action: true, ..Default::default() });
@@ -251,6 +263,41 @@ fn the_boys_can_be_recruited_after_the_first_bomb() {
     // been asked along yet, so he's still standing where he was.
     assert_eq!(r.g.people[zit].mv, 1, "Zit shouldn't tag along before there's a job");
     assert!(!matches!(r.g.people[zit].state, State::InCar { .. }));
+}
+
+/// Once they've been asked along the boys run after Mako rather than ambling after him
+/// (`PCOM_set_person_ai_follow` sends a follower off at `PERSON_SPEED_RUN`), and break into a
+/// sprint when he does. Both are timed over the same clear stretch of the hangout, since
+/// the yard has walls to fetch up against either way.
+#[test]
+fn the_boys_keep_up_with_mako() {
+    use uc_game::person::{Pace, WALK_SPEED};
+    let Some(mut r) = start() else { return };
+    r.play(2.0, Controls::default());
+    let zit = r.g.people.iter().position(|p| p.way == 3).expect("Zit");
+    // What `adjust_enemy` point 77 does to him once he agrees to come along.
+    r.g.people[zit].mv = 5;
+    r.g.people[zit].follow = 1;
+    let home = r.g.people[zit].fig.pos;
+
+    // Mako well across the yard, so Zit has somewhere to be going, and Zit back where he
+    // started each time: how fast does he set off after him?
+    let chase = |r: &mut Run, c: Controls, want: Pace| {
+        r.g.people[zit].fig.pos = home;
+        r.stand(home + vec3(2400.0, 0.0, 0.0));
+        // Two frames: the player's sprint is worked out at the end of a frame, so a follower
+        // picks it up on the next one.
+        r.play(DT * 2.0, c);
+        assert_eq!(r.g.people[zit].pace, want, "Zit should be at a {want:?}");
+        r.top_speed(zit, 1.5, c)
+    };
+    let walking = Controls::default();
+    let sprinting = Controls { wish: glam::vec2(1.0, 0.0), run: true, sprint: true, ..Default::default() };
+    let run = chase(&mut r, walking, Pace::Run);
+    let dash = chase(&mut r, sprinting, Pace::Sprint);
+
+    assert!(run > WALK_SPEED * 1.5, "Zit's best was {run:.0} a second, which is no better than a walk");
+    assert!(dash > run * 1.2, "sprinting after Mako ({dash:.0}) should beat running after him ({run:.0})");
 }
 
 /// The boys guard Mako: a blow landed on him must not turn them on him. Being hit makes

@@ -142,7 +142,7 @@ const BENT_ROBOT: u8 = 1 << 5;
 pub const AI_BODYGUARD: u8 = 8;
 
 /// Speeds in world units per second (a map square is 256). Chosen by eye.
-const WALK_SPEED: f32 = 190.0;
+pub const WALK_SPEED: f32 = 190.0;
 const RUN_SPEED: f32 = 520.0;
 const SPRINT_SPEED: f32 = 700.0;
 const FIGHT_STEP_SPEED: f32 = 140.0;
@@ -216,6 +216,26 @@ pub enum Sfx {
     Explosion,
     Won,
     Lost,
+}
+
+/// How fast someone heads for their `goal` (`PERSON_SPEED_*`, fallen/Headers/Person.h).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Pace {
+    #[default]
+    Walk,
+    Run,
+    Sprint,
+}
+
+impl Pace {
+    /// The controls that move someone at this speed.
+    fn controls(self) -> (bool, bool) {
+        match self {
+            Pace::Walk => (false, false),
+            Pace::Run => (true, false),
+            Pace::Sprint => (true, true),
+        }
+    }
 }
 
 /// One frame of intent.
@@ -465,8 +485,10 @@ pub struct Person {
     /// and group.
     pub colour: u8,
     pub group: u8,
-    /// `PCOM_MOVE_PATROL`: where to go next (set by the game each frame).
+    /// Where to go next when there's nobody to fight (set by the game each frame), and how
+    /// fast to get there.
     pub goal: Option<Vec3>,
+    pub pace: Pace,
     /// Getting out of a car's way: run this way for this many seconds.
     pub dodge: Option<(Vec2, f32)>,
     /// `PCOM_MOVE_WANDER`: walking to this spot, giving up after this many seconds (or
@@ -505,6 +527,7 @@ impl Person {
         let health = uc_world::character::person::HEALTH[kind.min(14) as usize];
         Person {
             fig, way, player, kind, ai: 0, bent: 0, ko_moves: 0, health, max_health: health, state: State::Move,
+            pace: Pace::Walk,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 3], knocked_out: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
@@ -760,12 +783,12 @@ impl Person {
     /// `PCOM_MOVE_WANDER` (move 4): strolls from spot to spot nearby, pausing in between.
     /// Spots are in plain sight on the same level; walking never steps off a ledge.
     fn wander(&mut self, mut c: Controls, ground: &Ground, dt: f32, rand: &mut impl FnMut() -> u32) -> Controls {
-        // `PCOM_MOVE_PATROL`: to the next point (running if `PCOM_BENT_DILIGENT`).
+        // Off to the goal the game set: a patrol's next point, or whoever is being followed.
         if let (Some(goal), false) = (self.goal, self.is_down()) {
             let d = flat(goal, self.fig.pos);
             if d.length() > 40.0 {
                 c.wish = d.normalize();
-                c.run = self.bent & 2 != 0;
+                (c.run, c.sprint) = self.pace.controls();
             }
             return c;
         }

@@ -302,7 +302,7 @@ impl Game {
         let Some(script) = &self.script else { return };
         // Where everyone stands this frame, so they all aim at the same thing.
         let at: Vec<Vec3> = self.people.iter().map(|p| p.fig.pos).collect();
-        let mut goals: Vec<Option<Vec3>> = vec![None; self.people.len()];
+        let mut goals: Vec<(Option<Vec3>, person::Pace)> = vec![(None, person::Pace::Walk); self.people.len()];
         for (i, p) in self.people.iter().enumerate() {
             if p.player || p.aggro() || p.is_dead() {
                 continue;
@@ -313,27 +313,33 @@ impl Game {
                 d.max_element() + (d.x + d.y + d.z - d.max_element()) / 4.0
             };
             goals[i] = match p.mv {
-                // Followers stop a couple of squares short, so they don't tread on the heels
-                // of the person they're following.
+                // Followers run after whoever they're following, as `PCOM_set_person_ai_follow`
+                // asks (`PERSON_SPEED_RUN`), and break into a sprint to keep up with a player
+                // who is sprinting. They stop a couple of squares short of treading on them.
                 5 => {
                     let j = if p.follow == 0 { self.player } else { self.by_way.get(&p.follow).copied() };
-                    j.filter(|&j| !self.people[j].removed && !self.people[j].is_dead())
+                    let to = j
+                        .filter(|&j| !self.people[j].removed && !self.people[j].is_dead())
                         .map(|j| at[j])
-                        .filter(|&to| (to - at[i]).length() > 2.0 * 256.0)
+                        .filter(|&to| (to - at[i]).length() > 2.0 * 256.0);
+                    let hurrying = j == self.player && self.sprinting;
+                    (to, if hurrying { person::Pace::Sprint } else { person::Pace::Run })
                 }
+                // `PCOM_process_patrol`: a walk, unless they're `PCOM_BENT_DILIGENT`.
                 2 | 3 => {
                     let points = script.patrol_points(p.colour, p.group);
                     let nearest = (0..points.len()).min_by(|&a, &b| near(points[a].1).total_cmp(&near(points[b].1)));
-                    nearest.map(|k| {
+                    let to = nearest.map(|k| {
                         let k = if near(points[k].1) < 256.0 { (k + 1) % points.len() } else { k };
                         points[k].1
-                    })
+                    });
+                    (to, if p.bent & 2 != 0 { person::Pace::Run } else { person::Pace::Walk })
                 }
-                _ => None,
+                _ => (None, person::Pace::Walk),
             };
         }
-        for (p, goal) in self.people.iter_mut().zip(goals) {
-            p.goal = goal;
+        for (p, (goal, pace)) in self.people.iter_mut().zip(goals) {
+            (p.goal, p.pace) = (goal, pace);
         }
     }
 
