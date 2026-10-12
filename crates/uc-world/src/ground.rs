@@ -11,7 +11,7 @@
 use glam::{vec2, vec3, Vec2, Vec3};
 use std::collections::HashMap;
 use std::path::Path;
-use uc_formats::facet::{collision_segments, WallSegment};
+use uc_formats::facet::{collision_segments, door_segments, WallSegment};
 use uc_formats::iam::{facet_type, flags, Map, SQUARE};
 
 /// `FACE_FLAG_WALKABLE` (Editor/Headers/Prim.h): a prim face people can stand on.
@@ -134,10 +134,34 @@ pub struct Ground {
     /// by map square.
     prop_tris: HashMap<(i32, i32), Vec<[Vec3; 3]>>,
     pub walls: Vec<WallSegment>,
+    /// The map's doors: solid until the mission opens one.
+    pub doors: Vec<Door>,
     pub ladders: Vec<Ladder>,
     pub cables: Vec<Cable>,
     /// Fences that can be climbed (chain-link: `STOREY_TYPE_FENCE`, `_FENCE_FLAT`).
     pub fences: Vec<WallSegment>,
+}
+
+/// A door. It blocks like any other wall until a mission opens it, which is the only way one
+/// ever opens: `DOOR_open`'s only caller is `EWAY_DO_CONTROL_DOOR` (fallen/Source/eway.cpp),
+/// there is no walking into them and no "use" on them.
+///
+/// Whether it's open belongs to the mission being played rather than to the map, and a `Level`
+/// is loaded afresh for each mission, so the flag sits here in a `Cell`. That keeps every
+/// collision call taking `&Ground` as it did, instead of threading a set of open doors through
+/// each person's movement.
+#[derive(Debug)]
+pub struct Door {
+    pub wall: WallSegment,
+    /// The middle of the facet, which `DOOR_find` measures its search from.
+    pub mid: Vec2,
+    open: std::cell::Cell<bool>,
+}
+
+impl Door {
+    pub fn is_open(&self) -> bool {
+        self.open.get()
+    }
 }
 
 impl Ground {
@@ -170,6 +194,13 @@ impl Ground {
             })
             .collect();
         let mut walls = collision_segments(map);
+        let doors: Vec<Door> = door_segments(map)
+            .into_iter()
+            .map(|wall| {
+                let mid = (Vec2::from(wall.a) + Vec2::from(wall.b)) * 0.5;
+                Door { wall, mid, open: std::cell::Cell::new(false) }
+            })
+            .collect();
         let mut prop_tops: HashMap<(i32, i32), Vec<PropTop>> = HashMap::new();
         let mut prop_tris: HashMap<(i32, i32), Vec<[Vec3; 3]>> = HashMap::new();
         let mut prims = HashMap::new();
@@ -265,7 +296,7 @@ impl Ground {
             })
             .filter(|w| w.y1 > w.y0)
             .collect();
-        Ground { roofs, prop_tops, prop_tris, walls, ladders, cables, fences }
+        Ground { roofs, prop_tops, prop_tris, walls, doors, ladders, cables, fences }
     }
 
     fn roof_height(&self, x: f32, z: f32) -> Option<f32> {
@@ -315,7 +346,7 @@ impl Ground {
         // step of a ledge's top clears it (and lands on it).
         let waist = y + STEP_HEIGHT - 4.0;
         for _ in 0..2 {
-            for w in &self.walls {
+            for w in self.blocking() {
                 if waist < w.y0 || waist > w.y1 {
                     continue;
                 }
@@ -332,6 +363,31 @@ impl Ground {
             }
         }
         p
+    }
+
+    /// Everything solid at the moment: the map's walls, and the doors still shut.
+    pub fn blocking(&self) -> impl Iterator<Item = &WallSegment> {
+        self.walls.iter().chain(self.doors.iter().filter(|d| !d.is_open()).map(|d| &d.wall))
+    }
+
+    /// Opens the door nearest `(x, z)`, as `DOOR_open` does: the closest one whose middle is
+    /// within two squares, measured the engine's way (`QDIST2`, the larger axis plus half the
+    /// other). Returns whether it found one.
+    pub fn open_door_near(&self, x: f32, z: f32) -> bool {
+        let at = vec2(x, z);
+        let near = |d: &&Door| {
+            let v = (d.mid - at).abs();
+            v.max_element() + v.min_element() / 2.0
+        };
+        let found = self
+            .doors
+            .iter()
+            .filter(|d| near(d) < 512.0)
+            .min_by(|a, b| near(a).total_cmp(&near(b)));
+        if let Some(d) = found {
+            d.open.set(true);
+        }
+        found.is_some()
     }
 
     /// A ladder whose foot is within `reach` of `pos` (xz) and whose base is near `pos.y`.
@@ -360,7 +416,7 @@ impl Ground {
     /// Whether nothing solid lies between `a` and `b` (eye to eye).
     pub fn line_of_sight(&self, a: Vec3, b: Vec3) -> bool {
         let (p, r) = (vec2(a.x, a.z), vec2(b.x - a.x, b.z - a.z));
-        !self.walls.iter().any(|w| {
+        !self.blocking().any(|w| {
             let (q, s) = (Vec2::from(w.a), Vec2::from(w.b) - Vec2::from(w.a));
             let denom = r.perp_dot(s);
             if denom.abs() < 1e-6 {

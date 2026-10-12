@@ -144,6 +144,8 @@ pub enum Command {
     Barrel { way: usize, kind: u8, pos: Vec3 },
     /// Flash a road sign (`PANEL_SIGN_WHICH_*`), mirrored if `flip`.
     Sign { which: u8, flip: bool },
+    /// Open the door nearest `pos` (`EWAY_DO_CONTROL_DOOR`).
+    OpenDoor { pos: Vec3 },
     Win,
     Lose,
 }
@@ -158,6 +160,15 @@ pub struct Beacon {
 }
 
 pub const PCOM_AI_FIGHT_TEST: u8 = 12;
+
+/// `AP_*` (fallen/Headers/Mission.h): what an `activate_prim` point works on. The loader
+/// switches on it rather than ever making an `EWAY_DO_ACTIVATE_PRIM`, which is compiled out
+/// (`#ifdef ANIM_PRIM`): a door becomes `EWAY_DO_CONTROL_DOOR`, a fence
+/// `EWAY_DO_ELECTRIFY_FENCE`, and a security camera nothing at all (`ELEV_load_level`).
+mod activate {
+    pub const DOOR: i32 = 0;
+    pub const ELECTRIC_FENCE: i32 = 1;
+}
 
 /// `EWAY_counter[7]`: how many cops have been killed.
 const COPS_KILLED: usize = 7;
@@ -290,7 +301,10 @@ impl Script {
                 | CREATE_TARGET | CAMERA_WAYPOINT | MESSAGE | NAV_BEACON | KILL_WAYPOINT | INCREMENT | ADJUST_ENEMY
                 | END_GAME_WIN | END_GAME_LOSE | BONUS_POINTS | GROUP_LIFE | GROUP_DEATH | GROUP_RESET | EXTEND
                 | MOVE_THING | CONVERSATION | CREATE_BARREL | CREATE_VEHICLE | STALL_CAR | SIGN | CONE_PENALTIES
-                | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT | RESET_COUNTER);
+                | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT | RESET_COUNTER | ACTIVATE_PRIM);
+            // An `activate_prim` only counts as supported when it opens a door: the fences
+            // and the cameras are still to do.
+            let supported = supported && (ep.kind != ACTIVATE_PRIM || ep.data[0] == activate::DOOR);
             if !supported {
                 let name = uc_formats::ucm::names::WAYPOINT.get(ep.kind as usize).copied().unwrap_or("?");
                 unsupported.push(format!("{} {}", ep.index, name));
@@ -553,6 +567,14 @@ impl Script {
             }
             waypoint::CREATE_BARREL => self.commands.push(Command::Barrel { way: i, kind: d[0] as u8, pos }),
             waypoint::SIGN => self.commands.push(Command::Sign { which: d[0] as u8, flip: d[1] != 0 }),
+            // Only the door kind does anything here; an electric fence or a security camera
+            // is left for later (and the camera does nothing in the original either).
+            waypoint::ACTIVATE_PRIM if d[0] == activate::DOOR => {
+                self.commands.push(Command::OpenDoor { pos })
+            }
+            waypoint::ACTIVATE_PRIM => {
+                let _ = activate::ELECTRIC_FENCE;
+            }
             waypoint::CREATE_CAMERA => {
                 if let Some(shot) = self.shot(i) {
                     self.commands.push(Command::Camera { way: i, shot });

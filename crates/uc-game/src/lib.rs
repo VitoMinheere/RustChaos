@@ -485,6 +485,12 @@ impl Game {
                     };
                     self.sign = Some((text.to_string(), 2.5));
                 }
+                Command::OpenDoor { pos } => {
+                    if !level.ground.open_door_near(pos.x, pos.z) {
+                        // The original says so too, on its console.
+                        eprintln!("mission: no door near {:.0},{:.0} to open", pos.x, pos.z);
+                    }
+                }
                 Command::Win => self.finish(Outcome::Won),
                 Command::Lose => self.finish(Outcome::Lost("Mission failed".into())),
             }
