@@ -14,6 +14,17 @@ fn pick(audio: &mut Audio, names: &[String]) -> String {
     audio.pick(&refs).to_string()
 }
 
+/// The recordings for a gang member's voice: their folder, the prefix their lines use and
+/// how many taunts they have.
+fn gang_voice(kind: u8) -> Option<(&'static str, &'static str, u32)> {
+    match kind {
+        ptype::THUG_RASTA => Some(("bthug1", "GRASTA", 7)),
+        ptype::THUG_RED => Some(("wthug2", "GRED", 5)),
+        ptype::THUG_GREY => Some(("wthug1", "GGREY", 5)),
+        _ => None,
+    }
+}
+
 /// Plays the sound for one game event at `pos` (world units).
 pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str) {
     let at = |audio: &mut Audio, names: Vec<String>, vol: f32| {
@@ -34,7 +45,9 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
             at(audio, names, 0.9);
         }
         Sfx::Footstep { player } => at(audio, numbered("Footsteps/HardStep", 1..=4, ".wav"), if player { 0.3 } else { 0.2 }),
-        Sfx::Jump => at(audio, numbered("darci/effort ", 1..=3, ".WAV"), 0.6),
+        // Only Darci grunts with the effort: the gangs have no such recordings.
+        Sfx::Jump { kind: ptype::DARCI } => at(audio, numbered("darci/effort ", 1..=3, ".WAV"), 0.6),
+        Sfx::Jump { .. } => {}
         Sfx::Land => at(audio, vec!["Footsteps/StreetLand1.wav".into()], 0.6),
         Sfx::Grab => at(audio, vec!["JudoChop1.wav".into()], 0.8),
         Sfx::Arrest => at(
@@ -45,22 +58,27 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
                 .collect(),
             1.0,
         ),
-        Sfx::Taunt => {
+        Sfx::Taunt { kind } => {
+            let mut names: Vec<String> = match kind {
+                ptype::DARCI => (1..=19).map(|i| format!("darci/DARCI-TAUNT{i:02}.wav")).collect(),
+                _ => match gang_voice(kind) {
+                    // Each gang has its own taunts, five or seven of them with an alternative
+                    // take of most: `pick` drops the names it can't find.
+                    Some((dir, name, last)) => (1..=last)
+                        .flat_map(|i| ["", "B"].map(|b| format!("{dir}/{name}-TAUNT{i:02}{b}.wav")))
+                        .collect(),
+                    None => return,
+                },
+            };
             // Not every time: about one knockout in three.
-            let mut names: Vec<String> = (1..=19).map(|i| format!("darci/DARCI-TAUNT{i:02}.wav")).collect();
-            names.extend(std::iter::repeat_n(String::new(), 38));
+            names.extend(std::iter::repeat_n(String::new(), names.len() * 2));
             let n = pick(audio, &names);
             if !n.is_empty() {
                 audio.play_at(&n, 1.0, pos, l);
             }
         }
         Sfx::Alert { kind } => {
-            let voice = match kind {
-                ptype::THUG_RASTA => "bthug1",
-                ptype::THUG_RED => "wthug2",
-                ptype::THUG_GREY => "wthug1",
-                _ => return,
-            };
+            let Some((voice, ..)) = gang_voice(kind) else { return };
             at(audio, vec![format!("{voice}/hey you.wav"), format!("{voice}/hey you 2.wav")], 0.9);
         }
         Sfx::Voice(point) => {
@@ -82,6 +100,9 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         Sfx::Cone => at(audio, vec!["Cone1.wav".into()], 0.8),
         Sfx::Skid => at(audio, numbered("Skid", 1..=3, ".wav"), 0.8),
         Sfx::CarDoor => at(audio, vec!["DoorOpenCls1.wav".into()], 0.8),
+        // `S_EXPLODE_START + 0..2` (fallen/Headers/sound_id.h), as `PYRO_construct` plays
+        // for a fireball.
+        Sfx::Explosion => at(audio, numbered("f_EXPLD", 1..=3, ".wav"), 1.0),
         Sfx::Won => audio.sting("GeneralMusic/Complete.wav"),
         Sfx::Lost => audio.sting("GeneralMusic/Dead2.wav"),
     }

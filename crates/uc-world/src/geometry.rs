@@ -11,9 +11,12 @@ pub const UNIT: f32 = 256.0;
 pub const CHUNK_SQUARES: f32 = 8.0;
 /// Page value for untextured (flat-coloured) geometry.
 pub const UNTEXTURED: u32 = u32::MAX;
-/// Batches with this page are soft blob shadows: drawn blended, darkening what's below by
-/// the vertex alpha times a round falloff.
+/// Batches with this page are soft round blobs, drawn blended over the scene with a round
+/// falloff times the vertex alpha: blob shadows, the blood under a body, and smoke.
 pub const SHADOW: u32 = u32::MAX - 1;
+/// Batches with this page are the same round blobs added to the scene rather than blended
+/// over it: the fire and dust of an explosion.
+pub const GLOW: u32 = u32::MAX - 2;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]

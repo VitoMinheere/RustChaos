@@ -138,9 +138,11 @@ impl Weapon {
 
 /// `PCOM_BENT_ROBOT`: ignores everything and everyone.
 const BENT_ROBOT: u8 = 1 << 5;
+/// `PCOM_AI_BODYGUARD`: guards the person their `other` point created, and follows them.
+pub const AI_BODYGUARD: u8 = 8;
 
 /// Speeds in world units per second (a map square is 256). Chosen by eye.
-const WALK_SPEED: f32 = 190.0;
+pub const WALK_SPEED: f32 = 190.0;
 const RUN_SPEED: f32 = 520.0;
 const SPRINT_SPEED: f32 = 700.0;
 const FIGHT_STEP_SPEED: f32 = 140.0;
@@ -178,13 +180,14 @@ pub enum Sfx {
     Hurt { kind: u8 },
     KnockedOut { kind: u8 },
     Footstep { player: bool },
-    Jump,
+    /// The effort of a jump, from whoever made it.
+    Jump { kind: u8 },
     Land,
     Grab,
     /// Darci makes an arrest.
     Arrest,
-    /// Darci knocked someone out.
-    Taunt,
+    /// The player knocked someone out and crows about it.
+    Taunt { kind: u8 },
     /// An enemy spots the player.
     Alert { kind: u8 },
     /// A mission message with recording number `n` (if it was recorded).
@@ -209,8 +212,30 @@ pub enum Sfx {
     /// Getting into or out of a car.
     CarDoor,
     Pickup,
+    /// A bomb or a car going up.
+    Explosion,
     Won,
     Lost,
+}
+
+/// How fast someone heads for their `goal` (`PERSON_SPEED_*`, fallen/Headers/Person.h).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Pace {
+    #[default]
+    Walk,
+    Run,
+    Sprint,
+}
+
+impl Pace {
+    /// The controls that move someone at this speed.
+    fn controls(self) -> (bool, bool) {
+        match self {
+            Pace::Walk => (false, false),
+            Pace::Run => (true, false),
+            Pace::Sprint => (true, true),
+        }
+    }
 }
 
 /// One frame of intent.
@@ -444,6 +469,12 @@ pub struct Person {
     zip_cooldown: f32,
     /// Seconds left of the muzzle flash after a shot.
     pub flash: f32,
+    /// `PCOM_MOVE_FOLLOW`: the event point that created the person to keep up with
+    /// (0 = the player), from the point's `Data[1]`.
+    pub follow: usize,
+    /// Out of reach: a bodyguard more than twenty blocks from the player can't be hurt, so a
+    /// mission isn't lost to a scuffle nobody saw (`PCOM_AI_BODYGUARD`, pcom.cpp).
+    pub invulnerable: bool,
     /// `ai_other`: for assassins, the event point that created the person to kill (0 = the
     /// player).
     pub other: usize,
@@ -454,8 +485,10 @@ pub struct Person {
     /// and group.
     pub colour: u8,
     pub group: u8,
-    /// `PCOM_MOVE_PATROL`: where to go next (set by the game each frame).
+    /// Where to go next when there's nobody to fight (set by the game each frame), and how
+    /// fast to get there.
     pub goal: Option<Vec3>,
+    pub pace: Pace,
     /// Getting out of a car's way: run this way for this many seconds.
     pub dodge: Option<(Vec2, f32)>,
     /// `PCOM_MOVE_WANDER`: walking to this spot, giving up after this many seconds (or
@@ -494,8 +527,10 @@ impl Person {
         let health = uc_world::character::person::HEALTH[kind.min(14) as usize];
         Person {
             fig, way, player, kind, ai: 0, bent: 0, ko_moves: 0, health, max_health: health, state: State::Move,
+            pace: Pace::Walk,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 3], knocked_out: false, down_timer: 0.0,
-            block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
+            block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
+            invulnerable: false, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
         }
     }
 
@@ -527,6 +562,17 @@ impl Person {
         self.weapon.slot().map(|s| if self.player { self.ammo[s] } else { u32::MAX })
     }
 
+    /// Everything carried besides what's in hand, with the rounds left in each gun: the
+    /// original's panel lists these too (`PANEL_ADDWEAPON`), so a weapon picked up or handed
+    /// over at the start can be seen without cycling to it.
+    pub fn stowed(&self) -> Vec<(Weapon, Option<u32>)> {
+        let melee = (self.melee != Weapon::None).then_some((self.melee, None));
+        let guns = Weapon::GUNS.iter().enumerate()
+            .filter(|(s, _)| self.guns & (1 << s) != 0)
+            .map(|(s, &g)| (g, Some(self.ammo[s])));
+        melee.into_iter().chain(guns).filter(|&(w, _)| w != self.weapon).collect()
+    }
+
     /// Puts away what's in hand and takes out the next weapon carried (bare hands last).
     pub fn next_weapon(&mut self) {
         let carried: Vec<Weapon> = [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47]
@@ -544,6 +590,12 @@ impl Person {
         self.aggro && !self.is_down() && !self.removed
     }
 
+    /// Arrests are Darci's own: `set_person_croutch` only looks for someone to cuff when the
+    /// person doing it is `PERSON_DARCI`.
+    pub fn can_arrest(&self) -> bool {
+        self.player && self.kind == uc_world::character::person::DARCI
+    }
+
     pub fn is_dummy(&self) -> bool {
         self.ai == crate::script::PCOM_AI_FIGHT_TEST
     }
@@ -553,6 +605,12 @@ impl Person {
         !self.player && self.bent & BENT_ROBOT == 0 && matches!(self.ai, 2 | 3 | 4 | 6 | 12 | 13 | 17 | 18 | 19 | 21)
     }
 
+    /// Closes in on its `foe` and swings: anyone hostile to the player, and a bodyguard who
+    /// has someone to see off (`PCOM_find_bodyguard_victim` hands them a target).
+    pub fn fights(&self) -> bool {
+        self.hostile() || (self.ai == AI_BODYGUARD && self.bent & BENT_ROBOT == 0 && self.foe.is_some())
+    }
+
     /// How close the player must come before this enemy notices (world units): guards watch
     /// their post, gangs and MIB look further, assassins and followers hunt from anywhere.
     fn aggro_range(&self) -> f32 {
@@ -560,6 +618,8 @@ impl Person {
             return 64.0 * 256.0;
         }
         match self.ai {
+            // A bodyguard's sphere for someone going for their client (`0x800`).
+            AI_BODYGUARD => 8.0 * 256.0,
             2 => 4.0 * 256.0,
             6 | 13 => 5.0 * 256.0,
             4 | 18 | 19 => 8.0 * 256.0,
@@ -614,7 +674,7 @@ impl Person {
 
     /// Whose blows can land on whom: the player can hit anybody, the AI only its foe.
     fn opponents(&self, j: usize, other: &Snap) -> bool {
-        if self.player { !other.player } else { self.hostile() && self.foe == Some(j) }
+        if self.player { !other.player } else { self.fights() && self.foe == Some(j) }
     }
 
     /// The nearest standing opponent within `range`.
@@ -642,7 +702,14 @@ impl Person {
             c.run = true;
             return c;
         }
-        let Some(p) = player.map(|p| snaps[p]) else { return c };
+        // Nobody to fight: walk the patrol, follow whoever is being followed, or stroll.
+        // Dropping `aggro` matters as much as the walking does: the game only gives someone
+        // somewhere to go while they aren't in a fight, so a bodyguard whose man went down
+        // would otherwise stand there for good.
+        let Some(p) = player.map(|p| snaps[p]) else {
+            self.aggro = false;
+            return self.wander(c, ground, dt, rand);
+        };
         let d = flat(p.pos, self.fig.pos);
         let dist = d.length();
         let dy = (p.pos.y - self.fig.pos.y).abs();
@@ -654,7 +721,7 @@ impl Person {
             }
             return c;
         }
-        if !self.hostile() || !p.present || p.down || p.in_car {
+        if !self.fights() || !p.present || p.down || p.in_car {
             self.aggro = false;
             return self.wander(c, ground, dt, rand);
         }
@@ -722,12 +789,12 @@ impl Person {
     /// `PCOM_MOVE_WANDER` (move 4): strolls from spot to spot nearby, pausing in between.
     /// Spots are in plain sight on the same level; walking never steps off a ledge.
     fn wander(&mut self, mut c: Controls, ground: &Ground, dt: f32, rand: &mut impl FnMut() -> u32) -> Controls {
-        // `PCOM_MOVE_PATROL`: to the next point (running if `PCOM_BENT_DILIGENT`).
+        // Off to the goal the game set: a patrol's next point, or whoever is being followed.
         if let (Some(goal), false) = (self.goal, self.is_down()) {
             let d = flat(goal, self.fig.pos);
             if d.length() > 40.0 {
                 c.wish = d.normalize();
-                c.run = self.bent & 2 != 0;
+                (c.run, c.sprint) = self.pace.controls();
             }
             return c;
         }
@@ -856,7 +923,7 @@ impl Person {
     }
 
     fn jump(&mut self, vel: Vec2) {
-        self.cues.push(Sfx::Jump);
+        self.cues.push(Sfx::Jump { kind: self.kind });
         self.state = State::Fall { vy: JUMP_SPEED, vel };
         self.fig.restart(if vel.length() > 1.0 { anim::RUN_JUMP } else { anim::STANDING_JUMP }, Play::Once);
         self.fig.set_speed(1.5);
@@ -1340,10 +1407,13 @@ impl Person {
         // Wish direction relative to facing: x = right, y = forward.
         let rel = vec2(c.wish.dot(vec2(-f.y, f.x)), c.wish.dot(f));
 
-        if c.action {
+        // Only Darci arrests people: the original asks for `PERSON_DARCI` before it even
+        // looks for someone to cuff (`set_person_croutch`, fallen/Source/Person.cpp), so
+        // Nitro Car's thug can't.
+        if c.action && self.can_arrest() {
             // Arrest a downed opponent.
             let downed = snaps.iter().enumerate().find(|&(j, s)| {
-                j != me && s.present && s.down && !s.arrested && !s.player && self.player
+                j != me && s.present && s.down && !s.arrested && !s.player
                     && flat(s.pos, self.fig.pos).length() < ARREST_RANGE && (s.pos.y - self.fig.pos.y).abs() < 64.0
             });
             if let Some((j, s)) = downed {
@@ -1528,7 +1598,7 @@ impl Person {
     /// their `ko_moves`; everyone else loses health.
     #[allow(clippy::too_many_arguments)]
     pub fn take_hit(&mut self, from: Vec3, damage: i32, ko_flag: u8, high: bool, low: bool, weapon: Weapon) {
-        if self.removed || self.is_down() || matches!(self.state, State::InCar { .. }) {
+        if self.removed || self.invulnerable || self.is_down() || matches!(self.state, State::InCar { .. }) {
             return;
         }
         let front = flat(from, self.fig.pos).dot(self.fig.facing()) > 0.0;
@@ -1558,11 +1628,16 @@ impl Person {
         }
         self.aggro = true;
         self.attack_timer = self.attack_timer.max(0.8);
-        self.cues.push(match weapon {
-            Weapon::Knife => Sfx::Stab,
-            Weapon::Bat => Sfx::BatHit,
-            _ => Sfx::Hit { heavy: knocked_down || damage >= 25 },
-        });
+        // A bullet landing makes no thump of its own: all the original adds is a spark
+        // (`PYRO_hitspang`), and it keeps the ricochets for shots that miss. The gun going
+        // off and the victim's own voice carry it, so a shot mustn't sound like a punch.
+        if !weapon.is_gun() {
+            self.cues.push(match weapon {
+                Weapon::Knife => Sfx::Stab,
+                Weapon::Bat => Sfx::BatHit,
+                _ => Sfx::Hit { heavy: knocked_down || damage >= 25 },
+            });
+        }
         self.cues.push(if knocked_out { Sfx::KnockedOut { kind: self.kind } } else { Sfx::Hurt { kind: self.kind } });
         if knocked_down {
             if knocked_out {

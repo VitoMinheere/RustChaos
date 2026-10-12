@@ -14,7 +14,7 @@ What's there:
   - Physical Training (`assault1`): the assault course against the clock;
   - Driving Bronze, Silver and Gold (`testdrive1a`, `testdrive2`, `testdrive3`): laps in the squad car.
 
-  The first street missions, RTA (`police1`) and The Jump (`police2`), play to the end too, though the city is still quieter than the original's.
+  The first street missions play to the end too, though the city is still quieter than the original's: RTA (`police1`), The Jump (`police2`) and Nitro Car (`Bankbomb1`), the first one played as somebody other than Darci.
 - **Missions:** read, edit and write them as JSON.
 
 No game data is included; everything is read from your install.
@@ -25,9 +25,9 @@ No game data is included; everything is read from your install.
 |---|---|---|
 | `uc-formats` | Readers (and a mission writer) for the game's files: maps `.iam`, missions `.ucm`, texture clumps `.txc`, prims `.prm`, wall styles `style.tma`, lighting `.lgt`, characters/animations `.all`. Also the wall-geometry, lighting, ground-height and collision rules ported from the engine. Optional `json` feature: missions as JSON. | std only (`serde` with `json`) |
 | `uc-world` | Renderer-independent world: loads a mission's level and builds chunked, lit geometry (floor, kerbs, roofs, walls, props, cables, ladders); poses and animates people (every person type, with Darci's animation set); knows where people can stand (terrain, roofs, ladders, walls). Any renderer can draw it. | `uc-formats`, `glam` |
-| `uc-game` | Gameplay: one state machine for every person (moves, combos, slide tackle, grapples, arrests, jumping, ledges, ladders, falling), a small fight AI and the mission-script runner (event points: messages, beacons, spawns, counters, win/lose). | `uc-world` |
+| `uc-game` | Gameplay: one state machine for every person (moves, combos, slide tackle, grapples, arrests, jumping, ledges, ladders, falling), a small fight AI (including bodyguards), cars and their locks, explosions and the mission-script runner (event points: messages, beacons, spawns, counters, win/lose). | `uc-world` |
 | `uc-audio` | Sound from your install: a WAV decoder (PCM and IMA ADPCM, which every voice line uses), positional sound effects, music that crossfades between the original's dynamic tracks, and mission voice lines (`talk2\<mission>.ucm<n>.wav`, by each message's speech number). Built on `rodio`. | `uc-formats` |
-| `uc-render` | wgpu renderer: mipmapped textures, alpha cut-outs, distance fog, 4× MSAA, frustum culling per 8×8-square chunk, offscreen rendering for screenshots. | `uc-world`, `wgpu` |
+| `uc-render` | wgpu renderer: mipmapped textures, alpha cut-outs, distance fog, 4× MSAA, frustum culling per 8×8-square chunk, soft blobs for shadows and smoke and added ones for fire, offscreen rendering for screenshots. | `uc-world`, `wgpu` |
 | `uc-viewer` | The app (winit): plays a mission with a HUD, sound and gamepad support, or explores a level; free camera; headless screenshots. | all of the above |
 | `uc-tools` | `uc` command-line tool: missions to and from JSON. | `uc-formats` |
 
@@ -109,7 +109,11 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 **RTA walkthrough:** follow the "Car crash" beacon and talk to the cop there. Drive the abandoned taxi to the "Vehicle Drop" at the station. Answer the homicide call: the witness in the Clunton Projects points you to Kleetus Avenue. Arrest a mugger (the first one is on a rooftop). Muggers attack while you stand about, and killing both of them, or a witness, fails the mission.
 
+**Nitro Car walkthrough:** you play Mako, a gang thug, not Darci: the mission's own `create_player` point says so (`PT_GANG`, which the original turns into a rasta thug, not Roper, who has a model of his own). He has the rasta gang's voice, taunts included, and he can't arrest anyone: the original only looks for someone to cuff when the person doing it is Darci. He starts carrying a loaded pistol — press G for it — because the mission's `create_player` point leaves its "no gun" flag clear, which every training and street mission sets. He moves like her, though, and so does everyone else — `setup_global_anim_array` (fallen/Source/Anim.cpp) points every character at Darci's animations, with the per-type overrides for Roper and the cop commented out. Drive the car bomb at the "Car pick up point" to the bank courtyard; once the charge is primed the car locks, so get out and run — the blast is three squares wide and will kill you. A second car bomb turns up, locked, with a police bomb squad guarding the drop at the department store; take the squad out and it unlocks. Deliver it, clear out again, and then go back for the cop who jumps Cliffy and Zit. Wrecking either car bomb on the way fails the mission, and so does getting one of the boys killed. You can ask them along before the second run (walk up and press E twice): they run after you, sprint when you sprint, and take on whoever comes at you, as long as they can see them: nothing here finds a route round a corner, so they let a cop they can't reach be rather than walking into the wall between. They can look after themselves while you're across town.
+
 **The Jump walkthrough:** Barnaby is on a ledge of the tower east of the station (the "Brooks Tower" beacon). Walk straight up to him, by the ladder from the level where the cop waits, and he talks, then runs off the edge. Come from behind instead. Climb the tall building to the west (ladders from the street by the cop who says "It's up this way"), jump for the zip line on its roof, and ride it down onto Barnaby's ledge behind him.
+
+**Explosions:** a car bomb going off throws out a flash, a fireball, a ring of dust and burning debris, and leaves a fire behind. People within three squares are knocked down or killed, the player included. The `visual_effect` points a mission sets off elsewhere are the same effects without the blast: the original's shockwave for those never fires, thanks to a typo in the 1999 code (`if (ew->ed.subtype=!16)` assigns rather than compares), and this follows it.
 
 **Falls:** landing hard hurts, and a fall of more than about five storeys kills, Darci included (as in the original).
 
@@ -119,7 +123,8 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 - Hold block to stop blows from the front. Knives and bats still hurt a little, and attacks from behind get through. Skilled enemies block too.
 - Finishing moves knock people down; they get up again unless they're out of health. Arrest them while they're down.
 - Walk over a knife or baseball bat to pick it up (enemies drop theirs when knocked out); punch then swings it. Walk over a health pack to heal.
-- **Guns:** walk over a pistol, shotgun or AK-47 to pick it up (it comes loaded, and is drawn if your hands are empty), or over an ammo box for another clip. Armed enemies drop their guns when knocked out or arrested. G (or RB) switches weapon.
+- A bullet landing makes no sound of its own, as in the original: the shot and the victim's voice carry it.
+- **Guns:** walk over a pistol, shotgun or AK-47 to pick it up (it comes loaded, and is drawn if your hands are empty), or over an ammo box for another clip. A mission can also start you carrying a pistol (its `create_player` point says so, as Nitro Car's does): that one is stowed, not drawn. The HUD lists what's in hand brightly and what else is on you dimmed beside it, as the original's weapon panel did. Armed enemies drop their guns when knocked out or arrested. G (or RB) switches weapon.
 - With a gun drawn, punch fires at the target in the red brackets. Holding punch keeps the AK-47 firing. Targeting picks the nearest enemy you can see, favouring those in front, and sticks with it while it can be shot. T (or a right-stick click) moves on to the next one. Damage follows the original: pistol 70, AK-47 100, and the shotgun up to 250 close up, falling off with distance (enough to knock someone down). Enemies' shots do half damage to Darci. An empty gun clicks.
 - Enemies in a fight, or hurt, show a health bar over their heads.
 - Enemies with guns shoot from range when they can see you, so close in behind cover. Blocking doesn't stop bullets.
@@ -141,7 +146,7 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 - **Darci's voice:** she calls out arrests and sometimes taunts after a knockout.
 - **Enemy shouts:** thugs shout when they spot her.
 - **Music:** it follows the action. Fight and sprint themes come from the mission's music world (`levels\mworlds.txt`, as in the original), the mission-complete or failure cue plays at the end, and city ambience plays underneath.
-- **Mission messages and conversations:** they play their recordings (`talk2\<mission>.ucm<n>.wav`, where `n` is the message's own speech number, as in the original). The combat tutorial has none; the other training missions and RTA have nearly all of theirs.
+- **Mission messages and conversations:** they play their recordings (`talk2\<mission>.ucm<n>.wav`, where `n` is the message's own speech number, as in the original). They are said one at a time: skipping a fly-by on brings the next line up before the one before it has finished, so a line that arrives early waits its turn rather than talking over it. The combat tutorial has none; the other training missions and RTA have nearly all of theirs.
 
 The HUD shows Darci's health, the weapon in hand and its rounds, enemy health bars, the target and the mission's messages. A minimap in the top right shows the city from above, north up, made once per level by rendering it from overhead (ground floors show through warehouse roofs). Darci is the white dot, the mission's beacons are gold (pinned to the edge when further away) and enemies in a fight are red. The beacons are listed underneath with their distances. It zooms out while driving. The window title shows FPS and how many chunks and draw calls the frame used.
 
@@ -191,7 +196,8 @@ With an install present, the tests check:
 - 98.9% of the police map's wall segments find their texture;
 - Darci's animations are complete;
 - Police 1 builds every geometry layer, and every person type can be posed;
-- a bot plays the combat tutorial to the end.
+- a bot plays the combat tutorial to the end;
+- Nitro Car runs from the first car bomb to the win, with its locked cars, bodyguards and both ways of failing.
 
 Without an install, the data tests print a note and pass. That's what CI sees: `.github/workflows/rust.yml` builds, tests and runs Clippy on Windows and Linux.
 
@@ -205,10 +211,11 @@ Without an install, the data tests print a note and pass. That's what CI sees: `
 - overhead cables (with their sag) and ladders;
 - baked lighting (ambient, static lights, lamppost lights);
 - sky colour and distance fog;
-- Darci, with idle, walk and run animations, ground following and wall collision.
+- Darci, with idle, walk and run animations, ground following and wall collision (and whoever else a mission makes the player);
+- explosions and the fires they leave.
 
 **Not yet:**
-- event points beyond the training missions' and RTA's set (doors, bombs, fire and other effects...). The viewer prints which points of a mission are ignored;
+- event points beyond the set these missions use (doors, bombs, steam, platforms...). The viewer prints which points of a mission are ignored;
 - ambient city life: the original's random civilians and traffic (`fake_civs`, `fake_cars`). Scripted civilians do stroll about;
 - hanging from ledges and traversing them;
 - stars, the skyline and moon;

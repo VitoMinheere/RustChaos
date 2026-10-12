@@ -53,3 +53,16 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     c = mix(c, g.fog_color.rgb, f);
     return vec4<f32>(c, 1.0);
 }
+
+// Explosions: the same round blob, added to what's behind it rather than blended over it,
+// so fire and dust brighten the scene. The falloff is squared, which the soft blob of a
+// shadow doesn't want but a flame does: it keeps a hot middle instead of a wide haze.
+// Premultiplied, so both blend factors can be one.
+@fragment
+fn fs_glow(in: VOut) -> @location(0) vec4<f32> {
+    let t = textureSample(tex, samp, in.uv);
+    let d = distance(in.world, g.cam_pos.xyz);
+    let f = clamp((d - g.fog.x) / max(g.fog.y - g.fog.x, 0.001), 0.0, 1.0) * g.fog.z;
+    let a = t.a * t.a * in.color.a * (1.0 - f);
+    return vec4<f32>(in.color.rgb * a, a);
+}

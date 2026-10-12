@@ -24,6 +24,7 @@ pub mod waypoint {
     pub const CREATE_TARGET: u8 = 8;
     pub const CAMERA_WAYPOINT: u8 = 10;
     pub const MESSAGE: u8 = 12;
+    pub const VISUAL_EFFECT: u8 = 14;
     pub const CUT_SCENE: u8 = 15;
     pub const END_GAME_LOSE: u8 = 18;
     pub const ADJUST_ENEMY: u8 = 22;
@@ -41,6 +42,7 @@ pub mod waypoint {
     pub const EXTEND: u8 = 50;
     pub const MOVE_THING: u8 = 51;
     pub const STALL_CAR: u8 = 49;
+    pub const LOCK_VEHICLE: u8 = 43;
     pub const CONE_PENALTIES: u8 = 53;
     pub const SIGN: u8 = 54;
 }
@@ -68,6 +70,7 @@ pub mod trigger {
     pub const COUNTER: u8 = 31;
     pub const KILLED_NOT_ARRESTED: u8 = 32;
     pub const PERSON_IN_VEHICLE: u8 = 36;
+    pub const SPECIFIC_ITEM_HELD: u8 = 39;
     pub const THING_RADIUS_DIR: u8 = 37;
     pub const RANDOM: u8 = 40;
     pub const MOVE_RADIUS_DIR: u8 = 44;

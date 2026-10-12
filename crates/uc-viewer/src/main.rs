@@ -342,7 +342,7 @@ impl World {
     }
 
     fn dynamic(&self) -> BTreeMap<u32, Batch> {
-        self.game.batches(&self.level)
+        self.game.batches(&self.level, self.camera().pos * uc_world::UNIT)
     }
 
     /// Builds the level and uploads it to the renderer.
@@ -390,7 +390,7 @@ impl World {
         if let Some(p) = self.game.player() {
             // Health bar.
             let frac = (p.health.max(0) as f32 / p.max_health as f32).clamp(0.0, 1.0);
-            o.text(12.0 * s, 10.0 * s, s, white, "DARCI");
+            o.text(12.0 * s, 10.0 * s, s, white, &self.game.player_name().to_uppercase());
             let (bx, by, bw, bh) = (12.0 * s, 20.0 * s, 80.0 * s, 5.0 * s);
             o.rect(bx - s, by - s, bw + 2.0 * s, bh + 2.0 * s, [0, 0, 0, 160]);
             let col = if frac > 0.5 { [90, 200, 90, 255] } else if frac > 0.25 { [230, 190, 60, 255] } else { [220, 60, 50, 255] };
@@ -401,7 +401,15 @@ impl World {
                 None => p.weapon.name().to_string(),
             };
             let col = if p.rounds() == Some(0) { [240, 90, 70, 255] } else { white };
-            o.text(bx + bw + 8.0 * s, by - 2.0 * s, s, col, &weapon);
+            let mut wx = bx + bw + 8.0 * s + o.text(bx + bw + 8.0 * s, by - 2.0 * s, s, col, &weapon);
+            // What else is being carried, dimmer: press G for it.
+            for (w, rounds) in p.stowed() {
+                let text = match rounds {
+                    Some(n) => format!("  {} {n}", w.name()),
+                    None => format!("  {}", w.name()),
+                };
+                wx += o.text(wx, by - 2.0 * s, s, [170, 170, 160, 200], &text);
+            }
             // Badge stats (gold for those raised in this mission; kept when it's won).
             let mut x = bx;
             for (k, name) in ["STA", "STR", "REF", "CON"].iter().enumerate() {
@@ -678,12 +686,14 @@ impl Sound {
     fn start(&mut self, world: &World) {
         self.music_world = uc_audio::music_world(&world.args.game, &world.level.name, world.level.mission.music_world);
         self.mood = Mood::Calm;
+        self.audio.hush();
         self.audio.music(None);
         self.audio.ambience(Some("f_CTYAMB.wav"), 0.35);
     }
 
     /// Back to the menu: quiet.
     fn stop(&mut self) {
+        self.audio.hush();
         self.audio.music(None);
         self.audio.ambience(None, 0.0);
         self.audio.engine(None);
@@ -850,6 +860,10 @@ impl App {
         }
         if inp.hit(KeyCode::KeyR) || pad.hit(Button::Start) {
             w.restart();
+            // Starting over shouldn't be talked over by the run before it.
+            if let Some(s) = self.sound.as_mut() {
+                s.audio.hush();
+            }
             if !w.third_person {
                 w.fly = FlyCam::from(w.start);
             }

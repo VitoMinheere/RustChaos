@@ -15,6 +15,7 @@
 
 pub mod goals;
 pub mod person;
+pub mod pyro;
 pub mod script;
 pub mod vehicle;
 
@@ -24,8 +25,16 @@ use uc_world::character::person as ptype;
 use uc_world::{Batch, Level};
 
 pub use person::{Controls, Person, Sfx, State, Weapon};
+pub use pyro::Pyro;
 pub use script::Shot;
 pub use vehicle::{Drive, Vehicle};
+
+/// `facet_rand`'s LCG (fallen/Source/facet.cpp): the one source of chance in the game, so a
+/// run plays out the same way twice.
+pub(crate) fn rand(seed: &mut u32) -> u32 {
+    *seed = seed.wrapping_mul(69069).wrapping_add(1);
+    *seed >> 16
+}
 
 /// A barrel, bin or traffic cone (`BT_*`): knocked about by cars.
 #[derive(Debug, Clone)]
@@ -166,6 +175,23 @@ pub struct Game {
     pub badges: [u8; 4],
     /// The points of the badges picked up in this mission.
     pub found: BTreeSet<usize>,
+    /// The `create_item` points whose item the player has picked up (`EWAY_FLAG_GOTITEM`,
+    /// which the `specific_item_held` trigger watches).
+    taken: BTreeSet<usize>,
+    /// Explosions and fires burning.
+    pub pyro: Pyro,
+    /// What to call the player, for the HUD and for their lines in a conversation.
+    player_name: &'static str,
+}
+
+/// What a mission calls the player. The original's panel carries no name at all (it just
+/// picks Darci's face or Roper's), so these are this engine's own: the person's type, except
+/// where the mission's own dialogue keeps calling them something, as Nitro Car's does Mako.
+fn player_name(mission: &str, kind: u8) -> &'static str {
+    match mission.to_ascii_lowercase().as_str() {
+        "bankbomb1" => "Mako",
+        _ => ptype::name(kind),
+    }
 }
 
 impl Game {
@@ -178,14 +204,15 @@ impl Game {
             outcome: None, time: 0.0, rng: 1, sounds: Vec::new(), fight_timer: 0.0, sprinting: false,
             items: Vec::new(), cutscene: None, convo: None, used: false, vehicles: Vec::new(), veh_by_way: HashMap::new(),
             barrels: Vec::new(), sign: None, target: None, stats: [0; 4], badges: [0; 4], found: BTreeSet::new(),
+            taken: BTreeSet::new(), pyro: Pyro::default(), player_name: "",
         };
         if !scripted {
-            g.spawn_player(level, level.spawn.0, level.spawn.1, 0);
+            g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
         }
         // Run the first tick now so the player exists straight away.
         g.run_script(0.0, level);
         if g.player.is_none() {
-            g.spawn_player(level, level.spawn.0, level.spawn.1, 0);
+            g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
         }
         g
     }
@@ -196,9 +223,28 @@ impl Game {
     }
 
     fn rand(&mut self) -> u32 {
-        // facet_rand's LCG.
-        self.rng = self.rng.wrapping_mul(69069).wrapping_add(1);
-        self.rng >> 16
+        rand(&mut self.rng)
+    }
+
+    /// A blast that knocks people about: damage falls off from `damage` at the middle to
+    /// nothing at `radius`, and over 30 points knocks them down (`create_shockwave`,
+    /// fallen/Source/collide.cpp). People in cars are shielded, as everywhere else here.
+    fn shockwave(&mut self, at: Vec3, radius: f32, damage: i32) {
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            if p.removed || p.is_dead() {
+                continue;
+            }
+            // QDIST3: the largest axis plus a quarter of each of the others.
+            let d = (p.fig.pos - at).abs();
+            let dist = d.max_element() + (d.x + d.y + d.z - d.max_element()) / 4.0;
+            if dist >= radius {
+                continue;
+            }
+            let hit = (damage as f32 * (radius - dist) / radius) as i32;
+            let ko = if hit > 30 { person::ko::FINISHERS } else { 0 };
+            self.people[i].take_hit(at, hit, ko, false, false, Weapon::None);
+        }
     }
 
     fn spawn(&mut self, level: &Level, kind: u8, player: bool, way: usize, pos: Vec3, angle: f32) -> Option<usize> {
@@ -216,9 +262,15 @@ impl Game {
         Some(i)
     }
 
-    fn spawn_player(&mut self, level: &Level, pos: Vec3, angle: f32, way: usize) {
+    fn spawn_player(&mut self, level: &Level, pos: Vec3, angle: f32, way: usize, kind: u8, has: u8) {
         if self.player.is_none() {
-            self.player = self.spawn(level, ptype::DARCI, true, way, pos, angle);
+            self.player = self.spawn(level, kind, true, way, pos, angle);
+            self.player_name = player_name(&level.mission.mission_name, kind);
+            // Carried, not drawn: `PCOM_create_player` only raises `FLAGS_HAS_GUN`, which puts
+            // the pistol in the weapon list (`PANEL_ADDWEAPON`) for the player to pick.
+            if let Some(i) = self.player {
+                self.people[i].give(Weapon::from_has(has));
+            }
         }
     }
 
@@ -242,28 +294,52 @@ impl Game {
         }
     }
 
-    /// `PCOM_process_patrol`: people on patrol (move 2 or 3) head for the nearest active
-    /// point of their colour and group, or once there (within a square), the next one by
-    /// number.
-    fn patrol_goals(&mut self) {
+    /// Where each person is walking to when they aren't fighting: `PCOM_process_patrol`
+    /// (move 2 or 3) heads for the nearest active point of their colour and group, or once
+    /// there (within a square), the next one by number; `PCOM_MOVE_FOLLOW` (move 5) keeps up
+    /// with the person their `follow` point created, the player by default.
+    fn walk_goals(&mut self) {
         let Some(script) = &self.script else { return };
-        for p in self.people.iter_mut() {
-            p.goal = None;
-            if p.player || !matches!(p.mv, 2 | 3) || p.aggro() || p.is_dead() {
+        // Where everyone stands this frame, so they all aim at the same thing.
+        let at: Vec<Vec3> = self.people.iter().map(|p| p.fig.pos).collect();
+        let mut goals: Vec<(Option<Vec3>, person::Pace)> = vec![(None, person::Pace::Walk); self.people.len()];
+        for (i, p) in self.people.iter().enumerate() {
+            if p.player || p.aggro() || p.is_dead() {
                 continue;
             }
-            let points = script.patrol_points(p.colour, p.group);
-            let here = p.fig.pos;
-            // QDIST3: the largest axis plus a quarter of the other two.
+            // QDIST3: the largest axis plus a quarter of each of the other two.
             let near = |q: Vec3| {
-                let d = (q - here).abs();
+                let d = (q - at[i]).abs();
                 d.max_element() + (d.x + d.y + d.z - d.max_element()) / 4.0
             };
-            let Some(k) = (0..points.len()).min_by(|&a, &b| near(points[a].1).total_cmp(&near(points[b].1))) else {
-                continue;
+            goals[i] = match p.mv {
+                // Followers run after whoever they're following, as `PCOM_set_person_ai_follow`
+                // asks (`PERSON_SPEED_RUN`), and break into a sprint to keep up with a player
+                // who is sprinting. They stop a couple of squares short of treading on them.
+                5 => {
+                    let j = if p.follow == 0 { self.player } else { self.by_way.get(&p.follow).copied() };
+                    let to = j
+                        .filter(|&j| !self.people[j].removed && !self.people[j].is_dead())
+                        .map(|j| at[j])
+                        .filter(|&to| (to - at[i]).length() > 2.0 * 256.0);
+                    let hurrying = j == self.player && self.sprinting;
+                    (to, if hurrying { person::Pace::Sprint } else { person::Pace::Run })
+                }
+                // `PCOM_process_patrol`: a walk, unless they're `PCOM_BENT_DILIGENT`.
+                2 | 3 => {
+                    let points = script.patrol_points(p.colour, p.group);
+                    let nearest = (0..points.len()).min_by(|&a, &b| near(points[a].1).total_cmp(&near(points[b].1)));
+                    let to = nearest.map(|k| {
+                        let k = if near(points[k].1) < 256.0 { (k + 1) % points.len() } else { k };
+                        points[k].1
+                    });
+                    (to, if p.bent & 2 != 0 { person::Pace::Run } else { person::Pace::Walk })
+                }
+                _ => (None, person::Pace::Walk),
             };
-            let k = if near(points[k].1) < 256.0 { (k + 1) % points.len() } else { k };
-            p.goal = Some(points[k].1);
+        }
+        for (p, (goal, pace)) in self.people.iter_mut().zip(goals) {
+            (p.goal, p.pace) = (goal, pace);
         }
     }
 
@@ -281,8 +357,8 @@ impl Game {
         self.script = Some(script);
         for c in commands {
             match c {
-                Command::SpawnPlayer { way, pos, angle } => {
-                    self.spawn_player(level, pos, angle, way);
+                Command::SpawnPlayer { way, pos, angle, person, has } => {
+                    self.spawn_player(level, pos, angle, way, person, has);
                     if let Some(p) = self.player {
                         self.by_way.insert(way, p);
                     }
@@ -292,6 +368,7 @@ impl Game {
                         let p = &mut self.people[i];
                         (p.ai, p.bent, p.ko_moves) = (spec.ai, spec.bent, spec.ko_moves);
                         (p.skill, p.mv, p.weapon) = (spec.skill, spec.mv, Weapon::from_has(spec.has));
+                        p.follow = spec.follow;
                         p.fig.clothes = spec.colour & 3;
                         p.fig.jacket = spec.skill / 4;
                         p.other = spec.other;
@@ -299,10 +376,10 @@ impl Game {
                         p.give(p.weapon);
                     }
                 }
-                Command::Adjust { way, ai, bent, ko_moves, other, mv, colour, group } => {
+                Command::Adjust { way, ai, bent, ko_moves, other, mv, follow, colour, group } => {
                     if let Some(&i) = self.by_way.get(&way) {
                         let p = &mut self.people[i];
-                        (p.ai, p.bent, p.ko_moves, p.other, p.mv) = (ai, bent, ko_moves, other, mv);
+                        (p.ai, p.bent, p.ko_moves, p.other, p.mv, p.follow) = (ai, bent, ko_moves, other, mv, follow);
                         (p.colour, p.group) = (colour, group);
                     }
                 }
@@ -311,6 +388,21 @@ impl Game {
                         self.people[i].removed = true;
                     }
                     self.items.retain(|it| it.way != way);
+                    // A car a kill_waypoint takes away blows up where it stands: the original
+                    // wrecks it (1050 damage) and sets off a shockwave that catches the player
+                    // too, then forgets it was ever created, so a "killed" trigger watching
+                    // the car won't fire afterwards (`EWAY_DO_KILL_WAYPOINT`, eway.cpp).
+                    if let Some(v) = self.veh_by_way.remove(&way) {
+                        let at = self.vehicles[v].pos;
+                        self.vehicles[v].health = 0;
+                        if let Some(d) = self.vehicles[v].driver.take() {
+                            self.people[d].state = State::Move;
+                            self.people[d].fig.pos = at;
+                        }
+                        self.pyro.burst(at + Vec3::new(0.0, 48.0, 0.0), pyro::CAR_BOMB, 400.0);
+                        self.sounds.push((Sfx::Explosion, at));
+                        self.shockwave(at, 768.0, 350);
+                    }
                 }
                 Command::Move { way, pos, angle } => {
                     let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
@@ -348,16 +440,31 @@ impl Game {
                     self.messages.retain(|m| m.text != text);
                     self.messages.push(Message { text, left: secs });
                 }
-                Command::Vehicle { way, kind, pos, angle } => {
+                Command::Vehicle { way, kind, pos, angle, locked } => {
                     let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
                     // A vehicle's angle is its heading (its nose along (sin, cos)).
-                    self.vehicles.push(Vehicle::new(way, kind, Vec3::new(pos.x, y, pos.z), angle));
+                    self.vehicles.push(Vehicle::new(way, kind, Vec3::new(pos.x, y, pos.z), angle, locked));
                     self.veh_by_way.insert(way, self.vehicles.len() - 1);
                 }
                 Command::Stall { way } => {
                     if let Some(&v) = self.veh_by_way.get(&way) {
                         self.vehicles[v].stalled = true;
                     }
+                }
+                Command::Lock { way, locked } => {
+                    if let Some(&v) = self.veh_by_way.get(&way) {
+                        self.vehicles[v].locked = locked;
+                    }
+                }
+                // A `visual_effect` point's bang. The original's shockwave here never goes
+                // off: `if (ew->ed.subtype=!16)` in `EWAY_DO_EXPLODE` (eway.cpp) assigns
+                // instead of comparing, so the test is always false. Nobody is hurt.
+                Command::Explode { way, pos, kinds, scale } => {
+                    let _ = way;
+                    let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
+                    let at = Vec3::new(pos.x, y.max(pos.y), pos.z);
+                    self.pyro.burst(at, kinds, if scale > 0.0 { scale } else { 400.0 });
+                    self.sounds.push((Sfx::Explosion, at));
                 }
                 Command::Barrel { way, kind, pos } => {
                     let _ = way;
@@ -429,11 +536,15 @@ impl Game {
     fn speaker(&self, way: usize) -> &'static str {
         let p = if way == 0 { self.player } else { self.by_way.get(&way).copied() };
         match p.map(|i| &self.people[i]) {
-            Some(p) if p.player => "Darci",
-            Some(p) if p.kind == ptype::COP => "Cop",
-            Some(p) if p.kind == ptype::ROPER => "Roper",
+            Some(p) if p.player => self.player_name,
+            Some(p) if matches!(p.kind, ptype::COP | ptype::ROPER) => ptype::name(p.kind),
             _ => "",
         }
+    }
+
+    /// What to call the player.
+    pub fn player_name(&self) -> &'static str {
+        self.player_name
     }
 
     /// Fly-bys and conversations move on.
@@ -496,8 +607,8 @@ impl Game {
             }
             State::Move => {
                 let pos = self.people[pi].fig.pos;
-                let near = |v: &Vehicle| !v.wrecked() && v.driver.is_none() && v.covers(Vec2::new(pos.x, pos.z), 140.0)
-                    && (v.pos.y - pos.y).abs() < 150.0;
+                let near = |v: &Vehicle| !v.wrecked() && !v.locked && v.driver.is_none()
+                    && v.covers(Vec2::new(pos.x, pos.z), 140.0) && (v.pos.y - pos.y).abs() < 150.0;
                 if let Some(vi) = self.vehicles.iter().position(near) {
                     self.vehicles[vi].driver = Some(pi);
                     let p = &mut self.people[pi];
@@ -720,6 +831,9 @@ impl Game {
         if took {
             p.cues.push(Sfx::Pickup);
             self.items.remove(i);
+            if way != 0 {
+                self.taken.insert(way);
+            }
         }
     }
 
@@ -750,6 +864,7 @@ impl Game {
             self.run_script(dt, level);
         }
         self.update_scenes(dt);
+        self.pyro.update(dt);
         let frozen = self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player);
 
         if let Some((_, t)) = &mut self.sign {
@@ -778,7 +893,7 @@ impl Game {
         // player. A fight between other people waits until Darci is near enough to see it
         // (12 squares from the mark), then carries on: the original starts at once, so the
         // crash cops in RTA had shot the drunk long before she got there.
-        self.patrol_goals();
+        self.walk_goals();
         let darci = player.map(|p| self.people[p].fig.pos);
         for i in 0..self.people.len() {
             let p = &self.people[i];
@@ -789,9 +904,43 @@ impl Game {
                         || darci.is_some_and(|d| (d - mark.fig.pos).length() < 12.0 * 256.0);
                     !mark.is_dead() && seen
                 }),
+                // A bodyguard goes for whoever is going for the person they guard, or for
+                // themselves: the nearest of them (`PCOM_find_bodyguard_victim`). Only someone
+                // out to kill counts, as the original's "killing or navigating to kill" does.
+                // Being hit makes anyone go `aggro`, the player included, and the player
+                // counts as their own foe, so without this a bodyguard would turn on the very
+                // person they are guarding the moment a cop landed a blow on them.
+                // They have to be able to see them, too, and keep seeing them: without any
+                // route-finding here, a bodyguard who sets off after someone round a corner
+                // walks into the wall between them and stands there for the rest of the
+                // mission. The original gives up as well when it can't work out how to get
+                // there (`PCOM_AI_SUBSTATE_CANTFIND` in `PCOM_set_person_ai_follow`) and
+                // waits until `can_a_see_b` says the way is clear again.
+                (person::AI_BODYGUARD, w) => {
+                    let client = if w == 0 { player } else { self.by_way.get(&w).copied() };
+                    let eye = Vec3::new(0.0, 140.0, 0.0);
+                    self.people
+                        .iter()
+                        .enumerate()
+                        .filter(|(j, o)| {
+                            *j != i && o.hostile() && o.aggro() && !o.is_dead()
+                                && (o.foe == client || o.foe == Some(i))
+                                && (o.fig.pos - p.fig.pos).length() < 8.0 * 256.0
+                                && level.ground.line_of_sight(p.fig.pos + eye, o.fig.pos + eye)
+                        })
+                        .min_by(|a, b| {
+                            let d = |o: &Person| (o.fig.pos - p.fig.pos).length();
+                            d(a.1).total_cmp(&d(b.1))
+                        })
+                        .map(|(j, _)| j)
+                }
                 _ => player,
             };
+            // Twenty blocks from the player, a bodyguard is out of harm's way.
+            let away = p.ai == person::AI_BODYGUARD
+                && darci.is_some_and(|d| (d - p.fig.pos).length() > 20.0 * 256.0);
             self.people[i].foe = foe;
+            self.people[i].invulnerable = away;
         }
         for i in 0..self.people.len() {
             let c = if Some(i) == player {
@@ -815,7 +964,8 @@ impl Game {
 
         if let (Some(p), None) = (self.player, &self.outcome) {
             if self.people[p].knocked_out {
-                self.finish(Outcome::Lost("Darci was knocked out".into()));
+                let who = self.player_name();
+                self.finish(Outcome::Lost(format!("{who} was knocked out")));
             }
         }
         if let Some(pl) = self.player() {
@@ -847,7 +997,8 @@ impl Game {
                     let was_down = self.people[victim].is_down();
                     self.people[victim].take_hit(from, damage, ko, high, low, weapon);
                     if !was_down && self.people[victim].is_down() && Some(attacker) == self.player {
-                        self.people[attacker].cues.push(Sfx::Taunt);
+                        let kind = self.people[attacker].kind;
+                        self.people[attacker].cues.push(Sfx::Taunt { kind });
                     }
                     self.drop_weapon(victim);
                 }
@@ -883,7 +1034,8 @@ impl Game {
                         let was_down = self.people[victim].is_down();
                         self.people[victim].take_hit(from, damage, ko, true, false, weapon);
                         if !was_down && self.people[victim].is_down() && Some(attacker) == self.player {
-                            self.people[attacker].cues.push(Sfx::Taunt);
+                            let kind = self.people[attacker].kind;
+                            self.people[attacker].cues.push(Sfx::Taunt { kind });
                         }
                         self.drop_weapon(victim);
                     }
@@ -1010,8 +1162,9 @@ impl Game {
             .collect()
     }
 
-    /// This frame's people meshes.
-    pub fn batches(&self, level: &Level) -> BTreeMap<u32, Batch> {
+    /// This frame's people meshes, cars, items and effects. `eye` is where the camera is
+    /// (world units), which the puffs of an explosion turn to face.
+    pub fn batches(&self, level: &Level, eye: Vec3) -> BTreeMap<u32, Batch> {
         let lighter = level.lighter();
         let mut out = BTreeMap::new();
         for p in self.people.iter().filter(|p| !p.removed && !matches!(p.state, State::InCar { .. })) {
@@ -1031,13 +1184,18 @@ impl Game {
         }
         // Cars: body and wheels (front wheels turned by the steering), and a long shadow.
         for v in &self.vehicles {
-            let (body, wheel, wx, fz, rz, dy) = vehicle::TYPES[v.kind as usize];
+            let (body, wheel, wx, fz, rz) = vehicle::TYPES[v.kind as usize];
             // The meshes are modelled nose towards -z: turn them round to face the way it drives.
+            // They sit on the road as modelled, so the body goes down as it is.
             if let Some(prim) = level.item_prims.get(&body) {
-                uc_world::level::prim_batches(prim, |p| v.place(Vec3::new(-p.x, p.y + dy, -p.z)), lighter.as_ref(), &mut out);
+                uc_world::level::prim_batches(prim, |p| v.place(Vec3::new(-p.x, p.y, -p.z)), lighter.as_ref(), &mut out);
             }
             if let Some(prim) = level.item_prims.get(&wheel) {
                 let (ss, cs) = v.wheel_spin.sin_cos();
+                // A wheel is modelled about its axle, so it rides on its own radius: the vans
+                // and the jeep run on a bigger one than the cars do.
+                let (lo, hi) = uc_world::level::prim_bounds(prim);
+                let radius = (hi.y - lo.y) / 2.0;
                 // Wheel positions mirrored like the body; the ones towards the nose steer.
                 for (x, z, front) in [(wx, -rz, true), (-wx, -rz, true), (wx, -fz, false), (-wx, -fz, false)] {
                     let (st, ct) = if front { (v.steer * 0.5).sin_cos() } else { (0.0, 1.0) };
@@ -1045,7 +1203,7 @@ impl Game {
                         // Spin about the axle (x), then steer about y.
                         let r = Vec3::new(p.x, cs * p.y - ss * p.z, ss * p.y + cs * p.z);
                         let r = Vec3::new(ct * r.x - st * r.z, r.y, st * r.x + ct * r.z);
-                        v.place(r + Vec3::new(x, 38.0, z))
+                        v.place(r + Vec3::new(x, radius, z))
                     };
                     uc_world::level::prim_batches(prim, place, lighter.as_ref(), &mut out);
                 }
@@ -1082,6 +1240,20 @@ impl Game {
             let lift = if it.kind == 9 { 0.0 } else { 24.0 - uc_world::level::prim_bounds(prim).0.y.max(0.0) };
             uc_world::level::prim_batches(prim, |v| it.pos + Vec3::new(c * v.x + s * v.z, v.y + lift, -s * v.x + c * v.z),
                                           lighter.as_ref(), &mut out);
+        }
+        // Explosions and fire: round puffs turned to face the camera, the bright ones added
+        // to the scene and the smoke blended over it.
+        for puff in &self.pyro.puffs {
+            let away = puff.pos - eye;
+            let right = away.cross(Vec3::Y).normalize_or(Vec3::X) * puff.radius();
+            let up = right.cross(away).normalize_or(Vec3::Y) * puff.radius();
+            let page = if puff.smoke { uc_world::SHADOW } else { uc_world::GLOW };
+            let corner = |x: f32, y: f32| (puff.pos + right * x + up * y) / uc_world::UNIT;
+            out.entry(page).or_default().quad(
+                [corner(-1.0, -1.0), corner(1.0, -1.0), corner(-1.0, 1.0), corner(1.0, 1.0)],
+                [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
+                [puff.colour(); 4],
+            );
         }
         out
     }
@@ -1161,6 +1333,9 @@ impl script::Query for Scene<'_> {
     fn player_used(&self) -> bool {
         self.game.player_used()
     }
+    fn got_item(&self, way: usize) -> bool {
+        self.game.got_item(way)
+    }
 
     /// `can_a_see_b` (fallen/Source/Person.cpp): up to 8 squares, within about 74 degrees of
     /// straight ahead (much wider up close), with a clear line between their heads.
@@ -1233,5 +1408,9 @@ impl script::Query for Game {
 
     fn player_grabbing(&self) -> bool {
         self.player().is_some_and(|p| p.grabbing())
+    }
+
+    fn got_item(&self, way: usize) -> bool {
+        self.taken.contains(&way)
     }
 }
