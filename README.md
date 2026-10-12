@@ -14,7 +14,7 @@ What's there:
   - Physical Training (`assault1`): the assault course against the clock;
   - Driving Bronze, Silver and Gold (`testdrive1a`, `testdrive2`, `testdrive3`): laps in the squad car.
 
-  The first street missions play to the end too, though the city is still quieter than the original's: RTA (`police1`), The Jump (`police2`), Nitro Car (`Bankbomb1`), the first one played as somebody other than Darci, and Gun Hunt (`police3`).
+  The first street missions play to the end too, though the city is still quieter than the original's: RTA (`police1`), The Jump (`police2`), Nitro Car (`Bankbomb1`), the first one played as somebody other than Darci, Gun Hunt (`police3`) and Rat Catch (`Gangorder2`).
 - **Missions:** read, edit and write them as JSON.
 
 No game data is included; everything is read from your install.
@@ -113,6 +113,8 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 **Gun Hunt walkthrough:** Deeks the snitch is somewhere in the park: follow the beacon and talk to him (E). He puts the murder weapon behind some skips in the middle of town, and a new beacon points at it. Walk over it to pick it up. Its owner hears it has gone and comes looking, armed: arrest him or put him down, then take the gun back to the station. Deeks is a snitch, not a collar, so killing him or arresting him fails the mission. Where he's standing and where the gun is are picked afresh each time you play (`move_thing` points on a `random` trigger), so the beacons are worth following.
 
+**Rat Catch walkthrough:** Mako again. Talk to the Wildcat who meets you, then collect McLean and Bish, who fall in behind you, and go to Spiv for the job: McIntyre's son is to be delivered, not hurt. Walk up to him and he bolts; run him down and beat him to half health and he gives it up, then stand over him and he comes quietly and follows you to the drop. Killing him doesn't end the mission — the Boss takes it out of you instead, and the way back into his good books is five more dead cops. Losing the Wildcats who are with you fails it.
+
 **The Jump walkthrough:** Barnaby is on a ledge of the tower east of the station (the "Brooks Tower" beacon). Walk straight up to him, by the ladder from the level where the cop waits, and he talks, then runs off the edge. Come from behind instead. Climb the tall building to the west (ladders from the street by the cop who says "It's up this way"), jump for the zip line on its roof, and ride it down onto Barnaby's ledge behind him.
 
 **Explosions:** a car bomb going off throws out a flash, a fireball, a ring of dust and burning debris, and leaves a fire behind. People within three squares are knocked down or killed, the player included. The `visual_effect` points a mission sets off elsewhere are the same effects without the blast: the original's shockwave for those never fires, thanks to a typo in the 1999 code (`if (ew->ed.subtype=!16)` assigns rather than compares), and this follows it.
@@ -200,7 +202,8 @@ With an install present, the tests check:
 - Police 1 builds every geometry layer, and every person type can be posed;
 - a bot plays the combat tutorial to the end;
 - Nitro Car runs from the first car bomb to the win, with its locked cars, bodyguards and both ways of failing;
-- Gun Hunt runs from Deeks to the station, and losing Deeks fails it.
+- Gun Hunt runs from Deeks to the station, and losing Deeks fails it;
+- Rat Catch runs to both of its endings: the son delivered, and the Boss's punishment after he's killed.
 
 Without an install, the data tests print a note and pass. That's what CI sees: `.github/workflows/rust.yml` builds, tests and runs Clippy on Windows and Linux.
 

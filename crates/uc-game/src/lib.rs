@@ -178,6 +178,8 @@ pub struct Game {
     /// The `create_item` points whose item the player has picked up (`EWAY_FLAG_GOTITEM`,
     /// which the `specific_item_held` trigger watches).
     taken: BTreeSet<usize>,
+    /// Cops already counted towards the script's tally of them, so none is counted twice.
+    dead_cops: BTreeSet<usize>,
     /// Explosions and fires burning.
     pub pyro: Pyro,
     /// What to call the player, for the HUD and for their lines in a conversation.
@@ -189,7 +191,7 @@ pub struct Game {
 /// where the mission's own dialogue keeps calling them something, as Nitro Car's does Mako.
 fn player_name(mission: &str, kind: u8) -> &'static str {
     match mission.to_ascii_lowercase().as_str() {
-        "bankbomb1" => "Mako",
+        "bankbomb1" | "gangorder2" => "Mako",
         _ => ptype::name(kind),
     }
 }
@@ -204,7 +206,7 @@ impl Game {
             outcome: None, time: 0.0, rng: 1, sounds: Vec::new(), fight_timer: 0.0, sprinting: false,
             items: Vec::new(), cutscene: None, convo: None, used: false, vehicles: Vec::new(), veh_by_way: HashMap::new(),
             barrels: Vec::new(), sign: None, target: None, stats: [0; 4], badges: [0; 4], found: BTreeSet::new(),
-            taken: BTreeSet::new(), pyro: Pyro::default(), player_name: "",
+            taken: BTreeSet::new(), dead_cops: BTreeSet::new(), pyro: Pyro::default(), player_name: "",
         };
         if !scripted {
             g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
@@ -485,6 +487,24 @@ impl Game {
                 }
                 Command::Win => self.finish(Outcome::Won),
                 Command::Lose => self.finish(Outcome::Lost("Mission failed".into())),
+            }
+        }
+    }
+
+    /// Keeps the script's tally of cops killed up to date: the original bumps counter 7
+    /// wherever a `PERSON_COP` dies, and a mission can ask for a number of them.
+    fn count_dead_cops(&mut self) {
+        let newly: Vec<usize> = self
+            .people
+            .iter()
+            .enumerate()
+            .filter(|(i, p)| p.kind == ptype::COP && p.knocked_out && !self.dead_cops.contains(i))
+            .map(|(i, _)| i)
+            .collect();
+        for i in newly {
+            self.dead_cops.insert(i);
+            if let Some(s) = self.script.as_mut() {
+                s.note_cop_killed();
             }
         }
     }
@@ -961,6 +981,7 @@ impl Game {
         }
         self.sync_grapples();
         self.separate(level);
+        self.count_dead_cops();
 
         if let (Some(p), None) = (self.player, &self.outcome) {
             if self.people[p].knocked_out {
