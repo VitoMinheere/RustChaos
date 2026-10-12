@@ -894,14 +894,19 @@ impl Game {
                     !mark.is_dead() && seen
                 }),
                 // A bodyguard goes for whoever is going for the person they guard, or for
-                // themselves: the nearest of them (`PCOM_find_bodyguard_victim`).
+                // themselves: the nearest of them (`PCOM_find_bodyguard_victim`). Only someone
+                // out to kill counts, as the original's "killing or navigating to kill" does.
+                // Being hit makes anyone go `aggro`, the player included, and the player
+                // counts as their own foe, so without this a bodyguard would turn on the very
+                // person they are guarding the moment a cop landed a blow on them.
                 (person::AI_BODYGUARD, w) => {
                     let client = if w == 0 { player } else { self.by_way.get(&w).copied() };
                     self.people
                         .iter()
                         .enumerate()
                         .filter(|(j, o)| {
-                            *j != i && o.aggro() && !o.is_dead() && (o.foe == client || o.foe == Some(i))
+                            *j != i && o.hostile() && o.aggro() && !o.is_dead()
+                                && (o.foe == client || o.foe == Some(i))
                                 && (o.fig.pos - p.fig.pos).length() < 8.0 * 256.0
                         })
                         .min_by(|a, b| {

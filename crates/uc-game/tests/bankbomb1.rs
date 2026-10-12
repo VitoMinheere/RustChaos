@@ -244,3 +244,38 @@ fn the_boys_can_be_recruited_after_the_first_bomb() {
     assert_eq!(r.g.people[zit].mv, 1, "Zit shouldn't tag along before there's a job");
     assert!(!matches!(r.g.people[zit].state, State::InCar { .. }));
 }
+
+/// The boys guard Mako: a blow landed on him must not turn them on him. Being hit makes
+/// anyone go aggro and the player counts as their own foe, which once had them shooting the
+/// man they were escorting.
+#[test]
+fn the_boys_never_turn_on_mako() {
+    let Some(mut r) = start() else { return };
+    r.play(2.0, Controls::default());
+    let (zit, cliffy) = (
+        r.g.people.iter().position(|p| p.way == 3).expect("Zit"),
+        r.g.people.iter().position(|p| p.way == 4).expect("Cliffy"),
+    );
+    // Stand between them and take a beating.
+    let between = (r.g.people[zit].fig.pos + r.g.people[cliffy].fig.pos) / 2.0;
+    r.stand(between);
+    for _ in 0..5 {
+        let me = r.g.player.unwrap();
+        let from = r.g.people[me].fig.pos + vec3(100.0, 0.0, 0.0);
+        r.g.people[me].take_hit(from, 10, 0, true, false, uc_game::Weapon::None);
+        r.play(1.0, Controls::default());
+        for (who, i) in [("Zit", zit), ("Cliffy", cliffy)] {
+            assert_ne!(r.g.people[i].foe, r.g.player, "{who} turned on the man he's guarding");
+        }
+    }
+    assert_eq!(r.g.outcome, None, "Mako shouldn't be shot by his own escort");
+
+    // A cop going for Mako is fair game, though.
+    let me = r.g.player.unwrap();
+    let at = r.g.people[me].fig.pos + vec3(300.0, 0.0, 0.0);
+    let cop = r.g.people.iter().position(|p| p.kind == ptype::COP && !p.removed);
+    let cop = cop.expect("Nitro Car has cops about");
+    r.g.people[cop].fig.pos = at;
+    r.play(2.0, Controls::default());
+    assert_eq!(r.g.people[zit].foe, Some(cop), "Zit should see off the cop on Mako");
+}
