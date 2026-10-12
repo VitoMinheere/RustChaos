@@ -119,6 +119,8 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 **Explosions:** a car bomb going off throws out a flash, a fireball, a ring of dust and burning debris, and leaves a fire behind. People within three squares are knocked down or killed, the player included. The `visual_effect` points a mission sets off elsewhere are the same effects without the blast: the original's shockwave for those never fires, thanks to a typo in the 1999 code (`if (ew->ed.subtype=!16)` assigns rather than compares), and this follows it.
 
+**Doors:** a door is shut and solid until a mission opens it, which is the only way one ever opens — the original has no walking into them and no "use" on them either, and `DOOR_open`'s only caller is the mission script.
+
 **Falls:** landing hard hurts, and a fall of more than about five storeys kills, Darci included (as in the original).
 
 **Driving:** E next to a car gets in (and out, once it has nearly stopped). W/S or the triggers accelerate and brake/reverse, A/D or the stick steer, Space or A is the handbrake: it locks the back wheels, so the car slides round a corner (with a skid) instead of stopping. At speed, full lock and the handbrake spin the car right round (a 180 in a little over a second), ready to drive back the way it came. Nobody can hit or shoot you while you're in the car. The camera swings round behind the car; the HUD shows speed and damage. Hit walls hard enough and the car wrecks. People get out of the way of a car coming at them, as in the original, but if you catch them they go flying. Cones and barrels get knocked about.
@@ -221,7 +223,7 @@ Without an install, the data tests print a note and pass. That's what CI sees: `
 - explosions and the fires they leave.
 
 **Not yet:**
-- event points beyond the set these missions use (doors, bombs, steam, platforms...). The viewer prints which points of a mission are ignored;
+- event points beyond the set these missions use (bombs, steam, platforms, mist...). The viewer prints which points of a mission are ignored; `cargo run -p uc-game --example unsupported` lists them for every mission at once;
 - ambient city life: the original's random civilians and traffic (`fake_civs`, `fake_cars`). Scripted civilians do stroll about;
 - a warehouse's own ambience (`warefx`): there is one ambience track so far, the city's;
 - hanging from ledges and traversing them;

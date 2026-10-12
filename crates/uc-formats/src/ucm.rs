@@ -25,6 +25,7 @@ pub mod waypoint {
     pub const CAMERA_WAYPOINT: u8 = 10;
     pub const MESSAGE: u8 = 12;
     pub const VISUAL_EFFECT: u8 = 14;
+    pub const ACTIVATE_PRIM: u8 = 20;
     pub const CUT_SCENE: u8 = 15;
     pub const END_GAME_LOSE: u8 = 18;
     pub const ADJUST_ENEMY: u8 = 22;

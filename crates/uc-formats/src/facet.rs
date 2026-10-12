@@ -40,8 +40,8 @@ impl FacetRand {
 pub fn is_wall(f: &Facet) -> bool {
     matches!(
         f.kind,
-        facet_type::NORMAL | facet_type::WALL | facet_type::DOOR | facet_type::TRENCH
-            | facet_type::FENCE | facet_type::FENCE_BRICK | facet_type::FENCE_FLAT
+        facet_type::NORMAL | facet_type::WALL | facet_type::DOOR | facet_type::OUTSIDE_DOOR
+            | facet_type::TRENCH | facet_type::FENCE | facet_type::FENCE_BRICK | facet_type::FENCE_FLAT
     )
 }
 
@@ -163,12 +163,29 @@ pub struct WallSegment {
     pub y1: f32,
 }
 
-/// Solid walls and fences of the map. Doors, cables, ladders and invisible facets are left out
-/// (the game handles those with their own rules).
+/// Solid walls and fences of the map. Cables, ladders and invisible facets are left out (the
+/// game handles those with their own rules), and so are doors: they block too, but a mission
+/// can open one, so [`door_segments`] keeps them apart.
 pub fn collision_segments(map: &Map) -> Vec<WallSegment> {
+    segments(map, false)
+}
+
+/// The map's doors, in the order they appear, as the shapes they block with while shut.
+///
+/// A door here is `STOREY_TYPE_OUTSIDE_DOOR`, which is the one kind `DOOR_find` looks for
+/// (fallen/Source/door.cpp) and the one a mission can open. Maps carry a handful each, and
+/// the count matches the mission's door points: botanicc has two of both.
+pub fn door_segments(map: &Map) -> Vec<WallSegment> {
+    segments(map, true)
+}
+
+fn segments(map: &Map, doors: bool) -> Vec<WallSegment> {
     let mut out = Vec::new();
     for f in map.facets.iter().skip(1) {
-        if !is_wall(f) || f.kind == facet_type::DOOR || f.flags & facet_flags::INVISIBLE != 0 {
+        let is_door = f.kind == facet_type::OUTSIDE_DOOR;
+        // `STOREY_TYPE_DOOR` is a doorway rather than a door: nothing opens one and the
+        // original walks straight through, so it is drawn and never collided with.
+        if !is_wall(f) || is_door != doors || f.kind == facet_type::DOOR || f.flags & facet_flags::INVISIBLE != 0 {
             continue;
         }
         let is_fence = matches!(f.kind, facet_type::FENCE | facet_type::FENCE_BRICK | facet_type::FENCE_FLAT);
