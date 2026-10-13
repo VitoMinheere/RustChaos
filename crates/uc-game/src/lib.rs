@@ -18,6 +18,7 @@ pub mod dirt;
 pub mod goals;
 pub mod mist;
 pub mod person;
+pub mod plat;
 pub mod pyro;
 pub mod script;
 pub mod steam;
@@ -305,6 +306,11 @@ pub struct Game {
     pub damaged: BTreeSet<usize>,
     /// Explosives set down and waiting to go off.
     pub charges: Vec<Charge>,
+    /// The mission's moving platforms, made or still waiting to be.
+    pub platforms: Vec<plat::Platform>,
+    /// Their prims, loaded once.
+    plat_prims: Vec<Option<uc_formats::prm::Prim>>,
+    plat_clock: f32,
     /// The map's warehouses, with the ambience the mission has given each.
     pub wares: ware::Wares,
     /// The warehouse the player is in, and the ambience it had as they came in.
@@ -335,6 +341,8 @@ pub struct Game {
     pub steam: steam::Steam,
     /// Estate of Emergency, where the tramp's face is the boss's (`estate`).
     estate: bool,
+    /// Grim Gardens, where jumping onto a platform puts you on it (`playing_level`).
+    botanicc: bool,
     /// What to call the player, for the HUD.
     player_name: &'static str,
 }
@@ -362,15 +370,24 @@ impl Game {
             taken: BTreeSet::new(), dead_cops: BTreeSet::new(), player_fired: false,
             searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(),
             wares: ware::Wares::new(&level.map), indoors: None,
+            platforms: level.platforms.iter().map(|&(way, ob)| {
+                let o = &level.map.objects[ob];
+                let yaw = o.yaw as f32 * std::f32::consts::TAU / 2048.0;
+                plat::Platform::new(way, ob, o.prim, Vec3::new(o.x as f32, o.y as f32, o.z as f32), yaw)
+            }).collect(),
+            plat_prims: level.platforms.iter().map(|&(_, ob)| uc_world::level::load_prim(&level.game, level.map.objects[ob].prim)).collect(),
+            plat_clock: 0.0,
             creatures: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
             aim_creature: None, creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), steam: steam::Steam::default(),
             player_name: "",
             estate: level.mission.mission_name.eq_ignore_ascii_case("estate2"),
+            botanicc: level.name.eq_ignore_ascii_case("botanicc"),
         };
         if !scripted {
             g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
         }
+        g.sync_platforms(level);
         // Run the first tick now so the player exists straight away.
         g.run_script(0.0, level);
         if g.player.is_none() {
@@ -648,6 +665,70 @@ impl Game {
         } else {
             p.cues.push(Sfx::Hurt { kind: p.kind });
         }
+    }
+
+    /// Platforms move on the original's ticks, carrying whoever stands on them and killing
+    /// whoever they come down on; then the ground learns where their tops are.
+    fn move_platforms(&mut self, dt: f32, level: &Level) {
+        if self.platforms.is_empty() {
+            return;
+        }
+        let tops: Vec<Option<(Vec2, Vec2, f32, f32)>> = self.plat_prims.iter()
+            .map(|prim| prim.as_ref().map(|prim| plat::top_box(&prim.points)))
+            .collect();
+        self.plat_clock += dt;
+        while self.plat_clock >= plat::TICK {
+            self.plat_clock -= plat::TICK;
+            let Some(script) = self.script.take() else { break };
+            for (k, t) in tops.iter().enumerate() {
+                let Some((_, _, bot, top)) = *t else { continue };
+                let before = self.platforms[k].pos;
+                // Who is standing on it, before it goes.
+                let riders: Vec<usize> = self.people.iter().enumerate()
+                    .filter(|(_, p)| !p.removed && !matches!(p.state, State::InCar { .. }))
+                    .filter(|(_, p)| (p.fig.pos.y - (before.y + top)).abs() < 16.0 && level.ground.over_platform(k, p.fig.pos.x, p.fig.pos.z, 0.0))
+                    .map(|(i, _)| i)
+                    .collect();
+                let by = self.platforms[k].tick(&Route(&script));
+                if by == Vec3::ZERO {
+                    continue;
+                }
+                for &i in &riders {
+                    self.people[i].fig.pos += by;
+                }
+                if self.platforms[k].rocket() && self.rand() & 1 == 0 {
+                    self.pyro.lick(self.platforms[k].pos + Vec3::new(0.0, bot, 0.0), 70.0);
+                }
+                // Underneath it as it comes down: dead (`set_person_dead`).
+                let under = (self.platforms[k].pos.y + bot - 0x80 as f32, self.platforms[k].pos.y + bot - 0x40 as f32);
+                for i in 0..self.people.len() {
+                    let p = &self.people[i];
+                    if p.removed || p.is_dead() || riders.contains(&i) || !level.ground.over_platform(k, p.fig.pos.x, p.fig.pos.z, 10.0) {
+                        continue;
+                    }
+                    let y = p.fig.pos.y;
+                    if self.botanicc && matches!(p.state, State::Fall { .. }) && y >= before.y + bot && y <= before.y + top {
+                        // Grim Gardens: jumping onto it puts you on it.
+                        self.people[i].fig.pos.y = self.platforms[k].pos.y + top;
+                    } else if by.y < 0.0 && y >= under.0 && y <= under.1 {
+                        let from = self.platforms[k].pos;
+                        let p = &mut self.people[i];
+                        p.health = 0;
+                        p.take_hit(from, 10_000, person::ko::FINISHERS, false, false, Weapon::None);
+                    }
+                }
+            }
+            self.script = Some(script);
+            self.sync_platforms(level);
+        }
+    }
+
+    /// Tells the ground where the platforms' tops are now.
+    fn sync_platforms(&self, level: &Level) {
+        level.ground.set_platforms(self.platforms.iter().zip(&self.plat_prims).filter_map(|(p, prim)| {
+            let (lo, hi, _, top) = plat::top_box(&prim.as_ref()?.points);
+            Some((Vec2::new(p.pos.x, p.pos.z), p.yaw, lo, hi, p.pos.y + top))
+        }));
     }
 
     /// Whether the player has gone into a warehouse or come out of one. The ambience is the
@@ -973,6 +1054,11 @@ impl Game {
                     self.messages.push(Message { text, left: secs, face, filmed: false });
                 }
                 Command::Transfer { way } => self.transfer(way, level),
+                Command::Platform { way, colour, group, speed, flags } => {
+                    if let Some(p) = self.platforms.iter_mut().find(|p| p.way == way) {
+                        p.start(colour, group, speed, flags);
+                    }
+                }
                 Command::Vehicle { way, kind, pos, angle, locked } => {
                     let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
                     // A vehicle's angle is its heading (its nose along (sin, cos)).
@@ -1583,6 +1669,7 @@ impl Game {
         }
         self.vent_steam(dt, level);
         self.go_indoors(level);
+        self.move_platforms(dt, level);
         self.run_creatures(dt, level, self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player));
         // From just under the pelvis, for as long as they're on their feet (the original asks
         // only that they're peeing, but its pelvis is never anywhere sensible once they're down).
@@ -2038,6 +2125,13 @@ impl Game {
                 billboard(&mut out, uc_world::GLOW, at, 9.0, [170, 190, 255, 255]);
             }
         }
+        // Platforms, wherever they've got to.
+        for (p, prim) in self.platforms.iter().zip(&self.plat_prims) {
+            if let Some(prim) = prim {
+                let (s, c) = p.yaw.sin_cos();
+                uc_world::level::prim_batches(prim, |v| p.pos + Vec3::new(c * v.x + s * v.z, v.y, -s * v.x + c * v.z), lighter.as_ref(), &mut out);
+            }
+        }
         // Charges sit still where they were put.
         if let Some(prim) = uc_world::level::item_prim(EXPLOSIVES).and_then(|id| level.item_prims.get(&id)) {
             let lift = 4.0 - uc_world::level::prim_bounds(prim).0.y;
@@ -2099,6 +2193,12 @@ impl Game {
     pub fn pages(level: &Level) -> Vec<u32> {
         let Some(people) = &level.people else { return Vec::new() };
         let mut out = Vec::new();
+        // The platforms' props, which the level leaves to the game.
+        for &(_, ob) in &level.platforms {
+            if let Some(prim) = uc_world::level::load_prim(&level.game, level.map.objects[ob].prim) {
+                out.extend(prim.faces.iter().map(|f| f.texture().0));
+            }
+        }
         // And any creature the mission makes.
         let kinds: BTreeSet<u8> = level.mission.event_points.iter()
             .filter(|e| e.used != 0 && e.kind == uc_formats::ucm::waypoint::CREATE_CREATURE)
@@ -2178,6 +2278,24 @@ fn shadow(out: &mut BTreeMap<u32, Batch>, p: &Person, level: &Level) {
             None => [0, 0, 0, a],
         }; 4],
     );
+}
+
+/// The script as a platform's route.
+struct Route<'a>(&'a Script);
+
+impl plat::Route for Route<'_> {
+    fn nearest(&self, at: Vec3, colour: u8, group: u8) -> Option<usize> {
+        self.0.nearest_point(at, colour, group)
+    }
+    fn next(&self, after: usize, colour: u8, group: u8) -> Option<usize> {
+        self.0.next_point(after, colour, group)
+    }
+    fn position(&self, way: usize) -> Option<Vec3> {
+        self.0.point_pos(way)
+    }
+    fn delay(&self, way: usize, default: f32) -> f32 {
+        self.0.point_delay(way, default)
+    }
 }
 
 /// The game with its level, for script conditions that need the walls.

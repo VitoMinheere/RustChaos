@@ -67,6 +67,28 @@ impl PropTop {
     }
 }
 
+impl Ground {
+    /// Where the platforms' tops are now: (where, yaw in radians, the box in the prop's own
+    /// space, the height of the top).
+    pub fn set_platforms(&self, tops: impl IntoIterator<Item = (Vec2, f32, Vec2, Vec2, f32)>) {
+        *self.moving.borrow_mut() = tops.into_iter()
+            .map(|(origin, yaw, lo, hi, top)| {
+                let (s, c) = yaw.sin_cos();
+                PropTop { origin, rot: vec2(c, s), lo, hi, top }
+            })
+            .collect();
+    }
+
+    /// Whether (x, z) is over platform top `t` (by its place in [`Ground::set_platforms`]),
+    /// `margin` either way.
+    pub fn over_platform(&self, t: usize, x: f32, z: f32, margin: f32) -> bool {
+        self.moving.borrow().get(t).is_some_and(|p| {
+            let grown = PropTop { lo: p.lo - Vec2::splat(margin), hi: p.hi + Vec2::splat(margin), ..*p };
+            grown.contains(vec2(x, z))
+        })
+    }
+}
+
 /// A cable (`STOREY_TYPE_CABLE`) as a polyline in world units, sag included.
 #[derive(Debug, Clone)]
 pub struct Cable {
@@ -140,6 +162,9 @@ pub struct Ground {
     pub cables: Vec<Cable>,
     /// Fences that can be climbed (chain-link: `STOREY_TYPE_FENCE`, `_FENCE_FLAT`).
     pub fences: Vec<WallSegment>,
+    /// The tops of moving platforms where they are now (`WMOVE`): the game moves them, and
+    /// they're in a `RefCell` for the same reason the doors' state is in a `Cell`.
+    moving: std::cell::RefCell<Vec<PropTop>>,
     /// Each prop's prim's `damage` and `flag` bytes, by index into the map's objects: whether
     /// it can be damaged, and whether it blows up when it is (`PRIM_DAMAGE_*`, `PRIM_FLAG_*`).
     pub prop_damage: Vec<(u8, u8)>,
@@ -169,7 +194,8 @@ impl Door {
 
 impl Ground {
     /// `game` is the install, for the prop prims' shapes.
-    pub fn new(map: &Map, game: &Path) -> Ground {
+    /// `moving` are the props that are platforms: the game moves those, so they're left out.
+    pub fn new(map: &Map, game: &Path, moving: &std::collections::BTreeSet<usize>) -> Ground {
         let mut roofs = HashMap::new();
         for (x, z) in (0..128).flat_map(|x| (0..128).map(move |z| (x, z))) {
             let sq = map.square(x, z);
@@ -207,7 +233,10 @@ impl Ground {
         let mut prop_tops: HashMap<(i32, i32), Vec<PropTop>> = HashMap::new();
         let mut prop_tris: HashMap<(i32, i32), Vec<[Vec3; 3]>> = HashMap::new();
         let mut prims = HashMap::new();
-        for ob in &map.objects {
+        for (i, ob) in map.objects.iter().enumerate() {
+            if moving.contains(&i) {
+                continue;
+            }
             let Some(prim) = prims.entry(ob.prim).or_insert_with(|| crate::level::load_prim(game, ob.prim)) else { continue };
             if prim.points.is_empty() {
                 continue;
@@ -302,7 +331,7 @@ impl Ground {
         let prop_damage = map.objects.iter()
             .map(|ob| prims.get(&ob.prim).and_then(|p| p.as_ref()).map_or((0, 0), |p| (p.damage, p.flag)))
             .collect();
-        Ground { roofs, prop_tops, prop_tris, walls, doors, ladders, cables, fences, prop_damage }
+        Ground { roofs, prop_tops, prop_tris, walls, doors, ladders, cables, fences, prop_damage, moving: Default::default() }
     }
 
     fn roof_height(&self, x: f32, z: f32) -> Option<f32> {
@@ -330,6 +359,11 @@ impl Ground {
         }
         let key = ((x / 256.0).floor() as i32, (z / 256.0).floor() as i32);
         for t in self.prop_tops.get(&key).into_iter().flatten() {
+            if t.top <= y + STEP_HEIGHT && t.top > best && t.contains(vec2(x, z)) {
+                best = t.top;
+            }
+        }
+        for t in self.moving.borrow().iter() {
             if t.top <= y + STEP_HEIGHT && t.top > best && t.contains(vec2(x, z)) {
                 best = t.top;
             }

@@ -57,6 +57,9 @@ pub struct Level {
     /// Weapons as held (256 + `PersonID >> 5` - 1: pistol, knife, shotgun, bat, AK-47) and
     /// muzzle flashes (261 pistol, 262 shotgun, 263 AK-47), modelled in the hand's space.
     pub weapon_prims: HashMap<u16, Prim>,
+    /// The mission's moving platforms: (the `link_platform` point, the prop it moves, as an
+    /// index into the map's objects). The game draws those props, not the level.
+    pub platforms: Vec<(usize, usize)>,
     overrides: Option<PathBuf>,
 }
 
@@ -80,7 +83,9 @@ impl Level {
         let sky = lighting.as_ref().map_or([20, 22, 30], |l| l.sky);
 
         // The mission's player spawn.
-        let ground = Ground::new(&map, game);
+        let platforms = platform_props(&map, &mission);
+        let moving = platforms.iter().map(|&(_, ob)| ob).collect();
+        let ground = Ground::new(&map, game, &moving);
         let ep = mission.event_points.iter().find(|e| e.kind == waypoint::CREATE_PLAYER);
         let (sx, sy, sz) = ep.map_or((64.0 * UNIT, 0.0, 64.0 * UNIT), |e| (e.x as f32, e.y as f32, e.z as f32));
         let angle = ep.map_or(0.0, |e| ep_angle(e.direction));
@@ -102,7 +107,7 @@ impl Level {
         };
         Ok(Level {
             game: game.to_path_buf(), name: mission_name.to_string(), mission, map, clump, styles, lighting,
-            ground, spawn, sky, people, overrides: opt.overrides.clone(),
+            ground, spawn, sky, people, overrides: opt.overrides.clone(), platforms,
             item_prims: ITEM_PRIMS.iter().map(|&(_, id)| id).chain(EXTRA_PRIMS)
                 .filter_map(|id| Some((id, load_prim(game, id)?))).collect(),
             weapon_prims: (256..=263).filter_map(|id| Some((id, load_prim(game, id)?))).collect(),
@@ -140,7 +145,8 @@ impl Level {
                 }
             }
         }
-        build_props(&mut b, &self.map, &self.game, &sh);
+        let moving: std::collections::BTreeSet<usize> = self.platforms.iter().map(|&(_, ob)| ob).collect();
+        build_props(&mut b, &self.map, &self.game, &sh, &moving);
         build_details(&mut b, &self.map, &sh);
         b.finish()
     }
@@ -329,9 +335,31 @@ pub fn load_prim(game: &Path, id: impl Into<u16>) -> Option<Prim> {
     Prim::parse(&std::fs::read(path).ok()?).ok()
 }
 
-fn build_props(b: &mut Builder, map: &Map, game: &Path, sh: &Shader) {
+/// The props a mission's `link_platform` points take (`PLAT_create`): for each, the one
+/// nearest it in the map cells within three squares, counting height at a quarter. Each is
+/// taken off the map as it's taken (`OB_remove`), so no two points share one.
+fn platform_props(map: &Map, mission: &Mission) -> Vec<(usize, usize)> {
+    let mut taken = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for e in mission.event_points.iter().filter(|e| e.used != 0 && e.kind == waypoint::LINK_PLATFORM) {
+        let cell = |v: i32| (v.clamp(0, 0x7fff)) >> 10;
+        let (x1, z1, x2, z2) = (cell(e.x - 0x300), cell(e.z - 0x300), cell(e.x + 0x300), cell(e.z + 0x300));
+        let best = map.objects.iter().enumerate()
+            .filter(|(i, o)| !taken.contains(i) && o.prim != 0)
+            .filter(|(_, o)| (x1..=x2).contains(&(o.x >> 10)) && (z1..=z2).contains(&(o.z >> 10)))
+            .min_by_key(|(_, o)| (o.x - e.x).abs() + (o.z - e.z).abs() + ((o.y - e.y).abs() >> 2))
+            .map(|(i, _)| i);
+        if let Some(ob) = best {
+            taken.insert(ob);
+            out.push((e.index, ob));
+        }
+    }
+    out
+}
+
+fn build_props(b: &mut Builder, map: &Map, game: &Path, sh: &Shader, moving: &std::collections::BTreeSet<usize>) {
     let mut cache: HashMap<u8, Option<Prim>> = HashMap::new();
-    for ob in &map.objects {
+    for ob in map.objects.iter().enumerate().filter(|(i, _)| !moving.contains(i)).map(|(_, o)| o) {
         let Some(prim) = cache.entry(ob.prim).or_insert_with(|| load_prim(game, ob.prim)) else { continue };
         let a = ob.yaw as f32 * std::f32::consts::TAU / 2048.0;
         let (s, c) = a.sin_cos();
