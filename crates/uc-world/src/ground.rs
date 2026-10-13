@@ -140,6 +140,9 @@ pub struct Ground {
     pub cables: Vec<Cable>,
     /// Fences that can be climbed (chain-link: `STOREY_TYPE_FENCE`, `_FENCE_FLAT`).
     pub fences: Vec<WallSegment>,
+    /// Each prop's prim's `damage` and `flag` bytes, by index into the map's objects: whether
+    /// it can be damaged, and whether it blows up when it is (`PRIM_DAMAGE_*`, `PRIM_FLAG_*`).
+    pub prop_damage: Vec<(u8, u8)>,
 }
 
 /// A door. It blocks like any other wall until a mission opens it, which is the only way one
@@ -296,7 +299,10 @@ impl Ground {
             })
             .filter(|w| w.y1 > w.y0)
             .collect();
-        Ground { roofs, prop_tops, prop_tris, walls, doors, ladders, cables, fences }
+        let prop_damage = map.objects.iter()
+            .map(|ob| prims.get(&ob.prim).and_then(|p| p.as_ref()).map_or((0, 0), |p| (p.damage, p.flag)))
+            .collect();
+        Ground { roofs, prop_tops, prop_tris, walls, doors, ladders, cables, fences, prop_damage }
     }
 
     fn roof_height(&self, x: f32, z: f32) -> Option<f32> {

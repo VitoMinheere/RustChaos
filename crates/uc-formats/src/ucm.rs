@@ -80,6 +80,7 @@ pub mod trigger {
     pub const ITEM_HELD: u8 = 15;
     pub const SPECIFIC_ITEM_HELD: u8 = 39;
     pub const PLAYER_FIRES_GUN: u8 = 41;
+    pub const PRIM_DAMAGED: u8 = 28;
     pub const THING_RADIUS_DIR: u8 = 37;
     pub const RANDOM: u8 = 40;
     pub const MOVE_RADIUS_DIR: u8 = 44;

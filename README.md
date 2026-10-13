@@ -67,7 +67,7 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 | J or left mouse | Punch | |
 | K | Kick | |
 | Q (hold) | Block | |
-| G | Next weapon (bare hands, knife or bat, pistol, shotgun, AK-47) | |
+| G | Next weapon (bare hands, knife or bat, pistol, shotgun, AK-47, explosives) | |
 | T | Target the next enemy (with a gun drawn) | |
 | E (or L) | Action: arrest a downed enemy, climb a ladder; hold while running to sprint | Up |
 | C / Q | | Down |
@@ -124,6 +124,8 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 **Mist:** some missions lay sheets of ground mist (`create_mist`), low over the street and shimmering where they lie. The original's own `fog.tga` isn't in the retail release, so the sheet is drawn with a cloud generated at startup, as the blob shadows are.
 
 **Explosions:** a car bomb going off throws out a flash, a fireball, a ring of dust and burning debris, and leaves a fire behind. People within three squares are knocked down or killed, the player included. The `visual_effect` points a mission sets off elsewhere are the same effects without the blast: the original's shockwave for those never fires, thanks to a typo in the 1999 code (`if (ew->ed.subtype=!16)` assigns rather than compares), and this follows it.
+
+**Explosives:** walk over a pack to carry it (four at most). Switch to them with G and press action: a charge goes down at your feet with a five-second fuse, and the blast is five squares across and does 500 at the middle, so run. Blasts damage props as well as people, and a mission can watch for a prop being damaged (`prim_damaged`): Transmission Terminated's transmitter, the supplies in Arms Breaker, Media Trouble's props. Some props blow up when damaged and set off their neighbours. As in the 1999 code, a blast only ever looks at every other prop in each part of the map (its loop steps two at a time), so a prop right next to one that went up can survive. Cars ramming props don't damage them yet.
 
 **Searching:** some props hide things. Stand at one, face it and hold action (E): a bar fills over about three seconds, and whatever was stashed in it drops out, as the original's search does. Let go and the search is abandoned. A mission marks the props worth searching (`make_searchable`), and a `create_item` point can stash its item in the nearest one instead of leaving it in the open: in Auto-Destruct, the UCNN video turns up in the Wildcat den this way.
 
@@ -218,6 +220,7 @@ With an install present, the tests check:
 - Rat Catch runs to both of its endings: the son delivered, and the Boss's punishment after he's killed;
 - Headline Hostage runs to its win, and to both ways of failing it;
 - Seek, Sneak and Seize runs to its win, and neither half of it counts alone;
+- explosives blow up Transmission Terminated's transmitter and Media Trouble's props, which their missions see;
 - searching a prop turns up what Auto-Destruct stashes in it, and letting go of action, facing away or an empty prop finds nothing;
 - The Fallen gets three of its five clues (see `mib.rs` for what the other two still want).
 

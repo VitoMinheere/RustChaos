@@ -168,6 +168,27 @@ pub enum Outcome {
 pub const BADGE: u8 = 100;
 pub const STAT_NAMES: [&str; 4] = ["Stamina", "Strength", "Reflexes", "Constitution"];
 
+/// `IT_EXPLOSIVES`.
+pub const EXPLOSIVES: u8 = 23;
+
+/// `PRIM_DAMAGE_DAMAGABLE`, `PRIM_DAMAGE_EXPLODES` and `PRIM_FLAG_LAMPOST`
+/// (fallen/Editor/Headers/Prim.h).
+const DAMAGABLE: u8 = 1;
+const EXPLODES: u8 = 2;
+const LAMPOST: u8 = 1;
+
+/// A charge set down and ticking (`SPECIAL_set_explosives`).
+#[derive(Debug, Clone, Copy)]
+pub struct Charge {
+    pub pos: Vec3,
+    /// Seconds to go: `16 * 20 * 5`, counted down by `0x10` a tick at 20 ticks a second.
+    pub fuse: f32,
+}
+
+impl Charge {
+    pub const FUSE: f32 = (16 * 20 * 5) as f32 / (0x10 as f32 * 20.0);
+}
+
 /// The player's gun picks targets this close (world units).
 const TARGET_RANGE: f32 = 14.0 * 256.0;
 
@@ -219,6 +240,10 @@ pub struct Game {
     /// The player has fired a gun. `GF_PLAYER_FIRED_GUN` is set once and never cleared, so a
     /// mission that cares only ever asks whether it has happened at all.
     player_fired: bool,
+    /// Props damaged (`OB_FLAG_DAMAGED`), as indices into the map's objects.
+    pub damaged: BTreeSet<usize>,
+    /// Explosives set down and waiting to go off.
+    pub charges: Vec<Charge>,
     /// Props that can be searched (`OB_FLAG_SEARCHABLE`), as indices into the map's objects.
     pub searchable: BTreeSet<usize>,
     /// Items stashed in a prop, waiting to be found: (the prop, the item).
@@ -256,7 +281,7 @@ impl Game {
             items: Vec::new(), cutscene: None, convo: None, used: false, vehicles: Vec::new(), veh_by_way: HashMap::new(),
             barrels: Vec::new(), sign: None, target: None, stats: [0; 4], badges: [0; 4], found: BTreeSet::new(),
             taken: BTreeSet::new(), dead_cops: BTreeSet::new(), player_fired: false,
-            searchable: BTreeSet::new(), hidden: Vec::new(), search: None,
+            searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(),
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(),
             player_name: "",
         };
@@ -283,7 +308,8 @@ impl Game {
     /// A blast that knocks people about: damage falls off from `damage` at the middle to
     /// nothing at `radius`, and over 30 points knocks them down (`create_shockwave`,
     /// fallen/Source/collide.cpp). People in cars are shielded, as everywhere else here.
-    fn shockwave(&mut self, at: Vec3, radius: f32, damage: i32) {
+    fn shockwave(&mut self, level: &Level, at: Vec3, radius: f32, damage: i32) {
+        self.shock_props(level, at, radius, damage);
         for i in 0..self.people.len() {
             let p = &self.people[i];
             if p.removed || p.is_dead() {
@@ -298,6 +324,87 @@ impl Game {
             let hit = (damage as f32 * (radius - dist) / radius) as i32;
             let ko = if hit > 30 { person::ko::FINISHERS } else { 0 };
             self.people[i].take_hit(at, hit, ko, false, false, Weapon::None);
+        }
+    }
+
+    /// The props a shockwave catches: those that can be damaged, within `radius` summing the
+    /// three axes, that take more than 50 of its `damage` (`create_shockwave`). The original
+    /// steps through each map cell's props two at a time (`oi += 1` on top of the loop's own
+    /// `oi++`), so only every other one is ever looked at; that is kept. Where a cell has an
+    /// odd number it also runs on past the end of the list into whatever was left in the
+    /// buffer from before, which isn't.
+    fn shock_props(&mut self, level: &Level, at: Vec3, radius: f32, damage: i32) {
+        let cell = |v: f32| (v as i32) >> 10;
+        let (lo, hi) = ((cell(at.x - radius), cell(at.z - radius)), (cell(at.x + radius), cell(at.z + radius)));
+        let mut hit = Vec::new();
+        let mut last = None;
+        let mut nth = 0;
+        for (i, o) in level.map.objects.iter().enumerate() {
+            let c = (o.x >> 10, o.z >> 10);
+            if last != Some(c) {
+                (last, nth) = (Some(c), 0);
+            }
+            nth += 1;
+            if nth % 2 == 0 || c.0 < lo.0 || c.0 > hi.0 || c.1 < lo.1 || c.1 > hi.1 {
+                continue;
+            }
+            if level.ground.prop_damage.get(i).is_none_or(|d| d.0 & DAMAGABLE == 0) {
+                continue;
+            }
+            let dist = (o.x as f32 - at.x).abs() + (o.y as f32 - at.y).abs() + (o.z as f32 - at.z).abs();
+            if dist < radius && damage as f32 * (radius - dist) / radius > 50.0 {
+                hit.push(i);
+            }
+        }
+        for i in hit {
+            self.damage_prop(level, i);
+        }
+    }
+
+    /// `OB_damage`: the prop is marked damaged, and one that explodes (or a lamppost) goes up
+    /// in a firebomb the first time, with a shockwave of its own.
+    fn damage_prop(&mut self, level: &Level, i: usize) {
+        let (damage, flag) = level.ground.prop_damage.get(i).copied().unwrap_or_default();
+        if damage & DAMAGABLE == 0 {
+            return;
+        }
+        // Marked before the blast, so the shockwave it sets off doesn't set it off again.
+        let first = self.damaged.insert(i);
+        if first && (damage & EXPLODES != 0 || flag & LAMPOST != 0) {
+            let o = &level.map.objects[i];
+            let at = Vec3::new(o.x as f32, o.y as f32, o.z as f32);
+            self.pyro.burst(at, pyro::FIREBOMB, 256.0);
+            self.sounds.push((Sfx::Explosion, at));
+            self.shockwave(level, at, 0x300 as f32, 150);
+        }
+    }
+
+    /// Whether the prop a `prim_damaged` point at `pos` watches has been damaged. It watches
+    /// the nearest prop in its own map cell, damaged or not (`EWAY_create_cond`).
+    fn prim_damaged(&self, level: &Level, pos: Vec3) -> bool {
+        let cell = ((pos.x as i32) >> 10, (pos.z as i32) >> 10);
+        level.map.objects.iter().enumerate()
+            .filter(|(_, o)| (o.x >> 10, o.z >> 10) == cell)
+            .map(|(i, o)| (i, (o.x as f32 - pos.x).abs() + (o.y as f32 - pos.y).abs() + (o.z as f32 - pos.z).abs()))
+            .filter(|&(_, d)| d < 0x7800 as f32)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .is_some_and(|(i, _)| self.damaged.contains(&i))
+    }
+
+    /// Charges burn down and go off: a flash, dust, streamers and a firebomb, and a shockwave
+    /// five squares across that does 500 at the middle (`SPECIAL_EXPLOSIVES` in
+    /// `special_normal`).
+    fn charges(&mut self, dt: f32, level: &Level) {
+        for c in &mut self.charges {
+            c.fuse -= dt;
+        }
+        let (gone, left): (Vec<Charge>, Vec<Charge>) = self.charges.iter().partition(|c| c.fuse <= 0.0);
+        self.charges = left;
+        for c in gone {
+            let at = c.pos + Vec3::new(0.0, 16.0, 0.0);
+            self.pyro.burst(at, pyro::FLASH | pyro::DUST | pyro::STREAMERS | pyro::FIREBOMB, 0xa0 as f32);
+            self.sounds.push((Sfx::Explosion, at));
+            self.shockwave(level, at, 0x500 as f32, 500);
         }
     }
 
@@ -456,7 +563,7 @@ impl Game {
                         }
                         self.pyro.burst(at + Vec3::new(0.0, 48.0, 0.0), pyro::CAR_BOMB, 400.0);
                         self.sounds.push((Sfx::Explosion, at));
-                        self.shockwave(at, 768.0, 350);
+                        self.shockwave(level, at, 768.0, 350);
                     }
                 }
                 Command::Move { way, pos, angle } => {
@@ -709,6 +816,18 @@ impl Game {
             }
             State::Move => {
                 let pos = self.people[pi].fig.pos;
+                // Explosives in hand: put one down at her feet with its fuse burning
+                // (`SPECIAL_set_explosives`). The last one leaves her hands empty.
+                let p = &mut self.people[pi];
+                if p.weapon == Weapon::Explosives && p.explosives > 0 {
+                    p.explosives -= 1;
+                    if p.explosives == 0 {
+                        p.weapon = Weapon::None;
+                    }
+                    self.charges.push(Charge { pos, fuse: Charge::FUSE });
+                    self.messages.push(Message { text: "Five second fuse set".into(), left: 3.0 });
+                    return true;
+                }
                 let near = |v: &Vehicle| !v.wrecked() && !v.locked && v.driver.is_none()
                     && v.covers(Vec2::new(pos.x, pos.z), 140.0) && (v.pos.y - pos.y).abs() < 150.0;
                 if let Some(vi) = self.vehicles.iter().position(near) {
@@ -963,10 +1082,16 @@ impl Game {
                 true
             }
             // The things a mission sends her to fetch: a key, a keycard, files, a floppy, a
-            // crowbar, a gas mask, a wrench, a video, gloves, weedkiller, explosives. They do
-            // nothing in the hand; what matters is that she has them, which a mission reads
-            // with `specific_item_held` (The Fallen's five clues are picked up this way).
-            1 | 13..=21 | 23 => true,
+            // crowbar, a gas mask, a wrench, a video, gloves, weedkiller. They do nothing in
+            // the hand; what matters is that she has them, which a mission reads with
+            // `specific_item_held` (The Fallen's five clues are picked up this way).
+            1 | 13..=21 => true,
+            // Explosives are carried, four at most, and left lying once she has four
+            // (`should_person_get_item`).
+            EXPLOSIVES if p.explosives < 4 => {
+                p.explosives += 1;
+                true
+            }
             // Ammo: pistol, shotgun, AK-47.
             10..=12 => {
                 let g = Weapon::GUNS[(kind - 10) as usize];
@@ -1012,6 +1137,9 @@ impl Game {
         }
         self.update_scenes(dt);
         self.pyro.update(dt);
+        if self.outcome.is_none() {
+            self.charges(dt, level);
+        }
         // From just under the pelvis, for as long as they're on their feet (the original asks
         // only that they're peeing, but its pelvis is never anywhere sensible once they're down).
         let streams: Vec<(Vec3, Vec2)> = self.people.iter()
@@ -1403,6 +1531,13 @@ impl Game {
             uc_world::level::prim_batches(prim, |v| it.pos + Vec3::new(c * v.x + s * v.z, v.y + lift, -s * v.x + c * v.z),
                                           lighter.as_ref(), &mut out);
         }
+        // Charges sit still where they were put.
+        if let Some(prim) = uc_world::level::item_prim(EXPLOSIVES).and_then(|id| level.item_prims.get(&id)) {
+            let lift = 4.0 - uc_world::level::prim_bounds(prim).0.y;
+            for c in &self.charges {
+                uc_world::level::prim_batches(prim, |v| c.pos + Vec3::new(v.x, v.y + lift, v.z), lighter.as_ref(), &mut out);
+            }
+        }
         // Ground mist: flat sheets blended over whatever is under them.
         let secs = self.time;
         self.mists.quads(secs, |p, uv| {
@@ -1514,6 +1649,9 @@ impl script::Query for Scene<'_> {
     }
     fn got_item(&self, way: usize) -> bool {
         self.game.got_item(way)
+    }
+    fn prim_damaged(&self, pos: Vec3) -> bool {
+        self.game.prim_damaged(self.level, pos)
     }
     fn player_fired(&self) -> bool {
         self.game.player_fired()

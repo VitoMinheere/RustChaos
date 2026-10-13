@@ -37,6 +37,8 @@ pub enum Weapon {
     Pistol,
     Shotgun,
     Ak47,
+    /// Charges to set down and run from (`SPECIAL_EXPLOSIVES`): action sets one.
+    Explosives,
 }
 
 impl Weapon {
@@ -68,6 +70,7 @@ impl Weapon {
             Weapon::Knife => Some(5),
             Weapon::Ak47 => Some(6),
             Weapon::Bat => Some(8),
+            Weapon::Explosives => Some(crate::EXPLOSIVES),
         }
     }
 
@@ -103,6 +106,7 @@ impl Weapon {
             Weapon::Pistol => "PISTOL",
             Weapon::Shotgun => "SHOTGUN",
             Weapon::Ak47 => "AK-47",
+            Weapon::Explosives => "EXPLOSIVES",
         }
     }
 
@@ -116,6 +120,7 @@ impl Weapon {
             Weapon::Shotgun => Some((258, 7, Some(262))),
             Weapon::Bat => Some((259, 7, None)),
             Weapon::Ak47 => Some((260, 7, Some(263))),
+            Weapon::Explosives => None,
         }
     }
 
@@ -469,6 +474,8 @@ pub struct Person {
     pub knocked_out: bool,
     /// A mission has set them peeing (`FLAG_PERSON_PEEING`).
     pub peeing: bool,
+    /// Charges carried (the special's `ammo`): four at most.
+    pub explosives: u8,
     down_timer: f32,
     block_timer: f32,
     /// Seconds before a cable can be grabbed again after letting go.
@@ -537,7 +544,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 3], knocked_out: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
-            peeing: false,
+            peeing: false, explosives: 0,
         }
     }
 
@@ -558,6 +565,9 @@ impl Person {
     }
 
     pub fn has(&self, w: Weapon) -> bool {
+        if w == Weapon::Explosives {
+            return self.explosives > 0;
+        }
         match w.slot() {
             Some(s) => self.guns & (1 << s) != 0,
             None => w == Weapon::None || self.melee == w,
@@ -566,6 +576,9 @@ impl Person {
 
     /// Rounds left in the gun in hand (the AI never runs out).
     pub fn rounds(&self) -> Option<u32> {
+        if self.weapon == Weapon::Explosives {
+            return Some(self.explosives as u32);
+        }
         self.weapon.slot().map(|s| if self.player { self.ammo[s] } else { u32::MAX })
     }
 
@@ -577,12 +590,13 @@ impl Person {
         let guns = Weapon::GUNS.iter().enumerate()
             .filter(|(s, _)| self.guns & (1 << s) != 0)
             .map(|(s, &g)| (g, Some(self.ammo[s])));
-        melee.into_iter().chain(guns).filter(|&(w, _)| w != self.weapon).collect()
+        let charges = (self.explosives > 0).then_some((Weapon::Explosives, Some(self.explosives as u32)));
+        melee.into_iter().chain(guns).chain(charges).filter(|&(w, _)| w != self.weapon).collect()
     }
 
     /// Puts away what's in hand and takes out the next weapon carried (bare hands last).
     pub fn next_weapon(&mut self) {
-        let carried: Vec<Weapon> = [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47]
+        let carried: Vec<Weapon> = [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Explosives]
             .into_iter()
             .enumerate()
             .filter(|&(k, w)| self.has(w) && (k == 0 || w != Weapon::None))

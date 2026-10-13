@@ -48,6 +48,11 @@ pub trait Query {
     fn got_item(&self, _way: usize) -> bool {
         false
     }
+    /// The prop a `prim_damaged` point at `pos` watches has been damaged
+    /// (`EWAY_COND_PRIM_DAMAGED`).
+    fn prim_damaged(&self, _pos: Vec3) -> bool {
+        false
+    }
     /// The person created by `a` can see the one created by `b` (`can_a_see_b`).
     fn sees(&self, _a: usize, _b: usize) -> bool {
         false
@@ -194,7 +199,7 @@ fn trigger_supported(t: u8) -> bool {
         | ENEMY_RADIUS | VISIBLE_COUNTDOWN | CUBOID | HALF_DEAD | GROUP_DEAD | PERSON_SEEN
         | PERSON_USED | PLAYER_USES_RADIUS | PERSON_ARRESTED | CONVERSATION_OVER | COUNTER
         | KILLED_NOT_ARRESTED | PERSON_IN_VEHICLE | SPECIFIC_ITEM_HELD | THING_RADIUS_DIR | RANDOM
-        | DARCI_GRABBED | PUNCHED_AND_KICKED | MOVE_RADIUS_DIR | ITEM_HELD | PLAYER_FIRES_GUN)
+        | DARCI_GRABBED | PUNCHED_AND_KICKED | MOVE_RADIUS_DIR | ITEM_HELD | PLAYER_FIRES_GUN | PRIM_DAMAGED)
 }
 
 /// `EWAY_ARG_ITEM_STASHED_IN_PRIM` (fallen/Headers/eway.h): a `create_item`'s item is hidden
@@ -513,6 +518,7 @@ impl Script {
             // the same thing.
             trigger::SPECIFIC_ITEM_HELD | trigger::ITEM_HELD => q.got_item(r1),
             trigger::PLAYER_FIRES_GUN => q.player_fired(),
+            trigger::PRIM_DAMAGED => q.prim_damaged(pos),
             trigger::PERSON_SEEN => q.sees(r1, r2),
             trigger::RANDOM => {
                 // Once the dependency is active, one of the points sharing it (or none) goes
