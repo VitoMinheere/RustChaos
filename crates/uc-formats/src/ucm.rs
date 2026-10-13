@@ -19,6 +19,7 @@ pub mod waypoint {
     pub const CREATE_ENEMIES: u8 = 3;
     pub const CREATE_VEHICLE: u8 = 4;
     pub const CREATE_ITEM: u8 = 5;
+    pub const CREATE_CREATURE: u8 = 6;
     pub const CREATE_TREASURE: u8 = 31;
     pub const CREATE_CAMERA: u8 = 7;
     pub const CREATE_TARGET: u8 = 8;

@@ -257,10 +257,14 @@ impl Animator {
         true
     }
 
-    fn advance(&mut self, chunk: &AnimChunk, dt: f32) {
+    /// Moves on by `dt`; returns how many keyframes it passed and whether it came to the end
+    /// of the animation, wrapping round or holding its last frame (`advance_keyframe`'s "anim
+    /// over", which keeps on saying so while a finished animation holds).
+    fn advance(&mut self, chunk: &AnimChunk, dt: f32) -> (u32, bool) {
         if self.done {
-            return;
+            return (0, true);
         }
+        let (mut passed, mut ended) = (0, false);
         // Blending in from another animation runs at the new animation's pace (an idle
         // pose's slow step would make every move start sluggishly).
         let pace = if self.index.is_none() { self.next } else { self.cur };
@@ -269,10 +273,12 @@ impl Animator {
         while self.tween >= 256.0 {
             self.tween -= 256.0;
             self.cur = self.next;
+            passed += 1;
             let i = match self.index {
                 None => 0,
                 Some(_) if self.cur == self.start => {
                     self.loops += 1;
+                    ended = true;
                     0
                 }
                 Some(i) => i + 1,
@@ -286,10 +292,12 @@ impl Animator {
                     self.next = self.cur;
                     self.tween = 0.0;
                     self.done = true;
+                    ended = true;
                     break;
                 }
             }
         }
+        (passed, ended)
     }
 
     /// 0 at the start of the animation, 1 at its last frame.
@@ -513,6 +521,36 @@ impl Figure {
 
     pub fn advance(&mut self, dt: f32) {
         self.animator.advance(&self.anims, dt);
+    }
+
+    /// Like [`Figure::advance`], for things that count keyframes: how many it passed, and
+    /// whether the animation is over (wrapped, or holding its last frame).
+    pub fn advance_frames(&mut self, dt: f32) -> (u32, bool) {
+        self.animator.advance(&self.anims, dt)
+    }
+
+    /// A figure whose meshes and animations come from one chunk, as an anim prim's do (the
+    /// Balrog, Bane, gargoyles: `anim%03d.all`), starting on animation `id`.
+    pub fn anim_prim(chunk: Arc<AnimChunk>, pos: Vec3, angle: f32, id: usize) -> Option<Figure> {
+        let animator = Animator::new(&chunk, id)?;
+        let model = Model { chunk: chunk.clone(), body: 0, person: 0 };
+        let mut f = Figure { model, anims: chunk, pos, angle, lift: 0.0, cancel_rise: false, pin_root: false, clothes: 0, jacket: 0, animator };
+        f.animator.play = if f.loops_round(id) { Play::Loop } else { Play::Once };
+        Some(f)
+    }
+
+    /// Whether animation `id`'s keyframes come back round to its first, or stop at the end.
+    pub fn loops_round(&self, id: usize) -> bool {
+        let Some(start) = self.anims.anims.get(id).copied().flatten() else { return false };
+        let mut f = start;
+        for _ in 0..512 {
+            match self.anims.keyframes[f].next {
+                Some(n) if n == start => return true,
+                Some(n) => f = n,
+                None => return false,
+            }
+        }
+        false
     }
 
     /// Turns towards direction `d` at `rate` (fraction per second, 10 = snappy).

@@ -14,7 +14,7 @@ What's there:
   - Physical Training (`assault1`): the assault course against the clock;
   - Driving Bronze, Silver and Gold (`testdrive1a`, `testdrive2`, `testdrive3`): laps in the squad car.
 
-  The first street missions play to the end too, though the city is still quieter than the original's: RTA (`police1`), The Jump (`police2`), Nitro Car (`Bankbomb1`), the first one played as somebody other than Darci, Gun Hunt (`police3`), Rat Catch (`Gangorder2`), Headline Hostage (`Gordout1`) and Seek, Sneak and Seize (`Stealtst1`).
+  The first street missions play to the end too, though the city is still quieter than the original's: RTA (`police1`), The Jump (`police2`), Nitro Car (`Bankbomb1`), the first one played as somebody other than Darci, Gun Hunt (`police3`), Rat Catch (`Gangorder2`), Headline Hostage (`Gordout1`), Seek, Sneak and Seize (`Stealtst1`) and Insane Assault (`Baalrog3`).
 - **Missions:** read, edit and write them as JSON.
 
 No game data is included; everything is read from your install.
@@ -129,6 +129,15 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 **Searching:** some props hide things. Stand at one, face it and hold action (E): a bar fills over about three seconds, and whatever was stashed in it drops out, as the original's search does. Let go and the search is abandoned. A mission marks the props worth searching (`make_searchable`), and a `create_item` point can stash its item in the nearest one instead of leaving it in the open: in Auto-Destruct, the UCNN video turns up in the Wildcat den this way.
 
+**Insane Assault walkthrough:** go to Brick Road and put down the two gang members who turn up. Then the Balrog comes: a burning giant who stomps, swipes and throws fireballs, and goes for you above anyone else. Fists don't touch him. Only bullets and blasts do, and he takes an eighth of what anything else would: you start with a pistol, and ammo boxes appear about the place once he's out. Keep your distance, keep shooting, and when he goes down the mission is yours.
+
+**Creatures:** some missions have monsters (`create_creature`), run as the original runs them (`bat.cpp`):
+- the **Balrog** wanders about on fire, roars when he picks a target, then follows, charges, swipes, stomps and throws fireballs that burst where they land;
+- **gargoyles** sit still until you come within ten squares, then take off, circle their home, swoop on you and spit fireballs;
+- **Bane** hovers, draws the lifeless bodies round him up into the air and hits you with lightning and blasts. Nothing hurts him.
+
+Guns can aim at the Balrog and gargoyles, and a bar under the clock shows the health of whichever one is nearest. The original's bats are compiled out of the shipped game, so the missions that ask only for them (Psycho Park, Stern Revenge) get nothing, as they did in 1999. The original finds the Balrog his way about with a navigation map this engine doesn't have yet: here, when he can't see who he's after, he heads for whichever spot two squares off brings him closest.
+
 **Steam vents:** some missions set traps (`create_trap`): vents that puff steam forwards, up or down to a routine of their own, on for a beat and off for a few. The steam scalds anyone standing in it, every puff in reach on its own account, so a full column will kill you in a second or two: time your way past. As in the original, a trap that's meant to stay on for good never puffs at all (the point is marked finished the moment it fires, and finished points aren't run), so it's the ones that come and go that you'll see. Assassin, Rat Catch, Grim Gardens, Estate of Emergency, Target UC and Day Of Reckoning have them.
 
 **Peeing:** a mission can set someone relieving themselves against a wall (`make_person_pee`), a stream of drops from the pelvis as `DIRT_new_water` throws them, falling until they reach the ground. Semtex and Transmission Terminated have one. RTA and Arms Breaker ask for it too, but their point comes before the one that makes the person, so it finds nobody, and in the original nobody is ever seen at it either.
@@ -222,6 +231,7 @@ With an install present, the tests check:
 - Rat Catch runs to both of its endings: the son delivered, and the Boss's punishment after he's killed;
 - Headline Hostage runs to its win, and to both ways of failing it;
 - Seek, Sneak and Seize runs to its win, and neither half of it counts alone;
+- Insane Assault runs to its win by shooting the Balrog, and he takes damage at an eighth; Day Of Reckoning's gargoyle wakes and takes off, and its Bane draws up the bodies and can't be hurt; bats make nothing;
 - steam vents keep to their routines and scald, and a trap that stays on for good never blows;
 - explosives blow up Transmission Terminated's transmitter and Media Trouble's props, which their missions see;
 - searching a prop turns up what Auto-Destruct stashes in it, and letting go of action, facing away or an empty prop finds nothing;

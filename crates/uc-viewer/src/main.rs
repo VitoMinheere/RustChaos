@@ -458,6 +458,15 @@ impl World {
             o.rect(fx, fy, fw * search.progress(), fh, [230, 190, 60, 255]);
         }
 
+        // A creature's health, under the clock: the one in the sights, or the nearest.
+        if let Some((name, frac)) = self.game.creature_health() {
+            let (bw, bh) = (160.0 * s, 5.0 * s);
+            let (bx, by) = (w / 2.0 - bw / 2.0, 44.0 * s);
+            o.text(w / 2.0 - Overlay::text_width(name, s) / 2.0, by - 11.0 * s, s, white, name);
+            o.rect(bx - s, by - s, bw + 2.0 * s, bh + 2.0 * s, [0, 0, 0, 160]);
+            o.rect(bx, by, bw * frac, bh, [220, 80, 40, 255]);
+        }
+
         // The mission clock.
         if let Some(t) = self.game.countdown() {
             let secs = t.ceil() as u32;

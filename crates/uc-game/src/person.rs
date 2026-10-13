@@ -247,6 +247,11 @@ impl Pace {
     }
 }
 
+/// Bane's floating bodies rise `64 * TICK_RATIO >> TICK_SHIFT` in 256ths a tick at 20 a
+/// second, to 200 above the ground (`fn_person_float`).
+const FLOAT_SPEED: f32 = 64.0 / 256.0 * 20.0;
+const FLOAT_HEIGHT: f32 = 200.0;
+
 /// One frame of intent.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Controls {
@@ -270,6 +275,9 @@ pub struct Controls {
     pub cycle_target: bool,
     /// Who guns shoot at (chosen by the game for the player, the player for the AI).
     pub target: Option<usize>,
+    /// Somewhere else to aim the gun when `target` is nobody: a creature the player has in
+    /// their sights.
+    pub aim: Option<Vec3>,
     /// Driving, when in a car.
     pub drive: crate::vehicle::Drive,
 }
@@ -405,6 +413,10 @@ pub enum State {
     Held { by: usize },
     Arrest { victim: usize },
     Cuffed,
+    /// Drawn up into the air by Bane (`STATE_FLOAT`): a quarter of a unit a tick until the
+    /// body is 200 above the ground at `floor`, and there it hangs. Nothing in the original
+    /// ever lets them down again (`set_person_float_down` has no callers).
+    Float { floor: f32 },
 }
 
 /// What a person did this frame that affects somebody else.
@@ -998,6 +1010,11 @@ impl Person {
         }
         match self.state.clone() {
             State::Move => self.step_move(me, c, snaps, ground, map, dt, events),
+            State::Float { floor } => {
+                if self.fig.pos.y - floor < FLOAT_HEIGHT {
+                    self.fig.pos.y = (self.fig.pos.y + FLOAT_SPEED * dt).min(floor + FLOAT_HEIGHT);
+                }
+            }
             State::Block => {
                 if let Some(t) = self.nearest_opponent(me, snaps, FIGHT_RANGE) {
                     self.fig.turn_towards(flat(snaps[t].pos, self.fig.pos), 8.0, dt);
@@ -1017,6 +1034,8 @@ impl Person {
                 let target = target.filter(|&t| snaps[t].present && !snaps[t].down);
                 if let Some(t) = target {
                     self.fig.turn_towards(flat(snaps[t].pos, self.fig.pos), 12.0, dt);
+                } else if let Some(at) = c.aim {
+                    self.fig.turn_towards(flat(at, self.fig.pos), 12.0, dt);
                 }
                 let w = self.weapon;
                 if w == Weapon::Ak47 {
@@ -1469,6 +1488,8 @@ impl Person {
             let target = c.target.filter(|&t| t != me && snaps[t].present);
             if let Some(t) = target {
                 self.face(snaps[t].pos);
+            } else if let Some(at) = c.aim {
+                self.face(at);
             } else if !self.player {
                 return;
             }

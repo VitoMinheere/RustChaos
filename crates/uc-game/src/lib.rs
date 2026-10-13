@@ -13,6 +13,7 @@
 //! Finally the events they produced (hits, grabs, arrests) are applied, grappled pairs are
 //! kept together and people are pushed apart.
 
+pub mod creature;
 pub mod dirt;
 pub mod goals;
 pub mod mist;
@@ -25,7 +26,7 @@ pub mod vehicle;
 use glam::{vec2, Vec2, Vec3};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use uc_world::character::person as ptype;
-use uc_world::{Batch, Level};
+use uc_world::{Batch, Figure, Level};
 
 pub use mist::Mists;
 pub use person::{Controls, Person, Sfx, State, Weapon};
@@ -178,6 +179,30 @@ const DAMAGABLE: u8 = 1;
 const EXPLODES: u8 = 2;
 const LAMPOST: u8 = 1;
 
+/// Whose blast it is: a creature isn't hurt by its own, and the Balrog goes after whoever
+/// hurt him.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Blame {
+    Nobody,
+    Person(usize),
+    Creature(usize),
+}
+
+/// What the player's gun is pointed at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Aim {
+    Person(usize),
+    Creature(usize),
+}
+
+/// A bolt of lightning from a creature to someone (`SPARK_create`): from, to, seconds left.
+#[derive(Debug, Clone, Copy)]
+pub struct Spark {
+    pub from: Vec3,
+    pub to: Vec3,
+    pub left: f32,
+}
+
 /// A charge set down and ticking (`SPECIAL_set_explosives`).
 #[derive(Debug, Clone, Copy)]
 pub struct Charge {
@@ -245,6 +270,16 @@ pub struct Game {
     pub damaged: BTreeSet<usize>,
     /// Explosives set down and waiting to go off.
     pub charges: Vec<Charge>,
+    /// The mission's creatures (`CLASS_BAT`).
+    pub creatures: Vec<creature::Creature>,
+    creature_by_way: HashMap<usize, usize>,
+    pub fireballs: Vec<creature::Fireball>,
+    pub sparks: Vec<Spark>,
+    /// The creature the player's gun is pointed at, when it isn't a person.
+    pub aim_creature: Option<usize>,
+    /// Seconds into the creatures' next tick.
+    creature_clock: f32,
+    creature_rng: u32,
     /// Props that can be searched (`OB_FLAG_SEARCHABLE`), as indices into the map's objects.
     pub searchable: BTreeSet<usize>,
     /// Items stashed in a prop, waiting to be found: (the prop, the item).
@@ -285,6 +320,8 @@ impl Game {
             barrels: Vec::new(), sign: None, target: None, stats: [0; 4], badges: [0; 4], found: BTreeSet::new(),
             taken: BTreeSet::new(), dead_cops: BTreeSet::new(), player_fired: false,
             searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(),
+            creatures: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
+            aim_creature: None, creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), steam: steam::Steam::default(),
             player_name: "",
         };
@@ -311,8 +348,31 @@ impl Game {
     /// A blast that knocks people about: damage falls off from `damage` at the middle to
     /// nothing at `radius`, and over 30 points knocks them down (`create_shockwave`,
     /// fallen/Source/collide.cpp). People in cars are shielded, as everywhere else here.
-    fn shockwave(&mut self, level: &Level, at: Vec3, radius: f32, damage: i32) {
+    fn shockwave(&mut self, level: &Level, at: Vec3, radius: f32, damage: i32, by: Blame) {
         self.shock_props(level, at, radius, damage);
+        // Creatures: a little more than people get, as far out as the edge, and four times
+        // that for the Balrog, who is "so hard that we'd better hurt them more here".
+        let mut acts = Vec::new();
+        for (k, c) in self.creatures.iter_mut().enumerate() {
+            let d = (c.fig.pos - at).abs();
+            let dist = d.max_element() + (d.x + d.y + d.z - d.max_element()) / 4.0;
+            if dist >= radius || by == Blame::Creature(k) {
+                continue;
+            }
+            let mut hit = (damage as f32 * (radius - dist + 0x80 as f32) / radius) as i32;
+            if c.kind == creature::BALROG {
+                hit <<= 2;
+            }
+            let who = match by {
+                Blame::Person(p) => Some(p),
+                _ => None,
+            };
+            c.hit(Some((at, who)), hit, &mut acts);
+        }
+        self.sounds.extend(acts.into_iter().filter_map(|a| match a {
+            creature::Act::Sound { id, at } => Some((Sfx::ById { id, replace: false }, at)),
+            _ => None,
+        }));
         for i in 0..self.people.len() {
             let p = &self.people[i];
             if p.removed || p.is_dead() {
@@ -378,7 +438,7 @@ impl Game {
             let at = Vec3::new(o.x as f32, o.y as f32, o.z as f32);
             self.pyro.burst(at, pyro::FIREBOMB, 256.0);
             self.sounds.push((Sfx::Explosion, at));
-            self.shockwave(level, at, 0x300 as f32, 150);
+            self.shockwave(level, at, 0x300 as f32, 150, Blame::Nobody);
         }
     }
 
@@ -407,7 +467,143 @@ impl Game {
             let at = c.pos + Vec3::new(0.0, 16.0, 0.0);
             self.pyro.burst(at, pyro::FLASH | pyro::DUST | pyro::STREAMERS | pyro::FIREBOMB, 0xa0 as f32);
             self.sounds.push((Sfx::Explosion, at));
-            self.shockwave(level, at, 0x500 as f32, 500);
+            let by = self.player.map_or(Blame::Nobody, Blame::Person);
+            self.shockwave(level, at, 0x500 as f32, 500, by);
+        }
+    }
+
+    /// The creatures go about their business on the original's own 20 ticks a second, and
+    /// their fireballs fly.
+    fn run_creatures(&mut self, dt: f32, level: &Level, frozen: bool) {
+        if self.creatures.is_empty() && self.fireballs.is_empty() {
+            return;
+        }
+        for s in &mut self.sparks {
+            s.left -= dt;
+        }
+        self.sparks.retain(|s| s.left > 0.0);
+        // The Balrog burns as he goes (`PYRO_IMMOLATE` on him).
+        for c in self.creatures.iter().filter(|c| c.kind == creature::BALROG && !c.dead) {
+            for _ in 0..2 {
+                let r = |rng: &mut u32| rand(rng) as f32 / 32768.0 - 1.0;
+                let (dx, dz, up) = (r(&mut self.creature_rng), r(&mut self.creature_rng), r(&mut self.creature_rng));
+                let at = c.fig.pos + Vec3::new(dx * 90.0, 160.0 + up * 150.0, dz * 90.0);
+                self.pyro.lick(at, 50.0);
+            }
+        }
+        self.creature_clock += dt;
+        while self.creature_clock >= creature::TICK {
+            self.creature_clock -= creature::TICK;
+            self.creature_tick(level, frozen);
+        }
+    }
+
+    fn creature_tick(&mut self, level: &Level, frozen: bool) {
+        let seen: Vec<creature::Seen> = self.people.iter().enumerate().map(|(i, p)| {
+            let pos = self.thing_pos(i);
+            let hips = p.fig.hips();
+            creature::Seen {
+                pos,
+                head: Vec3::new(hips.x, pos.y + 2.0 * (hips.y - pos.y).max(40.0), hips.z),
+                alive: !p.removed && !p.is_dead() && !p.is_down(),
+                dead: p.is_dead() || p.removed,
+                player: p.player,
+                ai: p.ai,
+                up_high: pos.y - level.map.ground_height(pos.x, pos.z) > 128.0,
+            }
+        }).collect();
+        let floor = |x: f32, z: f32| level.ground.surface(&level.map, x, z, 0x7fff as f32);
+        let terrain = |x: f32, z: f32| level.map.ground_height(x, z);
+        let clear = |a: Vec3, b: Vec3| level.ground.line_of_sight(a, b);
+        let slide = |at: Vec2, y: f32, by: Vec2| level.ground.slide(at, y + 64.0, by, 48.0);
+        let around = creature::Around {
+            people: &seen, player: self.player, floor: &floor, terrain: &terrain, clear: &clear, slide: &slide, frozen,
+        };
+        let mut acts = Vec::new();
+        let mut rng = self.creature_rng;
+        for (k, c) in self.creatures.iter_mut().enumerate() {
+            let before = acts.len();
+            c.tick(k, &around, &mut rng, &mut acts);
+            // Bolts start from the creature: tag them with where it is.
+            for a in &mut acts[before..] {
+                if let creature::Act::Spark { .. } = a {
+                    self.sparks.push(Spark { from: c.middle() + Vec3::new(0.0, 40.0, 0.0), to: Vec3::ZERO, left: 0.0 });
+                }
+            }
+        }
+        self.creature_rng = rng;
+        // Fireballs fall and burst on whatever they meet.
+        let mut bursts = Vec::new();
+        for f in &mut self.fireballs {
+            f.vel.y -= creature::Fireball::GRAVITY;
+            f.pos += f.vel;
+            f.age += creature::TICK;
+            if f.pos.y < level.ground.surface(&level.map, f.pos.x, f.pos.z, f.pos.y + 64.0) {
+                bursts.push(f.pos);
+                f.age = creature::Fireball::LIFE;
+            }
+        }
+        self.fireballs.retain(|f| f.age < creature::Fireball::LIFE);
+        for at in bursts {
+            // `PYRO_WHOOMPH`, and a small shockwave that blames nobody.
+            self.pyro.burst(at, pyro::FIREBALL | pyro::DUST, 0x140 as f32);
+            self.sounds.push((Sfx::Explosion, at));
+            self.shockwave(level, at, 0x140 as f32, 80, Blame::Nobody);
+        }
+        let mut spark = self.sparks.len() - acts.iter().filter(|a| matches!(a, creature::Act::Spark { .. })).count();
+        for a in acts {
+            match a {
+                creature::Act::Shockwave { at, radius, damage, from } => self.shockwave(level, at, radius, damage, Blame::Creature(from)),
+                creature::Act::Fireball { at, vel } => self.fireballs.push(creature::Fireball { pos: at, vel, age: 0.0 }),
+                creature::Act::Hurt { person, damage, recoil, from } => self.hurt_directly(person, damage, recoil, from),
+                creature::Act::Sound { id, at } => self.sounds.push((Sfx::ById { id, replace: false }, at)),
+                creature::Act::Float { person } => {
+                    let p = &mut self.people[person];
+                    if !p.removed && !matches!(p.state, State::InCar { .. }) {
+                        let floor = level.ground.surface(&level.map, p.fig.pos.x, p.fig.pos.z, p.fig.pos.y + 32.0);
+                        p.state = State::Float { floor };
+                    }
+                }
+                creature::Act::Spark { person, head } => {
+                    let p = &self.people[person];
+                    let hips = p.fig.hips();
+                    let to = if head { Vec3::new(hips.x, p.fig.pos.y + 2.0 * (hips.y - p.fig.pos.y), hips.z) } else { hips };
+                    let s = &mut self.sparks[spark];
+                    (s.to, s.left) = (to, if head { 0.4 } else { 1.0 });
+                    spark += 1;
+                }
+                creature::Act::Dust { at } => self.pyro.burst(at, pyro::DUST, 300.0),
+                creature::Act::BalrogKill => {
+                    if let Some(s) = &mut self.script {
+                        s.note_balrog_kill();
+                    }
+                }
+            }
+        }
+    }
+
+    /// Damage straight off someone's health with a cry of pain, as a gargoyle's swoop and
+    /// Bane's bolt do: it kills them when there's none left, and otherwise maybe sets them
+    /// reeling (`set_person_recoil`).
+    fn hurt_directly(&mut self, i: usize, damage: i32, recoil: bool, from: Vec3) {
+        let p = &mut self.people[i];
+        if p.removed || p.knocked_out || p.invulnerable || matches!(p.state, State::InCar { .. }) {
+            return;
+        }
+        p.health -= damage;
+        if p.health <= 0 {
+            if p.is_down() {
+                p.health = 0;
+                p.knocked_out = true;
+                p.cues.push(Sfx::KnockedOut { kind: p.kind });
+            } else {
+                p.take_hit(from, 0, person::ko::FINISHERS, false, false, Weapon::None);
+            }
+        } else if recoil && matches!(p.state, State::Move | State::Block | State::Attack { .. } | State::Shoot { .. }) {
+            p.face_towards(from);
+            p.take_hit(from, 0, 0, false, false, Weapon::None);
+        } else {
+            p.cues.push(Sfx::Hurt { kind: p.kind });
         }
     }
 
@@ -585,6 +781,10 @@ impl Game {
                     if let Some(&i) = self.by_way.get(&way) {
                         self.people[i].removed = true;
                     }
+                    if let Some(k) = self.creature_by_way.remove(&way) {
+                        self.creatures[k].state = creature::State::Dead;
+                        self.creatures[k].fig.pos.y -= 1.0e5;
+                    }
                     self.items.retain(|it| it.way != way);
                     self.hidden.retain(|(_, it)| it.way != way);
                     // A car a kill_waypoint takes away blows up where it stands: the original
@@ -600,7 +800,7 @@ impl Game {
                         }
                         self.pyro.burst(at + Vec3::new(0.0, 48.0, 0.0), pyro::CAR_BOMB, 400.0);
                         self.sounds.push((Sfx::Explosion, at));
-                        self.shockwave(level, at, 768.0, 350);
+                        self.shockwave(level, at, 768.0, 350, Blame::Nobody);
                     }
                 }
                 Command::Move { way, pos, angle } => {
@@ -629,6 +829,17 @@ impl Game {
                             self.hidden.push((ob, item));
                         }
                         None => self.items.push(item),
+                    }
+                }
+                Command::Creature { way, kind, pos, angle } => {
+                    let Some(chunk) = creature_chunk(level, kind) else {
+                        eprintln!("mission: no anim prim for creature {kind}");
+                        continue;
+                    };
+                    if let Some(fig) = Figure::anim_prim(chunk, pos, angle, 1) {
+                        let floor = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 128.0);
+                        self.creatures.push(creature::Creature::new(way, kind, fig, pos, angle, floor));
+                        self.creature_by_way.insert(way, self.creatures.len() - 1);
                     }
                 }
                 Command::Pee { way, on } => {
@@ -1008,27 +1219,34 @@ impl Game {
         let p = &self.people[pi];
         if !p.weapon.is_gun() || matches!(p.state, State::InCar { .. }) {
             self.target = None;
+            self.aim_creature = None;
             return;
         }
         let (pos, f) = (p.fig.pos, p.facing_dir());
         let eye = Vec3::new(0.0, 140.0, 0.0);
-        // (index, how far, how far round from straight ahead), nearest first.
-        let mut options: Vec<(usize, f32, f32)> = self
-            .people
-            .iter()
-            .enumerate()
+        let seen = |at: Vec3, aim: Aim| {
+            let d = Vec2::new(at.x - pos.x, at.z - pos.z);
+            let dist = d.length();
+            (dist < TARGET_RANGE && (at.y - pos.y).abs() < 4.0 * 256.0 && level.ground.line_of_sight(pos + eye, at + eye))
+                .then(|| (aim, dist, 1.0 - f.dot(d / dist.max(1.0))))
+        };
+        // (who, how far, how far round from straight ahead), nearest first. Creatures can be
+        // shot as well as people (`BAT_apply_hit` from `shoot_get_ammo_sound_and_damage`).
+        let people = self.people.iter().enumerate()
             .filter(|&(i, q)| i != pi && !q.removed && !q.is_dead() && !q.is_down() && (q.hostile() || q.aggro()))
-            .filter_map(|(i, q)| {
-                let d = Vec2::new(q.fig.pos.x - pos.x, q.fig.pos.z - pos.z);
-                let dist = d.length();
-                (dist < TARGET_RANGE && (q.fig.pos.y - pos.y).abs() < 4.0 * 256.0
-                    && level.ground.line_of_sight(pos + eye, q.fig.pos + eye))
-                    .then(|| (i, dist, 1.0 - f.dot(d / dist.max(1.0))))
-            })
-            .collect();
+            .filter_map(|(i, q)| seen(q.fig.pos, Aim::Person(i)));
+        let creatures = self.creatures.iter().enumerate()
+            .filter(|(_, c)| c.targetable())
+            .filter_map(|(k, c)| seen(c.fig.pos, Aim::Creature(k)));
+        let mut options: Vec<(Aim, f32, f32)> = people.chain(creatures).collect();
         options.sort_by(|a, b| a.1.total_cmp(&b.1));
-        let kept = self.target.filter(|t| options.iter().any(|o| o.0 == *t));
-        self.target = if cycle && !options.is_empty() {
+        let current = match (self.target, self.aim_creature) {
+            (Some(t), _) => Some(Aim::Person(t)),
+            (None, Some(k)) => Some(Aim::Creature(k)),
+            _ => None,
+        };
+        let kept = current.filter(|t| options.iter().any(|o| o.0 == *t));
+        let aim = if cycle && !options.is_empty() {
             let at = kept.and_then(|t| options.iter().position(|o| o.0 == t));
             Some(options[at.map_or(0, |k| (k + 1) % options.len())].0)
         } else if kept.is_some() {
@@ -1036,6 +1254,11 @@ impl Game {
         } else {
             // The nearest, favouring those ahead (someone right behind counts as 3x as far).
             options.iter().min_by(|a, b| (a.1 * (1.0 + a.2)).total_cmp(&(b.1 * (1.0 + b.2)))).map(|o| o.0)
+        };
+        (self.target, self.aim_creature) = match aim {
+            Some(Aim::Person(t)) => (Some(t), None),
+            Some(Aim::Creature(k)) => (None, Some(k)),
+            None => (None, None),
         };
     }
 
@@ -1178,6 +1401,7 @@ impl Game {
             self.charges(dt, level);
         }
         self.vent_steam(dt, level);
+        self.run_creatures(dt, level, self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player));
         // From just under the pelvis, for as long as they're on their feet (the original asks
         // only that they're peeing, but its pelvis is never anywhere sensible once they're down).
         let streams: Vec<(Vec3, Vec2)> = self.people.iter()
@@ -1196,6 +1420,7 @@ impl Game {
         // Getting in and out of cars and talking to people take the action key first.
         let mut input = *input;
         input.target = self.target;
+        input.aim = self.aim_creature.map(|k| self.creatures[k].middle());
         if self.outcome.is_none() && !frozen && input.action && self.use_something(level) {
             input.action = false;
         }
@@ -1329,6 +1554,31 @@ impl Game {
                         self.people[attacker].cues.push(Sfx::Taunt { kind });
                     }
                     self.drop_weapon(victim);
+                }
+                Event::Shot { attacker, victim: None, weapon } if Some(attacker) == self.player && self.aim_creature.is_some() => {
+                    let k = self.aim_creature.unwrap();
+                    let (from, at) = (self.people[attacker].fig.pos, self.creatures[k].middle());
+                    let eye = Vec3::new(0.0, 140.0, 0.0);
+                    if !level.ground.line_of_sight(from + eye, at) {
+                        continue;
+                    }
+                    let dist = (at - from).length();
+                    let chance = (0.95 - dist / (40.0 * 256.0)).clamp(0.4, 0.95);
+                    let damage = match weapon {
+                        Weapon::Pistol => 70,
+                        Weapon::Ak47 => 100,
+                        Weapon::Shotgun => (250.0 * (1.0 - dist / (8.0 * 256.0))).max(30.0) as i32,
+                        _ => 0,
+                    };
+                    if (self.rand() % 1000) as f32 / 1000.0 < chance {
+                        let mut acts = Vec::new();
+                        self.creatures[k].hit(Some((from, Some(attacker))), damage, &mut acts);
+                        for a in acts {
+                            if let creature::Act::Sound { id, at } = a {
+                                self.sounds.push((Sfx::ById { id, replace: false }, at));
+                            }
+                        }
+                    }
                 }
                 Event::Shot { attacker, victim: Some(victim), weapon } => {
                     let (a, v) = (&self.people[attacker], &self.people[victim]);
@@ -1481,6 +1731,10 @@ impl Game {
         s.beacons()
             .into_iter()
             .filter_map(|b| match b.track {
+                Some(way) if self.creature_by_way.contains_key(&way) => {
+                    let c = &self.creatures[self.creature_by_way[&way]];
+                    (!c.dead).then_some((b.label, c.fig.pos))
+                }
                 Some(way) => {
                     let p = &self.people[*self.by_way.get(&way)?];
                     (!p.removed && !p.is_down()).then_some((b.label, p.fig.pos))
@@ -1569,6 +1823,36 @@ impl Game {
             uc_world::level::prim_batches(prim, |v| it.pos + Vec3::new(c * v.x + s * v.z, v.y + lift, -s * v.x + c * v.z),
                                           lighter.as_ref(), &mut out);
         }
+        // Creatures, their fireballs and their lightning.
+        for c in self.creatures.iter().filter(|c| c.fig.pos.y > -1.0e4) {
+            c.fig.append_batches(&mut out, lighter.as_ref());
+        }
+        let billboard = |out: &mut BTreeMap<u32, Batch>, page: u32, at: Vec3, r: f32, colour: [u8; 4]| {
+            let away = at - eye;
+            let right = away.cross(Vec3::Y).normalize_or(Vec3::X) * r;
+            let up = right.cross(away).normalize_or(Vec3::Y) * r;
+            let corner = |x: f32, y: f32| (at + right * x + up * y) / uc_world::UNIT;
+            out.entry(page).or_default().quad(
+                [corner(-1.0, -1.0), corner(1.0, -1.0), corner(-1.0, 1.0), corner(1.0, 1.0)],
+                [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
+                [colour; 4],
+            );
+        };
+        for f in &self.fireballs {
+            billboard(&mut out, uc_world::GLOW, f.pos, 70.0, [255, 200, 110, 255]);
+            billboard(&mut out, uc_world::GLOW, f.pos - f.vel * 2.0, 50.0, [255, 120, 40, 160]);
+        }
+        for s in &self.sparks {
+            // A jagged line of bright points, jumping about from frame to frame.
+            let steps = ((s.to - s.from).length() / 24.0).clamp(4.0, 64.0) as usize;
+            let mut seed = (self.time * 60.0) as u32 ^ 0x9e37;
+            for k in 0..=steps {
+                let t = k as f32 / steps as f32;
+                let jag = |seed: &mut u32| (rand(seed) as f32 / 32768.0 - 1.0) * 14.0 * (1.0 - (2.0 * t - 1.0).powi(2));
+                let at = s.from.lerp(s.to, t) + Vec3::new(jag(&mut seed), jag(&mut seed), jag(&mut seed));
+                billboard(&mut out, uc_world::GLOW, at, 9.0, [170, 190, 255, 255]);
+            }
+        }
         // Charges sit still where they were put.
         if let Some(prim) = uc_world::level::item_prim(EXPLOSIVES).and_then(|id| level.item_prims.get(&id)) {
             let lift = 4.0 - uc_world::level::prim_bounds(prim).0.y;
@@ -1630,6 +1914,16 @@ impl Game {
     pub fn pages(level: &Level) -> Vec<u32> {
         let Some(people) = &level.people else { return Vec::new() };
         let mut out = Vec::new();
+        // And any creature the mission makes.
+        let kinds: BTreeSet<u8> = level.mission.event_points.iter()
+            .filter(|e| e.used != 0 && e.kind == uc_formats::ucm::waypoint::CREATE_CREATURE)
+            .map(|e| e.data[0] as u8)
+            .collect();
+        for kind in kinds {
+            if let Some(f) = creature_chunk(level, kind).and_then(|c| Figure::anim_prim(c, Vec3::ZERO, 0.0, 1)) {
+                out.extend(f.pages());
+            }
+        }
         for t in 0..=ptype::MIB3 {
             for v in 0..4 {
                 if let Some(f) = people.figure(t, v, Vec3::ZERO, 0.0) {
@@ -1641,6 +1935,31 @@ impl Game {
         out.sort_unstable();
         out.dedup();
         out
+    }
+}
+
+/// A creature's anim prim, `anim%03d.all` (`load_anim_prim_object`), if there is one. The bat
+/// has none, being compiled out.
+fn creature_chunk(level: &Level, kind: u8) -> Option<std::sync::Arc<uc_formats::all::AnimChunk>> {
+    if !matches!(kind, creature::GARGOYLE | creature::BALROG | creature::BANE) {
+        return None;
+    }
+    let path = uc_formats::resolve(&level.game, &format!("data\\anim{kind:03}.all"))?;
+    let chunk = uc_formats::all::AnimChunk::parse(&std::fs::read(path).ok()?).ok()?;
+    Some(std::sync::Arc::new(chunk))
+}
+
+/// The creature with its health showing: the one in the player's sights, or else the
+/// nearest still standing within twelve squares. (name, health 0..1)
+impl Game {
+    pub fn creature_health(&self) -> Option<(&'static str, f32)> {
+        let me = self.player()?.fig.pos;
+        let c = self.aim_creature.map(|k| &self.creatures[k]).or_else(|| {
+            self.creatures.iter()
+                .filter(|c| c.targetable() && (c.fig.pos - me).length() < 12.0 * 256.0)
+                .min_by(|a, b| (a.fig.pos - me).length().total_cmp(&(b.fig.pos - me).length()))
+        })?;
+        Some((c.name(), c.health.max(0) as f32 / c.max_health() as f32))
     }
 }
 
@@ -1739,6 +2058,10 @@ impl script::Query for Game {
     }
 
     fn person(&self, way: usize) -> Option<script::PersonState> {
+        if let Some(&k) = self.creature_by_way.get(&way) {
+            let c = &self.creatures[k];
+            return Some(script::PersonState { dead: c.dead, down: c.dead, arrested: false, half_dead: c.health * 2 < c.max_health() });
+        }
         if let Some(&v) = self.veh_by_way.get(&way) {
             let w = self.vehicles[v].wrecked();
             return Some(script::PersonState { dead: w, down: w, arrested: false, half_dead: self.vehicles[v].health < 150 });
@@ -1756,6 +2079,10 @@ impl script::Query for Game {
     }
 
     fn thing(&self, way: usize) -> Option<script::ThingState> {
+        if let Some(&k) = self.creature_by_way.get(&way) {
+            let c = &self.creatures[k];
+            return Some(script::ThingState { pos: c.fig.pos, angle: c.fig.angle, speed: 0.0 });
+        }
         if let Some(&v) = self.veh_by_way.get(&way) {
             let v = &self.vehicles[v];
             return Some(script::ThingState { pos: v.pos, angle: v.script_angle(), speed: v.speed });

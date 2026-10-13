@@ -138,6 +138,8 @@ pub enum Command {
     /// Put item `kind` (`IT_*`) at `pos`; `stashed` hides it in the nearest prop instead,
     /// to be found by searching it (`EWAY_ARG_ITEM_STASHED_IN_PRIM`).
     Item { way: usize, kind: u8, pos: Vec3, stashed: bool },
+    /// A creature of `kind` (`EWAY_SUBTYPE_ANIMAL_*`: 2 gargoyle, 3 Balrog, 4 Bane).
+    Creature { way: usize, kind: u8, pos: Vec3, angle: f32 },
     /// Start or stop the person created by `way` peeing (`FLAG_PERSON_PEEING`).
     Pee { way: usize, on: bool },
     /// Let the prop nearest `pos` be searched (`WPT_MAKE_SEARCHABLE`).
@@ -339,7 +341,7 @@ impl Script {
                 | END_GAME_WIN | END_GAME_LOSE | BONUS_POINTS | GROUP_LIFE | GROUP_DEATH | GROUP_RESET | EXTEND
                 | MOVE_THING | CONVERSATION | CREATE_BARREL | CREATE_VEHICLE | STALL_CAR | SIGN | CONE_PENALTIES
                 | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT | RESET_COUNTER | ACTIVATE_PRIM | CREATE_MIST | SOUND_EFFECT | SHAKE_CAMERA
-                | MAKE_SEARCHABLE | MAKE_PERSON_PEE | CREATE_TRAP);
+                | MAKE_SEARCHABLE | MAKE_PERSON_PEE | CREATE_TRAP | CREATE_CREATURE);
             // An `activate_prim` only counts as supported when it opens a door: the fences
             // and the cameras are still to do.
             let supported = supported && (ep.kind != ACTIVATE_PRIM || ep.data[0] == activate::DOOR);
@@ -380,6 +382,11 @@ impl Script {
     /// five of them as a punishment.
     pub fn note_cop_killed(&mut self) {
         self.counters[COPS_KILLED] = self.counters[COPS_KILLED].saturating_add(1);
+    }
+
+    /// A Balrog's quarry has died: counter 8 keeps the tally (`EWAY_counter[8]`, kept to 255).
+    pub fn note_balrog_kill(&mut self) {
+        self.counters[8] = (self.counters[8] + 1).min(255);
     }
 
     /// The player started a punch / kick (for punched_and_kicked triggers).
@@ -602,6 +609,11 @@ impl Script {
                 }
             }
             // `Data[2]` is the item's flags (`ELEV_load_level`).
+            // A bat makes nothing: `BAT_create` for them is compiled out of the shipped game.
+            waypoint::CREATE_CREATURE if d[0] as u8 == crate::creature::BAT => {}
+            waypoint::CREATE_CREATURE => {
+                self.commands.push(Command::Creature { way: i, kind: d[0] as u8, pos, angle })
+            }
             waypoint::CREATE_ITEM => {
                 self.commands.push(Command::Item { way: i, kind: d[0] as u8, pos, stashed: d[2] & STASHED_IN_PRIM != 0 })
             }
@@ -683,7 +695,7 @@ impl Script {
                     // A car goes up where it stands; a person is carried off the map. Either
                     // way the point forgets it ever made them, so triggers watching for their
                     // death stop firing (`EWAY_DO_KILL_WAYPOINT`).
-                    if matches!(t.ep.kind, waypoint::CREATE_ENEMIES | waypoint::CREATE_ITEM | waypoint::CREATE_VEHICLE) {
+                    if matches!(t.ep.kind, waypoint::CREATE_ENEMIES | waypoint::CREATE_ITEM | waypoint::CREATE_VEHICLE | waypoint::CREATE_CREATURE) {
                         self.commands.push(Command::Remove { way: target });
                     }
                 }
