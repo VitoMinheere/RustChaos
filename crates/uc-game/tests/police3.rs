@@ -20,10 +20,7 @@ fn start() -> Option<Run> {
     let game = uc_formats::default_install()?;
     let level = Level::load(&game, "police3", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
     let g = Game::new(&level, true);
-    // `warefx` sets the ambience inside a warehouse (`WARE_ware[ware].ambience`); there is one
-    // ambience track here so far, so it stays on the unsupported list rather than being
-    // quietly swallowed. Nothing in the mission turns on it.
-    assert_eq!(g.unsupported(), ["65 warefx"], "unsupported: {:?}", g.unsupported());
+    assert!(g.unsupported().is_empty(), "unsupported: {:?}", g.unsupported());
     Some(Run { level, g, seen: Vec::new() })
 }
 

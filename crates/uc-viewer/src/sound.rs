@@ -96,6 +96,7 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         Sfx::Click => at(audio, vec!["General/Click2.wav".into()], 0.8),
         Sfx::Zip => at(audio, vec!["ZipWire.wav".into()], 0.8),
         Sfx::Pickup => at(audio, vec!["General/PickupSwish2.wav".into()], 0.8),
+        Sfx::Found => at(audio, vec!["sfx080799+/HiddenItemRev2.wav".into()], 0.9),
         Sfx::Crash => at(audio, vec!["MedCrash2.wav".into(), "Impact1.wav".into(), "Impact2.wav".into()], 1.0),
         Sfx::Cone => at(audio, vec!["Cone1.wav".into()], 0.8),
         Sfx::Skid => at(audio, numbered("Skid", 1..=3, ".wav"), 0.8),

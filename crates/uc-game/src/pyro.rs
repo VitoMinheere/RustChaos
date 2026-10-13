@@ -174,6 +174,14 @@ impl Pyro {
         self.fires.retain(|f| f.2 > 0.0);
     }
 
+    /// A single tongue of flame at `at`, as a fire throws up: for something on fire that moves.
+    pub fn lick(&mut self, at: Vec3, size: f32) {
+        self.puffs.push(Puff {
+            pos: at, vel: vec3(0.0, size * 1.6, 0.0), radius: size * 0.5, grow: -size * 0.2,
+            age: 0.0, life: 0.5, smoke: false, tint: [255, 170, 70],
+        });
+    }
+
     /// Where the fires are burning, and how big: for lighting the scene, and for tests.
     pub fn fires(&self) -> impl Iterator<Item = (Vec3, f32)> + '_ {
         self.fires.iter().map(|&(pos, size, ..)| (pos, size))

@@ -446,6 +446,27 @@ impl World {
             o.text(w / 2.0 - tw / 2.0, h * 0.2, big, white, text);
         }
 
+        // A search under way: the panel's box in the middle of the screen, with its bar.
+        if let Some(search) = &self.game.search {
+            let (bw, bh) = (160.0 * s, 32.0 * s);
+            let (bx, by) = (w / 2.0 - bw / 2.0, h * 0.6 - bh / 2.0);
+            o.rect(bx, by, bw, bh, [0, 0, 0, 170]);
+            let text = "SEARCHING";
+            o.text(w / 2.0 - Overlay::text_width(text, s) / 2.0, by + 5.0 * s, s, white, text);
+            let (fx, fy, fw, fh) = (bx + 10.0 * s, by + 18.0 * s, bw - 20.0 * s, 6.0 * s);
+            o.rect(fx - s, fy - s, fw + 2.0 * s, fh + 2.0 * s, [60, 60, 60, 200]);
+            o.rect(fx, fy, fw * search.progress(), fh, [230, 190, 60, 255]);
+        }
+
+        // A creature's health, under the clock: the one in the sights, or the nearest.
+        if let Some((name, frac)) = self.game.creature_health() {
+            let (bw, bh) = (160.0 * s, 5.0 * s);
+            let (bx, by) = (w / 2.0 - bw / 2.0, 44.0 * s);
+            o.text(w / 2.0 - Overlay::text_width(name, s) / 2.0, by - 11.0 * s, s, white, name);
+            o.rect(bx - s, by - s, bw + 2.0 * s, bh + 2.0 * s, [0, 0, 0, 160]);
+            o.rect(bx, by, bw * frac, bh, [220, 80, 40, 255]);
+        }
+
         // The mission clock.
         if let Some(t) = self.game.countdown() {
             let secs = t.ceil() as u32;
@@ -665,6 +686,8 @@ struct Sound {
     /// Fights so far (to alternate the two fight themes).
     fights: u32,
     mood: Mood,
+    /// The player is in a warehouse, with this ambience.
+    indoors: Option<u8>,
 }
 
 impl Sound {
@@ -679,13 +702,14 @@ impl Sound {
                 return None;
             }
         };
-        Some(Sound { audio, music_world: 1, fights: 0, mood: Mood::Calm })
+        Some(Sound { audio, music_world: 1, fights: 0, mood: Mood::Calm, indoors: None })
     }
 
     /// A mission starts: its music world and the city's ambience.
     fn start(&mut self, world: &World) {
         self.music_world = uc_audio::music_world(&world.args.game, &world.level.name, world.level.mission.music_world);
         self.mood = Mood::Calm;
+        self.indoors = None;
         self.audio.hush();
         self.audio.music(None);
         self.audio.ambience(Some("f_CTYAMB.wav"), 0.35);
@@ -707,13 +731,24 @@ impl Sound {
             sound::play(&mut self.audio, sfx, pos, &listener, &world.level.name);
         }
         let mood = world.game.mood();
-        if mood != self.mood {
-            if mood == Mood::Fight {
+        let indoors = world.game.indoors();
+        let moved = indoors != self.indoors;
+        if moved {
+            // Inside a warehouse the city's ambience stops (`process_weather`).
+            self.indoors = indoors;
+            self.audio.ambience(if indoors.is_none() { Some("f_CTYAMB.wav") } else { None }, 0.35);
+        }
+        if mood != self.mood || moved {
+            if mood == Mood::Fight && mood != self.mood {
                 self.fights += 1;
             }
             self.mood = mood;
             if !matches!(mood, Mood::Won | Mood::Lost) {
-                let track = sound::music(mood, self.music_world, self.fights);
+                // A warehouse with an ambience plays it in place of the music.
+                let track = match indoors {
+                    Some(a @ 1..=4) => Some(uc_game::ware::AMBIENCE[a as usize - 1].to_string()),
+                    _ => sound::music(mood, self.music_world, self.fights),
+                };
                 self.audio.music(track.as_deref());
             }
         }

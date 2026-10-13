@@ -37,6 +37,8 @@ pub enum Weapon {
     Pistol,
     Shotgun,
     Ak47,
+    /// Charges to set down and run from (`SPECIAL_EXPLOSIVES`): action sets one.
+    Explosives,
 }
 
 impl Weapon {
@@ -68,6 +70,7 @@ impl Weapon {
             Weapon::Knife => Some(5),
             Weapon::Ak47 => Some(6),
             Weapon::Bat => Some(8),
+            Weapon::Explosives => Some(crate::EXPLOSIVES),
         }
     }
 
@@ -103,6 +106,7 @@ impl Weapon {
             Weapon::Pistol => "PISTOL",
             Weapon::Shotgun => "SHOTGUN",
             Weapon::Ak47 => "AK-47",
+            Weapon::Explosives => "EXPLOSIVES",
         }
     }
 
@@ -116,6 +120,7 @@ impl Weapon {
             Weapon::Shotgun => Some((258, 7, Some(262))),
             Weapon::Bat => Some((259, 7, None)),
             Weapon::Ak47 => Some((260, 7, Some(263))),
+            Weapon::Explosives => None,
         }
     }
 
@@ -212,6 +217,8 @@ pub enum Sfx {
     /// Getting into or out of a car.
     CarDoor,
     Pickup,
+    /// Something hidden turned up in a search (`S_HIDDENITEM`).
+    Found,
     /// A bomb or a car going up.
     Explosion,
     /// One of the game's own sounds by id (`sound_list`), asked for by a mission.
@@ -240,6 +247,11 @@ impl Pace {
     }
 }
 
+/// Bane's floating bodies rise `64 * TICK_RATIO >> TICK_SHIFT` in 256ths a tick at 20 a
+/// second, to 200 above the ground (`fn_person_float`).
+const FLOAT_SPEED: f32 = 64.0 / 256.0 * 20.0;
+const FLOAT_HEIGHT: f32 = 200.0;
+
 /// One frame of intent.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Controls {
@@ -263,6 +275,9 @@ pub struct Controls {
     pub cycle_target: bool,
     /// Who guns shoot at (chosen by the game for the player, the player for the AI).
     pub target: Option<usize>,
+    /// Somewhere else to aim the gun when `target` is nobody: a creature the player has in
+    /// their sights.
+    pub aim: Option<Vec3>,
     /// Driving, when in a car.
     pub drive: crate::vehicle::Drive,
 }
@@ -398,6 +413,10 @@ pub enum State {
     Held { by: usize },
     Arrest { victim: usize },
     Cuffed,
+    /// Drawn up into the air by Bane (`STATE_FLOAT`): a quarter of a unit a tick until the
+    /// body is 200 above the ground at `floor`, and there it hangs. Nothing in the original
+    /// ever lets them down again (`set_person_float_down` has no callers).
+    Float { floor: f32 },
 }
 
 /// What a person did this frame that affects somebody else.
@@ -465,6 +484,10 @@ pub struct Person {
     pub ammo: [u32; 3],
     /// Out for good (health gone): won't get up.
     pub knocked_out: bool,
+    /// A mission has set them peeing (`FLAG_PERSON_PEEING`).
+    pub peeing: bool,
+    /// Charges carried (the special's `ammo`): four at most.
+    pub explosives: u8,
     down_timer: f32,
     block_timer: f32,
     /// Seconds before a cable can be grabbed again after letting go.
@@ -533,6 +556,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 3], knocked_out: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
+            peeing: false, explosives: 0,
         }
     }
 
@@ -553,6 +577,9 @@ impl Person {
     }
 
     pub fn has(&self, w: Weapon) -> bool {
+        if w == Weapon::Explosives {
+            return self.explosives > 0;
+        }
         match w.slot() {
             Some(s) => self.guns & (1 << s) != 0,
             None => w == Weapon::None || self.melee == w,
@@ -561,6 +588,9 @@ impl Person {
 
     /// Rounds left in the gun in hand (the AI never runs out).
     pub fn rounds(&self) -> Option<u32> {
+        if self.weapon == Weapon::Explosives {
+            return Some(self.explosives as u32);
+        }
         self.weapon.slot().map(|s| if self.player { self.ammo[s] } else { u32::MAX })
     }
 
@@ -572,12 +602,13 @@ impl Person {
         let guns = Weapon::GUNS.iter().enumerate()
             .filter(|(s, _)| self.guns & (1 << s) != 0)
             .map(|(s, &g)| (g, Some(self.ammo[s])));
-        melee.into_iter().chain(guns).filter(|&(w, _)| w != self.weapon).collect()
+        let charges = (self.explosives > 0).then_some((Weapon::Explosives, Some(self.explosives as u32)));
+        melee.into_iter().chain(guns).chain(charges).filter(|&(w, _)| w != self.weapon).collect()
     }
 
     /// Puts away what's in hand and takes out the next weapon carried (bare hands last).
     pub fn next_weapon(&mut self) {
-        let carried: Vec<Weapon> = [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47]
+        let carried: Vec<Weapon> = [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Explosives]
             .into_iter()
             .enumerate()
             .filter(|&(k, w)| self.has(w) && (k == 0 || w != Weapon::None))
@@ -979,6 +1010,11 @@ impl Person {
         }
         match self.state.clone() {
             State::Move => self.step_move(me, c, snaps, ground, map, dt, events),
+            State::Float { floor } => {
+                if self.fig.pos.y - floor < FLOAT_HEIGHT {
+                    self.fig.pos.y = (self.fig.pos.y + FLOAT_SPEED * dt).min(floor + FLOAT_HEIGHT);
+                }
+            }
             State::Block => {
                 if let Some(t) = self.nearest_opponent(me, snaps, FIGHT_RANGE) {
                     self.fig.turn_towards(flat(snaps[t].pos, self.fig.pos), 8.0, dt);
@@ -998,6 +1034,8 @@ impl Person {
                 let target = target.filter(|&t| snaps[t].present && !snaps[t].down);
                 if let Some(t) = target {
                     self.fig.turn_towards(flat(snaps[t].pos, self.fig.pos), 12.0, dt);
+                } else if let Some(at) = c.aim {
+                    self.fig.turn_towards(flat(at, self.fig.pos), 12.0, dt);
                 }
                 let w = self.weapon;
                 if w == Weapon::Ak47 {
@@ -1450,6 +1488,8 @@ impl Person {
             let target = c.target.filter(|&t| t != me && snaps[t].present);
             if let Some(t) = target {
                 self.face(snaps[t].pos);
+            } else if let Some(at) = c.aim {
+                self.face(at);
             } else if !self.player {
                 return;
             }

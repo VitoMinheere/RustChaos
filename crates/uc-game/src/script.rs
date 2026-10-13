@@ -48,6 +48,11 @@ pub trait Query {
     fn got_item(&self, _way: usize) -> bool {
         false
     }
+    /// The prop a `prim_damaged` point at `pos` watches has been damaged
+    /// (`EWAY_COND_PRIM_DAMAGED`).
+    fn prim_damaged(&self, _pos: Vec3) -> bool {
+        false
+    }
     /// The person created by `a` can see the one created by `b` (`can_a_see_b`).
     fn sees(&self, _a: usize, _b: usize) -> bool {
         false
@@ -130,8 +135,17 @@ pub enum Command {
     /// Show `text` for `secs`; `way` is the event point (its voice line, if recorded).
     /// `speech`: the recording's number (`talk2\<mission>.ucm<speech>.wav`).
     Message { way: usize, speech: usize, text: String, secs: f32 },
-    /// Put item `kind` (`IT_*`) at `pos`.
-    Item { way: usize, kind: u8, pos: Vec3 },
+    /// Put item `kind` (`IT_*`) at `pos`; `stashed` hides it in the nearest prop instead,
+    /// to be found by searching it (`EWAY_ARG_ITEM_STASHED_IN_PRIM`).
+    Item { way: usize, kind: u8, pos: Vec3, stashed: bool },
+    /// A creature of `kind` (`EWAY_SUBTYPE_ANIMAL_*`: 2 gargoyle, 3 Balrog, 4 Bane).
+    Creature { way: usize, kind: u8, pos: Vec3, angle: f32 },
+    /// Give the warehouse round `pos` ambience `ambience` (`EWAY_DO_WAREFX`: 0 none, 1-4).
+    WareFx { pos: Vec3, ambience: u8 },
+    /// Start or stop the person created by `way` peeing (`FLAG_PERSON_PEEING`).
+    Pee { way: usize, on: bool },
+    /// Let the prop nearest `pos` be searched (`WPT_MAKE_SEARCHABLE`).
+    Searchable { pos: Vec3 },
     Camera { way: usize, shot: Shot },
     /// Lines said in turn by the people created by the given event points (0 = the player);
     /// report back with [`Script::conversation_over`].
@@ -189,8 +203,12 @@ fn trigger_supported(t: u8) -> bool {
         | ENEMY_RADIUS | VISIBLE_COUNTDOWN | CUBOID | HALF_DEAD | GROUP_DEAD | PERSON_SEEN
         | PERSON_USED | PLAYER_USES_RADIUS | PERSON_ARRESTED | CONVERSATION_OVER | COUNTER
         | KILLED_NOT_ARRESTED | PERSON_IN_VEHICLE | SPECIFIC_ITEM_HELD | THING_RADIUS_DIR | RANDOM
-        | DARCI_GRABBED | PUNCHED_AND_KICKED | MOVE_RADIUS_DIR | ITEM_HELD | PLAYER_FIRES_GUN)
+        | DARCI_GRABBED | PUNCHED_AND_KICKED | MOVE_RADIUS_DIR | ITEM_HELD | PLAYER_FIRES_GUN | PRIM_DAMAGED)
 }
+
+/// `EWAY_ARG_ITEM_STASHED_IN_PRIM` (fallen/Headers/eway.h): a `create_item`'s item is hidden
+/// inside the nearest prop and only turns up when someone searches it.
+const STASHED_IN_PRIM: i32 = 2;
 
 /// `EWAY_counter[7]`: how many cops have been killed.
 const COPS_KILLED: usize = 7;
@@ -314,6 +332,7 @@ impl Script {
         let size = m.event_points.iter().map(|e| e.index + 1).max().unwrap_or(1);
         let mut ways: Vec<Option<Way>> = (0..size).map(|_| None).collect();
         let mut unsupported = Vec::new();
+        let mut commands = Vec::new();
         for ep in &m.event_points {
             if ep.used == 0 {
                 continue;
@@ -323,7 +342,8 @@ impl Script {
                 | CREATE_TARGET | CAMERA_WAYPOINT | MESSAGE | NAV_BEACON | KILL_WAYPOINT | INCREMENT | ADJUST_ENEMY
                 | END_GAME_WIN | END_GAME_LOSE | BONUS_POINTS | GROUP_LIFE | GROUP_DEATH | GROUP_RESET | EXTEND
                 | MOVE_THING | CONVERSATION | CREATE_BARREL | CREATE_VEHICLE | STALL_CAR | SIGN | CONE_PENALTIES
-                | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT | RESET_COUNTER | ACTIVATE_PRIM | CREATE_MIST | SOUND_EFFECT | SHAKE_CAMERA);
+                | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT | RESET_COUNTER | ACTIVATE_PRIM | CREATE_MIST | SOUND_EFFECT | SHAKE_CAMERA
+                | MAKE_SEARCHABLE | MAKE_PERSON_PEE | CREATE_TRAP | CREATE_CREATURE | WAREFX);
             // An `activate_prim` only counts as supported when it opens a door: the fences
             // and the cameras are still to do.
             let supported = supported && (ep.kind != ACTIVATE_PRIM || ep.data[0] == activate::DOOR);
@@ -337,6 +357,12 @@ impl Script {
                 let name = uc_formats::ucm::names::TRIGGER.get(ep.trigger as usize).copied().unwrap_or("?");
                 unsupported.push(format!("{} trigger {}", ep.index, name));
             }
+            // `ELEV_load_level` flags the prop as the level loads and never makes a waypoint
+            // of it (`goto dont_create_a_waypoint`): its trigger is never even looked at.
+            if ep.kind == MAKE_SEARCHABLE {
+                commands.push(Command::Searchable { pos: vec3(ep.x as f32, ep.y as f32, ep.z as f32) });
+                continue;
+            }
             ways[ep.index] = Some(Way {
                 ep: ep.clone(), text: texts.get(&ep.index).cloned(), active: false, dead: false, killed: false,
                 finished: false, timer: None, countdown: hundredths(ep.radius), baseline: None,
@@ -344,7 +370,7 @@ impl Script {
         }
         Script {
             ways, counters: [0; 16], punches: 0, kicks: 0, time: 0.0, rng: 0x5eed, unsupported,
-            commands: Vec::new(), finished: false,
+            commands, finished: false,
         }
     }
 
@@ -358,6 +384,11 @@ impl Script {
     /// five of them as a punishment.
     pub fn note_cop_killed(&mut self) {
         self.counters[COPS_KILLED] = self.counters[COPS_KILLED].saturating_add(1);
+    }
+
+    /// A Balrog's quarry has died: counter 8 keeps the tally (`EWAY_counter[8]`, kept to 255).
+    pub fn note_balrog_kill(&mut self) {
+        self.counters[8] = (self.counters[8] + 1).min(255);
     }
 
     /// The player started a punch / kick (for punched_and_kicked triggers).
@@ -496,6 +527,7 @@ impl Script {
             // the same thing.
             trigger::SPECIFIC_ITEM_HELD | trigger::ITEM_HELD => q.got_item(r1),
             trigger::PLAYER_FIRES_GUN => q.player_fired(),
+            trigger::PRIM_DAMAGED => q.prim_damaged(pos),
             trigger::PERSON_SEEN => q.sees(r1, r2),
             trigger::RANDOM => {
                 // Once the dependency is active, one of the points sharing it (or none) goes
@@ -578,12 +610,20 @@ impl Script {
                     return;
                 }
             }
-            waypoint::CREATE_ITEM => self.commands.push(Command::Item { way: i, kind: d[0] as u8, pos }),
+            // `Data[2]` is the item's flags (`ELEV_load_level`).
+            // A bat makes nothing: `BAT_create` for them is compiled out of the shipped game.
+            waypoint::CREATE_CREATURE if d[0] as u8 == crate::creature::BAT => {}
+            waypoint::CREATE_CREATURE => {
+                self.commands.push(Command::Creature { way: i, kind: d[0] as u8, pos, angle })
+            }
+            waypoint::CREATE_ITEM => {
+                self.commands.push(Command::Item { way: i, kind: d[0] as u8, pos, stashed: d[2] & STASHED_IN_PRIM != 0 })
+            }
             // A badge. The original picks which of the four at random (`alloc_special`);
             // here each point keeps its own, so badges can be tracked from run to run.
             waypoint::CREATE_TREASURE => {
                 let kind = crate::BADGE + crate::goals::badge_stat(i) as u8;
-                self.commands.push(Command::Item { way: i, kind, pos });
+                self.commands.push(Command::Item { way: i, kind, pos, stashed: false });
             }
             waypoint::CREATE_VEHICLE => {
                 let kind = crate::vehicle::from_vt(d[0]);
@@ -600,6 +640,7 @@ impl Script {
             }
             waypoint::CREATE_BARREL => self.commands.push(Command::Barrel { way: i, kind: d[0] as u8, pos }),
             waypoint::SIGN => self.commands.push(Command::Sign { which: d[0] as u8, flip: d[1] != 0 }),
+            waypoint::WAREFX => self.commands.push(Command::WareFx { pos, ambience: d[0] as u8 }),
             // Only the door kind does anything here; an electric fence or a security camera
             // is left for later (and the camera does nothing in the original either).
             waypoint::CREATE_MIST => self.commands.push(Command::Mist { pos }),
@@ -624,6 +665,10 @@ impl Script {
                 }
             }
             waypoint::MOVE_THING => self.commands.push(Command::Move { way: d[0] as usize, pos, angle }),
+            // `Data[0]` is the point that made the person. Someone not made yet is left alone,
+            // and the point doesn't wait for them: RTA's and Arms Breaker's come before their
+            // person's point, so in the original nobody is ever seen at it.
+            waypoint::MAKE_PERSON_PEE => self.commands.push(Command::Pee { way: d[0] as usize, on: true }),
             waypoint::EXTEND => {
                 if let Some(Some(t)) = self.ways.get_mut(d[0] as usize) {
                     t.countdown += d[1].max(0) as f32;
@@ -646,10 +691,14 @@ impl Script {
                 if let Some(Some(t)) = self.ways.get_mut(target) {
                     t.dead = true;
                     t.killed = true;
+                    // Killing a pee point is what stops the person peeing.
+                    if t.ep.kind == waypoint::MAKE_PERSON_PEE {
+                        self.commands.push(Command::Pee { way: t.ep.data[0] as usize, on: false });
+                    }
                     // A car goes up where it stands; a person is carried off the map. Either
                     // way the point forgets it ever made them, so triggers watching for their
                     // death stop firing (`EWAY_DO_KILL_WAYPOINT`).
-                    if matches!(t.ep.kind, waypoint::CREATE_ENEMIES | waypoint::CREATE_ITEM | waypoint::CREATE_VEHICLE) {
+                    if matches!(t.ep.kind, waypoint::CREATE_ENEMIES | waypoint::CREATE_ITEM | waypoint::CREATE_VEHICLE | waypoint::CREATE_CREATURE) {
                         self.commands.push(Command::Remove { way: target });
                     }
                 }
@@ -716,6 +765,35 @@ impl Script {
             .flatten()
             .filter(|w| w.active && w.ep.colour == colour && w.ep.group == group)
             .map(|w| (w.ep.index, w.pos()))
+            .collect()
+    }
+
+    /// Seconds since the mission started (`EWAY_time`, which is in hundredths).
+    pub fn time(&self) -> f32 {
+        self.time
+    }
+
+    /// The steam vents blowing: `create_trap` points that are active and not dead, which is
+    /// what `EWAY_process` asks before it calls `EWAY_process_emit_steam`. A trap that stays
+    /// active for good is marked dead the moment it goes active (`EWAY_STAY_ALWAYS`), so it
+    /// never blows at all; the ones that do are `active_while` and `active_time` points.
+    pub fn vents(&self) -> Vec<crate::steam::Vent> {
+        self.ways
+            .iter()
+            .flatten()
+            .filter(|w| w.ep.kind == waypoint::CREATE_TRAP && w.active && !w.dead)
+            .map(|w| {
+                let d = &w.ep.data;
+                crate::steam::Vent {
+                    pos: w.pos(),
+                    angle: uc_world::character::ep_angle(w.ep.direction),
+                    dir: d[4] as u8,
+                    routine: d[3] as u32,
+                    speed: (d[1] & 0x3f) as u32,
+                    steps: (d[2] & 0x0f) as u32,
+                    range: (d[5] & 0x3f) as u32,
+                }
+            })
             .collect()
     }
 

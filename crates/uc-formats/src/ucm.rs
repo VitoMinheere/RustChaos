@@ -19,6 +19,7 @@ pub mod waypoint {
     pub const CREATE_ENEMIES: u8 = 3;
     pub const CREATE_VEHICLE: u8 = 4;
     pub const CREATE_ITEM: u8 = 5;
+    pub const CREATE_CREATURE: u8 = 6;
     pub const CREATE_TREASURE: u8 = 31;
     pub const CREATE_CAMERA: u8 = 7;
     pub const CREATE_TARGET: u8 = 8;
@@ -26,6 +27,7 @@ pub mod waypoint {
     pub const MESSAGE: u8 = 12;
     pub const VISUAL_EFFECT: u8 = 14;
     pub const ACTIVATE_PRIM: u8 = 20;
+    pub const CREATE_TRAP: u8 = 21;
     pub const CREATE_MIST: u8 = 47;
     pub const SOUND_EFFECT: u8 = 13;
     pub const CUT_SCENE: u8 = 15;
@@ -45,11 +47,14 @@ pub mod waypoint {
     pub const GROUP_RESET: u8 = 44;
     pub const EXTEND: u8 = 50;
     pub const MOVE_THING: u8 = 51;
+    pub const MAKE_PERSON_PEE: u8 = 52;
     pub const STALL_CAR: u8 = 49;
+    pub const MAKE_SEARCHABLE: u8 = 42;
     pub const LOCK_VEHICLE: u8 = 43;
     pub const SHAKE_CAMERA: u8 = 57;
     pub const CONE_PENALTIES: u8 = 53;
     pub const SIGN: u8 = 54;
+    pub const WAREFX: u8 = 55;
 }
 
 /// `TT_*`: what triggers an event point (names in [`names::TRIGGER`]).
@@ -78,6 +83,7 @@ pub mod trigger {
     pub const ITEM_HELD: u8 = 15;
     pub const SPECIFIC_ITEM_HELD: u8 = 39;
     pub const PLAYER_FIRES_GUN: u8 = 41;
+    pub const PRIM_DAMAGED: u8 = 28;
     pub const THING_RADIUS_DIR: u8 = 37;
     pub const RANDOM: u8 = 40;
     pub const MOVE_RADIUS_DIR: u8 = 44;

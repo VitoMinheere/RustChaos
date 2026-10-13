@@ -21,8 +21,7 @@ fn start() -> Option<Run> {
     let game = uc_formats::default_install()?;
     let level = Level::load(&game, "Gangorder2", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
     let g = Game::new(&level, true);
-    // Still to do: the traps, which aren't on the way to either ending.
-    assert_eq!(g.unsupported(), ["149 create_trap", "151 create_trap", "152 create_trap"]);
+    assert!(g.unsupported().is_empty(), "unsupported: {:?}", g.unsupported());
     Some(Run { level, g, seen: Vec::new() })
 }
 
