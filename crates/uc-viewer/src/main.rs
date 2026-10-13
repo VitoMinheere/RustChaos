@@ -686,6 +686,8 @@ struct Sound {
     /// Fights so far (to alternate the two fight themes).
     fights: u32,
     mood: Mood,
+    /// The player is in a warehouse, with this ambience.
+    indoors: Option<u8>,
 }
 
 impl Sound {
@@ -700,13 +702,14 @@ impl Sound {
                 return None;
             }
         };
-        Some(Sound { audio, music_world: 1, fights: 0, mood: Mood::Calm })
+        Some(Sound { audio, music_world: 1, fights: 0, mood: Mood::Calm, indoors: None })
     }
 
     /// A mission starts: its music world and the city's ambience.
     fn start(&mut self, world: &World) {
         self.music_world = uc_audio::music_world(&world.args.game, &world.level.name, world.level.mission.music_world);
         self.mood = Mood::Calm;
+        self.indoors = None;
         self.audio.hush();
         self.audio.music(None);
         self.audio.ambience(Some("f_CTYAMB.wav"), 0.35);
@@ -728,13 +731,24 @@ impl Sound {
             sound::play(&mut self.audio, sfx, pos, &listener, &world.level.name);
         }
         let mood = world.game.mood();
-        if mood != self.mood {
-            if mood == Mood::Fight {
+        let indoors = world.game.indoors();
+        let moved = indoors != self.indoors;
+        if moved {
+            // Inside a warehouse the city's ambience stops (`process_weather`).
+            self.indoors = indoors;
+            self.audio.ambience(if indoors.is_none() { Some("f_CTYAMB.wav") } else { None }, 0.35);
+        }
+        if mood != self.mood || moved {
+            if mood == Mood::Fight && mood != self.mood {
                 self.fights += 1;
             }
             self.mood = mood;
             if !matches!(mood, Mood::Won | Mood::Lost) {
-                let track = sound::music(mood, self.music_world, self.fights);
+                // A warehouse with an ambience plays it in place of the music.
+                let track = match indoors {
+                    Some(a @ 1..=4) => Some(uc_game::ware::AMBIENCE[a as usize - 1].to_string()),
+                    _ => sound::music(mood, self.music_world, self.fights),
+                };
                 self.audio.music(track.as_deref());
             }
         }

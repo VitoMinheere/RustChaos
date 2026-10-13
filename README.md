@@ -131,6 +131,8 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 **Insane Assault walkthrough:** go to Brick Road and put down the two gang members who turn up. Then the Balrog comes: a burning giant who stomps, swipes and throws fireballs, and goes for you above anyone else. Fists don't touch him. Only bullets and blasts do, and he takes an eighth of what anything else would: you start with a pistol, and ammo boxes appear about the place once he's out. Keep your distance, keep shooting, and when he goes down the mission is yours.
 
+**Warehouses:** walk into one (the police station is one, and RTA starts you in it) and the city's ambience and wind stop. If the mission has given it an ambience (`warefx`), that plays instead of the music: the station's radio chatter, a Posheeta's or an office's hum, or the club's music in Gatecrasher. The ambience is the one the warehouse had as you came in, as in the original. On its roof you're outside.
+
 **Creatures:** some missions have monsters (`create_creature`), run as the original runs them (`bat.cpp`):
 - the **Balrog** wanders about on fire, roars when he picks a target, then follows, charges, swipes, stomps and throws fireballs that burst where they land;
 - **gargoyles** sit still until you come within ten squares, then take off, circle their home, swoop on you and spit fireballs;
@@ -232,6 +234,7 @@ With an install present, the tests check:
 - Headline Hostage runs to its win, and to both ways of failing it;
 - Seek, Sneak and Seize runs to its win, and neither half of it counts alone;
 - Insane Assault runs to its win by shooting the Balrog, and he takes damage at an eighth; Day Of Reckoning's gargoyle wakes and takes off, and its Bane draws up the bodies and can't be hurt; bats make nothing;
+- every `warefx` point is inside a warehouse and gives it its ambience, and Darci is indoors under a warehouse's roof but not on it;
 - steam vents keep to their routines and scald, and a trap that stays on for good never blows;
 - explosives blow up Transmission Terminated's transmitter and Media Trouble's props, which their missions see;
 - searching a prop turns up what Auto-Destruct stashes in it, and letting go of action, facing away or an empty prop finds nothing;
@@ -255,7 +258,6 @@ Without an install, the data tests print a note and pass. That's what CI sees: `
 **Not yet:**
 - event points beyond the set these missions use (bombs, steam, platforms, mist...). The viewer prints which points of a mission are ignored; `cargo run -p uc-game --example unsupported` lists them for every mission at once;
 - ambient city life: the original's random civilians and traffic (`fake_civs`, `fake_cars`). Scripted civilians do stroll about;
-- a warehouse's own ambience (`warefx`): there is one ambience track so far, the city's;
 - the gusts that push ground mist aside as someone walks through it (`MIST_gust`);
 - hanging from ledges and traversing them;
 - stars, the skyline and moon;

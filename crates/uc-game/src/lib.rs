@@ -22,6 +22,7 @@ pub mod pyro;
 pub mod script;
 pub mod steam;
 pub mod vehicle;
+pub mod ware;
 
 use glam::{vec2, Vec2, Vec3};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -270,6 +271,10 @@ pub struct Game {
     pub damaged: BTreeSet<usize>,
     /// Explosives set down and waiting to go off.
     pub charges: Vec<Charge>,
+    /// The map's warehouses, with the ambience the mission has given each.
+    pub wares: ware::Wares,
+    /// The warehouse the player is in, and the ambience it had as they came in.
+    indoors: Option<(usize, u8)>,
     /// The mission's creatures (`CLASS_BAT`).
     pub creatures: Vec<creature::Creature>,
     creature_by_way: HashMap<usize, usize>,
@@ -320,6 +325,7 @@ impl Game {
             barrels: Vec::new(), sign: None, target: None, stats: [0; 4], badges: [0; 4], found: BTreeSet::new(),
             taken: BTreeSet::new(), dead_cops: BTreeSet::new(), player_fired: false,
             searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(),
+            wares: ware::Wares::new(&level.map), indoors: None,
             creatures: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
             aim_creature: None, creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), steam: steam::Steam::default(),
@@ -607,6 +613,29 @@ impl Game {
         }
     }
 
+    /// Whether the player has gone into a warehouse or come out of one. The ambience is the
+    /// one it had as they came in, as `process_weather` picks it on the way in.
+    fn go_indoors(&mut self, level: &Level) {
+        let Some(p) = self.player() else { return };
+        let at = p.fig.pos;
+        let ware = self.wares.which_contains(&level.map, (at.x as i32) >> 8, (at.z as i32) >> 8).filter(|_| {
+            // Under its roof, not on it.
+            let roof = level.ground.surface(&level.map, at.x, at.z, 1.0e5);
+            roof - at.y > 128.0
+        });
+        self.indoors = match (ware, self.indoors) {
+            (Some(w), Some((was, amb))) if w == was => Some((was, amb)),
+            (Some(w), _) => Some((w, self.wares.wares[w].ambience)),
+            (None, _) => None,
+        };
+    }
+
+    /// While the player is inside a warehouse, its ambience (0 for none): the city goes
+    /// quiet, and any ambience it has plays instead of the music.
+    pub fn indoors(&self) -> Option<u8> {
+        self.indoors.map(|(_, amb)| amb)
+    }
+
     /// The vents blow, and their steam scalds whoever stands in it: no stagger, just the
     /// health and a cry of pain, until it's too much (`PFLAG_HURTPEOPLE`). Nobody in a car is
     /// touched, nor anyone only the player can hurt (`PCOM_BENT_PLAYERKILL`).
@@ -840,6 +869,13 @@ impl Game {
                         let floor = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 128.0);
                         self.creatures.push(creature::Creature::new(way, kind, fig, pos, angle, floor));
                         self.creature_by_way.insert(way, self.creatures.len() - 1);
+                    }
+                }
+                Command::WareFx { pos, ambience } => {
+                    match self.wares.which_contains(&level.map, (pos.x as i32) >> 8, (pos.z as i32) >> 8) {
+                        Some(w) => self.wares.wares[w].ambience = ambience,
+                        // The original says so too, in its debug output.
+                        None => eprintln!("mission: warehouse ambience point at {:.0},{:.0} is not inside a warehouse", pos.x, pos.z),
                     }
                 }
                 Command::Pee { way, on } => {
@@ -1401,6 +1437,7 @@ impl Game {
             self.charges(dt, level);
         }
         self.vent_steam(dt, level);
+        self.go_indoors(level);
         self.run_creatures(dt, level, self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player));
         // From just under the pelvis, for as long as they're on their feet (the original asks
         // only that they're peeing, but its pelvis is never anywhere sensible once they're down).
