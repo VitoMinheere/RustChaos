@@ -14,7 +14,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
 use std::collections::{BTreeMap, HashMap};
 use uc_formats::txc::Texture;
-use uc_world::{Batch, Layer, Vertex, WorldGeometry, GLOW, SHADOW, UNTEXTURED};
+use uc_world::{Batch, Layer, Vertex, WorldGeometry, GLOW, MIST, SHADOW, UNTEXTURED};
 use wgpu::util::DeviceExt;
 
 pub use overlay::Overlay;
@@ -115,6 +115,7 @@ pub struct Renderer {
     shadow_pipeline: wgpu::RenderPipeline,
     glow_pipeline: wgpu::RenderPipeline,
     shadow_tex: wgpu::BindGroup,
+    mist_tex: wgpu::BindGroup,
     statics: Option<(wgpu::Buffer, wgpu::Buffer)>,
     chunks: Vec<ChunkDraws>,
     dynamic: Option<(wgpu::Buffer, wgpu::Buffer, usize, usize)>,
@@ -351,6 +352,7 @@ impl Renderer {
             cache: None,
         });
         let shadow_tex = make_texture(&device, &queue, &tex_layout, &sampler, &blob_texture());
+        let mist_tex = make_texture(&device, &queue, &tex_layout, &sampler, &cloud_texture());
 
         // Overlay: same pass (so same MSAA and depth format), no depth test, alpha blending.
         let oshader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -414,7 +416,7 @@ impl Renderer {
         let font = make_texture_levels(&device, &queue, &tex_layout, &font_sampler, &font_tex, 1);
         Renderer {
             device, queue, format, pipeline, globals_buf, globals_bg, tex_layout, sampler,
-            textures: HashMap::new(), white, shadow_pipeline, glow_pipeline, shadow_tex,
+            textures: HashMap::new(), white, shadow_pipeline, glow_pipeline, shadow_tex, mist_tex,
             statics: None, chunks: Vec::new(), dynamic: None, targets: None,
             overlay_pipeline, screen_buf, screen_bg, font, overlay_buf: None, backdrop: None, minimap: None, stats: Stats::default(),
         }
@@ -693,7 +695,7 @@ impl Renderer {
             if let (Some((vb, ib, _, _)), false) = (&self.dynamic, dyn_ranges.is_empty()) {
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                for &(page, first, count) in dyn_ranges.iter().filter(|r| r.0 != SHADOW && r.0 != GLOW) {
+                for &(page, first, count) in dyn_ranges.iter().filter(|r| !matches!(r.0, SHADOW | GLOW | MIST)) {
                     pass.set_bind_group(1, self.textures.get(&page).unwrap_or(&self.white), &[]);
                     pass.draw_indexed(first..first + count, 0, 0..1);
                     stats.draw_calls += 1;
@@ -701,10 +703,14 @@ impl Renderer {
                 }
                 // Blobs last, over the solid geometry: shadows, blood and smoke blended
                 // first, then the fire of an explosion added on top of them.
-                pass.set_bind_group(1, &self.shadow_tex, &[]);
-                for (page, pipeline) in [(SHADOW, &self.shadow_pipeline), (GLOW, &self.glow_pipeline)] {
+                for (page, pipeline, tex) in [
+                    (MIST, &self.shadow_pipeline, &self.mist_tex),
+                    (SHADOW, &self.shadow_pipeline, &self.shadow_tex),
+                    (GLOW, &self.glow_pipeline, &self.shadow_tex),
+                ] {
                     for &(_, first, count) in dyn_ranges.iter().filter(|r| r.0 == page) {
                         pass.set_pipeline(pipeline);
+                        pass.set_bind_group(1, tex, &[]);
                         pass.draw_indexed(first..first + count, 0, 0..1);
                         stats.draw_calls += 1;
                         stats.triangles += count as usize / 3;
@@ -779,6 +785,53 @@ impl Renderer {
 }
 
 /// A round shadow: black, alpha falling off smoothly from the middle to the edge.
+/// The sheet a patch of mist is drawn with: soft wisps that tile, thinning out in places so
+/// the ground shows through.
+///
+/// The original loads `server\textures\extras\fog.tga` (`TEXTURE_page_fog`), which the
+/// retail release doesn't ship, so this is made up instead: value noise at a few octaves,
+/// wrapped so the patch's four texture quadrants each read differently, as `MIST_create`'s
+/// `type_cycle` expects.
+fn cloud_texture() -> Texture {
+    let n = 128usize;
+    // Value noise: a lattice of random values, smoothly interpolated and wrapped.
+    let mut seed = 0x9e37u32;
+    let mut rand = || {
+        seed = seed.wrapping_mul(69069).wrapping_add(1);
+        (seed >> 16) as f32 / 65536.0
+    };
+    let lattice: Vec<f32> = (0..16 * 16).map(|_| rand()).collect();
+    let at = |gx: i32, gy: i32, step: usize| {
+        let k = 16 / step as i32;
+        lattice[((gy.rem_euclid(k) * k + gx.rem_euclid(k)) as usize).min(lattice.len() - 1)]
+    };
+    let mut rgba = vec![0u8; n * n * 4];
+    for y in 0..n {
+        for x in 0..n {
+            let mut v = 0.0;
+            let mut amp = 0.55;
+            for step in [1usize, 2, 4] {
+                let cells = 16 / step;
+                let (fx, fy) = (x as f32 * cells as f32 / n as f32, y as f32 * cells as f32 / n as f32);
+                let (gx, gy) = (fx.floor() as i32, fy.floor() as i32);
+                let (tx, ty) = (fx - gx as f32, fy - gy as f32);
+                // Smoothstep between the lattice corners.
+                let (sx, sy) = (tx * tx * (3.0 - 2.0 * tx), ty * ty * (3.0 - 2.0 * ty));
+                let (a, b) = (at(gx, gy, step), at(gx + 1, gy, step));
+                let (c, d) = (at(gx, gy + 1, step), at(gx + 1, gy + 1, step));
+                v += amp * ((a + (b - a) * sx) + ((c + (d - c) * sx) - (a + (b - a) * sx)) * sy);
+                amp *= 0.5;
+            }
+            // Thin it out hard: mist wants more gap than cloud, or it reads as a slab laid
+            // over the street rather than something drifting across it.
+            let a = ((v - 0.46).max(0.0) * 2.4).min(0.8);
+            let o = (y * n + x) * 4;
+            rgba[o..o + 4].copy_from_slice(&[255, 255, 255, (a * 255.0) as u8]);
+        }
+    }
+    Texture { width: n as u32, height: n as u32, has_alpha: true, rgba }
+}
+
 fn blob_texture() -> Texture {
     let n = 64u32;
     let mut rgba = vec![0u8; (n * n * 4) as usize];

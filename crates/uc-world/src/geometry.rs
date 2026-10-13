@@ -17,6 +17,9 @@ pub const SHADOW: u32 = u32::MAX - 1;
 /// Batches with this page are the same round blobs added to the scene rather than blended
 /// over it: the fire and dust of an explosion.
 pub const GLOW: u32 = u32::MAX - 2;
+/// Batches with this page are blended over the scene like [`SHADOW`], but textured with a
+/// soft cloud instead of a round blob: the sheets of ground mist a mission lays down.
+pub const MIST: u32 = u32::MAX - 3;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]

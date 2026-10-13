@@ -21,10 +21,8 @@ fn start() -> Option<Run> {
     let game = uc_formats::default_install()?;
     let level = Level::load(&game, "Gangorder2", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
     let g = Game::new(&level, true);
-    // Still to do: the traps, the mist and the counter the Boss's punishment run uses. None
-    // of them are on the way to the win.
-    // Still to do: the traps and the mist. Neither is on the way to either ending.
-    assert_eq!(g.unsupported(), ["18 create_mist", "149 create_trap", "151 create_trap", "152 create_trap"]);
+    // Still to do: the traps, which aren't on the way to either ending.
+    assert_eq!(g.unsupported(), ["149 create_trap", "151 create_trap", "152 create_trap"]);
     Some(Run { level, g, seen: Vec::new() })
 }
 

@@ -45,7 +45,7 @@ Darci picks up and fires the pistol, shotgun and AK-47 (the original's damage, a
 Tests in `uc-game/tests/` check each of them (`missions.rs` runs the scripts to the end), plus RTA's, The Jump's, Nitro Car's and Gun Hunt's scripts (`rta.rs`, `jump.rs`, `bankbomb1.rs`, `police3.rs`), the moves (`moves.rs`) and the guns (`guns.rs`: pickups, ammo, switching, and a bot shooting its way through Combat Gold's waves).
 
 **Next steps, toward a game that keeps the original's atmosphere:**
-- **The city's life:** random civilians and traffic (`fake_civs`, `fake_cars`), drivers (`PCOM_AI_DRIVER`), doors and the remaining cutscene types;
+- **The city's life:** random civilians and traffic (`fake_civs`, `fake_cars`), drivers (`PCOM_AI_DRIVER`) and the remaining cutscene types;
 - the MIB's minigun, grenades and muzzle flashes;
 - fence vaulting, ledge hanging and traversing;
 - sky details (stars, moon, skyline).
