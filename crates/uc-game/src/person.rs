@@ -142,7 +142,11 @@ impl Weapon {
 }
 
 /// `PCOM_BENT_ROBOT`: ignores everything and everyone.
-const BENT_ROBOT: u8 = 1 << 5;
+pub const BENT_ROBOT: u8 = 1 << 5;
+/// `PCOM_BENT_FIGHT_BACK`: hits back when set on.
+pub const BENT_FIGHT_BACK: u8 = 1 << 3;
+/// `PCOM_BENT_PLAYERKILL`: only the player can hurt them.
+pub const BENT_PLAYERKILL: u8 = 1 << 7;
 /// `PCOM_AI_BODYGUARD`: guards the person their `other` point created, and follows them.
 pub const AI_BODYGUARD: u8 = 8;
 
@@ -500,6 +504,9 @@ pub struct Person {
     /// Out of reach: a bodyguard more than twenty blocks from the player can't be hurt, so a
     /// mission isn't lost to a scuffle nobody saw (`PCOM_AI_BODYGUARD`, pcom.cpp).
     pub invulnerable: bool,
+    /// Nothing hurts them, for good (`FLAG2_PERSON_INVULNERABLE`): the person the player was,
+    /// once a mission has moved the player on to someone else.
+    pub protected: bool,
     /// `ai_other`: for assassins, the event point that created the person to kill (0 = the
     /// player).
     pub other: usize,
@@ -556,7 +563,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 3], knocked_out: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
-            peeing: false, explosives: 0,
+            peeing: false, explosives: 0, protected: false,
         }
     }
 

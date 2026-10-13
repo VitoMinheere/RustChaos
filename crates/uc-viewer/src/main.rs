@@ -372,6 +372,12 @@ impl World {
             }
         }
         r.set_minimap(&uc_formats::txc::Texture { width: n, height: n, has_alpha: false, rgba });
+        // The two sheets of talking heads, from the level's own clump.
+        for (sheet, &page) in uc_game::talk::FACE_PAGES.iter().enumerate() {
+            if let Some((t, _)) = self.level.texture(page) {
+                r.set_faces(sheet, &t);
+            }
+        }
         println!(
             "{}: {} floor, {} roof, {} wall, {} prop, {} detail triangles in {} chunks; {} textures ({} from overrides); {} lights; built in {:.2}s",
             self.level.name, geo.count(Layer::Floor), geo.count(Layer::Roofs), geo.count(Layer::Walls),
@@ -545,22 +551,70 @@ impl World {
             }
         }
 
-        // Mission messages, newest at the bottom.
+        // Mission messages, newest at the bottom, each with the speaker's face beside it
+        // (`PANEL_new_text_draw`). A filmed conversation has the widescreen panel instead.
         let ms = s;
         let max_w = (w * 0.7).min(900.0 * s);
         let mut lines = Vec::new();
-        for m in self.game.messages.iter().rev().take(2).rev() {
-            lines.extend(Overlay::wrap(&m.text, max_w, ms));
-            lines.push(String::new());
+        let mut faces = Vec::new();
+        if self.game.wide.is_none() {
+            let shown: Vec<_> = self.game.messages.iter().filter(|m| !m.filmed).collect();
+            for m in &shown[shown.len().saturating_sub(2)..] {
+                if let Some(f) = m.face {
+                    faces.push((lines.len(), f));
+                }
+                lines.extend(Overlay::wrap(&m.text, max_w, ms));
+                lines.push(String::new());
+            }
+            lines.pop();
         }
-        lines.pop();
         if !lines.is_empty() {
             let lh = 11.0 * ms;
             let total = lines.len() as f32 * lh;
             let y0 = h - total - 24.0 * s;
-            o.rect(w / 2.0 - max_w / 2.0 - 10.0 * s, y0 - 6.0 * s, max_w + 20.0 * s, total + 10.0 * s, [0, 0, 0, 150]);
+            let bx = w / 2.0 - max_w / 2.0 - 10.0 * s;
+            o.rect(bx, y0 - 6.0 * s, max_w + 20.0 * s, total + 10.0 * s, [0, 0, 0, 150]);
             for (k, line) in lines.iter().enumerate() {
                 o.text(w / 2.0 - Overlay::text_width(line, ms) / 2.0, y0 + k as f32 * lh, ms, white, line);
+            }
+            // The small faces, 32 pixels on a 480-line screen.
+            let fs = 32.0 * h / 480.0;
+            for (k, f) in faces {
+                let (sheet, uv) = uc_game::talk::face_uv(f, false);
+                o.face(sheet, bx - fs - 4.0 * s, y0 + k as f32 * lh - 6.0 * s, fs, fs, uv);
+            }
+        }
+
+        // A filmed conversation: widescreen bars, one speaker's face top right and the other's
+        // bottom left, and the line beside whoever is saying it (`PANEL_new_widescreen`).
+        if let Some(wd) = &self.game.wide {
+            let k = h / 480.0;
+            let bar = 80.0 * k;
+            o.rect(0.0, 0.0, w, bar, [0, 0, 0, 255]);
+            o.rect(0.0, h - bar, w, bar, [0, 0, 0, 255]);
+            let size = 64.0 * k;
+            if let Some(f) = wd.top {
+                let (sheet, uv) = uc_game::talk::face_uv(f, true);
+                o.face(sheet, w - 72.0 * k, 8.0 * k, size, size, uv);
+            }
+            if let Some(f) = wd.bottom {
+                let (sheet, uv) = uc_game::talk::face_uv(f, true);
+                o.face(sheet, 8.0 * k, h - 72.0 * k, size, size, uv);
+            }
+            let room = w - 80.0 * k - 80.0 * k;
+            let lines = Overlay::wrap(&wd.text, room, s);
+            let lh = 11.0 * s;
+            let col = [255, 255, 255, 255];
+            if wd.top_talking {
+                // Right-aligned against the face, its last line at the foot of the top bar.
+                let y0 = bar - 5.0 * k - lines.len() as f32 * lh;
+                for (n, line) in lines.iter().enumerate() {
+                    o.text(w - 80.0 * k - Overlay::text_width(line, s), y0 + n as f32 * lh, s, col, line);
+                }
+            } else {
+                for (n, line) in lines.iter().enumerate() {
+                    o.text(80.0 * k, h - bar + 5.0 * k + n as f32 * lh, s, col, line);
+                }
             }
         }
 

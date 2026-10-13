@@ -127,6 +127,7 @@ pub struct Renderer {
     overlay_buf: Option<(wgpu::Buffer, usize)>,
     backdrop: Option<wgpu::BindGroup>,
     minimap: Option<wgpu::BindGroup>,
+    faces: [Option<wgpu::BindGroup>; 2],
     pub stats: Stats,
 }
 
@@ -418,7 +419,7 @@ impl Renderer {
             device, queue, format, pipeline, globals_buf, globals_bg, tex_layout, sampler,
             textures: HashMap::new(), white, shadow_pipeline, glow_pipeline, shadow_tex, mist_tex,
             statics: None, chunks: Vec::new(), dynamic: None, targets: None,
-            overlay_pipeline, screen_buf, screen_bg, font, overlay_buf: None, backdrop: None, minimap: None, stats: Stats::default(),
+            overlay_pipeline, screen_buf, screen_bg, font, overlay_buf: None, backdrop: None, minimap: None, faces: [None, None], stats: Stats::default(),
         }
     }
 
@@ -547,6 +548,11 @@ impl Renderer {
         self.minimap = Some(make_texture_levels(&self.device, &self.queue, &self.tex_layout, &self.sampler, t, 1));
     }
 
+    /// The face sheets `Overlay::face` quads show (`face1.tga`, `face2.tga`).
+    pub fn set_faces(&mut self, sheet: usize, t: &Texture) {
+        self.faces[sheet.min(1)] = Some(make_texture_levels(&self.device, &self.queue, &self.tex_layout, &self.sampler, t, 1));
+    }
+
     /// Forgets every level texture (before loading another level).
     pub fn clear_textures(&mut self) {
         self.textures.clear();
@@ -601,8 +607,20 @@ impl Renderer {
             pass.set_bind_group(1, mm, &[]);
             pass.draw(nb..nm, 0..1);
         }
+        let nv = nm + overlay.verts.len() as u32;
         pass.set_bind_group(1, &self.font, &[]);
-        pass.draw(nm..count, 0..1);
+        pass.draw(nm..nv, 0..1);
+        // The faces, over everything else.
+        let mut at = nv;
+        for (sheet, quads) in overlay.faces.iter().enumerate() {
+            let n = quads.len() as u32;
+            if let (Some(bg), true) = (&self.faces[sheet], n > 0) {
+                pass.set_bind_group(1, bg, &[]);
+                pass.draw(at..at + n, 0..1);
+            }
+            at += n;
+        }
+        let _ = count;
     }
 
     /// Uploads the overlay's vertices (backdrop quads first); returns how many to draw.
@@ -611,7 +629,7 @@ impl Renderer {
             return 0;
         }
         let all: Vec<overlay::OVertex> =
-            overlay.backdrop.iter().chain(&overlay.minimap).chain(&overlay.verts).copied().collect();
+            overlay.backdrop.iter().chain(&overlay.minimap).chain(&overlay.verts).chain(&overlay.faces[0]).chain(&overlay.faces[1]).copied().collect();
         let bytes: &[u8] = bytemuck::cast_slice(&all);
         if !self.overlay_buf.as_ref().is_some_and(|(_, cap)| *cap >= bytes.len()) {
             let cap = bytes.len().next_power_of_two();

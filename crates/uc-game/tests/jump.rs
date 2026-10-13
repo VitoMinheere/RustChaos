@@ -87,6 +87,8 @@ fn the_zip_line_drops_darci_behind_barnaby() {
     g.people[pi].fig.pos = vec3(along.x, level.ground.surface(&level.map, along.x, along.z, top.y), along.z);
     let mut rode = false;
     let behind = point(&level, 300);
+    // The mission opens with a conversation, which holds her still: skip through it (a
+    // press every so often cuts each line short) and jump once it's over.
     for f in 0..(80.0 / DT) as usize {
         g.skip_cutscene();
         let p = &g.people[pi];
@@ -94,7 +96,10 @@ fn the_zip_line_drops_darci_behind_barnaby() {
         let off = rode && !matches!(p.state, uc_game::State::Zip { .. });
         let to = glam::vec2(behind.x - p.fig.pos.x, behind.z - p.fig.pos.z);
         let wish = if off && to.length() > 60.0 { to.normalize() } else { glam::Vec2::ZERO };
-        let c = Controls { jump: f == 5, wish, ..Default::default() };
+        // Another conversation can follow straight on, so keep trying until she's on it.
+        let jump = !rode && !g.in_conversation() && f % 15 == 0;
+        let punch = g.in_conversation() && f % 20 == 0;
+        let c = Controls { jump, punch, wish, ..Default::default() };
         g.update(DT, &c, &level);
         rode |= matches!(g.people[pi].state, uc_game::State::Zip { .. });
         if g.outcome.is_some() {
