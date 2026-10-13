@@ -182,6 +182,9 @@ pub struct Game {
     taken: BTreeSet<usize>,
     /// Cops already counted towards the script's tally of them, so none is counted twice.
     dead_cops: BTreeSet<usize>,
+    /// The player has fired a gun. `GF_PLAYER_FIRED_GUN` is set once and never cleared, so a
+    /// mission that cares only ever asks whether it has happened at all.
+    player_fired: bool,
     /// Explosions and fires burning.
     pub pyro: Pyro,
     /// Sheets of ground mist the mission has laid down.
@@ -210,7 +213,8 @@ impl Game {
             outcome: None, time: 0.0, rng: 1, sounds: Vec::new(), fight_timer: 0.0, sprinting: false,
             items: Vec::new(), cutscene: None, convo: None, used: false, vehicles: Vec::new(), veh_by_way: HashMap::new(),
             barrels: Vec::new(), sign: None, target: None, stats: [0; 4], badges: [0; 4], found: BTreeSet::new(),
-            taken: BTreeSet::new(), dead_cops: BTreeSet::new(), pyro: Pyro::default(), mists: Mists::default(),
+            taken: BTreeSet::new(), dead_cops: BTreeSet::new(), player_fired: false,
+            pyro: Pyro::default(), mists: Mists::default(),
             player_name: "",
         };
         if !scripted {
@@ -1020,6 +1024,11 @@ impl Game {
     fn apply(&mut self, events: Vec<person::Event>, level: &Level) {
         use person::{Event, Grab};
         for e in events {
+            // Whether the player has ever fired, hit or miss: the original raises
+            // `GF_PLAYER_FIRED_GUN` where the shot leaves the gun, not where it lands.
+            if let Event::Shot { attacker, .. } = &e {
+                self.player_fired |= Some(*attacker) == self.player;
+            }
             match e {
                 Event::Hit { attacker, victim, mut damage, ko, high, low, weapon } => {
                     if Some(attacker) == self.player {
@@ -1380,6 +1389,9 @@ impl script::Query for Scene<'_> {
     fn got_item(&self, way: usize) -> bool {
         self.game.got_item(way)
     }
+    fn player_fired(&self) -> bool {
+        self.game.player_fired()
+    }
 
     /// `can_a_see_b` (fallen/Source/Person.cpp): up to 8 squares, within about 74 degrees of
     /// straight ahead (much wider up close), with a clear line between their heads.
@@ -1456,5 +1468,9 @@ impl script::Query for Game {
 
     fn got_item(&self, way: usize) -> bool {
         self.taken.contains(&way)
+    }
+
+    fn player_fired(&self) -> bool {
+        self.player_fired
     }
 }
