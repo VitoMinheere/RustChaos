@@ -19,6 +19,7 @@ pub mod mist;
 pub mod person;
 pub mod pyro;
 pub mod script;
+pub mod steam;
 pub mod vehicle;
 
 use glam::{vec2, Vec2, Vec3};
@@ -256,6 +257,8 @@ pub struct Game {
     pub mists: Mists,
     /// Drops in the air.
     pub drops: dirt::Drops,
+    /// Steam from the mission's vents.
+    pub steam: steam::Steam,
     /// What to call the player, for the HUD and for their lines in a conversation.
     player_name: &'static str,
 }
@@ -282,7 +285,7 @@ impl Game {
             barrels: Vec::new(), sign: None, target: None, stats: [0; 4], badges: [0; 4], found: BTreeSet::new(),
             taken: BTreeSet::new(), dead_cops: BTreeSet::new(), player_fired: false,
             searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(),
-            pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(),
+            pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), steam: steam::Steam::default(),
             player_name: "",
         };
         if !scripted {
@@ -405,6 +408,40 @@ impl Game {
             self.pyro.burst(at, pyro::FLASH | pyro::DUST | pyro::STREAMERS | pyro::FIREBOMB, 0xa0 as f32);
             self.sounds.push((Sfx::Explosion, at));
             self.shockwave(level, at, 0x500 as f32, 500);
+        }
+    }
+
+    /// The vents blow, and their steam scalds whoever stands in it: no stagger, just the
+    /// health and a cry of pain, until it's too much (`PFLAG_HURTPEOPLE`). Nobody in a car is
+    /// touched, nor anyone only the player can hurt (`PCOM_BENT_PLAYERKILL`).
+    fn vent_steam(&mut self, dt: f32, level: &Level) {
+        let Some(script) = &self.script else { return };
+        let (vents, secs) = (script.vents(), script.time());
+        let scald = self.steam.update(dt, secs, &vents, |at| level.ground.surface(&level.map, at.x, at.z, at.y + 8.0));
+        if !scald || self.outcome.is_some() {
+            return;
+        }
+        for p in &mut self.people {
+            if p.removed || p.knocked_out || p.invulnerable || p.bent & 0x80 != 0 || matches!(p.state, State::InCar { .. }) {
+                continue;
+            }
+            // From the feet to the top of the head.
+            let height = 2.0 * (p.fig.hips().y - p.fig.pos.y).max(60.0);
+            let hurt = self.steam.scalding(p.fig.pos, height);
+            if hurt == 0 {
+                continue;
+            }
+            p.health -= hurt;
+            if p.health > 0 {
+                p.cues.push(Sfx::Hurt { kind: p.kind });
+            } else if p.is_down() {
+                p.health = 0;
+                p.knocked_out = true;
+                p.cues.push(Sfx::KnockedOut { kind: p.kind });
+            } else {
+                let from = p.fig.pos;
+                p.take_hit(from, 0, person::ko::FINISHERS, false, false, Weapon::None);
+            }
         }
     }
 
@@ -1140,6 +1177,7 @@ impl Game {
         if self.outcome.is_none() {
             self.charges(dt, level);
         }
+        self.vent_steam(dt, level);
         // From just under the pelvis, for as long as they're on their feet (the original asks
         // only that they're peeing, but its pelvis is never anywhere sensible once they're down).
         let streams: Vec<(Vec3, Vec2)> = self.people.iter()
@@ -1553,6 +1591,22 @@ impl Game {
                 [corner(-1.0, -1.0), corner(-1.0, 1.0), corner(1.0, -1.0), corner(1.0, 1.0)],
                 [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
                 [[0x77, 0x55, 0x33, 255]; 4],
+            );
+        }
+        // Steam: soft pale puffs blended over the scene, turned to face the camera. The
+        // original draws each with a frame of a wispy cloud (`POLY_PAGE_SMOKECLOUD2`), which
+        // covers far less than a solid blob does, so they're thinned to match.
+        for puff in &self.steam.puffs {
+            let [r, g, b, a] = puff.colour();
+            let colour = [r, g, b, (a as f32 * 0.35) as u8];
+            let away = puff.pos - eye;
+            let right = away.cross(Vec3::Y).normalize_or(Vec3::X) * puff.radius();
+            let up = right.cross(away).normalize_or(Vec3::Y) * puff.radius();
+            let corner = |x: f32, y: f32| (puff.pos + right * x + up * y) / uc_world::UNIT;
+            out.entry(uc_world::SHADOW).or_default().quad(
+                [corner(-1.0, -1.0), corner(1.0, -1.0), corner(-1.0, 1.0), corner(1.0, 1.0)],
+                [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
+                [colour; 4],
             );
         }
         // Explosions and fire: round puffs turned to face the camera, the bright ones added

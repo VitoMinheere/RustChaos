@@ -129,6 +129,8 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 **Searching:** some props hide things. Stand at one, face it and hold action (E): a bar fills over about three seconds, and whatever was stashed in it drops out, as the original's search does. Let go and the search is abandoned. A mission marks the props worth searching (`make_searchable`), and a `create_item` point can stash its item in the nearest one instead of leaving it in the open: in Auto-Destruct, the UCNN video turns up in the Wildcat den this way.
 
+**Steam vents:** some missions set traps (`create_trap`): vents that puff steam forwards, up or down to a routine of their own, on for a beat and off for a few. The steam scalds anyone standing in it, every puff in reach on its own account, so a full column will kill you in a second or two: time your way past. As in the original, a trap that's meant to stay on for good never puffs at all (the point is marked finished the moment it fires, and finished points aren't run), so it's the ones that come and go that you'll see. Assassin, Rat Catch, Grim Gardens, Estate of Emergency, Target UC and Day Of Reckoning have them.
+
 **Peeing:** a mission can set someone relieving themselves against a wall (`make_person_pee`), a stream of drops from the pelvis as `DIRT_new_water` throws them, falling until they reach the ground. Semtex and Transmission Terminated have one. RTA and Arms Breaker ask for it too, but their point comes before the one that makes the person, so it finds nobody, and in the original nobody is ever seen at it either.
 
 **Doors:** a door is shut and solid until a mission opens it, which is the only way one ever opens — the original has no walking into them and no "use" on them either, and `DOOR_open`'s only caller is the mission script.
@@ -220,6 +222,7 @@ With an install present, the tests check:
 - Rat Catch runs to both of its endings: the son delivered, and the Boss's punishment after he's killed;
 - Headline Hostage runs to its win, and to both ways of failing it;
 - Seek, Sneak and Seize runs to its win, and neither half of it counts alone;
+- steam vents keep to their routines and scald, and a trap that stays on for good never blows;
 - explosives blow up Transmission Terminated's transmitter and Media Trouble's props, which their missions see;
 - searching a prop turns up what Auto-Destruct stashes in it, and letting go of action, facing away or an empty prop finds nothing;
 - The Fallen gets three of its five clues (see `mib.rs` for what the other two still want).

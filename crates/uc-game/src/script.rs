@@ -339,7 +339,7 @@ impl Script {
                 | END_GAME_WIN | END_GAME_LOSE | BONUS_POINTS | GROUP_LIFE | GROUP_DEATH | GROUP_RESET | EXTEND
                 | MOVE_THING | CONVERSATION | CREATE_BARREL | CREATE_VEHICLE | STALL_CAR | SIGN | CONE_PENALTIES
                 | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT | RESET_COUNTER | ACTIVATE_PRIM | CREATE_MIST | SOUND_EFFECT | SHAKE_CAMERA
-                | MAKE_SEARCHABLE | MAKE_PERSON_PEE);
+                | MAKE_SEARCHABLE | MAKE_PERSON_PEE | CREATE_TRAP);
             // An `activate_prim` only counts as supported when it opens a door: the fences
             // and the cameras are still to do.
             let supported = supported && (ep.kind != ACTIVATE_PRIM || ep.data[0] == activate::DOOR);
@@ -750,6 +750,35 @@ impl Script {
             .flatten()
             .filter(|w| w.active && w.ep.colour == colour && w.ep.group == group)
             .map(|w| (w.ep.index, w.pos()))
+            .collect()
+    }
+
+    /// Seconds since the mission started (`EWAY_time`, which is in hundredths).
+    pub fn time(&self) -> f32 {
+        self.time
+    }
+
+    /// The steam vents blowing: `create_trap` points that are active and not dead, which is
+    /// what `EWAY_process` asks before it calls `EWAY_process_emit_steam`. A trap that stays
+    /// active for good is marked dead the moment it goes active (`EWAY_STAY_ALWAYS`), so it
+    /// never blows at all; the ones that do are `active_while` and `active_time` points.
+    pub fn vents(&self) -> Vec<crate::steam::Vent> {
+        self.ways
+            .iter()
+            .flatten()
+            .filter(|w| w.ep.kind == waypoint::CREATE_TRAP && w.active && !w.dead)
+            .map(|w| {
+                let d = &w.ep.data;
+                crate::steam::Vent {
+                    pos: w.pos(),
+                    angle: uc_world::character::ep_angle(w.ep.direction),
+                    dir: d[4] as u8,
+                    routine: d[3] as u32,
+                    speed: (d[1] & 0x3f) as u32,
+                    steps: (d[2] & 0x0f) as u32,
+                    range: (d[5] & 0x3f) as u32,
+                }
+            })
             .collect()
     }
 
