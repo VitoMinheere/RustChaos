@@ -175,6 +175,18 @@ mod activate {
     pub const ELECTRIC_FENCE: i32 = 1;
 }
 
+/// Whether [`Script`] knows what to do with a `TT_*` trigger. The ones it doesn't are reported
+/// alongside the unsupported point types: a point whose trigger never fires is as dead as one
+/// whose action does nothing.
+fn trigger_supported(t: u8) -> bool {
+    use trigger::*;
+    matches!(t, NONE | DEPENDENCY | RADIUS | TIMER | BOOLEAN_AND | BOOLEAN_OR | KILLED | COUNTDOWN
+        | ENEMY_RADIUS | VISIBLE_COUNTDOWN | CUBOID | HALF_DEAD | GROUP_DEAD | PERSON_SEEN
+        | PERSON_USED | PLAYER_USES_RADIUS | PERSON_ARRESTED | CONVERSATION_OVER | COUNTER
+        | KILLED_NOT_ARRESTED | PERSON_IN_VEHICLE | SPECIFIC_ITEM_HELD | THING_RADIUS_DIR | RANDOM
+        | DARCI_GRABBED | PUNCHED_AND_KICKED | MOVE_RADIUS_DIR)
+}
+
 /// `EWAY_counter[7]`: how many cops have been killed.
 const COPS_KILLED: usize = 7;
 
@@ -313,6 +325,12 @@ impl Script {
             if !supported {
                 let name = uc_formats::ucm::names::WAYPOINT.get(ep.kind as usize).copied().unwrap_or("?");
                 unsupported.push(format!("{} {}", ep.index, name));
+            }
+            // What sets a point off matters as much as what it does: a trigger this doesn't
+            // know simply never fires, and the point sits there for the whole mission.
+            if !trigger_supported(ep.trigger) {
+                let name = uc_formats::ucm::names::TRIGGER.get(ep.trigger as usize).copied().unwrap_or("?");
+                unsupported.push(format!("{} trigger {}", ep.index, name));
             }
             ways[ep.index] = Some(Way {
                 ep: ep.clone(), text: texts.get(&ep.index).cloned(), active: false, dead: false, killed: false,

@@ -853,6 +853,11 @@ impl Game {
                 }
                 true
             }
+            // The things a mission sends her to fetch: a key, a keycard, files, a floppy, a
+            // crowbar, a gas mask, a wrench, a video, gloves, weedkiller, explosives. They do
+            // nothing in the hand; what matters is that she has them, which a mission reads
+            // with `specific_item_held` (The Fallen's five clues are picked up this way).
+            1 | 13..=21 | 23 => true,
             // Ammo: pistol, shotgun, AK-47.
             10..=12 => {
                 let g = Weapon::GUNS[(kind - 10) as usize];
