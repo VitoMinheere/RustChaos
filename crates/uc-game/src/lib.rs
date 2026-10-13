@@ -13,6 +13,7 @@
 //! Finally the events they produced (hits, grabs, arrests) are applied, grappled pairs are
 //! kept together and people are pushed apart.
 
+pub mod dirt;
 pub mod goals;
 pub mod mist;
 pub mod person;
@@ -228,6 +229,8 @@ pub struct Game {
     pub pyro: Pyro,
     /// Sheets of ground mist the mission has laid down.
     pub mists: Mists,
+    /// Drops in the air.
+    pub drops: dirt::Drops,
     /// What to call the player, for the HUD and for their lines in a conversation.
     player_name: &'static str,
 }
@@ -254,7 +257,7 @@ impl Game {
             barrels: Vec::new(), sign: None, target: None, stats: [0; 4], badges: [0; 4], found: BTreeSet::new(),
             taken: BTreeSet::new(), dead_cops: BTreeSet::new(), player_fired: false,
             searchable: BTreeSet::new(), hidden: Vec::new(), search: None,
-            pyro: Pyro::default(), mists: Mists::default(),
+            pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(),
             player_name: "",
         };
         if !scripted {
@@ -482,6 +485,11 @@ impl Game {
                             self.hidden.push((ob, item));
                         }
                         None => self.items.push(item),
+                    }
+                }
+                Command::Pee { way, on } => {
+                    if let Some(&i) = self.by_way.get(&way) {
+                        self.people[i].peeing = on;
                     }
                 }
                 Command::Searchable { pos } => {
@@ -1004,6 +1012,13 @@ impl Game {
         }
         self.update_scenes(dt);
         self.pyro.update(dt);
+        // From just under the pelvis, for as long as they're on their feet (the original asks
+        // only that they're peeing, but its pelvis is never anywhere sensible once they're down).
+        let streams: Vec<(Vec3, Vec2)> = self.people.iter()
+            .filter(|p| p.peeing && !p.removed && !p.is_down() && !p.is_dead())
+            .map(|p| (p.fig.hips() - Vec3::new(0.0, 16.0, 0.0), p.facing_dir()))
+            .collect();
+        self.drops.update(dt, &streams, |at| level.ground.surface(&level.map, at.x, at.z, at.y + 8.0));
         let frozen = self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player);
 
         if let Some((_, t)) = &mut self.sign {
@@ -1393,6 +1408,18 @@ impl Game {
         self.mists.quads(secs, |p, uv| {
             out.entry(uc_world::MIST).or_default().quad(p, uv, [[255, 255, 255, 90]; 4]);
         });
+        // Drops: small streaks along their way, added like the original's droplet page, in
+        // `DIRT_TYPE_URINE`'s colour.
+        for d in &self.drops.drops {
+            let along = d.vel.normalize_or(Vec3::NEG_Y) * 6.0;
+            let across = (d.pos - eye).cross(along).normalize_or(Vec3::X) * 1.5;
+            let corner = |a: f32, b: f32| (d.pos + along * a + across * b) / uc_world::UNIT;
+            out.entry(uc_world::GLOW).or_default().quad(
+                [corner(-1.0, -1.0), corner(-1.0, 1.0), corner(1.0, -1.0), corner(1.0, 1.0)],
+                [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
+                [[0x77, 0x55, 0x33, 255]; 4],
+            );
+        }
         // Explosions and fire: round puffs turned to face the camera, the bright ones added
         // to the scene and the smoke blended over it.
         for puff in &self.pyro.puffs {

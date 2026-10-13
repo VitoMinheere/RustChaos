@@ -127,6 +127,8 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 **Searching:** some props hide things. Stand at one, face it and hold action (E): a bar fills over about three seconds, and whatever was stashed in it drops out, as the original's search does. Let go and the search is abandoned. A mission marks the props worth searching (`make_searchable`), and a `create_item` point can stash its item in the nearest one instead of leaving it in the open: in Auto-Destruct, the UCNN video turns up in the Wildcat den this way.
 
+**Peeing:** a mission can set someone relieving themselves against a wall (`make_person_pee`), a stream of drops from the pelvis as `DIRT_new_water` throws them, falling until they reach the ground. Semtex and Transmission Terminated have one. RTA and Arms Breaker ask for it too, but their point comes before the one that makes the person, so it finds nobody, and in the original nobody is ever seen at it either.
+
 **Doors:** a door is shut and solid until a mission opens it, which is the only way one ever opens — the original has no walking into them and no "use" on them either, and `DOOR_open`'s only caller is the mission script.
 
 **Falls:** landing hard hurts, and a fall of more than about five storeys kills, Darci included (as in the original).

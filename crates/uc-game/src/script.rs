@@ -133,6 +133,8 @@ pub enum Command {
     /// Put item `kind` (`IT_*`) at `pos`; `stashed` hides it in the nearest prop instead,
     /// to be found by searching it (`EWAY_ARG_ITEM_STASHED_IN_PRIM`).
     Item { way: usize, kind: u8, pos: Vec3, stashed: bool },
+    /// Start or stop the person created by `way` peeing (`FLAG_PERSON_PEEING`).
+    Pee { way: usize, on: bool },
     /// Let the prop nearest `pos` be searched (`WPT_MAKE_SEARCHABLE`).
     Searchable { pos: Vec3 },
     Camera { way: usize, shot: Shot },
@@ -332,7 +334,7 @@ impl Script {
                 | END_GAME_WIN | END_GAME_LOSE | BONUS_POINTS | GROUP_LIFE | GROUP_DEATH | GROUP_RESET | EXTEND
                 | MOVE_THING | CONVERSATION | CREATE_BARREL | CREATE_VEHICLE | STALL_CAR | SIGN | CONE_PENALTIES
                 | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT | RESET_COUNTER | ACTIVATE_PRIM | CREATE_MIST | SOUND_EFFECT | SHAKE_CAMERA
-                | MAKE_SEARCHABLE);
+                | MAKE_SEARCHABLE | MAKE_PERSON_PEE);
             // An `activate_prim` only counts as supported when it opens a door: the fences
             // and the cameras are still to do.
             let supported = supported && (ep.kind != ACTIVATE_PRIM || ep.data[0] == activate::DOOR);
@@ -642,6 +644,10 @@ impl Script {
                 }
             }
             waypoint::MOVE_THING => self.commands.push(Command::Move { way: d[0] as usize, pos, angle }),
+            // `Data[0]` is the point that made the person. Someone not made yet is left alone,
+            // and the point doesn't wait for them: RTA's and Arms Breaker's come before their
+            // person's point, so in the original nobody is ever seen at it.
+            waypoint::MAKE_PERSON_PEE => self.commands.push(Command::Pee { way: d[0] as usize, on: true }),
             waypoint::EXTEND => {
                 if let Some(Some(t)) = self.ways.get_mut(d[0] as usize) {
                     t.countdown += d[1].max(0) as f32;
@@ -664,6 +670,10 @@ impl Script {
                 if let Some(Some(t)) = self.ways.get_mut(target) {
                     t.dead = true;
                     t.killed = true;
+                    // Killing a pee point is what stops the person peeing.
+                    if t.ep.kind == waypoint::MAKE_PERSON_PEE {
+                        self.commands.push(Command::Pee { way: t.ep.data[0] as usize, on: false });
+                    }
                     // A car goes up where it stands; a person is carried off the map. Either
                     // way the point forgets it ever made them, so triggers watching for their
                     // death stop firing (`EWAY_DO_KILL_WAYPOINT`).
