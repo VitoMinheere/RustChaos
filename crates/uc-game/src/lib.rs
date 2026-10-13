@@ -491,6 +491,7 @@ impl Game {
                     self.sign = Some((text.to_string(), 2.5));
                 }
                 Command::Mist { pos } => self.mists.create(pos.x, pos.z),
+                Command::Sound { id, pos, replace } => self.sounds.push((Sfx::ById { id, replace }, pos)),
                 Command::OpenDoor { pos } => {
                     if !level.ground.open_door_near(pos.x, pos.z) {
                         // The original says so too, on its console.

@@ -103,6 +103,16 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         // `S_EXPLODE_START + 0..2` (fallen/Headers/sound_id.h), as `PYRO_construct` plays
         // for a fireball.
         Sfx::Explosion => at(audio, numbered("f_EXPLD", 1..=3, ".wav"), 1.0),
+        // A mission asking for one of the game's own sounds by id.
+        Sfx::ById { id, replace } => {
+            if let Some(name) = uc_audio::sounds::name(id) {
+                if replace {
+                    audio.play_at_replacing(name, 1.0, pos, l);
+                } else {
+                    audio.play_at(name, 1.0, pos, l);
+                }
+            }
+        }
         Sfx::Won => audio.sting("GeneralMusic/Complete.wav"),
         Sfx::Lost => audio.sting("GeneralMusic/Dead2.wav"),
     }

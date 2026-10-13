@@ -5,6 +5,7 @@
 //! `"Footsteps/HardStep1.wav"`), decoded once and cached. Everything degrades quietly: with
 //! no audio device, [`Audio::new`] fails and the game runs silent; a missing file is skipped.
 
+pub mod sounds;
 pub mod wav;
 
 use glam::Vec3;
@@ -148,6 +149,9 @@ pub struct Audio {
     /// finished, and two voices at once are just noise.
     speaking: Option<Said>,
     waiting: VecDeque<Arc<Clip>>,
+    /// The last sound a mission asked for that can be taken over by the next one
+    /// (`play_glue_wave`'s type 1, which passes `MFX_REPLACE`).
+    effect: Option<Arc<Control>>,
     pub sfx_volume: f32,
     pub music_volume: f32,
 }
@@ -169,7 +173,7 @@ impl Audio {
         sink.log_on_drop(false);
         Ok(Audio {
             sink, game: game.to_path_buf(), cache: HashMap::new(), music: Vec::new(), ambience: None, engine: None, rng: 12345,
-            speaking: None, waiting: VecDeque::new(),
+            speaking: None, waiting: VecDeque::new(), effect: None,
             sfx_volume: 0.8, music_volume: 0.55,
         })
     }
@@ -226,6 +230,25 @@ impl Audio {
         self.start(c, l, r, g, false);
     }
 
+    /// Like [`Audio::play_at`], but this one takes over from the last sound played this way
+    /// rather than sounding over it: `play_glue_wave`'s type 1 asks for `MFX_REPLACE`, which
+    /// is how a mission keeps one long effect going without stacking them up.
+    pub fn play_at_replacing(&mut self, name: &str, volume: f32, pos: Vec3, listener: &Listener) {
+        if let Some(c) = self.effect.take() {
+            c.stop.store(true, Ordering::Relaxed);
+        }
+        let d = pos - listener.pos;
+        let fade = (1.0 - d.length() / HEARING_RANGE).clamp(0.0, 1.0);
+        if fade <= 0.0 {
+            return;
+        }
+        let Some(c) = self.sfx(name) else { return };
+        let pan = d.normalize_or_zero().dot(listener.right).clamp(-1.0, 1.0) * 0.7;
+        let (l, r) = ((1.0 - pan).min(1.0), (1.0 + pan).min(1.0));
+        let g = volume * self.sfx_volume * fade * fade;
+        self.effect = Some(self.start(c, l, r, g, false));
+    }
+
     /// Plays a mission's recorded line for event point `point`, if it has one. Returns
     /// whether it did.
     pub fn voice(&mut self, mission: &str, point: usize) -> bool {
@@ -273,6 +296,9 @@ impl Audio {
     pub fn hush(&mut self) {
         if let Some(s) = self.speaking.take() {
             s.control.stop.store(true, Ordering::Relaxed);
+        }
+        if let Some(c) = self.effect.take() {
+            c.stop.store(true, Ordering::Relaxed);
         }
         self.waiting.clear();
     }

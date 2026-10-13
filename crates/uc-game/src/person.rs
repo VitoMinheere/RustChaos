@@ -214,6 +214,8 @@ pub enum Sfx {
     Pickup,
     /// A bomb or a car going up.
     Explosion,
+    /// One of the game's own sounds by id (`sound_list`), asked for by a mission.
+    ById { id: usize, replace: bool },
     Won,
     Lost,
 }
