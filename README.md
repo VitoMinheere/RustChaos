@@ -228,7 +228,7 @@ Without an install, the data tests print a note and pass. That's what CI sees: `
 - overhead cables (with their sag) and ladders;
 - baked lighting (ambient, static lights, lamppost lights);
 - sky colour and distance fog;
-- Darci, with idle, walk and run animations, ground following and wall collision (and whoever else a mission makes the player);
+- Darci, with idle, walk and run animations, ground following and wall collision, and whoever else a mission makes the player: Mako out of the thugs' file, Roper out of his own;
 - explosions and the fires they leave.
 
 **Not yet:**

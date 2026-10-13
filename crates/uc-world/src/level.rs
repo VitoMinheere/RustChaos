@@ -93,7 +93,10 @@ impl Level {
             // In the combat tutorial the gang meshes are swapped for trainers (setup_people_anims,
             // fallen/Source/Anim.cpp).
             let trainer = if mission_name.eq_ignore_ascii_case("ftutor1") { chunk("trainer.all").ok() } else { None };
-            Some(People { darci: chunk("darci1.all")?, thug: chunk("rthug.all")?, trainer })
+            // Roper has a body of his own (`game_chunk[ANIM_TYPE_ROPER]`, Anim.cpp); without it
+            // he falls back to a thug's.
+            let roper = chunk("roper.all").ok();
+            Some(People { darci: chunk("darci1.all")?, thug: chunk("rthug.all")?, trainer, roper })
         } else {
             None
         };
