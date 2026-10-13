@@ -93,7 +93,10 @@ impl Level {
             // In the combat tutorial the gang meshes are swapped for trainers (setup_people_anims,
             // fallen/Source/Anim.cpp).
             let trainer = if mission_name.eq_ignore_ascii_case("ftutor1") { chunk("trainer.all").ok() } else { None };
-            Some(People { darci: chunk("darci1.all")?, thug: chunk("rthug.all")?, trainer })
+            // Roper has a body of his own (`game_chunk[ANIM_TYPE_ROPER]`, Anim.cpp); without it
+            // he falls back to a thug's.
+            let roper = chunk("roper.all").ok();
+            Some(People { darci: chunk("darci1.all")?, thug: chunk("rthug.all")?, trainer, roper })
         } else {
             None
         };
@@ -269,11 +272,15 @@ fn build_roof_faces(b: &mut Builder, map: &Map, sh: &Shader) {
 }
 
 /// Item types (`IT_*`, fallen/Headers/Mission.h) and their prims (`PRIM_OBJ_ITEM_*`,
-/// Editor/Headers/Prim.h): pistol, health, knife, baseball bat, barrel.
+/// Editor/Headers/Prim.h): the weapons and health, then the things a mission has Darci fetch
+/// -- a key, a keycard, files, a floppy, a crowbar, a gas mask, a wrench, a video, gloves and
+/// weedkiller. The Fallen's five clues are a keycard, three files and a video.
 /// Badges (`create_treasure`) aren't `IT_*` items; they're kinds 100-103 here: stamina,
 /// strength, reflexes and constitution, one of whose four models the original picks at random.
-pub const ITEM_PRIMS: [(u8, u8); 14] = [
-    (2, 143), (3, 142), (4, 127), (5, 166), (6, 120), (8, 205), (9, 141), (10, 255), (11, 253), (12, 254),
+pub const ITEM_PRIMS: [(u8, u8); 25] = [
+    (1, 36), (2, 143), (3, 142), (4, 127), (5, 166), (6, 120), (8, 205), (9, 141), (10, 255), (11, 253),
+    (12, 254), (13, 144), (14, 232), (15, 233), (16, 234), (17, 235), (18, 236), (19, 237), (20, 238),
+    (21, 239), (23, 167),
     (100, 81), (101, 94), (102, 71), (103, 39),
 ];
 

@@ -37,6 +37,11 @@ pub trait Query {
     fn player_grabbing(&self) -> bool;
     /// The player pressed "action" this frame (for switches: `player_uses_radius`).
     fn player_used(&self) -> bool;
+    /// The player has fired a gun at some point (`GF_PLAYER_FIRED_GUN`, which the original
+    /// sets once and never clears).
+    fn player_fired(&self) -> bool {
+        false
+    }
     /// The player has picked up the item created by event point `way`
     /// (`EWAY_FLAG_GOTITEM`, which `specific_item_held` watches: it stays true afterwards,
     /// even for something used up on the spot like a health pack).
@@ -148,6 +153,9 @@ pub enum Command {
     OpenDoor { pos: Vec3 },
     /// Lay a sheet of ground mist centred on `pos` (`EWAY_DO_CREATE_MIST`).
     Mist { pos: Vec3 },
+    /// Play the game's sound `id` at `pos`. `replace` is `play_glue_wave`'s type 1, which cuts
+    /// off whatever it last started rather than letting them overlap.
+    Sound { id: usize, pos: Vec3, replace: bool },
     Win,
     Lose,
 }
@@ -170,6 +178,18 @@ pub const PCOM_AI_FIGHT_TEST: u8 = 12;
 mod activate {
     pub const DOOR: i32 = 0;
     pub const ELECTRIC_FENCE: i32 = 1;
+}
+
+/// Whether [`Script`] knows what to do with a `TT_*` trigger. The ones it doesn't are reported
+/// alongside the unsupported point types: a point whose trigger never fires is as dead as one
+/// whose action does nothing.
+fn trigger_supported(t: u8) -> bool {
+    use trigger::*;
+    matches!(t, NONE | DEPENDENCY | RADIUS | TIMER | BOOLEAN_AND | BOOLEAN_OR | KILLED | COUNTDOWN
+        | ENEMY_RADIUS | VISIBLE_COUNTDOWN | CUBOID | HALF_DEAD | GROUP_DEAD | PERSON_SEEN
+        | PERSON_USED | PLAYER_USES_RADIUS | PERSON_ARRESTED | CONVERSATION_OVER | COUNTER
+        | KILLED_NOT_ARRESTED | PERSON_IN_VEHICLE | SPECIFIC_ITEM_HELD | THING_RADIUS_DIR | RANDOM
+        | DARCI_GRABBED | PUNCHED_AND_KICKED | MOVE_RADIUS_DIR | ITEM_HELD | PLAYER_FIRES_GUN)
 }
 
 /// `EWAY_counter[7]`: how many cops have been killed.
@@ -303,13 +323,19 @@ impl Script {
                 | CREATE_TARGET | CAMERA_WAYPOINT | MESSAGE | NAV_BEACON | KILL_WAYPOINT | INCREMENT | ADJUST_ENEMY
                 | END_GAME_WIN | END_GAME_LOSE | BONUS_POINTS | GROUP_LIFE | GROUP_DEATH | GROUP_RESET | EXTEND
                 | MOVE_THING | CONVERSATION | CREATE_BARREL | CREATE_VEHICLE | STALL_CAR | SIGN | CONE_PENALTIES
-                | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT | RESET_COUNTER | ACTIVATE_PRIM | CREATE_MIST);
+                | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT | RESET_COUNTER | ACTIVATE_PRIM | CREATE_MIST | SOUND_EFFECT | SHAKE_CAMERA);
             // An `activate_prim` only counts as supported when it opens a door: the fences
             // and the cameras are still to do.
             let supported = supported && (ep.kind != ACTIVATE_PRIM || ep.data[0] == activate::DOOR);
             if !supported {
                 let name = uc_formats::ucm::names::WAYPOINT.get(ep.kind as usize).copied().unwrap_or("?");
                 unsupported.push(format!("{} {}", ep.index, name));
+            }
+            // What sets a point off matters as much as what it does: a trigger this doesn't
+            // know simply never fires, and the point sits there for the whole mission.
+            if !trigger_supported(ep.trigger) {
+                let name = uc_formats::ucm::names::TRIGGER.get(ep.trigger as usize).copied().unwrap_or("?");
+                unsupported.push(format!("{} trigger {}", ep.index, name));
             }
             ways[ep.index] = Some(Way {
                 ep: ep.clone(), text: texts.get(&ep.index).cloned(), active: false, dead: false, killed: false,
@@ -464,7 +490,12 @@ impl Script {
                 t.pos.distance(pos) < (radius / 64 * 64) as f32 && da.abs() <= std::f32::consts::TAU / 16.0 && stopped
             }),
             trigger::PERSON_USED => false,
-            trigger::SPECIFIC_ITEM_HELD => q.got_item(r1),
+            // Both of these read as "the player has the thing that point made". The original
+            // tells them apart by what it looks the item up with, but `ELEV_load_level` puts an
+            // event point in either one's `arg1`, and in the missions that use them they mean
+            // the same thing.
+            trigger::SPECIFIC_ITEM_HELD | trigger::ITEM_HELD => q.got_item(r1),
+            trigger::PLAYER_FIRES_GUN => q.player_fired(),
             trigger::PERSON_SEEN => q.sees(r1, r2),
             trigger::RANDOM => {
                 // Once the dependency is active, one of the points sharing it (or none) goes
@@ -572,6 +603,15 @@ impl Script {
             // Only the door kind does anything here; an electric fence or a security camera
             // is left for later (and the camera does nothing in the original either).
             waypoint::CREATE_MIST => self.commands.push(Command::Mist { pos }),
+            // `EWAY_DO_SHAKE_CAMERA` is an empty case in the shipped game (eway.cpp:6289), so
+            // this does nothing on purpose rather than inventing a shake it never had. Where
+            // the original really does shake the camera is `create_shockwave`, which the car
+            // bombs already go through.
+            waypoint::SHAKE_CAMERA => {}
+            // `Data[0]` picks `play_glue_wave`'s type and `Data[1]` is the sound's id.
+            waypoint::SOUND_EFFECT => {
+                self.commands.push(Command::Sound { id: d[1].max(0) as usize, pos, replace: d[0] == 1 })
+            }
             waypoint::ACTIVATE_PRIM if d[0] == activate::DOOR => {
                 self.commands.push(Command::OpenDoor { pos })
             }
