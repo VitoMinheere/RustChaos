@@ -120,7 +120,8 @@ pub mod person {
 
     /// `health[]` (fallen/Source/Person.cpp).
     pub const HEALTH: [i32; 15] = [200, 400, 200, 130, 200, 200, 200, 130, 130, 200, 200, 200, 700, 700, 700];
-    /// `mesh_type[]`: which multi-object of the person's chunk.
+    /// `mesh_type[]`: which multi-object of the person's chunk. Roper's entry is for the thug
+    /// file he falls back to; his own body is the only one in `roper.all`.
     pub const MESH: [usize; 15] = [0, 0, 4, 7, 0, 1, 2, 1, 2, 3, 3, 6, 5, 5, 5];
     /// Types whose meshes come from Darci's file (`anim_type[]` == ANIM_TYPE_DARCI).
     pub fn uses_darci_meshes(t: u8) -> bool {
@@ -149,16 +150,22 @@ pub struct People {
     pub thug: Arc<AnimChunk>,
     /// trainer.all: replaces the first three thug meshes in the combat tutorial.
     pub trainer: Option<Arc<AnimChunk>>,
+    /// roper.all: Roper's own body. The original keeps him in a chunk of his own
+    /// (`ANIM_TYPE_ROPER`) while still animating him from Darci's set, like everybody else.
+    pub roper: Option<Arc<AnimChunk>>,
 }
 
 impl People {
     /// The model for a person of `PERSON_*` type `t`; `variant` picks a civilian's look.
-    /// Roper's own skeleton isn't supported, so he borrows a thug's body.
     pub fn model(&self, t: u8, variant: u32) -> Model {
         let t = t.min(person::MIB3);
         let body = person::MESH[t as usize];
         if person::uses_darci_meshes(t) {
             return Model { chunk: self.darci.clone(), body, person: 0 };
+        }
+        // Roper's own body, which is the only one in his file. Without it he'd be a thug.
+        if let (person::ROPER, Some(r)) = (t, &self.roper) {
+            return Model { chunk: r.clone(), body: 0, person: 0 };
         }
         if let (Some(tr), true) = (&self.trainer, body <= 2) {
             return Model { chunk: tr.clone(), body: 0, person: 0 };
