@@ -152,6 +152,9 @@ pub enum Command {
     /// report back with [`Script::conversation_over`]. `a` and `b` are the two points
     /// (`Data[1]`, `Data[2]`); an `ambient` one (`Data[3]`) is overheard rather than filmed.
     Conversation { way: usize, speech: usize, lines: Vec<(usize, String)>, a: usize, b: usize, ambient: bool },
+    /// Platform point `way` sets its prop moving (`EWAY_DO_CREATE_PLATFORM`): `speed` and
+    /// `flags` are its `Data[0]` and `Data[1]`.
+    Platform { way: usize, colour: u8, group: u8, speed: i32, flags: i32 },
     /// The player becomes the person point `way` made (`EWAY_DO_TRANSFER_PLAYER`).
     Transfer { way: usize },
     /// A vehicle of `VEH_TYPE_*` `kind`; `locked` if its key is one nobody ever finds.
@@ -363,7 +366,7 @@ impl Script {
                 | END_GAME_WIN | END_GAME_LOSE | BONUS_POINTS | GROUP_LIFE | GROUP_DEATH | GROUP_RESET | EXTEND
                 | MOVE_THING | CONVERSATION | CREATE_BARREL | CREATE_VEHICLE | STALL_CAR | SIGN | CONE_PENALTIES
                 | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT | RESET_COUNTER | ACTIVATE_PRIM | CREATE_MIST | SOUND_EFFECT | SHAKE_CAMERA
-                | MAKE_SEARCHABLE | MAKE_PERSON_PEE | CREATE_TRAP | CREATE_CREATURE | WAREFX | TRANSFER_PLAYER);
+                | MAKE_SEARCHABLE | MAKE_PERSON_PEE | CREATE_TRAP | CREATE_CREATURE | WAREFX | TRANSFER_PLAYER | LINK_PLATFORM);
             // An `activate_prim` only counts as supported when it opens a door: the fences
             // and the cameras are still to do.
             let supported = supported && (ep.kind != ACTIVATE_PRIM || ep.data[0] == activate::DOOR);
@@ -673,6 +676,9 @@ impl Script {
             waypoint::CREATE_BARREL => self.commands.push(Command::Barrel { way: i, kind: d[0] as u8, pos }),
             waypoint::SIGN => self.commands.push(Command::Sign { which: d[0] as u8, flip: d[1] != 0 }),
             waypoint::WAREFX => self.commands.push(Command::WareFx { pos, ambience: d[0] as u8 }),
+            waypoint::LINK_PLATFORM => {
+                self.commands.push(Command::Platform { way: i, colour: ep.colour, group: ep.group, speed: d[0], flags: d[1] })
+            }
             waypoint::TRANSFER_PLAYER => self.commands.push(Command::Transfer { way: d[0].max(0) as usize }),
             // Only the door kind does anything here; an electric fence or a security camera
             // is left for later (and the camera does nothing in the original either).
@@ -828,6 +834,40 @@ impl Script {
                 }
             })
             .collect()
+    }
+
+    /// The active point of `colour` and `group` nearest `at` (`EWAY_find_nearest_waypoint`).
+    pub fn nearest_point(&self, at: Vec3, colour: u8, group: u8) -> Option<usize> {
+        let q = |d: Vec3| {
+            let d = d.abs();
+            d.max_element() + (d.x + d.y + d.z - d.max_element()) / 4.0
+        };
+        self.ways.iter().flatten()
+            .filter(|w| w.active && w.ep.colour == colour && w.ep.group == group)
+            .min_by(|a, b| q(a.pos() - at).total_cmp(&q(b.pos() - at)))
+            .map(|w| w.ep.index)
+    }
+
+    /// The next active point of `colour` and `group` after `after`, by number, coming round
+    /// again (`EWAY_find_waypoint`).
+    pub fn next_point(&self, after: usize, colour: u8, group: u8) -> Option<usize> {
+        let n = self.ways.len();
+        (1..=n).map(|k| (after + k) % n).find(|&i| {
+            self.way(i).is_some_and(|w| w.active && w.ep.colour == colour && w.ep.group == group)
+        })
+    }
+
+    pub fn point_pos(&self, i: usize) -> Option<Vec3> {
+        self.way(i).map(|w| w.pos())
+    }
+
+    /// How long a platform waits at point `i`, in milliseconds (`EWAY_get_delay`): a simple
+    /// point's `Data[0]` in tenths of a second, `default` at anything else.
+    pub fn point_delay(&self, i: usize, default: f32) -> f32 {
+        match self.way(i) {
+            Some(w) if w.ep.kind == waypoint::SIMPLE => w.ep.data[0] as f32 * 100.0,
+            _ => default,
+        }
     }
 
     /// Beacons that are currently shown.

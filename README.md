@@ -135,6 +135,8 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 **Changing who you play:** some missions hand you over to someone else partway through (`transfer_player`), as Cop Killers does from Darci to Roper. The person you were stays behind, can't be hurt and minds their own business.
 
+**Moving platforms:** a mission can set a prop moving (`link_platform`): lifts in Grim Gardens, the rockets of Target UC, the platforms of Day Of Reckoning. Each goes round the points the mission gives it, easing in as it arrives and waiting at each. Stand on one and you ride it; be under one as it comes down and you're crushed. Target UC's rockets trail fire as they go.
+
 **Warehouses:** walk into one (the police station is one, and RTA starts you in it) and the city's ambience and wind stop. If the mission has given it an ambience (`warefx`), that plays instead of the music: the station's radio chatter, a Posheeta's or an office's hum, or the club's music in Gatecrasher. The ambience is the one the warehouse had as you came in, as in the original. On its roof you're outside.
 
 **Creatures:** some missions have monsters (`create_creature`), run as the original runs them (`bat.cpp`):
@@ -238,6 +240,7 @@ With an install present, the tests check:
 - Headline Hostage runs to its win, and to both ways of failing it;
 - Seek, Sneak and Seize runs to its win, and neither half of it counts alone;
 - Insane Assault runs to its win by shooting the Balrog, and he takes damage at an eighth; Day Of Reckoning's gargoyle wakes and takes off, and its Bane draws up the bodies and can't be hurt; bats make nothing;
+- Grim Gardens' lift rises with Darci standing on it;
 - Cop Killers hands the player to Roper, and Darci is left unhurtable; RTA's mugger's shout is filmed with both faces, holds Darci still and can be skipped through; dispatch's messages carry the radio's face;
 - every `warefx` point is inside a warehouse and gives it its ambience, and Darci is indoors under a warehouse's roof but not on it;
 - steam vents keep to their routines and scald, and a trap that stays on for good never blows;

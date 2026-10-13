@@ -33,6 +33,7 @@ pub mod waypoint {
     pub const CUT_SCENE: u8 = 15;
     pub const END_GAME_LOSE: u8 = 18;
     pub const ADJUST_ENEMY: u8 = 22;
+    pub const LINK_PLATFORM: u8 = 23;
     pub const END_GAME_WIN: u8 = 26;
     pub const NAV_BEACON: u8 = 27;
     pub const SPOT_EFFECT: u8 = 28;
