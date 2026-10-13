@@ -70,6 +70,39 @@ pub struct Item {
     pub pos: Vec3,
 }
 
+/// The player going through a prop for whatever is hidden in it (`STATE_SEARCH`,
+/// `SUB_STATE_SEARCH_PRIM`).
+#[derive(Debug, Clone, Copy)]
+pub struct Search {
+    /// The prop, as an index into the map's objects.
+    pub ob: usize,
+    /// Seconds spent at it so far.
+    pub time: f32,
+}
+
+impl Search {
+    /// `fn_person_search` adds 400 a tick (20 a second) to a timer that releases what's hidden
+    /// at 100 << 8 and lets go at 125 << 8, so the bar stays full for a moment at the end.
+    pub const FOUND: f32 = (100 << 8) as f32 / (400.0 * 20.0);
+    pub const DONE: f32 = (125 << 8) as f32 / (400.0 * 20.0);
+
+    /// How far through: 0 to 1, as the panel's bar shows it.
+    pub fn progress(&self) -> f32 {
+        (self.time / Self::FOUND).clamp(0.0, 1.0)
+    }
+}
+
+/// The prop nearest `pos` within `range`, the three axes summed (`OB_find_index`,
+/// fallen/Source/ob.cpp), as an index into the map's objects. `only` limits it to those.
+fn find_ob(level: &Level, pos: Vec3, range: f32, only: Option<&BTreeSet<usize>>) -> Option<usize> {
+    level.map.objects.iter().enumerate()
+        .filter(|(i, _)| only.is_none_or(|s| s.contains(i)))
+        .map(|(i, o)| (i, (o.x as f32 - pos.x).abs() + (o.y as f32 - pos.y).abs() + (o.z as f32 - pos.z).abs()))
+        .filter(|&(_, d)| d < range)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(i, _)| i)
+}
+
 /// A camera fly-by in progress.
 pub struct Cutscene {
     shot: Shot,
@@ -185,6 +218,12 @@ pub struct Game {
     /// The player has fired a gun. `GF_PLAYER_FIRED_GUN` is set once and never cleared, so a
     /// mission that cares only ever asks whether it has happened at all.
     player_fired: bool,
+    /// Props that can be searched (`OB_FLAG_SEARCHABLE`), as indices into the map's objects.
+    pub searchable: BTreeSet<usize>,
+    /// Items stashed in a prop, waiting to be found: (the prop, the item).
+    pub hidden: Vec<(usize, Item)>,
+    /// The player's search, while one is going on.
+    pub search: Option<Search>,
     /// Explosions and fires burning.
     pub pyro: Pyro,
     /// Sheets of ground mist the mission has laid down.
@@ -214,6 +253,7 @@ impl Game {
             items: Vec::new(), cutscene: None, convo: None, used: false, vehicles: Vec::new(), veh_by_way: HashMap::new(),
             barrels: Vec::new(), sign: None, target: None, stats: [0; 4], badges: [0; 4], found: BTreeSet::new(),
             taken: BTreeSet::new(), dead_cops: BTreeSet::new(), player_fired: false,
+            searchable: BTreeSet::new(), hidden: Vec::new(), search: None,
             pyro: Pyro::default(), mists: Mists::default(),
             player_name: "",
         };
@@ -399,6 +439,7 @@ impl Game {
                         self.people[i].removed = true;
                     }
                     self.items.retain(|it| it.way != way);
+                    self.hidden.retain(|(_, it)| it.way != way);
                     // A car a kill_waypoint takes away blows up where it stands: the original
                     // wrecks it (1050 damage) and sets off a shockwave that catches the player
                     // too, then forgets it was ever created, so a "killed" trigger watching
@@ -424,13 +465,29 @@ impl Game {
                             p.fig.angle = angle;
                         }
                     }
-                    for it in self.items.iter_mut().filter(|it| it.way == way) {
+                    let hidden = self.hidden.iter_mut().map(|(_, it)| it);
+                    for it in self.items.iter_mut().chain(hidden).filter(|it| it.way == way) {
                         it.pos = Vec3::new(pos.x, y, pos.z);
                     }
                 }
-                Command::Item { way, kind, pos } => {
+                Command::Item { way, kind, pos, stashed } => {
                     let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
-                    self.items.push(Item { way, kind, pos: Vec3::new(pos.x, y, pos.z) });
+                    let item = Item { way, kind, pos: Vec3::new(pos.x, y, pos.z) };
+                    // A stashed item goes into the nearest prop within eight squares, which
+                    // becomes searchable; with none that near it is left lying in the open
+                    // (`EWAY_create_item`).
+                    match find_ob(level, pos, 2048.0, None).filter(|_| stashed) {
+                        Some(ob) => {
+                            self.searchable.insert(ob);
+                            self.hidden.push((ob, item));
+                        }
+                        None => self.items.push(item),
+                    }
+                }
+                Command::Searchable { pos } => {
+                    if let Some(ob) = find_ob(level, pos, 256.0, None) {
+                        self.searchable.insert(ob);
+                    }
                 }
                 Command::Camera { way, shot } => {
                     let _ = way;
@@ -653,6 +710,21 @@ impl Game {
                     p.cues.push(Sfx::CarDoor);
                     return true;
                 }
+                // Search a prop in front of her (`set_person_search`: the nearest searchable
+                // one within a square, no more than an eighth of a turn off her facing).
+                if let Some(ob) = find_ob(level, pos, 256.0, Some(&self.searchable)) {
+                    let o = &level.map.objects[ob];
+                    let at = Vec3::new(o.x as f32, pos.y, o.z as f32);
+                    let to = Vec2::new(at.x - pos.x, at.z - pos.z).normalize_or_zero();
+                    let p = &mut self.people[pi];
+                    if to == Vec2::ZERO || p.facing_dir().dot(to) > std::f32::consts::FRAC_1_SQRT_2 {
+                        if to != Vec2::ZERO {
+                            p.face_towards(at);
+                        }
+                        self.search = Some(Search { ob, time: 0.0 });
+                        return true;
+                    }
+                }
                 // Talk to someone friendly close by.
                 let talk = self.people.iter().enumerate().find(|(j, o)| {
                     *j != pi && o.way != 0 && !o.removed && !o.hostile() && !o.is_down()
@@ -803,6 +875,31 @@ impl Game {
         };
     }
 
+    /// The search goes on while action is held (`continue_pressing_action`); let go and it's
+    /// abandoned. Part way through, whatever is stashed in the prop drops out where it was
+    /// put, and the prop is empty from then on, though still searchable.
+    fn searching(&mut self, dt: f32, held: bool) {
+        let Some(mut s) = self.search.take() else { return };
+        let standing = self.player.is_some_and(|p| matches!(self.people[p].state, State::Move));
+        if !held || !standing || self.outcome.is_some() {
+            return;
+        }
+        let before = s.time;
+        s.time += dt;
+        if before < Search::FOUND && s.time >= Search::FOUND {
+            let (found, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.hidden).into_iter().partition(|(ob, _)| *ob == s.ob);
+            self.hidden = kept;
+            if !found.is_empty() {
+                let at = self.player().map_or(Vec3::ZERO, |p| p.fig.pos);
+                self.sounds.push((Sfx::Found, at));
+            }
+            self.items.extend(found.into_iter().map(|(_, it)| it));
+        }
+        if s.time < Search::DONE {
+            self.search = Some(s);
+        }
+    }
+
     /// The player walks over items: health heals, weapons and ammo are picked up.
     fn pick_up(&mut self) {
         let Some(pi) = self.player else { return };
@@ -926,6 +1023,8 @@ impl Game {
             input.drive = Drive::default();
         }
         self.drive(dt, &input, level);
+        // Action held: the viewer passes it on as `sprint`.
+        self.searching(dt, input.sprint);
 
         let snaps: Vec<_> = self.people.iter().map(|p| p.snap()).collect();
         let mut events = Vec::new();
@@ -986,7 +1085,7 @@ impl Game {
         }
         for i in 0..self.people.len() {
             let c = if Some(i) == player {
-                if self.outcome.is_some() || frozen { Controls::default() } else { input }
+                if self.outcome.is_some() || frozen || self.search.is_some() { Controls::default() } else { input }
             } else {
                 let mut rng = self.rng;
                 let mut rand = || { rng = rng.wrapping_mul(69069).wrapping_add(1); rng >> 16 };

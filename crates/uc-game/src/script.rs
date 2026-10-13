@@ -130,8 +130,11 @@ pub enum Command {
     /// Show `text` for `secs`; `way` is the event point (its voice line, if recorded).
     /// `speech`: the recording's number (`talk2\<mission>.ucm<speech>.wav`).
     Message { way: usize, speech: usize, text: String, secs: f32 },
-    /// Put item `kind` (`IT_*`) at `pos`.
-    Item { way: usize, kind: u8, pos: Vec3 },
+    /// Put item `kind` (`IT_*`) at `pos`; `stashed` hides it in the nearest prop instead,
+    /// to be found by searching it (`EWAY_ARG_ITEM_STASHED_IN_PRIM`).
+    Item { way: usize, kind: u8, pos: Vec3, stashed: bool },
+    /// Let the prop nearest `pos` be searched (`WPT_MAKE_SEARCHABLE`).
+    Searchable { pos: Vec3 },
     Camera { way: usize, shot: Shot },
     /// Lines said in turn by the people created by the given event points (0 = the player);
     /// report back with [`Script::conversation_over`].
@@ -191,6 +194,10 @@ fn trigger_supported(t: u8) -> bool {
         | KILLED_NOT_ARRESTED | PERSON_IN_VEHICLE | SPECIFIC_ITEM_HELD | THING_RADIUS_DIR | RANDOM
         | DARCI_GRABBED | PUNCHED_AND_KICKED | MOVE_RADIUS_DIR | ITEM_HELD | PLAYER_FIRES_GUN)
 }
+
+/// `EWAY_ARG_ITEM_STASHED_IN_PRIM` (fallen/Headers/eway.h): a `create_item`'s item is hidden
+/// inside the nearest prop and only turns up when someone searches it.
+const STASHED_IN_PRIM: i32 = 2;
 
 /// `EWAY_counter[7]`: how many cops have been killed.
 const COPS_KILLED: usize = 7;
@@ -314,6 +321,7 @@ impl Script {
         let size = m.event_points.iter().map(|e| e.index + 1).max().unwrap_or(1);
         let mut ways: Vec<Option<Way>> = (0..size).map(|_| None).collect();
         let mut unsupported = Vec::new();
+        let mut commands = Vec::new();
         for ep in &m.event_points {
             if ep.used == 0 {
                 continue;
@@ -323,7 +331,8 @@ impl Script {
                 | CREATE_TARGET | CAMERA_WAYPOINT | MESSAGE | NAV_BEACON | KILL_WAYPOINT | INCREMENT | ADJUST_ENEMY
                 | END_GAME_WIN | END_GAME_LOSE | BONUS_POINTS | GROUP_LIFE | GROUP_DEATH | GROUP_RESET | EXTEND
                 | MOVE_THING | CONVERSATION | CREATE_BARREL | CREATE_VEHICLE | STALL_CAR | SIGN | CONE_PENALTIES
-                | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT | RESET_COUNTER | ACTIVATE_PRIM | CREATE_MIST | SOUND_EFFECT | SHAKE_CAMERA);
+                | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT | RESET_COUNTER | ACTIVATE_PRIM | CREATE_MIST | SOUND_EFFECT | SHAKE_CAMERA
+                | MAKE_SEARCHABLE);
             // An `activate_prim` only counts as supported when it opens a door: the fences
             // and the cameras are still to do.
             let supported = supported && (ep.kind != ACTIVATE_PRIM || ep.data[0] == activate::DOOR);
@@ -337,6 +346,12 @@ impl Script {
                 let name = uc_formats::ucm::names::TRIGGER.get(ep.trigger as usize).copied().unwrap_or("?");
                 unsupported.push(format!("{} trigger {}", ep.index, name));
             }
+            // `ELEV_load_level` flags the prop as the level loads and never makes a waypoint
+            // of it (`goto dont_create_a_waypoint`): its trigger is never even looked at.
+            if ep.kind == MAKE_SEARCHABLE {
+                commands.push(Command::Searchable { pos: vec3(ep.x as f32, ep.y as f32, ep.z as f32) });
+                continue;
+            }
             ways[ep.index] = Some(Way {
                 ep: ep.clone(), text: texts.get(&ep.index).cloned(), active: false, dead: false, killed: false,
                 finished: false, timer: None, countdown: hundredths(ep.radius), baseline: None,
@@ -344,7 +359,7 @@ impl Script {
         }
         Script {
             ways, counters: [0; 16], punches: 0, kicks: 0, time: 0.0, rng: 0x5eed, unsupported,
-            commands: Vec::new(), finished: false,
+            commands, finished: false,
         }
     }
 
@@ -578,12 +593,15 @@ impl Script {
                     return;
                 }
             }
-            waypoint::CREATE_ITEM => self.commands.push(Command::Item { way: i, kind: d[0] as u8, pos }),
+            // `Data[2]` is the item's flags (`ELEV_load_level`).
+            waypoint::CREATE_ITEM => {
+                self.commands.push(Command::Item { way: i, kind: d[0] as u8, pos, stashed: d[2] & STASHED_IN_PRIM != 0 })
+            }
             // A badge. The original picks which of the four at random (`alloc_special`);
             // here each point keeps its own, so badges can be tracked from run to run.
             waypoint::CREATE_TREASURE => {
                 let kind = crate::BADGE + crate::goals::badge_stat(i) as u8;
-                self.commands.push(Command::Item { way: i, kind, pos });
+                self.commands.push(Command::Item { way: i, kind, pos, stashed: false });
             }
             waypoint::CREATE_VEHICLE => {
                 let kind = crate::vehicle::from_vt(d[0]);

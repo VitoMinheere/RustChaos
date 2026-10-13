@@ -212,6 +212,8 @@ pub enum Sfx {
     /// Getting into or out of a car.
     CarDoor,
     Pickup,
+    /// Something hidden turned up in a search (`S_HIDDENITEM`).
+    Found,
     /// A bomb or a car going up.
     Explosion,
     /// One of the game's own sounds by id (`sound_list`), asked for by a mission.

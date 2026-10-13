@@ -46,6 +46,7 @@ pub mod waypoint {
     pub const EXTEND: u8 = 50;
     pub const MOVE_THING: u8 = 51;
     pub const STALL_CAR: u8 = 49;
+    pub const MAKE_SEARCHABLE: u8 = 42;
     pub const LOCK_VEHICLE: u8 = 43;
     pub const SHAKE_CAMERA: u8 = 57;
     pub const CONE_PENALTIES: u8 = 53;

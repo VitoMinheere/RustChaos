@@ -446,6 +446,18 @@ impl World {
             o.text(w / 2.0 - tw / 2.0, h * 0.2, big, white, text);
         }
 
+        // A search under way: the panel's box in the middle of the screen, with its bar.
+        if let Some(search) = &self.game.search {
+            let (bw, bh) = (160.0 * s, 32.0 * s);
+            let (bx, by) = (w / 2.0 - bw / 2.0, h * 0.6 - bh / 2.0);
+            o.rect(bx, by, bw, bh, [0, 0, 0, 170]);
+            let text = "SEARCHING";
+            o.text(w / 2.0 - Overlay::text_width(text, s) / 2.0, by + 5.0 * s, s, white, text);
+            let (fx, fy, fw, fh) = (bx + 10.0 * s, by + 18.0 * s, bw - 20.0 * s, 6.0 * s);
+            o.rect(fx - s, fy - s, fw + 2.0 * s, fh + 2.0 * s, [60, 60, 60, 200]);
+            o.rect(fx, fy, fw * search.progress(), fh, [230, 190, 60, 255]);
+        }
+
         // The mission clock.
         if let Some(t) = self.game.countdown() {
             let secs = t.ceil() as u32;
