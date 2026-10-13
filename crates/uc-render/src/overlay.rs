@@ -56,6 +56,9 @@ pub struct Overlay {
     pub(crate) backdrop: Vec<OVertex>,
     /// Quads textured with the minimap image (`Renderer::set_minimap`), drawn next.
     pub(crate) minimap: Vec<OVertex>,
+    /// Quads textured with the two face sheets (`Renderer::set_faces`), drawn last, over the
+    /// text and rectangles.
+    pub(crate) faces: [Vec<OVertex>; 2],
 }
 
 impl Overlay {
@@ -64,7 +67,7 @@ impl Overlay {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.verts.is_empty() && self.backdrop.is_empty() && self.minimap.is_empty()
+        self.verts.is_empty() && self.backdrop.is_empty() && self.minimap.is_empty() && self.faces.iter().all(|f| f.is_empty())
     }
 
     /// Part `uv` ([u0, v0, u1, v1]) of the minimap image over a rectangle, tinted by `color`.
@@ -73,6 +76,14 @@ impl Overlay {
         self.quad(x, y, w, h, uv, color);
         let quad: Vec<OVertex> = self.verts.drain(start..).collect();
         self.minimap.extend(quad);
+    }
+
+    /// Part `uv` of face sheet `sheet` (0 or 1) over a rectangle.
+    pub fn face(&mut self, sheet: usize, x: f32, y: f32, w: f32, h: f32, uv: [f32; 4]) {
+        let start = self.verts.len();
+        self.quad(x, y, w, h, uv, [255, 255, 255, 255]);
+        let quad: Vec<OVertex> = self.verts.drain(start..).collect();
+        self.faces[sheet.min(1)].extend(quad);
     }
 
     /// The backdrop image stretched over a rectangle, tinted by `color`.

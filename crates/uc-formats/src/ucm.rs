@@ -42,6 +42,7 @@ pub mod waypoint {
     pub const GROUP_LIFE: u8 = 33;
     pub const GROUP_DEATH: u8 = 34;
     pub const CONVERSATION: u8 = 35;
+    pub const TRANSFER_PLAYER: u8 = 40;
     pub const INCREMENT: u8 = 37;
     pub const RESET_COUNTER: u8 = 46;
     pub const GROUP_RESET: u8 = 44;

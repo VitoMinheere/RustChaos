@@ -21,6 +21,7 @@ pub mod person;
 pub mod pyro;
 pub mod script;
 pub mod steam;
+pub mod talk;
 pub mod vehicle;
 pub mod ware;
 
@@ -148,6 +149,21 @@ struct Convo {
     lines: Vec<(usize, String)>,
     line: usize,
     left: f32,
+    /// The two people, as indices: the one with the lower number goes at the top.
+    pair: Option<(usize, usize)>,
+    /// Overheard rather than filmed (`EWAY_DO_AMBIENT_CONV`): no camera, no widescreen.
+    ambient: bool,
+    /// Seconds until a press may cut the line short (`EWAY_conv_skip`).
+    skip: f32,
+    /// Where the camera is and what it looks at.
+    cam: Option<(Vec3, Vec3)>,
+}
+
+impl Convo {
+    /// Filmed: the camera on whoever is talking, and the player held still.
+    fn filmed(&self) -> bool {
+        !self.ambient && self.pair.is_some()
+    }
 }
 
 /// What the music should be doing.
@@ -224,6 +240,22 @@ pub struct Message {
     pub text: String,
     /// Seconds left on screen.
     pub left: f32,
+    /// The speaker's face (`talk::face`), shown beside it; none for signs and tutorial text.
+    pub face: Option<u8>,
+    /// A line of a filmed conversation, which the widescreen panel shows ([`Wide`]) rather
+    /// than the messages.
+    pub filmed: bool,
+}
+
+/// A conversation being filmed, as the panel shows it in widescreen (`PANEL_new_widescreen`):
+/// one of the two at the top with their face on the right, the other at the bottom with
+/// theirs on the left, and the line being said beside whoever is saying it.
+#[derive(Debug, Clone)]
+pub struct Wide {
+    pub top: Option<u8>,
+    pub bottom: Option<u8>,
+    pub text: String,
+    pub top_talking: bool,
 }
 
 pub struct Game {
@@ -248,6 +280,8 @@ pub struct Game {
     pub sign: Option<(String, f32)>,
     pub cutscene: Option<Cutscene>,
     convo: Option<Convo>,
+    /// A conversation being filmed, for the widescreen panel.
+    pub wide: Option<Wide>,
     /// The player pressed action this frame.
     used: bool,
     /// Who the player's gun is aimed at.
@@ -299,7 +333,9 @@ pub struct Game {
     pub drops: dirt::Drops,
     /// Steam from the mission's vents.
     pub steam: steam::Steam,
-    /// What to call the player, for the HUD and for their lines in a conversation.
+    /// Estate of Emergency, where the tramp's face is the boss's (`estate`).
+    estate: bool,
+    /// What to call the player, for the HUD.
     player_name: &'static str,
 }
 
@@ -321,7 +357,7 @@ impl Game {
         let mut g = Game {
             people: Vec::new(), player: None, by_way: HashMap::new(), script, messages: Vec::new(),
             outcome: None, time: 0.0, rng: 1, sounds: Vec::new(), fight_timer: 0.0, sprinting: false,
-            items: Vec::new(), cutscene: None, convo: None, used: false, vehicles: Vec::new(), veh_by_way: HashMap::new(),
+            items: Vec::new(), cutscene: None, convo: None, wide: None, used: false, vehicles: Vec::new(), veh_by_way: HashMap::new(),
             barrels: Vec::new(), sign: None, target: None, stats: [0; 4], badges: [0; 4], found: BTreeSet::new(),
             taken: BTreeSet::new(), dead_cops: BTreeSet::new(), player_fired: false,
             searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(),
@@ -330,6 +366,7 @@ impl Game {
             aim_creature: None, creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), steam: steam::Steam::default(),
             player_name: "",
+            estate: level.mission.mission_name.eq_ignore_ascii_case("estate2"),
         };
         if !scripted {
             g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
@@ -892,21 +929,50 @@ impl Game {
                     let _ = way;
                     self.cutscene = Some(Cutscene { pos: shot.start, shot, leg: 0, wait: 0.0 });
                 }
-                Command::Conversation { way, speech, lines } => {
+                Command::Conversation { way, speech, lines, a, b, ambient } => {
                     // A conversation still going is cut short but counts as said, as in the
                     // original (`EWAY_finish_conversation`): what waits on it still happens.
                     if let (Some(old), Some(s)) = (self.convo.take(), self.script.as_mut()) {
                         s.conversation_over(old.way);
                     }
-                    self.convo = Some(Convo { way, speech, lines, line: usize::MAX, left: 0.0 });
+                    self.wide = None;
+                    // It's filmed only if both of them are there and fit to talk
+                    // (`person_ok_for_conversation`); otherwise it's just said.
+                    let who = |w: usize| self.by_way.get(&w).copied().filter(|&i| self.can_talk(i));
+                    let pair = who(a).zip(who(b)).filter(|(i, j)| i != j);
+                    if let (Some((i, j)), false) = (pair, ambient) {
+                        // `PCOM_make_people_talk_to_eachother`: they turn to each other.
+                        let (pi, pj) = (self.people[i].fig.pos, self.people[j].fig.pos);
+                        self.people[i].face_towards(pj);
+                        self.people[j].face_towards(pi);
+                    }
+                    self.convo = Some(Convo { way, speech, lines, line: usize::MAX, left: 0.0, pair, ambient, skip: 1.0, cam: None });
                 }
-                Command::Message { way, speech, text, secs } => {
+                Command::Message { way, speech, text, secs, speaker } => {
                     let _ = way;
+                    let face = match speaker {
+                        script::Speaker::Street | script::Speaker::Tutorial => None,
+                        script::Speaker::Radio => Some(talk::face::RADIO),
+                        script::Speaker::Person(w) => match self.by_way.get(&w).copied() {
+                            // Dead people can't talk.
+                            Some(i) if self.people[i].is_dead() => continue,
+                            Some(i) => {
+                                // Someone the player is talking to turns to them.
+                                if let (Some(p), true) = (self.player, self.can_talk(i)) {
+                                    let at = self.people[p].fig.pos;
+                                    self.people[i].face_towards(at);
+                                }
+                                Some(self.face(i))
+                            }
+                            None => Some(talk::face::RADIO),
+                        },
+                    };
                     let at = self.player().map_or(Vec3::ZERO, |p| p.fig.pos);
                     self.sounds.push((Sfx::Voice(speech), at));
                     self.messages.retain(|m| m.text != text);
-                    self.messages.push(Message { text, left: secs });
+                    self.messages.push(Message { text, left: secs, face, filmed: false });
                 }
+                Command::Transfer { way } => self.transfer(way, level),
                 Command::Vehicle { way, kind, pos, angle, locked } => {
                     let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
                     // A vehicle's angle is its heading (its nose along (sin, cos)).
@@ -1010,9 +1076,16 @@ impl Game {
         self.script.as_ref()?.countdown()
     }
 
-    /// The fly-by camera, if one is running: (position, looking at), world units.
+    /// A filmed conversation is going on: the player is held still until it's over.
+    pub fn in_conversation(&self) -> bool {
+        self.convo.as_ref().is_some_and(|c| c.filmed())
+    }
+
+    /// The fly-by camera, or a filmed conversation's, if one is running: (position, looking
+    /// at), world units.
     pub fn camera(&self) -> Option<(Vec3, Vec3)> {
         self.cutscene.as_ref().map(|c| (c.pos, c.shot.target))
+            .or_else(|| self.convo.as_ref().filter(|c| c.filmed()).and_then(|c| c.cam))
     }
 
     /// Skips the rest of a fly-by (everything it would have triggered still happens).
@@ -1026,22 +1099,53 @@ impl Game {
         }
     }
 
-    fn speaker(&self, way: usize) -> &'static str {
-        let p = if way == 0 { self.player } else { self.by_way.get(&way).copied() };
-        match p.map(|i| &self.people[i]) {
-            Some(p) if p.player => self.player_name,
-            Some(p) if matches!(p.kind, ptype::COP | ptype::ROPER) => ptype::name(p.kind),
-            _ => "",
-        }
-    }
-
     /// What to call the player.
     pub fn player_name(&self) -> &'static str {
         self.player_name
     }
 
     /// Fly-bys and conversations move on.
-    fn update_scenes(&mut self, dt: f32) {
+    /// `person_ok_for_conversation`: on their feet, not driving, climbing or in the air.
+    fn can_talk(&self, i: usize) -> bool {
+        let p = &self.people[i];
+        !p.removed && !p.is_dead() && !p.is_down()
+            && !matches!(p.state, State::InCar { .. } | State::Climb { .. } | State::Fall { .. } | State::Zip { .. } | State::Fence { .. } | State::PullUp { .. })
+    }
+
+    /// Person `i`'s face (`PANEL_new_face`).
+    fn face(&self, i: usize) -> u8 {
+        let p = &self.people[i];
+        talk::face_of(p.kind, p.fig.model.person.saturating_sub(6), self.estate)
+    }
+
+    /// `EWAY_DO_TRANSFER_PLAYER`: the player becomes someone else. Whoever they were stays
+    /// behind as a civilian who minds their own business, fights back if set on and can't be
+    /// hurt; the new one loses any protection and is the camera's from now on.
+    fn transfer(&mut self, way: usize, level: &Level) {
+        // The original says nothing when there's nobody (its message is commented out).
+        let Some(&new) = self.by_way.get(&way) else { return };
+        if let Some(old) = self.player.filter(|&o| o != new) {
+            let p = &mut self.people[old];
+            p.player = false;
+            (p.ai, p.bent, p.skill) = (1, person::BENT_ROBOT | person::BENT_FIGHT_BACK, 15);
+            (p.mv, p.goal) = (1, None);
+            p.protected = true;
+            if matches!(p.state, State::Attack { .. } | State::Block | State::Shoot { .. }) {
+                p.state = State::Move;
+            }
+        }
+        let p = &mut self.people[new];
+        p.player = true;
+        (p.ai, p.skill) = (0, 0);
+        p.bent &= !person::BENT_PLAYERKILL;
+        p.protected = false;
+        (p.goal, p.foe) = (None, None);
+        self.player = Some(new);
+        self.player_name = player_name(&level.mission.mission_name, p.kind);
+        (self.target, self.aim_creature) = (None, None);
+    }
+
+    fn update_scenes(&mut self, dt: f32, level: &Level, pressed: bool) {
         if let Some(c) = self.cutscene.as_mut() {
             let (reached, done) = c.update(dt);
             if done {
@@ -1055,19 +1159,59 @@ impl Game {
             }
         }
         if let Some(mut cv) = self.convo.take() {
+            // Anything happening to either of them breaks it off; it counts as said.
+            if let (Some((i, j)), true) = (cv.pair, cv.filmed()) {
+                let busy = |k: usize| !matches!(self.people[k].state, State::Move) || !self.can_talk(k);
+                if busy(i) || busy(j) {
+                    self.wide = None;
+                    if let Some(s) = &mut self.script {
+                        s.conversation_over(cv.way);
+                    }
+                    return;
+                }
+            }
             cv.left -= dt;
+            cv.skip -= dt;
+            // A press cuts the line short, once the line has been up for half a second (a
+            // second for the first); a press before that means the next one does.
+            if pressed && cv.filmed() {
+                if cv.skip <= 0.0 {
+                    cv.left = 0.0;
+                } else {
+                    cv.skip = 0.0;
+                }
+            }
             if cv.left <= 0.0 {
                 cv.line = cv.line.wrapping_add(1);
                 match cv.lines.get(cv.line).cloned() {
                     Some((who, text)) => {
-                        cv.left = (1.5 + text.len() as f32 * 0.06).min(6.0);
-                        let name = self.speaker(who);
-                        let shown = if name.is_empty() { text } else { format!("{name}: {text}") };
-                        self.messages.push(Message { text: shown, left: cv.left });
+                        // Two seconds, and a twenty-fifth for every letter (`EWAY_conv_timer`).
+                        cv.left = 2.0 + text.chars().count() as f32 * 0.04;
+                        cv.skip = 0.5;
+                        let speaker = if who == 0 { self.player } else { self.by_way.get(&who).copied() };
+                        let face = speaker.map_or(talk::face::RADIO, |i| self.face(i));
                         let at = self.player().map_or(Vec3::ZERO, |p| p.fig.pos);
                         self.sounds.push((Sfx::ConversationLine(cv.speech, cv.line), at));
+                        match (cv.pair, cv.filmed()) {
+                            (Some((i, j)), true) => {
+                                let (top, bottom) = (i.min(j), i.max(j));
+                                let top_talking = speaker == Some(top);
+                                self.messages.push(Message { text: text.clone(), left: cv.left, face: Some(face), filmed: true });
+                                self.wide = Some(Wide { top: Some(self.face(top)), bottom: Some(self.face(bottom)), text, top_talking });
+                                // The camera on whoever has the line, over the other one.
+                                let (s, l) = if speaker == Some(j) { (j, i) } else { (i, j) };
+                                let (sp, sa, lp) = (self.people[s].fig.pos, self.people[s].fig.angle, self.people[l].fig.pos);
+                                let mut rng = self.rng;
+                                let mut rand = || rand(&mut rng);
+                                let eye = Vec3::new(0.0, 0.0, 0.0);
+                                cv.cam = Some(talk::converse_camera(sp, sa, lp, |a, b| level.ground.line_of_sight(a + eye, b), &mut rand));
+                                self.rng = rng;
+                            }
+                            _ => self.messages.push(Message { text, left: cv.left, face: Some(face), filmed: false }),
+                        }
                     }
                     None => {
+                        self.wide = None;
                         if let Some(s) = &mut self.script {
                             s.conversation_over(cv.way);
                         }
@@ -1109,7 +1253,7 @@ impl Game {
                         p.weapon = Weapon::None;
                     }
                     self.charges.push(Charge { pos, fuse: Charge::FUSE });
-                    self.messages.push(Message { text: "Five second fuse set".into(), left: 3.0 });
+                    self.messages.push(Message { text: "Five second fuse set".into(), left: 3.0, face: None, filmed: false });
                     return true;
                 }
                 let near = |v: &Vehicle| !v.wrecked() && !v.locked && v.driver.is_none()
@@ -1357,7 +1501,7 @@ impl Game {
                     p.max_health += 10;
                     p.health += 10;
                 }
-                self.messages.push(Message { text: format!("{} increased", STAT_NAMES[stat]), left: 4.0 });
+                self.messages.push(Message { text: format!("{} increased", STAT_NAMES[stat]), left: 4.0, face: None, filmed: false });
                 true
             }
             // A gun: carried (with its rounds), and drawn if the hands are empty.
@@ -1431,7 +1575,8 @@ impl Game {
         if self.outcome.is_none() {
             self.run_script(dt, level);
         }
-        self.update_scenes(dt);
+        let pressed = input.punch || input.kick || input.jump || input.action;
+        self.update_scenes(dt, level, pressed);
         self.pyro.update(dt);
         if self.outcome.is_none() {
             self.charges(dt, level);
@@ -1447,6 +1592,9 @@ impl Game {
             .collect();
         self.drops.update(dt, &streams, |at| level.ground.surface(&level.map, at.x, at.z, at.y + 8.0));
         let frozen = self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player);
+        // A filmed conversation holds the player still too (`EWAY_cam_freeze`), but not
+        // everyone else as a fly-by does.
+        let held = frozen || self.convo.as_ref().is_some_and(|c| c.filmed());
 
         if let Some((_, t)) = &mut self.sign {
             *t -= dt;
@@ -1458,11 +1606,11 @@ impl Game {
         let mut input = *input;
         input.target = self.target;
         input.aim = self.aim_creature.map(|k| self.creatures[k].middle());
-        if self.outcome.is_none() && !frozen && input.action && self.use_something(level) {
+        if self.outcome.is_none() && !held && input.action && self.use_something(level) {
             input.action = false;
         }
         // Fly-bys that hold the player still hold the car too (it rolls to a stop).
-        if frozen || self.outcome.is_some() {
+        if held || self.outcome.is_some() {
             input.drive = Drive::default();
         }
         self.drive(dt, &input, level);
@@ -1524,11 +1672,11 @@ impl Game {
             let away = p.ai == person::AI_BODYGUARD
                 && darci.is_some_and(|d| (d - p.fig.pos).length() > 20.0 * 256.0);
             self.people[i].foe = foe;
-            self.people[i].invulnerable = away;
+            self.people[i].invulnerable = away || self.people[i].protected;
         }
         for i in 0..self.people.len() {
             let c = if Some(i) == player {
-                if self.outcome.is_some() || frozen || self.search.is_some() { Controls::default() } else { input }
+                if self.outcome.is_some() || held || self.search.is_some() { Controls::default() } else { input }
             } else {
                 let mut rng = self.rng;
                 let mut rand = || { rng = rng.wrapping_mul(69069).wrapping_add(1); rng >> 16 };

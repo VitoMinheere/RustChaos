@@ -133,8 +133,9 @@ pub enum Command {
     /// Move the person or item created by `way`.
     Move { way: usize, pos: Vec3, angle: f32 },
     /// Show `text` for `secs`; `way` is the event point (its voice line, if recorded).
-    /// `speech`: the recording's number (`talk2\<mission>.ucm<speech>.wav`).
-    Message { way: usize, speech: usize, text: String, secs: f32 },
+    /// `speech`: the recording's number (`talk2\<mission>.ucm<speech>.wav`); `speaker`: who
+    /// says it.
+    Message { way: usize, speech: usize, text: String, secs: f32, speaker: Speaker },
     /// Put item `kind` (`IT_*`) at `pos`; `stashed` hides it in the nearest prop instead,
     /// to be found by searching it (`EWAY_ARG_ITEM_STASHED_IN_PRIM`).
     Item { way: usize, kind: u8, pos: Vec3, stashed: bool },
@@ -148,8 +149,11 @@ pub enum Command {
     Searchable { pos: Vec3 },
     Camera { way: usize, shot: Shot },
     /// Lines said in turn by the people created by the given event points (0 = the player);
-    /// report back with [`Script::conversation_over`].
-    Conversation { way: usize, speech: usize, lines: Vec<(usize, String)> },
+    /// report back with [`Script::conversation_over`]. `a` and `b` are the two points
+    /// (`Data[1]`, `Data[2]`); an `ambient` one (`Data[3]`) is overheard rather than filmed.
+    Conversation { way: usize, speech: usize, lines: Vec<(usize, String)>, a: usize, b: usize, ambient: bool },
+    /// The player becomes the person point `way` made (`EWAY_DO_TRANSFER_PLAYER`).
+    Transfer { way: usize },
     /// A vehicle of `VEH_TYPE_*` `kind`; `locked` if its key is one nobody ever finds.
     Vehicle { way: usize, kind: u8, pos: Vec3, angle: f32, locked: bool },
     /// Stop the vehicle created by `way` for good.
@@ -172,6 +176,19 @@ pub enum Command {
     Sound { id: usize, pos: Vec3, replace: bool },
     Win,
     Lose,
+}
+
+/// Who says a message (`EWAY_MESSAGE_WHO_*` in its `Data[2]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Speaker {
+    /// Despatch, over the radio.
+    Radio,
+    /// The person the event point made.
+    Person(usize),
+    /// A street name (`EWAY_MESSAGE_WHO_STREETNAME`): a sign, not a voice.
+    Street,
+    /// Tutorial text (`EWAY_MESSAGE_WHO_TUTORIAL`).
+    Tutorial,
 }
 
 /// A navigation beacon to show.
@@ -310,6 +327,9 @@ pub struct Script {
     rng: u32,
     /// Event points this script can't run, by type name (reported once).
     pub unsupported: Vec<String>,
+    /// The person the player is talking to, while their points go off (`EWAY_used_thing`):
+    /// what they set off is theirs to say.
+    used: Option<usize>,
     commands: Vec<Command>,
     finished: bool,
 }
@@ -343,7 +363,7 @@ impl Script {
                 | END_GAME_WIN | END_GAME_LOSE | BONUS_POINTS | GROUP_LIFE | GROUP_DEATH | GROUP_RESET | EXTEND
                 | MOVE_THING | CONVERSATION | CREATE_BARREL | CREATE_VEHICLE | STALL_CAR | SIGN | CONE_PENALTIES
                 | SPOT_EFFECT | CREATE_TREASURE | LOCK_VEHICLE | VISUAL_EFFECT | RESET_COUNTER | ACTIVATE_PRIM | CREATE_MIST | SOUND_EFFECT | SHAKE_CAMERA
-                | MAKE_SEARCHABLE | MAKE_PERSON_PEE | CREATE_TRAP | CREATE_CREATURE | WAREFX);
+                | MAKE_SEARCHABLE | MAKE_PERSON_PEE | CREATE_TRAP | CREATE_CREATURE | WAREFX | TRANSFER_PLAYER);
             // An `activate_prim` only counts as supported when it opens a door: the fences
             // and the cameras are still to do.
             let supported = supported && (ep.kind != ACTIVATE_PRIM || ep.data[0] == activate::DOOR);
@@ -370,7 +390,7 @@ impl Script {
         }
         Script {
             ways, counters: [0; 16], punches: 0, kicks: 0, time: 0.0, rng: 0x5eed, unsupported,
-            commands, finished: false,
+            commands, finished: false, used: None,
         }
     }
 
@@ -425,9 +445,11 @@ impl Script {
         let waiting: Vec<usize> = self.ways.iter().flatten()
             .filter(|w| w.ep.trigger == trigger::PERSON_USED && w.ep.ep_ref as usize == way && !w.active && !w.dead)
             .map(|w| w.ep.index).collect();
+        self.used = Some(way);
         for i in waiting {
             self.activate(i, q);
         }
+        self.used = None;
     }
 
     /// Conversation point `i` has been said.
@@ -594,14 +616,24 @@ impl Script {
             waypoint::MESSAGE | waypoint::BONUS_POINTS => {
                 if let Some(text) = w.text.clone() {
                     let secs = if ep.kind == waypoint::MESSAGE && d[1] > 0 { d[1] as f32 } else { 8.0 };
-                    self.commands.push(Command::Message { way: i, speech: speech(&w.ep), text: text.trim().to_string(), secs });
+                    // Set off by talking to someone, it's theirs to say; otherwise `Data[2]`.
+                    let speaker = match (self.used, d[2]) {
+                        (Some(p), _) => Speaker::Person(p),
+                        _ if ep.kind == waypoint::BONUS_POINTS => Speaker::Radio,
+                        (None, 0) => Speaker::Radio,
+                        (None, 0xffff) => Speaker::Street,
+                        (None, 0xfffe) => Speaker::Tutorial,
+                        (None, p) => Speaker::Person(p.max(0) as usize),
+                    };
+                    self.commands.push(Command::Message { way: i, speech: speech(&w.ep), text: text.trim().to_string(), secs, speaker });
                 }
             }
             waypoint::CONVERSATION => {
                 let text = w.text.clone().unwrap_or_default();
                 let lines = text.split('|').map(str::trim).filter(|l| !l.is_empty()).enumerate()
                     .map(|(n, l)| (if n % 2 == 0 { d[1] } else { d[2] }.max(0) as usize, l.to_string())).collect();
-                self.commands.push(Command::Conversation { way: i, speech: speech(&w.ep), lines });
+                let (a, b) = (d[1].max(0) as usize, d[2].max(0) as usize);
+                self.commands.push(Command::Conversation { way: i, speech: speech(&w.ep), lines, a, b, ambient: d[3] != 0 });
             }
             waypoint::NAV_BEACON => {
                 // A beacon tracking a person who doesn't exist yet waits for them.
@@ -641,6 +673,7 @@ impl Script {
             waypoint::CREATE_BARREL => self.commands.push(Command::Barrel { way: i, kind: d[0] as u8, pos }),
             waypoint::SIGN => self.commands.push(Command::Sign { which: d[0] as u8, flip: d[1] != 0 }),
             waypoint::WAREFX => self.commands.push(Command::WareFx { pos, ambience: d[0] as u8 }),
+            waypoint::TRANSFER_PLAYER => self.commands.push(Command::Transfer { way: d[0].max(0) as usize }),
             // Only the door kind does anything here; an electric fence or a security camera
             // is left for later (and the camera does nothing in the original either).
             waypoint::CREATE_MIST => self.commands.push(Command::Mist { pos }),
