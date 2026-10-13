@@ -14,7 +14,7 @@ What's there:
   - Physical Training (`assault1`): the assault course against the clock;
   - Driving Bronze, Silver and Gold (`testdrive1a`, `testdrive2`, `testdrive3`): laps in the squad car.
 
-  The first street missions play to the end too, though the city is still quieter than the original's: RTA (`police1`), The Jump (`police2`), Nitro Car (`Bankbomb1`), the first one played as somebody other than Darci, Gun Hunt (`police3`), Rat Catch (`Gangorder2`) and Headline Hostage (`Gordout1`).
+  The first street missions play to the end too, though the city is still quieter than the original's: RTA (`police1`), The Jump (`police2`), Nitro Car (`Bankbomb1`), the first one played as somebody other than Darci, Gun Hunt (`police3`), Rat Catch (`Gangorder2`), Headline Hostage (`Gordout1`) and Seek, Sneak and Seize (`Stealtst1`).
 - **Missions:** read, edit and write them as JSON.
 
 No game data is included; everything is read from your install.
@@ -117,6 +117,8 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 **Headline Hostage walkthrough:** Gordansky is wanted alive and at liberty: bring him to the drop and the mission is yours. Shooting him fails it, and so does arresting him, which the radio has something to say about.
 
+**Seek, Sneak and Seize walkthrough:** get into the Research Center and lift the encryption disk, then make the front gates. Both halves are needed: the gates on their own won't do.
+
 **The Jump walkthrough:** Barnaby is on a ledge of the tower east of the station (the "Brooks Tower" beacon). Walk straight up to him, by the ladder from the level where the cop waits, and he talks, then runs off the edge. Come from behind instead. Climb the tall building to the west (ladders from the street by the cop who says "It's up this way"), jump for the zip line on its roof, and ride it down onto Barnaby's ledge behind him.
 
 **Mist:** some missions lay sheets of ground mist (`create_mist`), low over the street and shimmering where they lie. The original's own `fog.tga` isn't in the retail release, so the sheet is drawn with a cloud generated at startup, as the blob shadows are.
@@ -211,6 +213,7 @@ With an install present, the tests check:
 - Gun Hunt runs from Deeks to the station, and losing Deeks fails it;
 - Rat Catch runs to both of its endings: the son delivered, and the Boss's punishment after he's killed;
 - Headline Hostage runs to its win, and to both ways of failing it;
+- Seek, Sneak and Seize runs to its win, and neither half of it counts alone;
 - The Fallen gets three of its five clues (see `mib.rs` for what the other two still want).
 
 Without an install, the data tests print a note and pass. That's what CI sees: `.github/workflows/rust.yml` builds, tests and runs Clippy on Windows and Linux.

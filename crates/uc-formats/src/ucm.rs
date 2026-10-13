@@ -47,6 +47,7 @@ pub mod waypoint {
     pub const MOVE_THING: u8 = 51;
     pub const STALL_CAR: u8 = 49;
     pub const LOCK_VEHICLE: u8 = 43;
+    pub const SHAKE_CAMERA: u8 = 57;
     pub const CONE_PENALTIES: u8 = 53;
     pub const SIGN: u8 = 54;
 }
@@ -74,7 +75,9 @@ pub mod trigger {
     pub const COUNTER: u8 = 31;
     pub const KILLED_NOT_ARRESTED: u8 = 32;
     pub const PERSON_IN_VEHICLE: u8 = 36;
+    pub const ITEM_HELD: u8 = 15;
     pub const SPECIFIC_ITEM_HELD: u8 = 39;
+    pub const PLAYER_FIRES_GUN: u8 = 41;
     pub const THING_RADIUS_DIR: u8 = 37;
     pub const RANDOM: u8 = 40;
     pub const MOVE_RADIUS_DIR: u8 = 44;
