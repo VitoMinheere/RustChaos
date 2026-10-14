@@ -151,6 +151,11 @@ pub const BENT_PLAYERKILL: u8 = 1 << 7;
 pub const AI_BODYGUARD: u8 = 8;
 /// `PCOM_AI_CIV`: a member of the public.
 pub const AI_CIV: u8 = 1;
+/// `PCOM_AI_DRIVER`: finds a car, gets in and drives it.
+pub const AI_DRIVER: u8 = 9;
+/// `PCOM_AI_COP_DRIVER`: a cop who drives. Its "stop and get out if he sees trouble" is
+/// commented out of the shipped game (pcom.cpp:11290), so it drives as a driver does.
+pub const AI_COP_DRIVER: u8 = 14;
 /// `PCOM_AI_GUARD`, `PCOM_AI_GANG`, `PCOM_AI_SUICIDE` (fallen/Headers/pcom.h).
 pub const AI_GUARD: u8 = 2;
 pub const AI_GANG: u8 = 6;
@@ -726,6 +731,12 @@ impl Person {
             || matches!(self.ai, AI_GUARD | AI_GANG)
     }
 
+    /// Looks for a car and drives it (`PCOM_AI_DRIVER`, and `PCOM_AI_COP_DRIVER` which falls
+    /// through to the same code, pcom.cpp:11313), unless something has frightened them.
+    pub fn drives(&self) -> bool {
+        matches!(self.ai, AI_DRIVER | AI_COP_DRIVER) && self.scared.is_none()
+    }
+
     pub fn is_dummy(&self) -> bool {
         self.ai == crate::script::PCOM_AI_FIGHT_TEST
     }
@@ -999,7 +1010,9 @@ impl Person {
     /// wall where nobody can reach them, and a mission's witness or mark doing that can stall
     /// its script (RTA's drunk driver hides from the very cops sent to stop him).
     pub fn scare(&mut self, by: Option<usize>, at: Vec3) {
-        if !self.fake || self.player || self.ai != AI_CIV || self.bent & BENT_FIGHT_BACK != 0 || self.removed || self.is_dead() {
+        // Drivers too: `PCOM_set_person_ai_flee_person` has them leave their car first
+        // (`PCOM_EXCAR_FLEE_PERSON`). Cop drivers don't run.
+        if !self.fake || self.player || !matches!(self.ai, AI_CIV | AI_DRIVER) || self.bent & BENT_FIGHT_BACK != 0 || self.removed || self.is_dead() {
             return;
         }
         self.annoyed = true;
