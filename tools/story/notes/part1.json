@@ -1,0 +1,52 @@
+{
+"FTutor1": {
+  "synopsis": "Darci's first day at the Combat Centre. Text instructions walk her through punches and kicks, the grapple, sprinting, the sliding tackle, triple combos, knocking a target down and arresting it, and finally fighting four at once with back and side kicks. The targets are training dummies dressed as Wildcats.",
+  "characters": ["**Darci Stern**: rookie in training", "Training dummies (Wildcat grey), who go down only to the move each lesson teaches"],
+  "names": {"19": "Dummy 1", "22": "Dummy 2", "26": "Dummy 3", "28": "Dummy 4", "30": "Dummy 5 (arrest)", "32": "Dummy 6", "33": "Dummy 7", "34": "Dummy 8", "35": "Dummy 9"}
+},
+"Assault1": {
+  "synopsis": "Officer Dean puts Darci through her physical on the assault course: stick to the track, grab the zip cable, and hit the switch at the end before the two-minute clock runs out. Attacking Dean ends the test.",
+  "characters": ["**Darci Stern**", "**Officer Dean**: the course instructor", "Sixteen cops lining the course"],
+  "names": {"4": "Officer Dean"}
+},
+"testdrive1a": {
+  "synopsis": "Three laps of the oval in a squad car inside 90 seconds, avoiding cones and oil drums. The instructor starts the watch when Darci gets in. Running over the instructor, the other cops or the contractors fixing the station heating ends it.",
+  "characters": ["**Darci Stern**", "**Driving instructor**", "Four cops watching", "Two contractors fixing the heating"],
+  "names": {"45": "Driving instructor", "72": "Cop", "141": "Cop", "142": "Cop", "149": "Cop", "152": "Contractor", "153": "Contractor"}
+},
+"fight1": {
+  "synopsis": "Combat Silver: waves of skilled and sometimes armed sparring partners, each wave against the clock. Clearing the first stage gives the Bronze grade on the way.",
+  "characters": ["**Darci Stern**", "Sparring partners in Wildcat colours: guards, Man In Black fighters and one who runs"],
+  "names": {}
+},
+"testdrive2": {
+  "synopsis": "Two laps of the intermediate course in 120 seconds, with a reverse park into a marked bay on each lap. Hurting or arresting the training officer ends it.",
+  "characters": ["**Darci Stern**", "**Training officer**", "A second cop by the track"],
+  "names": {"198": "Training officer", "251": "Cop"}
+},
+"fight2": {
+  "synopsis": "Combat Gold: harder waves, tighter clock, and assassins among the sparring partners.",
+  "characters": ["**Darci Stern**", "Sparring partners in Wildcat colours: guards, Man In Black fighters and assassins"],
+  "names": {}
+},
+"testdrive3": {
+  "synopsis": "The advanced course in a meat wagon: two laps in 140 seconds, with two reverse parks per lap.",
+  "characters": ["**Darci Stern**", "**Training officer**"],
+  "names": {"90": "Training officer"}
+},
+"police1": {
+  "synopsis": "Darci's first beat as a rookie in West District. Despatch sends her to an abandoned taxi after a crash on Zarb Avenue, where two cops are dealing with the drunk who caused it; she drives the taxi back to the station's vehicle drop. On the way an attempted homicide comes in from the Clunton Projects: the victim's friend points her to Kleetus Avenue, where three witnesses argue about how many shots they heard. A mugging crew works the area, and she must bring at least one mugger in alive; one waits on a rooftop. An old tramp hails her by name: Deeks, her late father's snitch from his cop days, who promises to help her. Side jobs: arrest the extra muggers, a man urinating in the park, and a lecherous civilian; talk to Deeks.",
+  "characters": ["**Darci Stern**: rookie, first day on the beat", "**Despatch**", "**Sergeant Bryant** (mentioned): wants the taxi impounded", "**Deeks**: tramp, forty years on Union City's streets, Darci's father's old snitch", "**The witness**: the homicide victim's friend; she mustn't be harmed", "**Crash-scene cops** and **the drunk driver**", "**Three muggers**: Wildcats, one on a rooftop with a gun", "**O'Doole** and other cops at the station; streetwalkers in the cells", "Bystanders arguing over two, three or four shots"],
+  "names": {"11": "Mugger (Wildcat, identified)", "24": "Passer-by", "30": "The witness", "54": "Crash witness", "65": "Witness A", "67": "Mugging victim", "69": "Passer-by", "77": "Passer-by", "79": "Crash witness", "84": "Crash-scene cop", "85": "Crash-scene cop", "86": "The drunk driver", "91": "Passer-by", "92": "Passer-by", "103": "Mugger (Wildcat)", "128": "Desk cop", "160": "Witness B", "166": "Witness C", "194": "Deeks", "209": "O'Doole", "210": "Woman in the cells", "211": "Woman in the cells", "212": "Woman in the cells", "217": "Cop", "218": "Cop", "219": "Cop", "221": "Cop", "233": "Rooftop mugger (Wildcat)", "238": "Man in the park", "239": "Woman in the cells", "244": "Passer-by", "245": "Workman", "251": "Lecher", "254": "Architecture fan"}
+},
+"police2": {
+  "synopsis": "A jumper is on a ledge of Brooks Tower on Keating Avenue. He's Barnaby, depressed because the Union City Fire Department turned him down, and he jumps if anyone approaches him head-on. Darci climbs the next building and rides the zip line down behind him, then talks him off: he decides he'd rather be a cop. Along the way: officer Miles' squad car has been stolen (a streetwalker saw a 'slick dude' on Lime Street, a Wildcat car thief), and a crazed woman in the park turns out to be 'Crack Suckin' Susan'. A wounded woman lies at a shooting where a punk screamed 'Union City will fall!', the first sign of the Wildcats' war on the city.",
+  "characters": ["**Darci Stern**", "**Barnaby**: the jumper, wants to be a fireman, then a cop", "**Desk sergeant**: relays officer Liebnitz's report", "**O'Byrne**, **Liebnitz**, **Officer Frank** (mentioned)", "**Officer Miles**: lost his squad car", "**Old cop at the tower**: retiring next month", "**Streetwalker** who saw the car thief", "**Car thief**: Wildcat on Lime Street", "**'Crack Suckin' Susan'**", "**Rooftop Wildcat**: 'we gonna TAKE this city'", "Onlookers betting on blood; three women in a developer joke ('Mucky test')"],
+  "names": {"9": "Cop", "14": "The 'Player' man", "21": "Officer Miles", "31": "Mucky woman", "32": "Mucky woman", "33": "Mucky woman", "54": "Barnaby", "55": "Officer Miles", "69": "Passer-by", "80": "Onlooker", "86": "Onlooker", "87": "Streetwalker", "88": "Onlooker", "89": "Onlooker", "92": "Onlooker", "93": "Onlooker", "94": "Onlooker", "124": "Car thief (Wildcat)", "208": "Cop", "216": "Old cop at the tower", "218": "Cop on the stairs", "242": "Cop at the shooting", "243": "Cop", "249": "Large woman", "251": "'Crack Suckin' Susan'", "255": "Desk sergeant", "272": "Park bench man", "274": "Workman", "280": "Rooftop Wildcat"}
+},
+"Bankbomb1": {
+  "synopsis": "The first mission on the other side of the law: Mako, a Wildcat heavy brought in from outside, is told by the Boss's man to cause CHAOS. He drives a car bomb to the bank courtyard and runs before it blows, then takes a second car bomb (the Boss's explosives expert's work) to a department store guarded by a police bomb squad. Cliffy and Zit, two Wildcats touchy about their nicknames, back him up and take on the cops. Losing either of them, or wrecking a car bomb before it's delivered, fails it.",
+  "characters": ["**Mako**: Wildcat enforcer (player)", "**The Boss's voice** on the radio", "**Cliffy** and **Zit**: Wildcat bodyguards", "**Police bomb squad**", "Cops who jump Cliffy and Zit at the end (guilty)"],
+  "names": {"3": "Zit", "4": "Cliffy", "34": "Bomb squad cop", "35": "Bomb squad cop", "36": "Bomb squad cop", "104": "Cop", "124": "Cop"}
+}
+}
