@@ -9,5 +9,5 @@ pub mod level;
 
 pub use character::{Figure, Model, People, Play};
 pub use ground::Ground;
-pub use geometry::{Batch, Chunk, Layer, Vertex, WorldGeometry, GLOW, MIST, SHADOW, UNIT, UNTEXTURED};
+pub use geometry::{Batch, Chunk, Layer, Vertex, WorldGeometry, GLOW, MIST, MOON_PAGE, SHADOW, SKY_PAGE, UNIT, UNTEXTURED};
 pub use level::{Level, LoadOptions};
