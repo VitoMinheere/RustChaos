@@ -424,6 +424,9 @@ pub enum State {
     /// Getting into vehicle `vehicle` (`SUB_STATE_ENTERING_VEHICLE`): lined up at its door,
     /// in once the animation's done.
     Enter { vehicle: usize },
+    /// Hands up to the gun person `by` is aiming (`PCOM_AI_STATE_HANDS_UP`), for `time`
+    /// seconds so far.
+    HandsUp { by: usize, time: f32 },
     /// Sliding down a cable: `t` along it (0..1), moving towards `dir` (+1 or -1).
     /// `ridden`: how far along the cable so far (world units).
     Zip { cable: usize, t: f32, dir: f32, speed: f32, ridden: f32 },
@@ -740,6 +743,40 @@ impl Person {
         self.guilty
             || matches!(self.kind, ptype::THUG_RASTA | ptype::THUG_RED | ptype::THUG_GREY | ptype::MIB1 | ptype::MIB2 | ptype::MIB3)
             || matches!(self.ai, AI_GUARD | AI_GANG)
+    }
+
+    /// `PCOM_person_doing_nothing_important` (pcom.cpp:1404), as far as this engine's people
+    /// go: on their feet and about their own business, not fighting, running, driving,
+    /// carrying or being carried.
+    pub fn doing_nothing_important(&self) -> bool {
+        matches!(self.state, State::Move) && !self.removed && !self.is_dead() && !self.aggro && self.scared.is_none()
+    }
+
+    /// Hands up to `by`'s gun (`PCOM_set_person_ai_hands_up`, pcom.cpp:4677): turned to face
+    /// them, `ANIM_HANDS_UP`.
+    pub fn hands_up(&mut self, by: usize, at: Vec3) {
+        self.face(at);
+        self.fig.restart(anim::HANDS_UP, Play::Once);
+        self.state = State::HandsUp { by, time: 0.0 };
+    }
+
+    /// Hands down again (`PCOM_set_person_ai_normal`).
+    pub fn hands_down(&mut self) {
+        self.state = State::Move;
+        self.idle(false);
+    }
+
+    /// Goes for `by` (`PCOM_set_person_ai_navtokill`): those who fight anyway notice them at
+    /// once; anyone else guilty takes up the fight as a gang member would.
+    pub fn go_for(&mut self) {
+        if !self.fights() {
+            self.ai = AI_GANG;
+        }
+        if !self.aggro {
+            self.aggro = true;
+            self.cues.push(Sfx::Alert { kind: self.kind });
+            self.attack_timer = 0.8;
+        }
     }
 
     /// Looks for a car and drives it (`PCOM_AI_DRIVER`, and `PCOM_AI_COP_DRIVER` which falls
@@ -1387,6 +1424,16 @@ impl Person {
                 self.fig.play(anim::INJURED_LOOP, Play::Loop);
             }
             State::Carried { .. } | State::Enter { .. } => {}
+            State::HandsUp { by, time } => {
+                // `ANIM_HANDS_UP`, then held there (`ANIM_HANDS_UP_LOOP`), facing the gun.
+                if snaps[by].present {
+                    self.face(snaps[by].pos);
+                }
+                if self.fig.anim() != anim::HANDS_UP_LOOP && (self.fig.anim() != anim::HANDS_UP || self.fig.finished()) {
+                    self.fig.play(anim::HANDS_UP_LOOP, Play::Loop);
+                }
+                self.state = State::HandsUp { by, time: time + dt };
+            }
             State::Carry { victim, phase } => self.step_carry(victim, phase, c, ground, map, dt),
             State::Crouch { phase } => self.step_crouch(phase, c, ground, map, dt),
             State::GetUp => {
