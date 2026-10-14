@@ -1075,6 +1075,8 @@ impl Person {
             State::Carry { victim, .. } => Some(victim),
             _ => None,
         }
+    }
+
     /// Crouching and crawling. Letting go of action stands her up; pushing a direction
     /// crawls that way at the original's velocity 15 to walking's 16, on all fours (or on
     /// her belly with a gun drawn: `ANIM_SNIPER_CRAWL`); stopping goes back to crouching.
@@ -1741,9 +1743,6 @@ impl Person {
         // Wish direction relative to facing: x = right, y = forward.
         let rel = vec2(c.wish.dot(vec2(-f.y, f.x)), c.wish.dot(f));
 
-        // Only Darci arrests people: the original asks for `PERSON_DARCI` before it even
-        // looks for someone to cuff (`set_person_croutch`, fallen/Source/Person.cpp), so
-        // Nitro Car's thug can't.
         // Roper picks up the injured: the nearest person within 256, if they're lying
         // injured with their middle within 128 (`find_corpse`, Person.cpp:11545).
         if c.action && self.player && self.kind == uc_world::character::person::ROPER {
@@ -1761,6 +1760,9 @@ impl Person {
                 }
             }
         }
+        // Only Darci arrests people: the original asks for `PERSON_DARCI` before it even
+        // looks for someone to cuff (`set_person_croutch`, fallen/Source/Person.cpp), so
+        // Nitro Car's thug can't.
         if c.action && self.can_arrest() {
             // Arrest a downed opponent.
             // The best of those in reach: the nearest, but Roper and hostages only if there's
