@@ -213,8 +213,15 @@ impl Mav {
                             }
                         }
                     } else {
+                        // The original looks 0x50 up; here it's at the walker's waist
+                        // (`Ground::slide`), so a low wall the walker can't get past isn't
+                        // taken for a way through.
+                        let waist = |x: i32, z: i32| eye(x, z) - 0x50 as f32 + crate::ground::STEP_HEIGHT - 4.0;
                         let y = eye(x, z).max(eye(tx, tz));
+                        let w = waist(x, z).max(waist(tx, tz));
                         let (clear, fence) = los((x, z), (tx, tz), y, y);
+                        let (low_clear, low_fence) = los((x, z), (tx, tz), w, w);
+                        let (clear, fence) = (clear && low_clear, (fence || clear) && (low_fence || low_clear) && !(clear && low_clear));
                         if clear {
                             opt[i] |= caps(GOTO);
                         } else if fence {
