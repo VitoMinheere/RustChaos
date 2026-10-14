@@ -154,7 +154,7 @@ fn nitro_car_script_runs_to_a_win() {
     assert!(r.seen.iter().any(|m| m.contains("BANK")), "no bomb briefing: {:?}", r.seen);
     assert!(r.seen.iter().any(|m| m.contains("explosives primed")), "the charge never went in: {:?}", r.seen);
     let car = r.car(2).expect("the car is still there");
-    assert!(r.g.vehicles[car].locked, "the primed car bomb should lock");
+    assert!(r.g.vehicles[car].locked(), "the primed car bomb should lock");
 
     // Out and well clear before the fifteen seconds are up.
     r.tap_action();
@@ -169,7 +169,7 @@ fn nitro_car_script_runs_to_a_win() {
     // The second car arrives, locked, with a cop bomb squad guarding the drop.
     r.play(8.0, Controls::default());
     let second = r.car(37).expect("the second car bomb");
-    assert!(r.g.vehicles[second].locked, "the second car should start locked");
+    assert!(r.g.vehicles[second].locked(), "the second car should start locked");
     r.stand(r.point(33));
     assert!(!r.get_in(37), "the second car shouldn't open until the squad is down");
 
@@ -181,7 +181,7 @@ fn nitro_car_script_runs_to_a_win() {
     }
     assert!(r.seen.iter().any(|m| m.contains("TOAST")), "the squad never went down: {:?}", r.seen);
     let second = r.car(37).expect("the second car bomb");
-    assert!(!r.g.vehicles[second].locked, "the second car should unlock");
+    assert!(!r.g.vehicles[second].locked(), "the second car should unlock");
 
     // Drive it to the corner of the department store and get clear again.
     assert!(r.get_in(37), "the second car bomb should open now");

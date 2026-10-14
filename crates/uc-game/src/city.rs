@@ -118,7 +118,7 @@ impl Game {
             let y = level.ground.surface(&level.map, at.x, at.y, 1.0e4);
             let variant = self.city_rand();
             let Some(i) = self.spawn_variant(level, ptype::CIV, false, 0, Vec3::new(at.x, y, at.y), 0.0, variant) else { break };
-            self.vehicles.push(Vehicle::new(0, kind, Vec3::new(at.x, y, at.y), yaw, false));
+            self.vehicles.push(Vehicle::new(0, kind, Vec3::new(at.x, y, at.y), yaw, crate::vehicle::Key::None));
             let vi = self.vehicles.len() - 1;
             self.vehicles[vi].driver = Some(i);
             let unseen = (self.city_rand() % 20 + 20) as f32 / 20.0;

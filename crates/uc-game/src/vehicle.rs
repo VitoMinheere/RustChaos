@@ -11,12 +11,16 @@ use uc_world::ground::Ground;
 /// `VEH_TYPE_*` (fallen/Headers/vehicle.h) and their meshes from `veh_info`
 /// (fallen/Source/vehicle.cpp): (body prim, wheel prim, wheel x, front wheel z, rear wheel z).
 ///
-/// The wheel positions are the table's `DX` and `DZ`; there is no height here because the
-/// prims carry their own. They share one space with the road at y = 0, so a body needs no
-/// lifting at all: a car's sills are modelled 6 to 8 above it and a van's 40 to 42, which is
-/// the ground clearance each is meant to have. A wheel is modelled centred on its axle, so it
-/// is the one thing that has to be raised, by its own radius: 38 for a car's, 51 for the
-/// larger one the vans and the jeep run on.
+/// The wheel positions are the table's `DX` and `DZ`. Heights come from how the original
+/// draws a car (`VEH_draw` and `process_car`, fallen/Source/vehicle.cpp): the body 64
+/// (`BodyOffset` 0x4000) below the car's position, and each wheel's middle at
+/// `51 - spring length` from it. At rest the springs settle where they hold the car up
+/// against gravity (compression about 5200 of 0x8000, gravity 51 a tick), so a wheel's middle
+/// is [`WHEEL_ABOVE_BODY`] above the body's origin, for every type. A wheel is modelled
+/// centred on its axle, and here it rides on the road on its own radius (38 for a car's, 51
+/// for the larger one the vans and the jeep run on), so the body goes that radius less the
+/// 8 above it. In the original a car's wheels float about 13 above the road, since that
+/// `51` is a van wheel's radius; a van's sit on it.
 pub const TYPES: [(u8, u8, f32, f32, f32); 9] = [
     (88, 87, 120.0, 150.0, -165.0),  // van
     (108, 220, 85.0, 160.0, -120.0), // car
@@ -29,12 +33,33 @@ pub const TYPES: [(u8, u8, f32, f32, f32); 9] = [
     (27, 87, 120.0, 150.0, -165.0),  // Wildcat van
 ];
 
-/// Whether a `create_vehicle` point's key (`VK_*`, `Data[3]`) leaves the car locked: anything
-/// but `VK_UNLOCKED` does, since the keys it asks for are never anywhere to be found
-/// (`ELEV_load_level` turns them all into `SPECIAL_KEY`, and `VK_LOCKED` into a special that
-/// doesn't exist at all).
-pub fn locked_by_key(vk: i32) -> bool {
-    vk != 0
+/// How far a wheel's middle is above a car body's origin (see [`TYPES`]): the spring at rest,
+/// 51 less its length of 107, from a body drawn 64 down.
+pub const WHEEL_ABOVE_BODY: f32 = 8.0;
+
+/// What it takes to get into a car: the special the original keeps as the vehicle's `key`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Key {
+    /// Anyone can (`SPECIAL_NONE`).
+    None,
+    /// Whoever carries a key (`SPECIAL_KEY`), the item a mission puts down with `create_item`
+    /// `IT_KEY`.
+    Key,
+    /// Nobody, ever (`SPECIAL_NUM_TYPES`, "a special that doesn't exist").
+    Never,
+}
+
+impl Key {
+    /// A `create_vehicle` point's key (`VK_*`, `Data[3]`), as `ELEV_load_level` reads it:
+    /// red, blue, green, black and white all ask for the same `SPECIAL_KEY`, and `VK_LOCKED`
+    /// for a special that doesn't exist.
+    pub fn from_vk(vk: i32) -> Key {
+        match vk {
+            0 => Key::None,
+            1..=5 => Key::Key,
+            _ => Key::Never,
+        }
+    }
 }
 
 /// `VT_*` (an event point's vehicle type, fallen/Headers/Mission.h) to `VEH_TYPE_*`.
@@ -96,10 +121,10 @@ pub struct Vehicle {
     pub driver: Option<usize>,
     /// Stopped by the mission (`stall_car`).
     pub stalled: bool,
-    /// Nobody can get in: either the event point said so (`VK_LOCKED`, or a key Darci never
-    /// finds) or a `lock_vehicle` point has locked it since. The original keeps a `key` on the
-    /// vehicle and locks it by asking for a special that doesn't exist (`EWAY_DO_LOCK_VEHICLE`).
-    pub locked: bool,
+    /// What it takes to get in: set by the event point that made it, and by `lock_vehicle`
+    /// points since, which lock it by asking for a special that doesn't exist and unlock it by
+    /// asking for nothing (`EWAY_DO_LOCK_VEHICLE`).
+    pub key: Key,
     /// Body tilt from the ground under the wheels (radians).
     pub pitch: f32,
     pub roll: f32,
@@ -108,10 +133,25 @@ pub struct Vehicle {
 }
 
 impl Vehicle {
-    pub fn new(way: usize, kind: u8, pos: Vec3, yaw: f32, locked: bool) -> Vehicle {
+    pub fn new(way: usize, kind: u8, pos: Vec3, yaw: f32, key: Key) -> Vehicle {
         Vehicle {
             way, kind: kind.min(8), pos, yaw, speed: 0.0, slip: 0.0, slide: 0.0, steer: 0.0, health: 300, driver: None, stalled: false,
-            locked, pitch: 0.0, roll: 0.0, wheel_spin: 0.0,
+            key, pitch: 0.0, roll: 0.0, wheel_spin: 0.0,
+        }
+    }
+
+    /// Locked to anyone without a key.
+    pub fn locked(&self) -> bool {
+        self.key != Key::None
+    }
+
+    /// Whether someone can get in, carrying a key or not (`set_person_enter_vehicle`,
+    /// fallen/Source/Person.cpp: `person_has_special(p_person, key)`).
+    pub fn opens_for(&self, has_key: bool) -> bool {
+        match self.key {
+            Key::None => true,
+            Key::Key => has_key,
+            Key::Never => false,
         }
     }
 

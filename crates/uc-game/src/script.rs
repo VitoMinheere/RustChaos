@@ -169,8 +169,8 @@ pub enum Command {
     Platform { way: usize, colour: u8, group: u8, speed: i32, flags: i32 },
     /// The player becomes the person point `way` made (`EWAY_DO_TRANSFER_PLAYER`).
     Transfer { way: usize },
-    /// A vehicle of `VEH_TYPE_*` `kind`; `locked` if its key is one nobody ever finds.
-    Vehicle { way: usize, kind: u8, pos: Vec3, angle: f32, locked: bool },
+    /// A vehicle of `VEH_TYPE_*` `kind`, and what it takes to get into it.
+    Vehicle { way: usize, kind: u8, pos: Vec3, angle: f32, key: crate::vehicle::Key },
     /// Stop the vehicle created by `way` for good.
     Stall { way: usize },
     /// Lock or unlock the vehicle created by `way` (`EWAY_DO_LOCK_VEHICLE`).
@@ -693,8 +693,8 @@ impl Script {
             }
             waypoint::CREATE_VEHICLE => {
                 let kind = crate::vehicle::from_vt(d[0]);
-                let locked = crate::vehicle::locked_by_key(d[3]);
-                self.commands.push(Command::Vehicle { way: i, kind, pos, angle, locked });
+                let key = crate::vehicle::Key::from_vk(d[3]);
+                self.commands.push(Command::Vehicle { way: i, kind, pos, angle, key });
             }
             waypoint::STALL_CAR => self.commands.push(Command::Stall { way: d[0] as usize }),
             // `Data[1]` set locks, clear unlocks (`ELEV_load_level`).
