@@ -56,6 +56,7 @@ pub mod waypoint {
     pub const SHAKE_CAMERA: u8 = 57;
     pub const CONE_PENALTIES: u8 = 53;
     pub const SIGN: u8 = 54;
+    pub const NO_FLOOR: u8 = 56;
     pub const WAREFX: u8 = 55;
 }
 

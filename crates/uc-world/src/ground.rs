@@ -162,6 +162,8 @@ pub struct Ground {
     pub cables: Vec<Cable>,
     /// Fences that can be climbed (chain-link: `STOREY_TYPE_FENCE`, `_FENCE_FLAT`).
     pub fences: Vec<WallSegment>,
+    /// The building each fence belongs to (a fence is electrified a building at a time).
+    pub fence_buildings: Vec<u16>,
     /// The tops of moving platforms where they are now (`WMOVE`): the game moves them, and
     /// they're in a `RefCell` for the same reason the doors' state is in a `Cell`.
     moving: std::cell::RefCell<Vec<PropTop>>,
@@ -312,22 +314,22 @@ impl Ground {
             }
         }
         let cables = map.facets.iter().skip(1).filter(|f| f.kind == facet_type::CABLE).map(|f| Cable { points: cable_points(f) }).collect();
-        let fences = map
+        let (fences, fence_buildings): (Vec<WallSegment>, Vec<u16>) = map
             .facets
             .iter()
             .skip(1)
             .filter(|f| matches!(f.kind, facet_type::FENCE | facet_type::FENCE_FLAT) && f.flags & uc_formats::iam::facet_flags::INVISIBLE == 0)
             .map(|f| {
                 let y0 = f.y[0].min(f.y[1]) as f32;
-                WallSegment {
+                (WallSegment {
                     a: [f.x[0] as f32 * 256.0, f.z[0] as f32 * 256.0],
                     b: [f.x[1] as f32 * 256.0, f.z[1] as f32 * 256.0],
                     y0,
                     y1: y0 + f.height as f32 * f.block_height as f32 * 4.0,
-                }
+                }, f.building)
             })
-            .filter(|w| w.y1 > w.y0)
-            .collect();
+            .filter(|(w, _)| w.y1 > w.y0)
+            .unzip();
         // Every prop, the moving ones too (Target UC's missiles ride platforms), whose prims
         // the collision above skips.
         let prop_damage = map.objects.iter()
@@ -336,7 +338,7 @@ impl Ground {
                     .as_ref().map_or((0, 0), |p| (p.damage, p.flag))
             })
             .collect();
-        Ground { roofs, prop_tops, prop_tris, walls, doors, ladders, cables, fences, prop_damage, moving: Default::default() }
+        Ground { roofs, prop_tops, prop_tris, walls, doors, ladders, cables, fences, fence_buildings, prop_damage, moving: Default::default() }
     }
 
     fn roof_height(&self, x: f32, z: f32) -> Option<f32> {

@@ -20,6 +20,11 @@ pub const GLOW: u32 = u32::MAX - 2;
 /// Batches with this page are blended over the scene like [`SHADOW`], but textured with a
 /// soft cloud instead of a round blob: the sheets of ground mist a mission lays down.
 pub const MIST: u32 = u32::MAX - 3;
+/// `TEXTURE_page_sky` (`TEXTURE_NUM_STANDARD + 10`): the world's `sky.tga`, wrapped round the
+/// skyline. Batches with this page are drawn first, behind everything, with no fog.
+pub const SKY_PAGE: u32 = 22 * 64 + 10;
+/// `TEXTURE_page_moon` (`TEXTURE_NUM_STANDARD + 1`): `moon.tga`, added over the sky.
+pub const MOON_PAGE: u32 = 22 * 64 + 1;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]

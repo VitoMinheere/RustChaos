@@ -199,6 +199,10 @@ pub enum Command {
     Sign { which: u8, flip: bool },
     /// Open the door nearest `pos` (`EWAY_DO_CONTROL_DOOR`).
     OpenDoor { pos: Vec3 },
+    /// Switch the electric fence nearest `pos` on or off (`set_electric_fence_state`).
+    Electrify { pos: Vec3, on: bool },
+    /// There's no floor (`GF_NO_FLOOR`): the street isn't drawn, and nobody lands on it.
+    NoFloor,
     /// Lay a sheet of ground mist centred on `pos` (`EWAY_DO_CREATE_MIST`).
     Mist { pos: Vec3 },
     /// Play the game's sound `id` at `pos`. `replace` is `play_glue_wave`'s type 1, which cuts
@@ -400,7 +404,7 @@ impl Script {
                 | MAKE_SEARCHABLE | MAKE_PERSON_PEE | CREATE_TRAP | CREATE_CREATURE | WAREFX | TRANSFER_PLAYER | LINK_PLATFORM);
             // An `activate_prim` only counts as supported when it opens a door: the fences
             // and the cameras are still to do.
-            let supported = supported && (ep.kind != ACTIVATE_PRIM || ep.data[0] == activate::DOOR);
+            let supported = supported || ep.kind == NO_FLOOR;
             if !supported {
                 let name = uc_formats::ucm::names::WAYPOINT.get(ep.kind as usize).copied().unwrap_or("?");
                 unsupported.push(format!("{} {}", ep.index, name));
@@ -764,9 +768,14 @@ impl Script {
             waypoint::ACTIVATE_PRIM if d[0] == activate::DOOR => {
                 self.commands.push(Command::OpenDoor { pos })
             }
-            waypoint::ACTIVATE_PRIM => {
-                let _ = activate::ELECTRIC_FENCE;
+            // Electrify the fence nearest the point; a `kill_waypoint` on the point switches it
+            // off again (`EWAY_DO_ELECTRIFY_FENCE`). Security cameras do nothing in the original.
+            waypoint::ACTIVATE_PRIM if d[0] == activate::ELECTRIC_FENCE => {
+                self.commands.push(Command::Electrify { pos, on: true })
             }
+            waypoint::ACTIVATE_PRIM => {}
+            // `GF_NO_FLOOR` (eway.cpp:6285): there's no ground under the level any more.
+            waypoint::NO_FLOOR => self.commands.push(Command::NoFloor),
             waypoint::CREATE_CAMERA => {
                 if let Some(shot) = self.shot(i) {
                     self.commands.push(Command::Camera { way: i, shot });
@@ -810,6 +819,10 @@ impl Script {
                     // A car goes up where it stands; a person is carried off the map. Either
                     // way the point forgets it ever made them, so triggers watching for their
                     // death stop firing (`EWAY_DO_KILL_WAYPOINT`).
+                    if t.ep.kind == waypoint::ACTIVATE_PRIM && t.ep.data[0] == activate::ELECTRIC_FENCE {
+                        let pos = vec3(t.ep.x as f32, t.ep.y as f32, t.ep.z as f32);
+                        self.commands.push(Command::Electrify { pos, on: false });
+                    }
                     if matches!(t.ep.kind, waypoint::CREATE_ENEMIES | waypoint::CREATE_ITEM | waypoint::CREATE_VEHICLE | waypoint::CREATE_CREATURE) {
                         self.commands.push(Command::Remove { way: target });
                     }

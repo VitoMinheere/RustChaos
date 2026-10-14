@@ -226,6 +226,8 @@ impl Game {
                 }
                 Command::Mist { pos } => self.mists.create(pos.x, pos.z),
                 Command::Sound { id, pos, replace } => self.sounds.push((Sfx::ById { id, replace }, pos)),
+                Command::Electrify { pos, on } => self.electrify(level, pos, on),
+                Command::NoFloor => self.no_floor = true,
                 Command::OpenDoor { pos } => {
                     if !level.ground.open_door_near(pos.x, pos.z) {
                         // The original says so too, on its console.
