@@ -101,7 +101,15 @@ impl Level {
             // Roper has a body of his own (`game_chunk[ANIM_TYPE_ROPER]`, Anim.cpp); without it
             // he falls back to a thug's.
             let roper = chunk("roper.all").ok();
-            Some(People { darci: chunk("darci1.all")?, thug: chunk("rthug.all")?, trainer, roper })
+            // Everyone animates from Darci's set, with Roper's carrying (and being carried)
+            // filled in from his file into the slots from `ANIM_END` up (Anim.cpp:1398).
+            let mut darci = AnimChunk::parse(&read(game, "data\\darci1.all")?).map_err(|e| format!("darci1.all: {e}"))?;
+            if let Some(r) = &roper {
+                for &(from, to) in &crate::character::CARRY_ANIMS {
+                    darci.graft(r, from, to);
+                }
+            }
+            Some(People { darci: Arc::new(darci), thug: chunk("rthug.all")?, trainer, roper })
         } else {
             None
         };

@@ -1563,9 +1563,11 @@ impl Game {
                         return true;
                     }
                 }
-                // Talk to someone friendly close by.
+                // Talk to someone friendly close by, on their feet (not lying injured: those
+                // are for Roper to pick up).
                 let talk = self.people.iter().enumerate().find(|(j, o)| {
                     *j != pi && o.way != 0 && !o.removed && !o.hostile() && !o.is_down()
+                        && !matches!(o.state, State::Injured | State::Carried { .. })
                         && (o.fig.pos - pos).length() < 170.0
                 });
                 if let Some((_, o)) = talk {
@@ -2026,6 +2028,7 @@ impl Game {
             p.advance(dt, &level.ground);
         }
         self.sync_grapples();
+        self.sync_carrying(level);
         self.separate(level);
         self.count_dead_cops();
 
@@ -2154,6 +2157,9 @@ impl Game {
                         v.take_hit(from, 0, 0, false, false, Weapon::None);
                     }
                 }
+                Event::Carry { carrier, victim } => {
+                    self.people[victim].state = State::Carried { by: carrier };
+                }
                 Event::Arrest { attacker, victim } => {
                     let at = self.people[attacker].fig.pos;
                     let v = &mut self.people[victim];
@@ -2216,6 +2222,36 @@ impl Game {
     }
 
     /// Pushes overlapping standing people apart.
+    /// Whoever has the injured AI lies down injured (`PCOM_AI_HYPOCHONDRIA` puts them straight
+    /// into `set_person_injured`). Someone being carried goes where the one carrying them puts
+    /// them, animated to match; once they're let go of, put down or dropped because the one
+    /// carrying them was hit (`emergency_uncarry`), they lie injured again where they are.
+    fn sync_carrying(&mut self, level: &Level) {
+        for p in &mut self.people {
+            if p.ai == person::AI_INJURED && matches!(p.state, State::Move) && !p.player {
+                p.state = State::Injured;
+                p.fig.restart(uc_world::character::anim::INJURED_LOOP, uc_world::Play::Loop);
+            }
+        }
+        for i in 0..self.people.len() {
+            let State::Carried { by } = self.people[i].state else { continue };
+            match self.people[by].carried_pose() {
+                Some((victim, at, angle, a, play)) if victim == i => {
+                    let v = &mut self.people[i];
+                    v.fig.pos = at;
+                    v.fig.angle = angle;
+                    v.fig.play(a, play);
+                }
+                _ => {
+                    let v = &mut self.people[i];
+                    v.state = State::Injured;
+                    v.fig.pos.y = level.ground.surface(&level.map, v.fig.pos.x, v.fig.pos.z, v.fig.pos.y + 64.0);
+                    v.fig.restart(uc_world::character::anim::INJURED_LOOP, uc_world::Play::Loop);
+                }
+            }
+        }
+    }
+
     fn separate(&mut self, level: &Level) {
         const MIN: f32 = 64.0;
         let n = self.people.len();
