@@ -389,6 +389,12 @@ pub struct Game {
     pub mists: Mists,
     /// Drops in the air.
     pub drops: dirt::Drops,
+    /// Leaves, cans and snow lying about round the player.
+    pub dirt: dirt::Dirt,
+    /// Seconds to the dirt's next turn.
+    dirt_clock: f32,
+    /// Where each person, then each car, was at the dirt's last turn (NaN for nowhere).
+    dirt_marks: Vec<Vec3>,
     /// Steam from the mission's vents.
     pub steam: steam::Steam,
     /// The beams `tripwire` points watch.
@@ -457,7 +463,7 @@ impl Game {
             plat_clock: 0.0,
             creatures: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
             aim_creature: None, aim_barrel: None, creature_clock: 0.0, creature_rng: 0xba7,
-            pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), steam: steam::Steam::default(),
+            pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), dirt: Game::new_dirt(level), dirt_clock: 0.0, dirt_marks: Vec::new(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
             electrified: BTreeSet::new(), fence_spark_clock: 0.0, no_floor: false,
             player_name: "",
@@ -693,6 +699,7 @@ impl Game {
         self.separate(level);
         self.count_dead_cops();
         self.tally_crime();
+        self.blow_dirt(dt, level);
 
         if let (Some(p), None) = (self.player, &self.outcome) {
             if self.people[p].knocked_out {
