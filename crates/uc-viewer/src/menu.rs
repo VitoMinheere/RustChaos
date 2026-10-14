@@ -10,11 +10,11 @@ use uc_render::Overlay;
 
 /// Missions that play from start to finish here; the rest load, run what they can and are
 /// good for exploring.
-const PLAYABLE: [&str; 27] = ["ftutor1", "assault1", "testdrive1a", "fight1", "fight2", "police1", "testdrive2",
+const PLAYABLE: [&str; 29] = ["ftutor1", "assault1", "testdrive1a", "fight1", "fight2", "police1", "testdrive2",
                               "testdrive3", "police2", "Bankbomb1", "police3", "Gangorder2", "Gordout1",
                               "Stealtst1", "Baalrog3", "Gangorder1", "police4", "bball2",
                               "wstores1", "e3", "westcrime1", "carbomb1", "botanicc",
-                              "park2", "factory1", "snow2", "MIB"];
+                              "park2", "factory1", "snow2", "MIB", "FreeCD1", "jung3"];
 
 pub struct Entry {
     /// The mission file's name, without `.ucm`.
@@ -167,9 +167,25 @@ impl Menu {
     }
 }
 
+/// Finished missions the game never listed, after the story as in the original's suggested
+/// order (`suggest_order`, fallen/Source/frontend.cpp:259): (mission, title, briefing).
+/// `urban.sty` has neither, so the titles are this project's and the briefings are written
+/// from the missions' opening messages.
+const UNRELEASED: [(&str, &str, &str); 2] = [
+    ("FreeCD1", "Construction Site Siege",
+     "The local Wildcat chapter have stormed the construction site and taken some workers hostage, \
+      and they've spread out all over this section of town. We want those hostages ALIVE, Stern!\r\
+      - Take out ALL the Wildcats within four minutes.\r- Keep the construction workers safe."),
+    ("jung3", "El Cossa Island",
+     "That nut Bane an' his men have retreated to El Cossa Island. We got sightings of a construction \
+      site, possibly building MORE silos. We want those sites LEVELLED, Stern! Island residents have \
+      already been killed: expect severe resistance.\r\
+      - Get into the compound and take down Bane's workmen.\r- Ensure no more islanders come to harm."),
+];
+
 /// The game's mission list (`data\urban.sty`): (mission file without `.ucm`, title,
-/// briefing), for the missions this install has. Lines are
-/// `id : group : parent : ... : file.ucm : title : briefing`.
+/// briefing), for the missions this install has, then the unreleased ones that play. Lines
+/// are `id : group : parent : ... : file.ucm : title : briefing`.
 pub fn missions(game: &Path) -> Vec<(String, String, String)> {
     let text = uc_formats::resolve(game, "data\\urban.sty")
         .and_then(|p| std::fs::read(p).ok())
@@ -188,6 +204,11 @@ pub fn missions(game: &Path) -> Vec<(String, String, String)> {
             continue;
         }
         out.push((mission, f[8].to_string(), f.get(9).copied().unwrap_or("").to_string()));
+    }
+    for (mission, title, briefing) in UNRELEASED {
+        if uc_formats::resolve(game, &format!("levels\\{mission}.ucm")).is_some() {
+            out.push((mission.to_string(), title.to_string(), briefing.to_string()));
+        }
     }
     out
 }
