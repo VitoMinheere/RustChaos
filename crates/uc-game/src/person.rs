@@ -594,7 +594,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 3], knocked_out: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
-            peeing: false, explosives: 0, has_key: false, protected: false, fake: false, unseen: 0.0, scared: None, annoyed: false,
+            peeing: false, explosives: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false,
         }
     }
 
