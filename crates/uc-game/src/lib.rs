@@ -132,6 +132,8 @@ fn find_ob(level: &Level, pos: Vec3, range: f32, only: Option<&BTreeSet<usize>>)
 
 /// `PCOM_AI_DRIVER`: finds a car, gets in and drives it as their move says.
 const AI_DRIVER: u8 = 9;
+/// `MISSION_FLAG_SHOW_CRIMERATE` (fallen/Headers/Mission.h).
+const MISSION_FLAG_SHOW_CRIMERATE: i32 = 1 << 1;
 /// How fast a driver goes down a clear road (`VEH_SPEED_LIMIT`, "35 mph"), world units a second.
 const CRUISE: f32 = 1100.0;
 /// A driver looks for a car this far away (`PCOM_set_person_ai_findcar`: 0xc00, x plus z).
@@ -339,6 +341,13 @@ pub struct Game {
     taken: BTreeSet<usize>,
     /// Cops already counted towards the script's tally of them, so none is counted twice.
     dead_cops: BTreeSet<usize>,
+    /// The city's crime rate, 0..100 (`CRIME_RATE`): the mission's, or 50 if it has none
+    /// (elev.cpp:309).
+    pub crime_rate: u8,
+    /// The mission shows the crime rate on the HUD (`MISSION_FLAG_SHOW_CRIMERATE`).
+    pub show_crime_rate: bool,
+    /// Deaths and arrests already counted towards the crime rate.
+    crimes: BTreeSet<usize>,
     /// The player has fired a gun. `GF_PLAYER_FIRED_GUN` is set once and never cleared, so a
     /// mission that cares only ever asks whether it has happened at all.
     player_fired: bool,
@@ -428,6 +437,8 @@ impl Game {
             items: Vec::new(), cutscene: None, convo: None, wide: None, used: false, vehicles: Vec::new(), veh_by_way: HashMap::new(),
             barrels: Vec::new(), sign: None, target: None, stats: [0; 4], badges: [0; 4], found: BTreeSet::new(),
             taken: BTreeSet::new(), dead_cops: BTreeSet::new(), player_fired: false,
+            crime_rate: if level.mission.crime_rate == 0 { 50 } else { level.mission.crime_rate.min(100) },
+            show_crime_rate: level.mission.flags & MISSION_FLAG_SHOW_CRIMERATE != 0, crimes: BTreeSet::new(),
             searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(),
             wares: ware::Wares::new(&level.map), indoors: None,
             platforms: level.platforms.iter().map(|&(way, ob)| {
@@ -1394,6 +1405,40 @@ impl Game {
         }
     }
 
+    /// The crime rate moves with deaths and arrests (fallen/Source/Person.cpp): killing a
+    /// guilty person takes 2 off and arresting one 4, and killing a civilian out for a stroll
+    /// puts 5 on. Someone who kills himself (`PCOM_AI_SUICIDE`) doesn't count.
+    ///
+    /// The original also meant objectives to bring it down (`EWAY_DO_OBJECTIVE`), but the
+    /// loader only makes those under `if (0)` (elev.cpp:1434), so they never do.
+    fn tally_crime(&mut self) {
+        let mut rate = self.crime_rate as i32;
+        for (i, p) in self.people.iter().enumerate() {
+            let arrested = p.arrested || matches!(p.state, State::Cuffed);
+            // A passer-by the crowd brings back (`respawn`) counts again next time.
+            if !(p.knocked_out || arrested) {
+                self.crimes.remove(&i);
+                continue;
+            }
+            if p.player || !self.crimes.insert(i) {
+                continue;
+            }
+            if arrested {
+                if p.is_guilty() {
+                    rate -= 4;
+                }
+            } else if p.ai != person::AI_SUICIDE {
+                if p.is_guilty() {
+                    rate -= 2;
+                } else if p.ai == person::AI_CIV && p.mv == person::MOVE_WANDER {
+                    rate += 5;
+                }
+            }
+            rate = rate.clamp(0, 100);
+        }
+        self.crime_rate = rate as u8;
+    }
+
     fn finish(&mut self, o: Outcome) {
         if self.outcome.is_none() {
             let at = self.player().map_or(Vec3::ZERO, |p| p.fig.pos);
@@ -2121,6 +2166,7 @@ impl Game {
         self.sync_carrying(level);
         self.separate(level);
         self.count_dead_cops();
+        self.tally_crime();
 
         if let (Some(p), None) = (self.player, &self.outcome) {
             if self.people[p].knocked_out {
@@ -2732,6 +2778,9 @@ impl script::Query for Scene<'_> {
     }
     fn prim_damaged(&self, pos: Vec3) -> bool {
         self.game.prim_damaged(self.level, pos)
+    }
+    fn crime_rate(&self) -> u8 {
+        self.game.crime_rate
     }
     fn tripped(&self, way: usize) -> bool {
         self.game.trips.tripped(way)
