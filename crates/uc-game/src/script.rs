@@ -247,6 +247,9 @@ fn trigger_supported(t: u8) -> bool {
 /// inside the nearest prop and only turns up when someone searches it.
 const STASHED_IN_PRIM: i32 = 2;
 
+/// `IT_BARREL`: a `create_item` that puts down barrels.
+const IT_BARREL: i32 = 9;
+
 /// `EWAY_counter[7]`: how many cops have been killed.
 const COPS_KILLED: usize = 7;
 
@@ -401,6 +404,15 @@ impl Script {
             // of it (`goto dont_create_a_waypoint`): its trigger is never even looked at.
             if ep.kind == MAKE_SEARCHABLE {
                 commands.push(Command::Searchable { pos: vec3(ep.x as f32, ep.y as f32, ep.z as f32) });
+                continue;
+            }
+            // Barrels as an item aren't a waypoint either: `Data[1]` plain barrels put down as
+            // the level loads, a few units either side of the point (elev.cpp:1078).
+            if ep.kind == CREATE_ITEM && ep.data[0] == IT_BARREL {
+                for k in 0..ep.data[1].max(0) {
+                    let off = (k % 3 - 1) as f32 * 7.0;
+                    commands.push(Command::Barrel { way: 0, kind: 0, pos: vec3(ep.x as f32 + off, ep.y as f32, ep.z as f32 - off) });
+                }
                 continue;
             }
             ways[ep.index] = Some(Way {

@@ -263,6 +263,11 @@ impl Game {
     /// Gunfire: every civilian within earshot of `shooter` runs from them.
     pub(crate) fn gunshot(&mut self, shooter: usize) {
         let at = self.people[shooter].fig.pos;
+        self.bang(shooter, at);
+    }
+
+    /// A loud noise at `at` that `shooter` made (`PCOM_SOUND_BANG`): whoever is near is scared.
+    pub(crate) fn bang(&mut self, shooter: usize, at: Vec3) {
         for j in 0..self.people.len() {
             if j != shooter && (self.people[j].fig.pos - at).length() < GUNSHOT {
                 self.people[j].scare(Some(shooter), at);
