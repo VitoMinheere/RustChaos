@@ -753,13 +753,13 @@ struct Gfx {
     renderer: Renderer,
 }
 
-/// Sound and music state.
 /// The weather's loop out of doors: the rain on a night mission, else the city
 /// (`process_weather`'s `S_RAIN_START` or `S_AMBIENCE_END`).
 fn weather(world: &World) -> &'static str {
     if Game::raining(&world.level) { "f_RAIN.wav" } else { "f_CTYAMB.wav" }
 }
 
+/// Sound and music state.
 struct Sound {
     audio: Audio,
     /// The mission's music folder (1-9).
@@ -841,7 +841,7 @@ impl Sound {
                 let a = (r() & 2047) as f32 * std::f32::consts::TAU / 2048.0;
                 let me = world.game.player().map_or(listener.pos, |p| p.fig.pos);
                 let at = me + Vec3::new(a.cos() * 4096.0, (512 + (r() & 1023)) as f32, a.sin() * 4096.0);
-                self.audio.play_at_replacing(wave, 1.0, at, &listener);
+                self.audio.play_toward(wave, 1.0, at, &listener);
             }
         }
         if mood != self.mood || moved {
