@@ -328,8 +328,13 @@ impl Ground {
             })
             .filter(|w| w.y1 > w.y0)
             .collect();
+        // Every prop, the moving ones too (Target UC's missiles ride platforms), whose prims
+        // the collision above skips.
         let prop_damage = map.objects.iter()
-            .map(|ob| prims.get(&ob.prim).and_then(|p| p.as_ref()).map_or((0, 0), |p| (p.damage, p.flag)))
+            .map(|ob| {
+                prims.entry(ob.prim).or_insert_with(|| crate::level::load_prim(game, ob.prim))
+                    .as_ref().map_or((0, 0), |p| (p.damage, p.flag))
+            })
             .collect();
         Ground { roofs, prop_tops, prop_tris, walls, doors, ladders, cables, fences, prop_damage, moving: Default::default() }
     }
@@ -434,6 +439,14 @@ impl Ground {
     pub fn ladder_near(&self, pos: Vec3, reach: f32) -> Option<usize> {
         self.ladders.iter().position(|l| {
             (l.foot - vec2(pos.x, pos.z)).length() < reach && (pos.y - l.base).abs() < 64.0 && l.top > pos.y + STEP_HEIGHT
+        })
+    }
+
+    /// A ladder whose foot is within `reach` of `pos` (xz) that someone in the air can catch:
+    /// its bottom no more than `grab` above their feet, and its top still above them.
+    pub fn ladder_to_catch(&self, pos: Vec3, reach: f32, grab: f32) -> Option<usize> {
+        self.ladders.iter().position(|l| {
+            (l.foot - vec2(pos.x, pos.z)).length() < reach && l.base - pos.y < grab && l.top > pos.y + STEP_HEIGHT
         })
     }
 

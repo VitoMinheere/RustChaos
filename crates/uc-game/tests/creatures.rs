@@ -85,6 +85,12 @@ fn bats_make_nothing() {
 fn the_balrog_comes_and_goes_down_to_bullets() {
     let Some(mut r) = start("Baalrog3") else { return };
     assert!(r.g.unsupported().is_empty(), "unsupported: {:?}", r.g.unsupported());
+    // He bullies whoever is nearest, the city's extra people as much as Darci: keep them out
+    // of it (and always in sight, so they aren't brought back).
+    r.g.view_dist = f32::MAX;
+    for p in r.g.people.iter_mut().filter(|p| p.fake) {
+        p.removed = true;
+    }
     r.wake_the_balrog();
     assert_eq!(r.g.creatures.len(), 1, "point 39 should make the Balrog");
     assert_eq!(r.g.creatures[0].kind, creature::BALROG);

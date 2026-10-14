@@ -149,6 +149,8 @@ pub const BENT_FIGHT_BACK: u8 = 1 << 3;
 pub const BENT_PLAYERKILL: u8 = 1 << 7;
 /// `PCOM_AI_BODYGUARD`: guards the person their `other` point created, and follows them.
 pub const AI_BODYGUARD: u8 = 8;
+/// `PCOM_AI_CIV`: a member of the public.
+pub const AI_CIV: u8 = 1;
 
 /// Speeds in world units per second (a map square is 256). Chosen by eye.
 pub const WALK_SPEED: f32 = 190.0;
@@ -460,6 +462,15 @@ pub struct Snap {
     pub in_car: bool,
 }
 
+/// What someone is running from: a person (followed as they move) or a place.
+#[derive(Debug, Clone, Copy)]
+pub struct Scare {
+    pub by: Option<usize>,
+    pub at: Vec3,
+    /// Seconds spent running.
+    pub time: f32,
+}
+
 pub struct Person {
     pub fig: Figure,
     /// The event point that created this person (0 = none).
@@ -526,6 +537,16 @@ pub struct Person {
     /// `PCOM_MOVE_WANDER`: walking to this spot, giving up after this many seconds (or
     /// pausing, with no spot).
     wander: (Option<Vec2>, f32),
+    /// One of the city's extra people, made by the level rather than the mission
+    /// (`FLAG2_PERSON_FAKE_WANDER`): they keep to the pavements, and are moved somewhere
+    /// near the player once out of sight for a while.
+    pub fake: bool,
+    /// Seconds out of sight, towards being moved (`InsideRoom`, or `sewerbits` for drivers).
+    pub unseen: f32,
+    /// Running from something (`PCOM_AI_STATE_FLEE_PERSON`, `_FLEE_PLACE`).
+    pub scared: Option<Scare>,
+    /// Somebody has given them a fright (`pcom_ai_memory`): they don't forget it, and say so.
+    pub annoyed: bool,
     aggro: bool,
     attack_timer: f32,
     /// Sounds made this frame (collected by the game).
@@ -563,7 +584,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 3], knocked_out: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
-            peeing: false, explosives: 0, protected: false,
+            peeing: false, explosives: 0, protected: false, fake: false, unseen: 0.0, scared: None, annoyed: false,
         }
     }
 
@@ -742,6 +763,23 @@ impl Person {
             c.run = true;
             return c;
         }
+        // Frightened: run until far enough from it, fifteen squares x plus z, or three once
+        // they've been running half a minute (`PCOM_AI_STATE_FLEE_PERSON` in
+        // `PCOM_process_state_change`, fallen/Source/pcom.cpp). Then back to what they were
+        // doing.
+        if let Some(s) = self.scared.as_mut() {
+            s.time += dt;
+            let d = flat(self.fig.pos, s.at);
+            let far = if s.time >= 30.0 { 3.0 * 256.0 } else { 15.0 * 256.0 };
+            if d.x.abs() + d.y.abs() > far {
+                self.scared = None;
+                self.wander = (None, 0.0);
+            } else {
+                c.wish = d.try_normalize().unwrap_or(self.fig.facing());
+                c.run = true;
+                return c;
+            }
+        }
         // Nobody to fight: walk the patrol, follow whoever is being followed, or stroll.
         // Dropping `aggro` matters as much as the walking does: the game only gives someone
         // somewhere to go while they aren't in a fight, so a bodyguard whose man went down
@@ -849,6 +887,9 @@ impl Person {
                 c.wish = (s - here).normalize_or_zero();
                 self.wander = (Some(s), left);
             }
+            // The city's extra people go straight on to the next place, which the game
+            // picks from the pavements ([`Person::wander_to`]).
+            _ if self.fake => self.wander = (None, 0.0),
             // There (or stuck): pause for a few seconds.
             Some(_) => self.wander = (None, 1.0 + (rand() % 400) as f32 / 100.0),
             None if left > 0.0 => self.wander = (None, left),
@@ -864,6 +905,50 @@ impl Person {
             }
         }
         c
+    }
+
+    /// Whether a wanderer has nowhere to go just now.
+    pub fn wants_somewhere(&self) -> bool {
+        self.mv == 4 && self.wander.0.is_none() && self.wander.1 <= 0.0
+    }
+
+    /// Sends a wanderer to `spot`, picking another if not there in five seconds, so they
+    /// don't stand stuck against something (`PCOM_process_wander`).
+    pub fn wander_to(&mut self, spot: Vec2) {
+        self.wander = (Some(spot), 5.0);
+    }
+
+    /// Frightened by `by`, or by something at `at`: run from it, unless they're the sort to
+    /// stand their ground (`PCOM_set_person_ai_flee_person`). Only civilians scare, and
+    /// they remember it.
+    ///
+    /// In the original the mission's civilians scare too. Here only the city's extra people
+    /// do for now: with no route-finding, someone running from gunfire can end up behind a
+    /// wall where nobody can reach them, and a mission's witness or mark doing that can stall
+    /// its script (RTA's drunk driver hides from the very cops sent to stop him).
+    pub fn scare(&mut self, by: Option<usize>, at: Vec3) {
+        if !self.fake || self.player || self.ai != AI_CIV || self.bent & BENT_FIGHT_BACK != 0 || self.removed || self.is_dead() {
+            return;
+        }
+        self.annoyed = true;
+        match self.scared.as_mut() {
+            Some(s) => (s.by, s.at) = (by, at),
+            None => self.scared = Some(Scare { by, at, time: 0.0 }),
+        }
+    }
+
+    /// Back on their feet somewhere else, as if new: one of the city's extra people moved
+    /// on by `PCOM_do_regen`, which clears being knocked out or arrested.
+    pub fn respawn(&mut self, pos: Vec3) {
+        self.fig.pos = pos;
+        self.state = State::Move;
+        (self.knocked_out, self.arrested, self.removed) = (false, false, false);
+        self.health = self.max_health;
+        (self.scared, self.dodge, self.aggro) = (None, None, false);
+        self.wander = (None, 0.0);
+        self.down_timer = 0.0;
+        self.unseen = 0.0;
+        self.idle(false);
     }
 
     fn idle(&mut self, fight: bool) {
@@ -1320,8 +1405,26 @@ impl Person {
                     self.state = State::Zip { cable, t, dir, speed: vel.length() * 0.5, ridden: 0.0 };
                     return;
                 }
-                // Grab a ledge in front while in the air.
                 let dir = if c.wish.length_squared() > 0.25 { c.wish.normalize() } else { vel.normalize_or_zero() };
+                // Catch a ladder ahead on the way down, as `grab_ledge` does when the face it
+                // finds is a ladder (fallen/Source/Person.cpp). A ladder that starts above the
+                // ground, like the one up to The Fallen's first clue, can only be got on this way.
+                if vy <= 0.0 {
+                    let p = self.fig.pos;
+                    if let Some(l) = ground.ladder_to_catch(p, 90.0, GRAB_REACH).filter(|&l| dir.dot(-ground.ladders[l].out) > 0.5) {
+                        // Hang so the hips stay where the jump had them, going straight into the
+                        // climb rather than blending from the jump's raised hips.
+                        let hips = self.fig.drawn_pos().y + self.fig.to_world(self.fig.root()).y;
+                        let y = hips - self.fig.anim_root(anim::ON_LADDER, false).map_or(self.fig.stand_root().y, |r| r.y);
+                        self.fig.pos = ground.on_ladder(l, y);
+                        self.fig.lift = 0.0;
+                        self.fig.cancel_rise = false;
+                        self.fig.restart_now(anim::ON_LADDER, Play::Loop);
+                        self.state = State::Climb { ladder: l, y0: y, loops0: self.fig.loops() };
+                        return;
+                    }
+                }
+                // Grab a ledge in front while in the air.
                 if dir != Vec2::ZERO {
                     // Only ledges too high to jump onto are grabbed; lower ones are landed on.
                     let p = self.fig.pos;
@@ -1674,6 +1777,10 @@ impl Person {
         };
         if self.ai == 16 {
             self.ai = 6; // a cornered fleer fights back
+        }
+        // A civilian set on runs (`PCOM_attack_happened`'s `goto flee`).
+        if !knocked_out {
+            self.scare(None, from);
         }
         self.aggro = true;
         self.attack_timer = self.attack_timer.max(0.8);
