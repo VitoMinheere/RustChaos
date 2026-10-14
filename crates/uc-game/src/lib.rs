@@ -2260,17 +2260,21 @@ impl Game {
         // Cars: body and wheels (front wheels turned by the steering), and a long shadow.
         for v in &self.vehicles {
             let (body, wheel, wx, fz, rz) = vehicle::TYPES[v.kind as usize];
-            // The meshes are modelled nose towards -z: turn them round to face the way it drives.
-            // They sit on the road as modelled, so the body goes down as it is.
-            if let Some(prim) = level.item_prims.get(&body) {
-                uc_world::level::prim_batches(prim, |p| v.place(Vec3::new(-p.x, p.y, -p.z)), lighter.as_ref(), &mut out);
-            }
-            if let Some(prim) = level.item_prims.get(&wheel) {
-                let (ss, cs) = v.wheel_spin.sin_cos();
-                // A wheel is modelled about its axle, so it rides on its own radius: the vans
-                // and the jeep run on a bigger one than the cars do.
+            // A wheel is modelled about its axle, so it rides on its own radius: the vans and
+            // the jeep run on a bigger one than the cars do.
+            let wheel_prim = level.item_prims.get(&wheel);
+            let radius = wheel_prim.map_or(38.0, |prim| {
                 let (lo, hi) = uc_world::level::prim_bounds(prim);
-                let radius = (hi.y - lo.y) / 2.0;
+                (hi.y - lo.y) / 2.0
+            });
+            // The meshes are modelled nose towards -z: turn them round to face the way it drives.
+            // The body sits so the wheels are where the original has them in it.
+            let lift = radius - vehicle::WHEEL_ABOVE_BODY;
+            if let Some(prim) = level.item_prims.get(&body) {
+                uc_world::level::prim_batches(prim, |p| v.place(Vec3::new(-p.x, p.y + lift, -p.z)), lighter.as_ref(), &mut out);
+            }
+            if let Some(prim) = wheel_prim {
+                let (ss, cs) = v.wheel_spin.sin_cos();
                 // Wheel positions mirrored like the body; the ones towards the nose steer.
                 for (x, z, front) in [(wx, -rz, true), (-wx, -rz, true), (wx, -fz, false), (-wx, -fz, false)] {
                     let (st, ct) = if front { (v.steer * 0.5).sin_cos() } else { (0.0, 1.0) };

@@ -11,12 +11,16 @@ use uc_world::ground::Ground;
 /// `VEH_TYPE_*` (fallen/Headers/vehicle.h) and their meshes from `veh_info`
 /// (fallen/Source/vehicle.cpp): (body prim, wheel prim, wheel x, front wheel z, rear wheel z).
 ///
-/// The wheel positions are the table's `DX` and `DZ`; there is no height here because the
-/// prims carry their own. They share one space with the road at y = 0, so a body needs no
-/// lifting at all: a car's sills are modelled 6 to 8 above it and a van's 40 to 42, which is
-/// the ground clearance each is meant to have. A wheel is modelled centred on its axle, so it
-/// is the one thing that has to be raised, by its own radius: 38 for a car's, 51 for the
-/// larger one the vans and the jeep run on.
+/// The wheel positions are the table's `DX` and `DZ`. Heights come from how the original
+/// draws a car (`VEH_draw` and `process_car`, fallen/Source/vehicle.cpp): the body 64
+/// (`BodyOffset` 0x4000) below the car's position, and each wheel's middle at
+/// `51 - spring length` from it. At rest the springs settle where they hold the car up
+/// against gravity (compression about 5200 of 0x8000, gravity 51 a tick), so a wheel's middle
+/// is [`WHEEL_ABOVE_BODY`] above the body's origin, for every type. A wheel is modelled
+/// centred on its axle, and here it rides on the road on its own radius (38 for a car's, 51
+/// for the larger one the vans and the jeep run on), so the body goes that radius less the
+/// 8 above it. In the original a car's wheels float about 13 above the road, since that
+/// `51` is a van wheel's radius; a van's sit on it.
 pub const TYPES: [(u8, u8, f32, f32, f32); 9] = [
     (88, 87, 120.0, 150.0, -165.0),  // van
     (108, 220, 85.0, 160.0, -120.0), // car
@@ -28,6 +32,10 @@ pub const TYPES: [(u8, u8, f32, f32, f32); 9] = [
     (131, 220, 85.0, 160.0, -120.0), // sedan
     (27, 87, 120.0, 150.0, -165.0),  // Wildcat van
 ];
+
+/// How far a wheel's middle is above a car body's origin (see [`TYPES`]): the spring at rest,
+/// 51 less its length of 107, from a body drawn 64 down.
+pub const WHEEL_ABOVE_BODY: f32 = 8.0;
 
 /// Whether a `create_vehicle` point's key (`VK_*`, `Data[3]`) leaves the car locked: anything
 /// but `VK_UNLOCKED` does, since the keys it asks for are never anywhere to be found
