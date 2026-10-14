@@ -151,9 +151,21 @@ pub const BENT_PLAYERKILL: u8 = 1 << 7;
 pub const AI_BODYGUARD: u8 = 8;
 /// `PCOM_AI_CIV`: a member of the public.
 pub const AI_CIV: u8 = 1;
+/// `PCOM_AI_GUARD`, `PCOM_AI_GANG`, `PCOM_AI_SUICIDE` (fallen/Headers/pcom.h).
+pub const AI_GUARD: u8 = 2;
+pub const AI_GANG: u8 = 6;
+pub const AI_SUICIDE: u8 = 15;
+/// `PCOM_MOVE_WANDER`.
+pub const MOVE_WANDER: u8 = 4;
+/// `PCOM_AI_HYPOCHONDRIA`: lies injured, waiting to be carried (`set_person_injured`).
+pub const AI_INJURED: u8 = 20;
+/// How far ahead of the one carrying them the carried person is put (`carry_running`).
+const CARRY_AHEAD: f32 = 90.0;
 
 /// Speeds in world units per second (a map square is 256). Chosen by eye.
 pub const WALK_SPEED: f32 = 190.0;
+/// Crawling: velocity 15 to walking's 16 (`SUB_STATE_CRAWLING` in `fn_person_moveing`).
+pub const CRAWL_SPEED: f32 = WALK_SPEED * 15.0 / 16.0;
 const RUN_SPEED: f32 = 520.0;
 const SPRINT_SPEED: f32 = 700.0;
 const FIGHT_STEP_SPEED: f32 = 140.0;
@@ -423,6 +435,17 @@ pub enum State {
     /// body is 200 above the ground at `floor`, and there it hangs. Nothing in the original
     /// ever lets them down again (`set_person_float_down` has no callers).
     Float { floor: f32 },
+    /// Lying injured (`STATE_DEAD`, `SUB_STATE_DEAD_INJURED`): only Roper can do anything
+    /// with them, and that's pick them up.
+    Injured,
+    /// Carried by person `by`, who puts them where they are and picks their animation.
+    Carried { by: usize },
+    /// Carrying `victim` (`STATE_CARRY`, `FLAG2_PERSON_CARRYING`): phase 0 picking them up,
+    /// 1 standing, 2 walking, 3 putting them down.
+    Carry { victim: usize, phase: u8 },
+    /// Crouched, for as long as action is held (`set_person_croutch`): phase 0 going down,
+    /// 1 down, 2 crawling (`SUB_STATE_CRAWLING`), 3 getting up (`SUB_STATE_IDLE_UNCROUCH`).
+    Crouch { phase: u8 },
 }
 
 /// What a person did this frame that affects somebody else.
@@ -436,6 +459,8 @@ pub enum Event {
     GrabMove { victim: usize, grab: Grab },
     Release { victim: usize },
     Arrest { attacker: usize, victim: usize },
+    /// `carrier` has picked up `victim` (`set_person_carry`).
+    Carry { carrier: usize, victim: usize },
     Arrested { victim: usize },
     Punch { attacker: usize },
     Kick { attacker: usize },
@@ -451,6 +476,11 @@ pub struct Snap {
     pub standing: bool,
     pub down: bool,
     pub arrested: bool,
+    /// Lying knocked down and still alive, and someone who can be cuffed (see
+    /// [`Person::arrestable`]). The game also clears it for the player's own bodyguards.
+    pub arrestable: bool,
+    /// `PERSON_*` type.
+    pub kind: u8,
     pub player: bool,
     pub hostile: bool,
     /// Worth a fighting stance: hostile, or a fight-test dummy.
@@ -460,6 +490,8 @@ pub struct Snap {
     pub blocking: bool,
     /// In a car: out of reach of fists and bullets.
     pub in_car: bool,
+    /// Lying injured, to be carried.
+    pub injured: bool,
 }
 
 /// What someone is running from: a person (followed as they move) or a place.
@@ -503,6 +535,8 @@ pub struct Person {
     pub peeing: bool,
     /// Charges carried (the special's `ammo`): four at most.
     pub explosives: u8,
+    /// Carrying a key (`SPECIAL_KEY`): cars locked with a coloured key open for them.
+    pub has_key: bool,
     down_timer: f32,
     block_timer: f32,
     /// Seconds before a cable can be grabbed again after letting go.
@@ -515,9 +549,12 @@ pub struct Person {
     /// Out of reach: a bodyguard more than twenty blocks from the player can't be hurt, so a
     /// mission isn't lost to a scuffle nobody saw (`PCOM_AI_BODYGUARD`, pcom.cpp).
     pub invulnerable: bool,
-    /// Nothing hurts them, for good (`FLAG2_PERSON_INVULNERABLE`): the person the player was,
-    /// once a mission has moved the player on to someone else.
+    /// Nothing hurts them, for good (`FLAG2_PERSON_INVULNERABLE`): people a mission makes
+    /// that way, and the person the player was once a mission has moved the player on to
+    /// someone else.
     pub protected: bool,
+    /// Guilty of something (`FLAG2_PERSON_GUILTY`): the one sort of cop who can be arrested.
+    pub guilty: bool,
     /// `ai_other`: for assassins, the event point that created the person to kill (0 = the
     /// player).
     pub other: usize,
@@ -584,7 +621,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 3], knocked_out: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
-            peeing: false, explosives: 0, protected: false, fake: false, unseen: 0.0, scared: None, annoyed: false,
+            peeing: false, explosives: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false,
         }
     }
 
@@ -657,6 +694,38 @@ impl Person {
         self.player && self.kind == uc_world::character::person::DARCI
     }
 
+    /// Can be arrested, as `find_arrestee` (fallen/Source/Person.cpp) has it:
+    /// - knocked down and waiting to get up, not dead (`is_person_ko_and_lay_down`). Someone
+    ///   out of health is `STATE_DEAD` in the original, which it never cuffs. The one
+    ///   exception is a fight-test dummy, which its lesson move "knocks out" and the tutorial
+    ///   then asks for an arrest of;
+    /// - not invulnerable (dummies again excepted, which the original makes invulnerable);
+    /// - not a Man In Black;
+    /// - not a cop, unless a guilty one.
+    ///
+    /// The player's own bodyguards are ruled out by the game, which knows whose they are.
+    pub fn arrestable(&self) -> bool {
+        use uc_world::character::person as ptype;
+        if !self.is_down() || self.arrested || self.removed || matches!(self.state, State::Cuffed) {
+            return false;
+        }
+        if self.is_dummy() {
+            return true;
+        }
+        !self.knocked_out && !self.invulnerable && !self.protected
+            && !matches!(self.kind, ptype::MIB1 | ptype::MIB2 | ptype::MIB3)
+            && (self.kind != ptype::COP || self.guilty)
+    }
+
+    /// `is_person_guilty` (fallen/Source/Person.cpp:2763): marked guilty, a Wildcat, one of
+    /// the Men In Black, or a guard or gang member.
+    pub fn is_guilty(&self) -> bool {
+        use uc_world::character::person as ptype;
+        self.guilty
+            || matches!(self.kind, ptype::THUG_RASTA | ptype::THUG_RED | ptype::THUG_GREY | ptype::MIB1 | ptype::MIB2 | ptype::MIB3)
+            || matches!(self.ai, AI_GUARD | AI_GANG)
+    }
+
     pub fn is_dummy(&self) -> bool {
         self.ai == crate::script::PCOM_AI_FIGHT_TEST
     }
@@ -718,18 +787,21 @@ impl Person {
         Snap {
             // Where the body is: a knockdown carries it away from the figure's origin (standing,
             // the origin is steadier: hit reactions only lean the body).
-            pos: if self.is_down() { self.body_pos() } else { self.fig.pos },
+            pos: if self.is_down() || matches!(self.state, State::Injured) { self.body_pos() } else { self.fig.pos },
             facing: self.fig.facing(),
             present: !self.removed,
             standing: !self.removed && matches!(self.state, State::Move | State::Attack { .. } | State::Hurt | State::Land { .. } | State::Block | State::Shoot { .. }),
             down: self.is_down(),
             arrested: self.arrested,
+            arrestable: self.arrestable(),
+            kind: self.kind,
             player: self.player,
             hostile: self.hostile(),
             fighter: self.hostile() || self.is_dummy(),
             attacking: matches!(self.state, State::Attack { .. }),
             blocking: matches!(self.state, State::Block),
             in_car: matches!(self.state, State::InCar { .. }),
+            injured: matches!(self.state, State::Injured),
         }
     }
 
@@ -951,6 +1023,129 @@ impl Person {
         self.idle(false);
     }
 
+    /// `fn_person_carry` and the carrying run: pick up, stand, walk at running speed with the
+    /// carrying walk, and with action put them down if there's room ahead (192). Nothing else
+    /// while carrying: no jumping, fighting, guns or ladders.
+    fn step_carry(&mut self, victim: usize, phase: u8, c: &Controls, ground: &Ground, map: &Map, dt: f32) {
+        let moving = c.wish.length_squared() > 0.01;
+        match phase {
+            0 | 3 => {
+                if self.fig.finished() {
+                    if phase == 0 {
+                        self.fig.restart(anim::STAND_CARRY, Play::Loop);
+                        self.state = State::Carry { victim, phase: 1 };
+                    } else {
+                        self.state = State::Move;
+                        self.idle(false);
+                    }
+                }
+            }
+            _ if c.action => {
+                let up = vec3(0.0, 64.0, 0.0);
+                let f = self.fig.facing();
+                let ahead = self.fig.pos + vec3(f.x, 0.0, f.y) * 192.0;
+                if ground.line_of_sight(self.fig.pos + up, ahead + up) {
+                    self.fig.restart(anim::PUTDOWN_CARRY, Play::Once);
+                    self.state = State::Carry { victim, phase: 3 };
+                }
+            }
+            _ if moving => {
+                let dir = c.wish.normalize();
+                self.fig.turn_towards(dir, 8.0, dt);
+                if phase == 1 {
+                    self.fig.restart(anim::START_WALK_CARRY, Play::Once);
+                    self.state = State::Carry { victim, phase: 2 };
+                } else if self.fig.anim() != anim::START_WALK_CARRY || self.fig.finished() {
+                    self.fig.play(anim::WALK_CARRY, Play::Loop);
+                }
+                self.walk(self.fig.facing() * RUN_SPEED * dt, ground, map, false);
+            }
+            2 => {
+                self.fig.restart(anim::STAND_CARRY, Play::Loop);
+                self.state = State::Carry { victim, phase: 1 };
+            }
+            _ => {}
+        }
+    }
+
+    /// Where the person carried by this one goes, facing back the other way, and how they're
+    /// animated to match (`carry_running`, `set_person_stand_carry`).
+    pub fn carried_pose(&self) -> Option<(usize, Vec3, f32, usize, Play)> {
+        let State::Carry { victim, phase } = self.state else { return None };
+        let f = self.fig.facing();
+        let at = self.fig.pos + vec3(f.x, 0.0, f.y) * CARRY_AHEAD;
+        let (a, play) = match phase {
+            0 => (anim::PICKUP_CARRY_V, Play::Once),
+            1 => (anim::STAND_CARRY_V, Play::Loop),
+            2 if self.fig.anim() == anim::START_WALK_CARRY => (anim::START_WALK_CARRY_V, Play::Once),
+            2 => (anim::WALK_CARRY_V, Play::Loop),
+            _ => (anim::PUTDOWN_CARRY_V, Play::Once),
+        };
+        Some((victim, at, self.fig.angle + std::f32::consts::PI, a, play))
+    }
+
+    /// Carrying someone.
+    pub fn carrying(&self) -> Option<usize> {
+        match self.state {
+            State::Carry { victim, .. } => Some(victim),
+            _ => None,
+        }
+    }
+
+    /// Crouching and crawling. Letting go of action stands her up; pushing a direction
+    /// crawls that way at the original's velocity 15 to walking's 16, on all fours (or on
+    /// her belly with a gun drawn: `ANIM_SNIPER_CRAWL`); stopping goes back to crouching.
+    fn step_crouch(&mut self, phase: u8, c: &Controls, ground: &Ground, map: &Map, dt: f32) {
+        let moving = c.wish.length_squared() > 0.01;
+        match phase {
+            0 | 1 | 2 if !c.sprint => {
+                let a = match self.weapon {
+                    _ if !self.gun_out() => anim::CROUTCH_GETUP,
+                    Weapon::Shotgun | Weapon::Ak47 => anim::UNCROUTCH_AK,
+                    _ => anim::UNCROUTCH_PISTOL,
+                };
+                if self.fig.restart(a, Play::Once) || self.fig.restart(anim::CROUTCH_GETUP, Play::Once) {
+                    self.state = State::Crouch { phase: 3 };
+                } else {
+                    self.state = State::Move;
+                    self.idle(false);
+                }
+            }
+            0 => {
+                if self.fig.finished() {
+                    self.state = State::Crouch { phase: 1 };
+                }
+            }
+            1 | 2 if moving => {
+                let dir = c.wish.normalize();
+                self.fig.turn_towards(dir, 6.0, dt);
+                let crawl = if self.gun_out() { anim::SNIPER_CRAWL } else { anim::CRAWL };
+                if !self.fig.play(crawl, Play::Loop) {
+                    self.fig.play(anim::CRAWL, Play::Loop);
+                }
+                self.state = State::Crouch { phase: 2 };
+                // No crawling off an edge (`slope_ahead`).
+                self.walk(self.fig.facing() * CRAWL_SPEED * dt, ground, map, false);
+            }
+            2 => {
+                self.fig.restart(anim::IDLE_CROUTCH, Play::Once);
+                self.state = State::Crouch { phase: 1 };
+            }
+            3 => {
+                if self.fig.finished() {
+                    self.state = State::Move;
+                    self.idle(false);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Crouched or crawling (`is_person_crouching`).
+    pub fn crouching(&self) -> bool {
+        matches!(self.state, State::Crouch { phase: 0..=2 })
+    }
+
     fn idle(&mut self, fight: bool) {
         let a = match (fight, self.weapon) {
             (_, w) if w.is_gun() && self.gun_out() => w.aim_anim(),
@@ -1116,6 +1311,12 @@ impl Person {
                     self.idle(true);
                 }
             }
+            State::Injured => {
+                self.fig.play(anim::INJURED_LOOP, Play::Loop);
+            }
+            State::Carried { .. } => {}
+            State::Carry { victim, phase } => self.step_carry(victim, phase, c, ground, map, dt),
+            State::Crouch { phase } => self.step_crouch(phase, c, ground, map, dt),
             State::GetUp => {
                 if self.fig.finished() {
                     self.state = State::Move;
@@ -1557,15 +1758,42 @@ impl Person {
         // Wish direction relative to facing: x = right, y = forward.
         let rel = vec2(c.wish.dot(vec2(-f.y, f.x)), c.wish.dot(f));
 
+        // Roper picks up the injured: the nearest person within 256, if they're lying
+        // injured with their middle within 128 (`find_corpse`, Person.cpp:11545).
+        if c.action && self.player && self.kind == uc_world::character::person::ROPER {
+            let nearest = snaps.iter().enumerate()
+                .filter(|&(j, s)| j != me && s.present && !s.in_car)
+                .map(|(j, s)| (j, s, flat(s.pos, self.fig.pos).length()))
+                .filter(|&(_, s, d)| d < 256.0 && (s.pos.y - self.fig.pos.y).abs() < 256.0)
+                .min_by(|a, b| a.2.total_cmp(&b.2));
+            if let Some((j, s, d)) = nearest {
+                if s.injured && d < 128.0 {
+                    self.fig.restart(anim::PICKUP_CARRY, Play::Once);
+                    self.state = State::Carry { victim: j, phase: 0 };
+                    events.push(Event::Carry { carrier: me, victim: j });
+                    return;
+                }
+            }
+        }
         // Only Darci arrests people: the original asks for `PERSON_DARCI` before it even
         // looks for someone to cuff (`set_person_croutch`, fallen/Source/Person.cpp), so
         // Nitro Car's thug can't.
         if c.action && self.can_arrest() {
             // Arrest a downed opponent.
-            let downed = snaps.iter().enumerate().find(|&(j, s)| {
-                j != me && s.present && s.down && !s.arrested && !s.player
-                    && flat(s.pos, self.fig.pos).length() < ARREST_RANGE && (s.pos.y - self.fig.pos.y).abs() < 64.0
-            });
+            // The best of those in reach: the nearest, but Roper and hostages only if there's
+            // nobody else (`find_arrestee` takes 250 off their score of 500 less the distance).
+            let downed = snaps.iter().enumerate()
+                .filter(|&(j, s)| {
+                    j != me && s.present && s.arrestable && !s.player
+                        && flat(s.pos, self.fig.pos).length() < ARREST_RANGE && (s.pos.y - self.fig.pos.y).abs() < 64.0
+                })
+                .map(|(j, s)| {
+                    use uc_world::character::person as ptype;
+                    let last = matches!(s.kind, ptype::ROPER | ptype::HOSTAGE);
+                    (j, s, 500.0 - flat(s.pos, self.fig.pos).length() - if last { 250.0 } else { 0.0 })
+                })
+                .max_by(|a, b| a.2.total_cmp(&b.2))
+                .map(|(j, s, _)| (j, s));
             if let Some((j, s)) = downed {
                 self.fig.angle = uc_world::character::angle_of(flat(s.pos, self.fig.pos));
                 self.fig.restart(anim::ARREST_CROUTCH, Play::Once);
@@ -1589,6 +1817,18 @@ impl Person {
             self.fig.restart(anim::BLOCK_HIGH, Play::Once);
             self.state = State::Block;
             return;
+        }
+        // Action standing still with nothing else to do: crouch, gun and all.
+        if c.action && self.player && !moving {
+            let a = match self.weapon {
+                _ if !self.gun_out() => anim::CROUTCH_DOWN,
+                Weapon::Shotgun | Weapon::Ak47 => anim::SHOTGUN_DUCK,
+                _ => anim::PISTOL_DUCK,
+            };
+            if self.fig.restart(a, Play::Once) || self.fig.restart(anim::CROUTCH_DOWN, Play::Once) {
+                self.state = State::Crouch { phase: 0 };
+                return;
+            }
         }
         if c.punch && self.weapon.is_gun() {
             if self.rounds() == Some(0) {
@@ -1750,7 +1990,10 @@ impl Person {
     /// their `ko_moves`; everyone else loses health.
     #[allow(clippy::too_many_arguments)]
     pub fn take_hit(&mut self, from: Vec3, damage: i32, ko_flag: u8, high: bool, low: bool, weapon: Weapon) {
-        if self.removed || self.invulnerable || self.is_down() || matches!(self.state, State::InCar { .. }) {
+        // The injured lie as the dead do (`STATE_DEAD`): nothing more happens to them.
+        if self.removed || self.invulnerable || self.is_down()
+            || matches!(self.state, State::InCar { .. } | State::Injured | State::Carried { .. })
+        {
             return;
         }
         let front = flat(from, self.fig.pos).dot(self.fig.facing()) > 0.0;

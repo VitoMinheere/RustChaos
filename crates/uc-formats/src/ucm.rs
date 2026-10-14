@@ -64,6 +64,7 @@ pub mod trigger {
     pub const NONE: u8 = 0;
     pub const DEPENDENCY: u8 = 1;
     pub const RADIUS: u8 = 2;
+    pub const TRIPWIRE: u8 = 4;
     pub const TIMER: u8 = 11;
     pub const BOOLEAN_AND: u8 = 13;
     pub const BOOLEAN_OR: u8 = 14;
@@ -81,6 +82,8 @@ pub mod trigger {
     pub const CONVERSATION_OVER: u8 = 30;
     pub const COUNTER: u8 = 31;
     pub const KILLED_NOT_ARRESTED: u8 = 32;
+    pub const CRIME_RATE_ABOVE: u8 = 33;
+    pub const CRIME_RATE_BELOW: u8 = 34;
     pub const PERSON_IN_VEHICLE: u8 = 36;
     pub const ITEM_HELD: u8 = 15;
     pub const SPECIFIC_ITEM_HELD: u8 = 39;

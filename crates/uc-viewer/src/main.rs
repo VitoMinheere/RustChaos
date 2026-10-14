@@ -437,6 +437,18 @@ impl World {
                 let all = badges == nb && sides == ns;
                 o.text(x, by + bh + 4.0 * s, s, if all { [255, 210, 70, 255] } else { [190, 190, 180, 200] }, &text);
             }
+            // The crime rate, for the missions that show it, pulsing red from 95%
+            // (`GF_SHOW_CRIMERATE`, DDEngine/Source/panel.cpp:4789).
+            if self.game.show_crime_rate {
+                let rate = self.game.crime_rate;
+                let col = if rate >= 95 {
+                    let g = (128.0 + 127.0 * (self.game.time * 9.0).sin()) as u8;
+                    [255, g, g, 255]
+                } else {
+                    white
+                };
+                o.text(bx, by + bh + 16.0 * s, s, col, &format!("CRIME RATE {rate}%"));
+            }
         }
 
         // Driving: speed and the car's damage.
@@ -673,7 +685,7 @@ impl World {
 
         // The controls, for the first 20 seconds (H toggles them).
         if self.help && !self.checklist && self.game.cutscene.is_none() && (self.game.time < 20.0 || self.help_forced) {
-            let help = ["WASD move   Shift run   Space jump   E action (hold to sprint)", "J / left mouse punch   K kick   Q block   M mouse look on/off",
+            let help = ["WASD move   Shift run   Space jump   E action (hold: sprint, or crouch and crawl)", "J / left mouse punch   K kick   Q block   M mouse look on/off",
                         "G next weapon   T next target   Tab checklist   R restart   V free camera   H hide help"];
             for (k, line) in help.iter().enumerate() {
                 o.text(12.0 * s, 44.0 * s + k as f32 * 10.0 * s, s, [200, 200, 190, 200], line);
