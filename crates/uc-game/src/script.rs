@@ -105,6 +105,11 @@ pub struct EnemySpec {
     pub other: usize,
     /// The point's group (`pcom_group`).
     pub group: u8,
+    /// Nothing hurts them (`FLAG2_PERSON_INVULNERABLE`): bit 4 of the zone byte.
+    pub invulnerable: bool,
+    /// Guilty of something (`FLAG2_PERSON_GUILTY`): bit 5 of the zone byte. A cop can only be
+    /// arrested if so.
+    pub guilty: bool,
 }
 
 /// A camera fly-by (`create_camera` with its `camera_waypoint`s and `create_target`).
@@ -602,10 +607,16 @@ impl Script {
             waypoint::CREATE_ENEMIES => {
                 let ai = (d[5] & 0xFFFF) as u8;
                 let et = d[0] & 0xFFFF;
+                // The zone byte, `Data[4] >> 8`, carries flags above its four zone bits
+                // (`ELEV_load_level`, and `EWAY_create_enemy` in fallen/Source/eway.cpp).
+                // Fight-test dummies are always made invulnerable too ("ugh!"), but they have
+                // their own rules here: only their lesson move puts them down.
+                let zone = d[4] >> 8;
                 let spec = EnemySpec {
                     person: enemy_person(et), ai, bent: d[4] as u8, ko_moves: ko_moves(ai, d[7]),
                     skill: ((d[5] >> 16) as u8).min(15), has: ((d[2] >> 16) as u8) | enemy_has(et), mv: (d[3] + 1) as u8,
                     follow: (d[1] & 0xFFFF) as usize, colour: w.ep.colour, other: ai_other(ai, d[7]), group: w.ep.group,
+                    invulnerable: zone & (1 << 4) != 0 && ai != PCOM_AI_FIGHT_TEST, guilty: zone & (1 << 5) != 0,
                 };
                 self.commands.push(Command::SpawnEnemy { way: i, pos, angle, spec });
             }

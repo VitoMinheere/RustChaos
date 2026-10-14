@@ -914,6 +914,7 @@ impl Game {
                         p.fig.jacket = spec.skill / 4;
                         p.other = spec.other;
                         (p.colour, p.group) = (spec.colour, spec.group);
+                        (p.protected, p.guilty) = (spec.invulnerable, spec.guilty);
                         p.give(p.weapon);
                     }
                 }
@@ -1704,9 +1705,19 @@ impl Game {
         // Action held: the viewer passes it on as `sprint`.
         self.searching(dt, input.sprint);
 
-        let snaps: Vec<_> = self.people.iter().map(|p| p.snap()).collect();
-        let mut events = Vec::new();
         let player = self.player;
+        let mut snaps: Vec<_> = self.people.iter().map(|p| p.snap()).collect();
+        // Nobody arrests their own bodyguards (`find_arrestee`): those guarding the player,
+        // whose `other` point is the player's, or none at all.
+        for (s, p) in snaps.iter_mut().zip(&self.people) {
+            if p.ai == person::AI_BODYGUARD {
+                let client = if p.other == 0 { player } else { self.by_way.get(&p.other).copied() };
+                if client.is_some() && client == player {
+                    s.arrestable = false;
+                }
+            }
+        }
+        let mut events = Vec::new();
         // Who each of the AI fights: an assassin (`PCOM_AI_ASSASIN`, `_SHOOT_DEAD`) goes for
         // the person its `ai_other` point created, until they're dead; everyone else for the
         // player. A fight between other people waits until Darci is near enough to see it

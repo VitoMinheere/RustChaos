@@ -449,8 +449,11 @@ pub struct Snap {
     pub standing: bool,
     pub down: bool,
     pub arrested: bool,
-    /// Lying knocked down and still alive, so they can be cuffed (see [`Person::arrestable`]).
+    /// Lying knocked down and still alive, and someone who can be cuffed (see
+    /// [`Person::arrestable`]). The game also clears it for the player's own bodyguards.
     pub arrestable: bool,
+    /// `PERSON_*` type.
+    pub kind: u8,
     pub player: bool,
     pub hostile: bool,
     /// Worth a fighting stance: hostile, or a fight-test dummy.
@@ -506,9 +509,12 @@ pub struct Person {
     /// Out of reach: a bodyguard more than twenty blocks from the player can't be hurt, so a
     /// mission isn't lost to a scuffle nobody saw (`PCOM_AI_BODYGUARD`, pcom.cpp).
     pub invulnerable: bool,
-    /// Nothing hurts them, for good (`FLAG2_PERSON_INVULNERABLE`): the person the player was,
-    /// once a mission has moved the player on to someone else.
+    /// Nothing hurts them, for good (`FLAG2_PERSON_INVULNERABLE`): people a mission makes
+    /// that way, and the person the player was once a mission has moved the player on to
+    /// someone else.
     pub protected: bool,
+    /// Guilty of something (`FLAG2_PERSON_GUILTY`): the one sort of cop who can be arrested.
+    pub guilty: bool,
     /// `ai_other`: for assassins, the event point that created the person to kill (0 = the
     /// player).
     pub other: usize,
@@ -565,7 +571,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 3], knocked_out: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
-            peeing: false, explosives: 0, protected: false,
+            peeing: false, explosives: 0, protected: false, guilty: false,
         }
     }
 
@@ -638,14 +644,27 @@ impl Person {
         self.player && self.kind == uc_world::character::person::DARCI
     }
 
-    /// Can be arrested: knocked down and waiting to get up, not dead
-    /// (`is_person_ko_and_lay_down` in `find_arrestee`, fallen/Source/Person.cpp). Someone
-    /// out of health is `STATE_DEAD` in the original, which it never cuffs; the one exception
-    /// is a fight-test dummy, which its lesson move "knocks out" and the tutorial then asks
-    /// for an arrest of.
+    /// Can be arrested, as `find_arrestee` (fallen/Source/Person.cpp) has it:
+    /// - knocked down and waiting to get up, not dead (`is_person_ko_and_lay_down`). Someone
+    ///   out of health is `STATE_DEAD` in the original, which it never cuffs. The one
+    ///   exception is a fight-test dummy, which its lesson move "knocks out" and the tutorial
+    ///   then asks for an arrest of;
+    /// - not invulnerable (dummies again excepted, which the original makes invulnerable);
+    /// - not a Man In Black;
+    /// - not a cop, unless a guilty one.
+    ///
+    /// The player's own bodyguards are ruled out by the game, which knows whose they are.
     pub fn arrestable(&self) -> bool {
-        self.is_down() && !self.arrested && !self.removed && (!self.knocked_out || self.is_dummy())
-            && !matches!(self.state, State::Cuffed)
+        use uc_world::character::person as ptype;
+        if !self.is_down() || self.arrested || self.removed || matches!(self.state, State::Cuffed) {
+            return false;
+        }
+        if self.is_dummy() {
+            return true;
+        }
+        !self.knocked_out && !self.invulnerable && !self.protected
+            && !matches!(self.kind, ptype::MIB1 | ptype::MIB2 | ptype::MIB3)
+            && (self.kind != ptype::COP || self.guilty)
     }
 
     pub fn is_dummy(&self) -> bool {
@@ -716,6 +735,7 @@ impl Person {
             down: self.is_down(),
             arrested: self.arrested,
             arrestable: self.arrestable(),
+            kind: self.kind,
             player: self.player,
             hostile: self.hostile(),
             fighter: self.hostile() || self.is_dummy(),
@@ -1472,10 +1492,20 @@ impl Person {
         // Nitro Car's thug can't.
         if c.action && self.can_arrest() {
             // Arrest a downed opponent.
-            let downed = snaps.iter().enumerate().find(|&(j, s)| {
-                j != me && s.present && s.arrestable && !s.player
-                    && flat(s.pos, self.fig.pos).length() < ARREST_RANGE && (s.pos.y - self.fig.pos.y).abs() < 64.0
-            });
+            // The best of those in reach: the nearest, but Roper and hostages only if there's
+            // nobody else (`find_arrestee` takes 250 off their score of 500 less the distance).
+            let downed = snaps.iter().enumerate()
+                .filter(|&(j, s)| {
+                    j != me && s.present && s.arrestable && !s.player
+                        && flat(s.pos, self.fig.pos).length() < ARREST_RANGE && (s.pos.y - self.fig.pos.y).abs() < 64.0
+                })
+                .map(|(j, s)| {
+                    use uc_world::character::person as ptype;
+                    let last = matches!(s.kind, ptype::ROPER | ptype::HOSTAGE);
+                    (j, s, 500.0 - flat(s.pos, self.fig.pos).length() - if last { 250.0 } else { 0.0 })
+                })
+                .max_by(|a, b| a.2.total_cmp(&b.2))
+                .map(|(j, s, _)| (j, s));
             if let Some((j, s)) = downed {
                 self.fig.angle = uc_world::character::angle_of(flat(s.pos, self.fig.pos));
                 self.fig.restart(anim::ARREST_CROUTCH, Play::Once);
