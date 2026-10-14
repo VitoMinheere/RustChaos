@@ -519,6 +519,8 @@ impl Game {
             let p = &mut self.people[p];
             p.max_health += 10 * stats[3] as i32;
             p.health = p.max_health;
+            p.max_stamina = 128.0 + stats[0] as f32;
+            p.stamina = p.max_stamina;
         }
     }
 
@@ -702,7 +704,8 @@ impl Game {
             let pos = pl.fig.pos;
             let fighting = matches!(pl.state, State::Attack { .. } | State::Grapple { .. } | State::Hurt)
                 || self.people.iter().any(|p| p.aggro() && (p.fig.pos - pos).length() < 6.0 * 256.0);
-            let sprinting = input.sprint && input.run && input.wish.length() > 0.5 && matches!(pl.state, State::Move);
+            // Really sprinting: out of breath she's only running, whatever is held.
+            let sprinting = pl.sprinting;
             self.fight_timer = if fighting { 6.0 } else { (self.fight_timer - dt).max(0.0) };
             self.sprinting = sprinting;
         }
