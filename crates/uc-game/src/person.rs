@@ -158,6 +158,8 @@ const CARRY_AHEAD: f32 = 90.0;
 
 /// Speeds in world units per second (a map square is 256). Chosen by eye.
 pub const WALK_SPEED: f32 = 190.0;
+/// Crawling: velocity 15 to walking's 16 (`SUB_STATE_CRAWLING` in `fn_person_moveing`).
+pub const CRAWL_SPEED: f32 = WALK_SPEED * 15.0 / 16.0;
 const RUN_SPEED: f32 = 520.0;
 const SPRINT_SPEED: f32 = 700.0;
 const FIGHT_STEP_SPEED: f32 = 140.0;
@@ -435,6 +437,9 @@ pub enum State {
     /// Carrying `victim` (`STATE_CARRY`, `FLAG2_PERSON_CARRYING`): phase 0 picking them up,
     /// 1 standing, 2 walking, 3 putting them down.
     Carry { victim: usize, phase: u8 },
+    /// Crouched, for as long as action is held (`set_person_croutch`): phase 0 going down,
+    /// 1 down, 2 crawling (`SUB_STATE_CRAWLING`), 3 getting up (`SUB_STATE_IDLE_UNCROUCH`).
+    Crouch { phase: u8 },
 }
 
 /// What a person did this frame that affects somebody else.
@@ -1070,6 +1075,58 @@ impl Person {
             State::Carry { victim, .. } => Some(victim),
             _ => None,
         }
+    /// Crouching and crawling. Letting go of action stands her up; pushing a direction
+    /// crawls that way at the original's velocity 15 to walking's 16, on all fours (or on
+    /// her belly with a gun drawn: `ANIM_SNIPER_CRAWL`); stopping goes back to crouching.
+    fn step_crouch(&mut self, phase: u8, c: &Controls, ground: &Ground, map: &Map, dt: f32) {
+        let moving = c.wish.length_squared() > 0.01;
+        match phase {
+            0 | 1 | 2 if !c.sprint => {
+                let a = match self.weapon {
+                    _ if !self.gun_out() => anim::CROUTCH_GETUP,
+                    Weapon::Shotgun | Weapon::Ak47 => anim::UNCROUTCH_AK,
+                    _ => anim::UNCROUTCH_PISTOL,
+                };
+                if self.fig.restart(a, Play::Once) || self.fig.restart(anim::CROUTCH_GETUP, Play::Once) {
+                    self.state = State::Crouch { phase: 3 };
+                } else {
+                    self.state = State::Move;
+                    self.idle(false);
+                }
+            }
+            0 => {
+                if self.fig.finished() {
+                    self.state = State::Crouch { phase: 1 };
+                }
+            }
+            1 | 2 if moving => {
+                let dir = c.wish.normalize();
+                self.fig.turn_towards(dir, 6.0, dt);
+                let crawl = if self.gun_out() { anim::SNIPER_CRAWL } else { anim::CRAWL };
+                if !self.fig.play(crawl, Play::Loop) {
+                    self.fig.play(anim::CRAWL, Play::Loop);
+                }
+                self.state = State::Crouch { phase: 2 };
+                // No crawling off an edge (`slope_ahead`).
+                self.walk(self.fig.facing() * CRAWL_SPEED * dt, ground, map, false);
+            }
+            2 => {
+                self.fig.restart(anim::IDLE_CROUTCH, Play::Once);
+                self.state = State::Crouch { phase: 1 };
+            }
+            3 => {
+                if self.fig.finished() {
+                    self.state = State::Move;
+                    self.idle(false);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Crouched or crawling (`is_person_crouching`).
+    pub fn crouching(&self) -> bool {
+        matches!(self.state, State::Crouch { phase: 0..=2 })
     }
 
     fn idle(&mut self, fight: bool) {
@@ -1242,6 +1299,7 @@ impl Person {
             }
             State::Carried { .. } => {}
             State::Carry { victim, phase } => self.step_carry(victim, phase, c, ground, map, dt),
+            State::Crouch { phase } => self.step_crouch(phase, c, ground, map, dt),
             State::GetUp => {
                 if self.fig.finished() {
                     self.state = State::Move;
@@ -1742,6 +1800,18 @@ impl Person {
             self.fig.restart(anim::BLOCK_HIGH, Play::Once);
             self.state = State::Block;
             return;
+        }
+        // Action standing still with nothing else to do: crouch, gun and all.
+        if c.action && self.player && !moving {
+            let a = match self.weapon {
+                _ if !self.gun_out() => anim::CROUTCH_DOWN,
+                Weapon::Shotgun | Weapon::Ak47 => anim::SHOTGUN_DUCK,
+                _ => anim::PISTOL_DUCK,
+            };
+            if self.fig.restart(a, Play::Once) || self.fig.restart(anim::CROUTCH_DOWN, Play::Once) {
+                self.state = State::Crouch { phase: 0 };
+                return;
+            }
         }
         if c.punch && self.weapon.is_gun() {
             if self.rounds() == Some(0) {

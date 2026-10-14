@@ -25,6 +25,7 @@ pub mod road;
 pub mod script;
 pub mod steam;
 pub mod talk;
+pub mod trip;
 pub mod vehicle;
 pub mod wand;
 pub mod ware;
@@ -47,10 +48,19 @@ pub(crate) fn rand(seed: &mut u32) -> u32 {
     *seed >> 16
 }
 
-/// A barrel, bin or traffic cone (`BT_*`): knocked about by cars.
+/// A barrel, bin or traffic cone (`BT_*`): knocked about by cars, and blown up by a shot
+/// unless it's a cone or a bin.
 #[derive(Debug, Clone)]
 pub struct Barrel {
+    /// `BT_*` (a map's own barrels are 0, `BT_BARREL`).
     pub kind: u8,
+    pub prim: u8,
+    /// Goes up when shot (`BARREL_shoot`: anything but `BARREL_TYPE_CONE` and `_BIN`).
+    pub explodes: bool,
+    /// The `create_barrel` point that made it (0 for none).
+    pub way: usize,
+    /// Blown up (`BARREL_dissapear`): gone from the world, and the point that made it knows.
+    pub gone: bool,
     pub pos: Vec3,
     pub vel: Vec2,
     pub yaw: f32,
@@ -59,13 +69,21 @@ pub struct Barrel {
 }
 
 impl Barrel {
+    /// A `BT_*` from a `create_barrel` point: its prim, and whether it explodes
+    /// (`ELEV_load_level`, elev.cpp:1352). Oil drums are their own prim only in Semtex, and
+    /// plain barrels everywhere else; LOX drums are always plain barrels.
+    pub fn of_kind(kind: u8, semtex: bool) -> (u8, bool) {
+        match kind {
+            1 => (67, false),
+            2 | 4 => (uc_world::level::BARREL_PROP, false),
+            5 if semtex => (145, true),
+            _ => (141, true),
+        }
+    }
+
     /// Its prim (barrels and cones are modelled with z up).
     pub fn prim(&self) -> u8 {
-        match self.kind {
-            1 => 67,
-            5 => 145,
-            _ => 141,
-        }
+        self.prim
     }
 }
 
@@ -232,6 +250,7 @@ pub enum Blame {
 enum Aim {
     Person(usize),
     Creature(usize),
+    Barrel(usize),
 }
 
 /// A bolt of lightning from a creature to someone (`SPARK_create`): from, to, seconds left.
@@ -343,6 +362,8 @@ pub struct Game {
     pub sparks: Vec<Spark>,
     /// The creature the player's gun is pointed at, when it isn't a person.
     pub aim_creature: Option<usize>,
+    /// The barrel the player's gun is pointed at (`find_target_new` takes barrels too).
+    pub aim_barrel: Option<usize>,
     /// Seconds into the creatures' next tick.
     creature_clock: f32,
     creature_rng: u32,
@@ -360,6 +381,8 @@ pub struct Game {
     pub drops: dirt::Drops,
     /// Steam from the mission's vents.
     pub steam: steam::Steam,
+    /// The beams `tripwire` points watch.
+    pub trips: trip::Trips,
     /// Estate of Emergency, where the tramp's face is the boss's (`estate`).
     estate: bool,
     /// Grim Gardens, where jumping onto a platform puts you on it (`playing_level`).
@@ -415,8 +438,9 @@ impl Game {
             plat_prims: level.platforms.iter().map(|&(_, ob)| uc_world::level::load_prim(&level.game, level.map.objects[ob].prim)).collect(),
             plat_clock: 0.0,
             creatures: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
-            aim_creature: None, creature_clock: 0.0, creature_rng: 0xba7,
+            aim_creature: None, aim_barrel: None, creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), steam: steam::Steam::default(),
+            trips: trip::Trips::new(level, &level.mission),
             player_name: "",
             estate: level.mission.mission_name.eq_ignore_ascii_case("estate2"),
             botanicc: level.name.eq_ignore_ascii_case("botanicc"),
@@ -438,6 +462,15 @@ impl Game {
             g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
         }
         g.populate(level);
+        // Every map's barrel props become barrels (`OB_convert_dustbins_to_barrels`).
+        for &ob in &level.barrel_props {
+            let o = &level.map.objects[ob];
+            let at = Vec3::new(o.x as f32, o.y as f32, o.z as f32);
+            let y = level.ground.surface(&level.map, at.x, at.z, at.y + 32.0);
+            let yaw = o.yaw as f32 * std::f32::consts::TAU / 2048.0;
+            g.barrels.push(Barrel { kind: 0, prim: uc_world::level::BARREL_PROP, explodes: true, way: 0, gone: false,
+                                    pos: Vec3::new(at.x, y, at.z), vel: Vec2::ZERO, yaw, tilt: 0.0 });
+        }
         g
     }
 
@@ -453,6 +486,39 @@ impl Game {
     /// A blast that knocks people about: damage falls off from `damage` at the middle to
     /// nothing at `radius`, and over 30 points knocks them down (`create_shockwave`,
     /// fallen/Source/collide.cpp). People in cars are shielded, as everywhere else here.
+    /// `BARREL_shoot` (fallen/Source/barrel.cpp:1824): a bang, and a barrel that explodes
+    /// goes up in a firebomb, with a shockwave of 0x200 doing up to 250 that's the shooter's
+    /// doing, and knocks the barrels round it away. A cone or a bin is only knocked about.
+    /// Only a shot does this: a blast, a charge's included, leaves barrels alone
+    /// (`create_shockwave` doesn't look for them).
+    pub fn shoot_barrel(&mut self, k: usize, by: usize, level: &Level) {
+        let b = &self.barrels[k];
+        if b.gone {
+            return;
+        }
+        let (at, explodes) = (b.pos, b.explodes);
+        self.sounds.push((Sfx::Explosion, at));
+        if !explodes {
+            let a = (self.rand() % 628) as f32 / 100.0;
+            self.barrels[k].vel = Vec2::new(a.sin(), a.cos()) * 150.0;
+            return;
+        }
+        self.barrels[k].gone = true;
+        if self.aim_barrel == Some(k) {
+            self.aim_barrel = None;
+        }
+        self.pyro.burst(at, pyro::FIREBOMB, 256.0);
+        self.bang(by, at);
+        self.shockwave(level, at, 0x200 as f32, 250, Blame::Person(by));
+        // `BARREL_hit_with_sphere` 0x20 down, 0x60 across: the barrels beside it fly.
+        for (j, o) in self.barrels.iter_mut().enumerate() {
+            let d = Vec2::new(o.pos.x - at.x, o.pos.z - at.z);
+            if j != k && !o.gone && d.length() < 0x60 as f32 + 40.0 && (o.pos.y - at.y).abs() < 128.0 {
+                o.vel = d.normalize_or(Vec2::X) * 600.0;
+            }
+        }
+    }
+
     fn shockwave(&mut self, level: &Level, at: Vec3, radius: f32, damage: i32, by: Blame) {
         self.shock_props(level, at, radius, damage);
         // Creatures: a little more than people get, as far out as the edge, and four times
@@ -797,6 +863,18 @@ impl Game {
     /// quiet, and any ambience it has plays instead of the music.
     pub fn indoors(&self) -> Option<u8> {
         self.indoors.map(|(_, amb)| amb)
+    }
+
+    /// The tripwires watch for the player, from her lower foot to her head
+    /// (`TRIP_process`, calc_sub_objects_position on SUB_OBJECT_LEFT_FOOT, RIGHT_FOOT and
+    /// HEAD).
+    fn trip_wires(&mut self, dt: f32) {
+        let body = self.player().map(|p| {
+            let part = |k: usize| p.fig.part_world(k).map(|(_, at)| at.y);
+            let feet = part(3).zip(part(14)).map_or(p.fig.pos.y, |(l, r)| l.min(r));
+            (p.fig.pos, feet, part(11).unwrap_or(p.fig.pos.y + 0xc0 as f32))
+        });
+        self.trips.update(dt, body);
     }
 
     /// The vents blow, and their steam scalds whoever stands in it: no stagger, just the
@@ -1176,6 +1254,7 @@ impl Game {
                         None => eprintln!("mission: warehouse ambience point at {:.0},{:.0} is not inside a warehouse", pos.x, pos.z),
                     }
                 }
+                Command::Untrip { way } => self.trips.deactivate(way),
                 Command::Pee { way, on } => {
                     if let Some(&i) = self.by_way.get(&way) {
                         self.people[i].peeing = on;
@@ -1266,10 +1345,11 @@ impl Game {
                     self.sounds.push((Sfx::Explosion, at));
                 }
                 Command::Barrel { way, kind, pos } => {
-                    let _ = way;
                     let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
                     let yaw = (self.rand() % 628) as f32 / 100.0;
-                    self.barrels.push(Barrel { kind, pos: Vec3::new(pos.x, y, pos.z), vel: Vec2::ZERO, yaw, tilt: 0.0 });
+                    let semtex = level.name.eq_ignore_ascii_case("semtex");
+                    let (prim, explodes) = Barrel::of_kind(kind, semtex);
+                    self.barrels.push(Barrel { kind, prim, explodes, way, gone: false, pos: Vec3::new(pos.x, y, pos.z), vel: Vec2::ZERO, yaw, tilt: 0.0 });
                 }
                 Command::Sign { which, flip } => {
                     let text = match (which, flip) {
@@ -1671,7 +1751,7 @@ impl Game {
                 p.fig.pos.z = to.y;
             }
             // Cones and barrels get knocked about.
-            for b in &mut self.barrels {
+            for b in self.barrels.iter_mut().filter(|b| !b.gone) {
                 let at = Vec2::new(b.pos.x, b.pos.z);
                 if v.speed.abs() > 60.0 && v.covers(at, 30.0) && b.vel.length() < v.speed.abs() * 0.5 {
                     let side = (at - Vec2::new(v.pos.x, v.pos.z)).normalize_or_zero();
@@ -1711,6 +1791,7 @@ impl Game {
         if !p.weapon.is_gun() || matches!(p.state, State::InCar { .. }) {
             self.target = None;
             self.aim_creature = None;
+            self.aim_barrel = None;
             return;
         }
         let (pos, f) = (p.fig.pos, p.facing_dir());
@@ -1729,11 +1810,17 @@ impl Game {
         let creatures = self.creatures.iter().enumerate()
             .filter(|(_, c)| c.targetable())
             .filter_map(|(k, c)| seen(c.fig.pos, Aim::Creature(k)));
-        let mut options: Vec<(Aim, f32, f32)> = people.chain(creatures).collect();
+        // Barrels that go up, though less keenly than people: 220/256 of the score
+        // (`calc_target_score_new`, guns.cpp:512), so as if that much further away.
+        let barrels = self.barrels.iter().enumerate()
+            .filter(|(_, b)| b.explodes && !b.gone)
+            .filter_map(|(k, b)| seen(b.pos, Aim::Barrel(k)).map(|(a, d, off)| (a, d * 256.0 / 220.0, off)));
+        let mut options: Vec<(Aim, f32, f32)> = people.chain(creatures).chain(barrels).collect();
         options.sort_by(|a, b| a.1.total_cmp(&b.1));
-        let current = match (self.target, self.aim_creature) {
-            (Some(t), _) => Some(Aim::Person(t)),
-            (None, Some(k)) => Some(Aim::Creature(k)),
+        let current = match (self.target, self.aim_creature, self.aim_barrel) {
+            (Some(t), ..) => Some(Aim::Person(t)),
+            (None, Some(k), _) => Some(Aim::Creature(k)),
+            (None, None, Some(k)) => Some(Aim::Barrel(k)),
             _ => None,
         };
         let kept = current.filter(|t| options.iter().any(|o| o.0 == *t));
@@ -1746,10 +1833,11 @@ impl Game {
             // The nearest, favouring those ahead (someone right behind counts as 3x as far).
             options.iter().min_by(|a, b| (a.1 * (1.0 + a.2)).total_cmp(&(b.1 * (1.0 + b.2)))).map(|o| o.0)
         };
-        (self.target, self.aim_creature) = match aim {
-            Some(Aim::Person(t)) => (Some(t), None),
-            Some(Aim::Creature(k)) => (None, Some(k)),
-            None => (None, None),
+        (self.target, self.aim_creature, self.aim_barrel) = match aim {
+            Some(Aim::Person(t)) => (Some(t), None, None),
+            Some(Aim::Creature(k)) => (None, Some(k), None),
+            Some(Aim::Barrel(k)) => (None, None, Some(k)),
+            None => (None, None, None),
         };
     }
 
@@ -1898,6 +1986,7 @@ impl Game {
             self.charges(dt, level);
         }
         self.vent_steam(dt, level);
+        self.trip_wires(dt);
         self.go_indoors(level);
         self.move_platforms(dt, level);
         self.run_creatures(dt, level, self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player));
@@ -1922,7 +2011,8 @@ impl Game {
         // Getting in and out of cars and talking to people take the action key first.
         let mut input = *input;
         input.target = self.target;
-        input.aim = self.aim_creature.map(|k| self.creatures[k].middle());
+        input.aim = self.aim_creature.map(|k| self.creatures[k].middle())
+            .or_else(|| self.aim_barrel.map(|k| self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0)));
         if self.outcome.is_none() && !held && input.action && self.use_something(level) {
             input.action = false;
         }
@@ -2103,6 +2193,19 @@ impl Game {
                         }
                     }
                 }
+                Event::Shot { attacker, victim: None, .. } if Some(attacker) == self.player && self.aim_barrel.is_some() => {
+                    let k = self.aim_barrel.unwrap();
+                    let (from, at) = (self.people[attacker].fig.pos, self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0));
+                    let eye = Vec3::new(0.0, 140.0, 0.0);
+                    if !level.ground.line_of_sight(from + eye, at) {
+                        continue;
+                    }
+                    let dist = (at - from).length();
+                    let chance = (0.95 - dist / (40.0 * 256.0)).clamp(0.4, 0.95);
+                    if (self.rand() % 1000) as f32 / 1000.0 < chance {
+                        self.shoot_barrel(k, attacker, level);
+                    }
+                }
                 Event::Shot { attacker, victim: Some(victim), weapon } => {
                     let (a, v) = (&self.people[attacker], &self.people[victim]);
                     let eye = Vec3::new(0.0, 140.0, 0.0);
@@ -2139,6 +2242,17 @@ impl Game {
                             self.people[attacker].cues.push(Sfx::Taunt { kind });
                         }
                         self.drop_weapon(victim);
+                    } else {
+                        // A miss hits the nearest barrel within 0xa0 of who it was meant for
+                        // (Person.cpp:6508).
+                        let at = self.people[victim].fig.pos;
+                        let near = self.barrels.iter().enumerate()
+                            .filter(|(_, b)| !b.gone && (b.pos - at).length() < 0xa0 as f32)
+                            .min_by(|a, b| (a.1.pos - at).length().total_cmp(&(b.1.pos - at).length()))
+                            .map(|(k, _)| k);
+                        if let Some(k) = near {
+                            self.shoot_barrel(k, attacker, level);
+                        }
                     }
                 }
                 Event::Grab { attacker, victim } => {
@@ -2361,9 +2475,10 @@ impl Game {
             );
         }
         // Barrels and cones: modelled with z up, they topple when knocked.
-        for b in &self.barrels {
+        for b in self.barrels.iter().filter(|b| !b.gone) {
             let Some(prim) = level.item_prims.get(&b.prim()) else { continue };
-            let lift = if b.kind == 1 { 28.0 } else { 51.0 };
+            // Standing on its base, wherever the model has it.
+            let lift = -uc_world::level::prim_bounds(prim).0.z;
             let (sy, cy) = b.yaw.sin_cos();
             let (st, ct) = b.tilt.sin_cos();
             uc_world::level::prim_batches(prim, |p| {
@@ -2474,6 +2589,7 @@ impl Game {
                 [puff.colour(); 4],
             );
         }
+        self.trips.batches(&mut out);
         out
     }
 
@@ -2617,12 +2733,16 @@ impl script::Query for Scene<'_> {
     fn prim_damaged(&self, pos: Vec3) -> bool {
         self.game.prim_damaged(self.level, pos)
     }
+    fn tripped(&self, way: usize) -> bool {
+        self.game.trips.tripped(way)
+    }
     fn player_fired(&self) -> bool {
         self.game.player_fired()
     }
 
     /// `can_a_see_b` (fallen/Source/Person.cpp): up to 8 squares, within about 74 degrees of
-    /// straight ahead (much wider up close), with a clear line between their heads.
+    /// straight ahead (much wider up close), with a clear line between their heads: 0x60 up,
+    /// or 0x20 for someone crouching, who can hide behind a low wall.
     fn sees(&self, a: usize, b: usize) -> bool {
         let g = self.game;
         let (Some(&a), Some(&b)) = (g.by_way.get(&a), g.by_way.get(&b)) else { return false };
@@ -2638,8 +2758,8 @@ impl script::Query for Scene<'_> {
         }
         let ahead = pa.facing_dir().dot(d / dist.max(1.0));
         let cone = if dist < 192.0 { -0.54 } else { 0.28 };
-        let head = Vec3::new(0.0, 96.0, 0.0);
-        ahead > cone && self.level.ground.line_of_sight(from + head, to + head)
+        let head = |p: &Person| Vec3::new(0.0, if p.crouching() { 0x20 as f32 } else { 0x60 as f32 }, 0.0);
+        ahead > cone && self.level.ground.line_of_sight(from + head(pa), to + head(pb))
     }
 }
 
@@ -2656,6 +2776,10 @@ impl script::Query for Game {
         if let Some(&v) = self.veh_by_way.get(&way) {
             let w = self.vehicles[v].wrecked();
             return Some(script::PersonState { dead: w, down: w, arrested: false, half_dead: self.vehicles[v].health < 150 });
+        }
+        // A barrel is "killed" once it has been made and blown up (eway.cpp:2704).
+        if let Some(b) = self.barrels.iter().find(|b| way != 0 && b.way == way) {
+            return Some(script::PersonState { dead: b.gone, down: b.gone, arrested: false, half_dead: false });
         }
         let p = &self.people[*self.by_way.get(&way)?];
         Some(script::PersonState {

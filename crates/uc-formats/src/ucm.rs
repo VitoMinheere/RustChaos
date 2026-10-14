@@ -64,6 +64,7 @@ pub mod trigger {
     pub const NONE: u8 = 0;
     pub const DEPENDENCY: u8 = 1;
     pub const RADIUS: u8 = 2;
+    pub const TRIPWIRE: u8 = 4;
     pub const TIMER: u8 = 11;
     pub const BOOLEAN_AND: u8 = 13;
     pub const BOOLEAN_OR: u8 = 14;

@@ -468,18 +468,23 @@ impl Ground {
 
     /// Whether nothing solid lies between `a` and `b` (eye to eye).
     pub fn line_of_sight(&self, a: Vec3, b: Vec3) -> bool {
+        self.first_hit(a, b).is_none()
+    }
+
+    /// How far from `a` to `b` (0..1) the first solid wall cuts the line, if one does.
+    pub fn first_hit(&self, a: Vec3, b: Vec3) -> Option<f32> {
         let (p, r) = (vec2(a.x, a.z), vec2(b.x - a.x, b.z - a.z));
-        !self.blocking().any(|w| {
+        self.blocking().filter_map(|w| {
             let (q, s) = (Vec2::from(w.a), Vec2::from(w.b) - Vec2::from(w.a));
             let denom = r.perp_dot(s);
             if denom.abs() < 1e-6 {
-                return false;
+                return None;
             }
             let t = (q - p).perp_dot(s) / denom;
             let u = (q - p).perp_dot(r) / denom;
             let y = a.y + (b.y - a.y) * t;
-            (0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u) && y >= w.y0 && y <= w.y1
-        })
+            ((0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u) && y >= w.y0 && y <= w.y1).then_some(t)
+        }).min_by(f32::total_cmp)
     }
 
     /// The cable within `reach` of point `p` (e.g. a person's hands): (cable, fraction along).
