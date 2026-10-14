@@ -29,6 +29,15 @@ pub mod anim {
     pub const RUN: usize = 119;
     pub const MID_AIR: usize = 122;
     pub const BREATHE: usize = 124;
+    pub const CROUTCH_DOWN: usize = 143;
+    pub const CRAWL: usize = 144;
+    pub const IDLE_CROUTCH: usize = 222;
+    pub const CROUTCH_GETUP: usize = 278;
+    pub const PISTOL_DUCK: usize = 309;
+    pub const UNCROUTCH_PISTOL: usize = 311;
+    pub const SHOTGUN_DUCK: usize = 312;
+    pub const UNCROUTCH_AK: usize = 314;
+    pub const SNIPER_CRAWL: usize = 315;
     pub const PUNCH_COMBO1: usize = 146;
     pub const PUNCH_COMBO2: usize = 147;
     pub const PUNCH_COMBO3: usize = 148;
