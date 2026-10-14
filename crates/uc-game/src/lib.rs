@@ -948,7 +948,7 @@ impl Game {
     fn car_for(&self, i: usize) -> Option<usize> {
         let at = self.people[i].fig.pos;
         self.vehicles.iter().enumerate()
-            .filter(|(_, v)| v.driver.is_none() && !v.wrecked() && !v.locked)
+            .filter(|(_, v)| v.driver.is_none() && !v.wrecked() && !v.locked())
             .map(|(k, v)| (k, (v.pos.x - at.x).abs() + (v.pos.z - at.z).abs()))
             .filter(|&(_, d)| d < FIND_CAR)
             .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -1238,10 +1238,10 @@ impl Game {
                         p.start(colour, group, speed, flags);
                     }
                 }
-                Command::Vehicle { way, kind, pos, angle, locked } => {
+                Command::Vehicle { way, kind, pos, angle, key } => {
                     let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
                     // A vehicle's angle is its heading (its nose along (sin, cos)).
-                    self.vehicles.push(Vehicle::new(way, kind, Vec3::new(pos.x, y, pos.z), angle, locked));
+                    self.vehicles.push(Vehicle::new(way, kind, Vec3::new(pos.x, y, pos.z), angle, key));
                     self.veh_by_way.insert(way, self.vehicles.len() - 1);
                 }
                 Command::Stall { way } => {
@@ -1251,7 +1251,7 @@ impl Game {
                 }
                 Command::Lock { way, locked } => {
                     if let Some(&v) = self.veh_by_way.get(&way) {
-                        self.vehicles[v].locked = locked;
+                        self.vehicles[v].key = if locked { vehicle::Key::Never } else { vehicle::Key::None };
                     }
                 }
                 // A `visual_effect` point's bang. The original's shockwave here never goes
@@ -1535,15 +1535,18 @@ impl Game {
                     self.messages.push(Message { text: "Five second fuse set".into(), left: 3.0, face: None, filmed: false });
                     return true;
                 }
-                let near = |v: &Vehicle| !v.wrecked() && !v.locked && v.driver.is_none()
+                let near = |v: &Vehicle| !v.wrecked() && v.driver.is_none()
                     && v.covers(Vec2::new(pos.x, pos.z), 140.0) && (v.pos.y - pos.y).abs() < 150.0;
-                if let Some(vi) = self.vehicles.iter().position(near) {
+                let has_key = self.people[pi].has_key;
+                if let Some(vi) = self.vehicles.iter().position(|v| near(v) && v.opens_for(has_key)) {
                     self.vehicles[vi].driver = Some(pi);
                     let p = &mut self.people[pi];
                     p.state = State::InCar { vehicle: vi };
                     p.cues.push(Sfx::CarDoor);
                     return true;
                 }
+                // Only locked ones: said below, if there's nothing else to do here.
+                let locked_near = self.vehicles.iter().any(near);
                 // Search a prop in front of her (`set_person_search`: the nearest searchable
                 // one within a square, no more than an eighth of a turn off her facing).
                 if let Some(ob) = find_ob(level, pos, 256.0, Some(&self.searchable)) {
@@ -1572,7 +1575,15 @@ impl Game {
                     }
                     return true;
                 }
-                self.chat(pi)
+                if self.chat(pi) {
+                    return true;
+                }
+                // `set_person_enter_vehicle`'s `X_CAR_LOCKED`, an info message on the panel.
+                if locked_near {
+                    self.messages.push(Message { text: "The car is locked.".into(), left: 3.0, face: None, filmed: false });
+                    return true;
+                }
+                false
             }
             _ => false,
         }
@@ -1822,7 +1833,12 @@ impl Game {
             // crowbar, a gas mask, a wrench, a video, gloves, weedkiller. They do nothing in
             // the hand; what matters is that she has them, which a mission reads with
             // `specific_item_held` (The Fallen's five clues are picked up this way).
-            1 | 13..=21 => true,
+            // A key opens the cars that ask for one (`SPECIAL_KEY`).
+            1 => {
+                p.has_key = true;
+                true
+            }
+            13..=21 => true,
             // Explosives are carried, four at most, and left lying once she has four
             // (`should_person_get_item`).
             EXPLOSIVES if p.explosives < 4 => {
