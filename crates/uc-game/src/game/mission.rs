@@ -61,6 +61,7 @@ impl Game {
                     if let Some(v) = self.veh_by_way.remove(&way) {
                         let at = self.vehicles[v].pos;
                         self.vehicles[v].health = 0;
+                        self.blown.insert(v);
                         if let Some(d) = self.vehicles[v].driver.take() {
                             self.people[d].state = State::Move;
                             self.people[d].fig.pos = at;

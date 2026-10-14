@@ -64,6 +64,17 @@ impl Game {
             creature::Act::Sound { id, at } => Some((Sfx::ById { id, replace: false }, at)),
             _ => None,
         }));
+        // Cars: the whole of it within 0x100 of the middle, less further out
+        // (`create_shockwave`, collide.cpp), of which `VEH_reduce_health` takes half.
+        for v in self.vehicles.iter_mut().filter(|v| !v.wrecked()) {
+            let dist = (v.pos - at).length();
+            if dist >= radius {
+                continue;
+            }
+            let dist = dist - 0x100 as f32;
+            let hit = if dist <= 0.0 { damage } else { (damage as f32 * (radius - dist) / radius) as i32 };
+            v.reduce_health(hit);
+        }
         for i in 0..self.people.len() {
             let p = &self.people[i];
             if p.removed || p.is_dead() {

@@ -32,6 +32,11 @@ impl Game {
             // the pistol in the weapon list (`PANEL_ADDWEAPON`) for the player to pick.
             if let Some(i) = self.player {
                 self.people[i].give(Weapon::from_has(has));
+                // Stern Revenge hands her a shotgun too, hard-coded (`playing_level`,
+                // pcom.cpp:5601).
+                if level.mission.mission_name.eq_ignore_ascii_case("skymiss2") {
+                    self.people[i].give(Weapon::Shotgun);
+                }
             }
         }
     }
