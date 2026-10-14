@@ -57,11 +57,56 @@ impl Game {
                     self.people[i].goal = Some(leg);
                 }
             }
+            if self.people[i].scared.is_some() {
+                let via = self.run_away(i, at, level);
+                self.people[i].via = via;
+                continue;
+            }
             let p = &self.people[i];
             let foe = p.foe.or(self.player).filter(|_| p.aggro()).map(|f| self.people[f].fig.pos);
             let via = foe.and_then(|to| self.leg(i, at, to, level));
             self.people[i].via = via;
         }
+    }
+
+    /// Running from something (`PCOM_process_fleeing`): a place 32 squares or so straight away
+    /// from the danger, give or take four, gone to by the navigation map, and another once
+    /// there (`PCOM_set_person_move_runaway`, pcom.cpp:2466). A place whose way starts off
+    /// towards the danger is tried again, twice. Returns the next leg.
+    fn run_away(&mut self, i: usize, at: Vec3, level: &Level) -> Option<Vec3> {
+        let s = self.people[i].scared.clone()?;
+        let danger = s.at;
+        let arrived = s.goal.is_none_or(|g| Vec2::new(g.x - at.x, g.z - at.z).length() < 1.5 * 256.0);
+        if !arrived {
+            return self.leg(i, at, s.goal?, level);
+        }
+        let size = (uc_formats::iam::MAP_SIZE * 256) as f32;
+        let mut pick = None;
+        for _ in 0..3 {
+            let (dx, dz) = (at.x - danger.x, at.z - danger.z);
+            let dist = dx.abs() + dz.abs() + 1.0;
+            let mut r = || (rand(&mut self.mav_rng) & 0x7ff) as f32 - 0x400 as f32;
+            let mut gx = at.x + dx * 8192.0 / dist + r();
+            let mut gz = at.z + dz * 8192.0 / dist + r();
+            // Stay on the map, bouncing off its edges.
+            (gx, gz) = (gx.abs(), gz.abs());
+            if gx > size { gx = 2.0 * size - gx; }
+            if gz > size { gz = 2.0 * size - gz; }
+            let goal = Vec3::new(gx, at.y, gz);
+            self.ways.remove(&i);
+            let leg = self.leg(i, at, goal, level);
+            let dest = leg.unwrap_or(goal);
+            let flat = |a: Vec3, b: Vec3| Vec2::new(a.x - b.x, a.z - b.z).length();
+            pick = Some((goal, leg));
+            if flat(dest, danger) >= flat(dest, at) {
+                break;
+            }
+        }
+        let (goal, leg) = pick?;
+        if let Some(s) = self.people[i].scared.as_mut() {
+            s.goal = Some(goal);
+        }
+        leg
     }
 
     /// The next leg of the way from `from` to `to`: `None` to go straight (it can be walked,

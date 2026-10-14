@@ -506,6 +506,8 @@ pub struct Scare {
     pub at: Vec3,
     /// Seconds spent running.
     pub time: f32,
+    /// Where they're running to (`PCOM_set_person_move_runaway`), set by the game.
+    pub goal: Option<Vec3>,
 }
 
 pub struct Person {
@@ -869,7 +871,9 @@ impl Person {
                 self.scared = None;
                 self.wander = (None, 0.0);
             } else {
-                c.wish = d.try_normalize().unwrap_or(self.fig.facing());
+                // Along the way the game found to somewhere away from it, or just away.
+                let to = self.via.or(s.goal).map(|v| flat(v, self.fig.pos)).unwrap_or(d);
+                c.wish = to.try_normalize().unwrap_or(self.fig.facing());
                 c.run = true;
                 return c;
             }
@@ -1025,13 +1029,13 @@ impl Person {
     pub fn scare(&mut self, by: Option<usize>, at: Vec3) {
         // Drivers too: `PCOM_set_person_ai_flee_person` has them leave their car first
         // (`PCOM_EXCAR_FLEE_PERSON`). Cop drivers don't run.
-        if !self.fake || self.player || !matches!(self.ai, AI_CIV | AI_DRIVER) || self.bent & BENT_FIGHT_BACK != 0 || self.removed || self.is_dead() {
+        if self.player || !matches!(self.ai, AI_CIV | AI_DRIVER) || self.bent & BENT_FIGHT_BACK != 0 || self.removed || self.is_dead() {
             return;
         }
         self.annoyed = true;
         match self.scared.as_mut() {
             Some(s) => (s.by, s.at) = (by, at),
-            None => self.scared = Some(Scare { by, at, time: 0.0 }),
+            None => self.scared = Some(Scare { by, at, time: 0.0, goal: None }),
         }
     }
 
