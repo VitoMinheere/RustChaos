@@ -118,9 +118,21 @@ pub struct Shot {
     pub start: Vec3,
     /// (event point, position, speed in world units per second, seconds to wait there).
     pub waypoints: Vec<(usize, Vec3, f32, f32)>,
-    pub target: Vec3,
+    pub target: Look,
     /// The player can't move during the shot.
     pub lock_player: bool,
+}
+
+/// What a fly-by looks at: its `create_target`, by `Data[1]` (`CT_*`, fallen/Source/elev.cpp).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Look {
+    /// The target point itself (`CT_NORMAL`).
+    Place(Vec3),
+    /// Whatever event point `way` made, once it has, and the target point `at` until then
+    /// (`CT_ATTACHED`).
+    Thing { way: usize, at: Vec3 },
+    /// The nearest living person within 0x500 of `at` (`CT_NEAREST_LIVING`).
+    Near(Vec3),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -162,8 +174,8 @@ pub enum Command {
     Platform { way: usize, colour: u8, group: u8, speed: i32, flags: i32 },
     /// The player becomes the person point `way` made (`EWAY_DO_TRANSFER_PLAYER`).
     Transfer { way: usize },
-    /// A vehicle of `VEH_TYPE_*` `kind`; `locked` if its key is one nobody ever finds.
-    Vehicle { way: usize, kind: u8, pos: Vec3, angle: f32, locked: bool },
+    /// A vehicle of `VEH_TYPE_*` `kind`, and what it takes to get into it.
+    Vehicle { way: usize, kind: u8, pos: Vec3, angle: f32, key: crate::vehicle::Key },
     /// Stop the vehicle created by `way` for good.
     Stall { way: usize },
     /// Lock or unlock the vehicle created by `way` (`EWAY_DO_LOCK_VEHICLE`).
@@ -580,11 +592,30 @@ impl Script {
         }
     }
 
+    /// The point an attached camera target at `at` follows: the nearest point that makes
+    /// something, within 0x300 (`EWAY_fix_do`, fallen/Source/eway.cpp). The Fallen's first
+    /// fly-by is attached this way to the player's start, so it watches Darci.
+    fn attached(&self, at: Vec3) -> Option<usize> {
+        use waypoint::*;
+        self.ways.iter().flatten()
+            .filter(|w| matches!(w.ep.kind, CREATE_PLAYER | CREATE_CREATURE | CREATE_ENEMIES | CREATE_ITEM | CREATE_VEHICLE | LINK_PLATFORM))
+            .map(|w| (w.ep.index, crate::creature::qdist3(w.pos() - at)))
+            .filter(|&(_, d)| d < 0x300 as f32)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i)
+    }
+
     /// The fly-by that point `i` (a `create_camera`) starts.
     fn shot(&self, i: usize) -> Option<Shot> {
         let cam = self.way(i)?;
         let same = |w: &&Way| w.ep.colour == cam.ep.colour && w.ep.group == cam.ep.group;
-        let target = self.ways.iter().flatten().filter(same).find(|w| w.ep.kind == waypoint::CREATE_TARGET)?.pos();
+        let t = self.ways.iter().flatten().filter(same).find(|w| w.ep.kind == waypoint::CREATE_TARGET)?;
+        let at = t.pos();
+        let target = match t.ep.data[1] {
+            2 => self.attached(at).map_or(Look::Place(at), |way| Look::Thing { way, at }),
+            3 => Look::Near(at),
+            _ => Look::Place(at),
+        };
         let speed = |d: &[i32; 10]| ((d[2] >> 2).max(4) as f32) * 40.0;
         let waypoints = self.ways.iter().flatten().filter(same).filter(|w| w.ep.kind == waypoint::CAMERA_WAYPOINT)
             .map(|w| (w.ep.index, w.pos(), speed(&w.ep.data), w.ep.data[3].max(0) as f32 / 10.0))
@@ -673,8 +704,8 @@ impl Script {
             }
             waypoint::CREATE_VEHICLE => {
                 let kind = crate::vehicle::from_vt(d[0]);
-                let locked = crate::vehicle::locked_by_key(d[3]);
-                self.commands.push(Command::Vehicle { way: i, kind, pos, angle, locked });
+                let key = crate::vehicle::Key::from_vk(d[3]);
+                self.commands.push(Command::Vehicle { way: i, kind, pos, angle, key });
             }
             waypoint::STALL_CAR => self.commands.push(Command::Stall { way: d[0] as usize }),
             // `Data[1]` set locks, clear unlocks (`ELEV_load_level`).

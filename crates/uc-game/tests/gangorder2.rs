@@ -120,9 +120,14 @@ fn rat_catch_script_runs_to_a_win() {
     r.play(6.0, Controls::default());
     assert!(r.said("I SURRENDER"), "he never gave up: {:?}", r.seen);
 
-    // Stand over him and he comes quietly.
+    // Stand over him and he comes quietly. Where he ran to depends on who was in his way,
+    // the city's crowd included, and the cops about can shoot Mako there, which breaks the
+    // conversation off: keep them from it.
+    let me = r.g.player.unwrap();
+    r.g.people[me].protected = true;
     r.look_at(son, 160.0);
     r.play(25.0, Controls::default());
+    r.g.people[me].protected = false;
     assert!(r.said("I'll come with you"), "he never agreed to come: {:?}", r.seen);
     assert_eq!(r.g.people[son].mv, 5, "he should follow Mako now");
 
@@ -164,7 +169,10 @@ fn killing_the_son_turns_into_the_boss_punishment() {
     // Five dead cops puts it right.
     let mut killed = 0;
     while killed < 5 {
-        let cop = r.g.people.iter().position(|p| p.kind == ptype::COP && !p.removed && !p.is_dead());
+        // (On foot: the ones driving patrol cars are out of reach in them.)
+        let cop = r.g.people.iter().position(|p| {
+            p.kind == ptype::COP && !p.removed && !p.is_dead() && !matches!(p.state, uc_game::State::InCar { .. })
+        });
         let Some(cop) = cop else { break };
         let from = r.g.people[cop].fig.pos;
         r.g.people[cop].take_hit(from, 10_000, ko::FINISHERS, false, false, uc_game::Weapon::None);

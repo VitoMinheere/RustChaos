@@ -180,6 +180,15 @@ fn crash_cops_go_after_the_drunk_not_darci() {
 fn arrest(r: &mut Run, i: usize) -> bool {
     let at = r.g.people[i].fig.pos;
     r.g.people[i].take_hit(at + vec3(50.0, 0.0, 0.0), 0, ko::KNOCKDOWN, false, false, Weapon::None);
+    // Let her get over any blow she took in the fight first: a flinch eats the button.
+    for _ in 0..60 {
+        let pi = r.player();
+        if matches!(r.g.people[pi].state, State::Move) {
+            break;
+        }
+        r.run(DT * 1.01, Controls::default());
+    }
+    // Then beside wherever he has come to rest.
     let body = r.g.people[i].body_pos();
     let Some(beside) = (0..8)
         .map(|k| body + vec3((k as f32 * 0.785).sin(), 0.0, (k as f32 * 0.785).cos()) * 60.0)

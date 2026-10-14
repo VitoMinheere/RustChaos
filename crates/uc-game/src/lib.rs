@@ -13,6 +13,7 @@
 //! Finally the events they produced (hits, grabs, arrests) are applied, grappled pairs are
 //! kept together and people are pushed apart.
 
+pub mod city;
 pub mod creature;
 pub mod dirt;
 pub mod goals;
@@ -20,10 +21,12 @@ pub mod mist;
 pub mod person;
 pub mod plat;
 pub mod pyro;
+pub mod road;
 pub mod script;
 pub mod steam;
 pub mod talk;
 pub mod vehicle;
+pub mod wand;
 pub mod ware;
 
 use glam::{vec2, Vec2, Vec3};
@@ -107,6 +110,24 @@ fn find_ob(level: &Level, pos: Vec3, range: f32, only: Option<&BTreeSet<usize>>)
         .filter(|&(_, d)| d < range)
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(i, _)| i)
+}
+
+/// `PCOM_AI_DRIVER`: finds a car, gets in and drives it as their move says.
+const AI_DRIVER: u8 = 9;
+/// How fast a driver goes down a clear road (`VEH_SPEED_LIMIT`, "35 mph"), world units a second.
+const CRUISE: f32 = 1100.0;
+/// A driver looks for a car this far away (`PCOM_set_person_ai_findcar`: 0xc00, x plus z).
+const FIND_CAR: f32 = 3072.0;
+
+/// Someone at the wheel who isn't the player (`pcom_move_state` and its arguments).
+#[derive(Debug, Clone, Copy, Default)]
+struct Driving {
+    /// The road being driven down, from node and to node (`PCOM_MOVE_STATE_DRIVE_DOWN`).
+    road: Option<(usize, usize)>,
+    /// The road picked for after this one, once the junction is near (`InsideRoom`).
+    next: usize,
+    /// Seconds left of backing off something the car ran into (`PCOM_MOVE_SUBSTATE_3PTURN`).
+    reversing: f32,
 }
 
 /// A camera fly-by in progress.
@@ -343,6 +364,22 @@ pub struct Game {
     estate: bool,
     /// Grim Gardens, where jumping onto a platform puts you on it (`playing_level`).
     botanicc: bool,
+    /// The roads cars wander along.
+    roads: road::Roads,
+    /// What each person at the wheel is doing, by person.
+    drivers: HashMap<usize, Driving>,
+    /// The pavements the city's extra people walk.
+    wand: wand::Wander,
+    /// How far the player can see (world units): the city's extra people further away than
+    /// this are out of sight, and may be moved. The original's draw distance by default; a
+    /// renderer that sees further should say so.
+    pub view_dist: f32,
+    /// Chance for the city's extra people, kept apart from the mission's.
+    city_rng: u32,
+    /// What the extra people say when spoken to.
+    chatter: city::Chatter,
+    /// The player had a gun out last frame.
+    gun_drawn: bool,
     /// What to call the player, for the HUD.
     player_name: &'static str,
 }
@@ -383,6 +420,13 @@ impl Game {
             player_name: "",
             estate: level.mission.mission_name.eq_ignore_ascii_case("estate2"),
             botanicc: level.name.eq_ignore_ascii_case("botanicc"),
+            roads: road::Roads::new(&level.map, &level.mission.map),
+            drivers: HashMap::new(),
+            wand: wand::Wander::new(&level.map, &level.game),
+            view_dist: city::DRAW_DIST,
+            city_rng: 0xc17,
+            chatter: city::Chatter::load(level),
+            gun_drawn: false,
         };
         if !scripted {
             g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
@@ -393,6 +437,7 @@ impl Game {
         if g.player.is_none() {
             g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
         }
+        g.populate(level);
         g
     }
 
@@ -789,11 +834,17 @@ impl Game {
     }
 
     fn spawn(&mut self, level: &Level, kind: u8, player: bool, way: usize, pos: Vec3, angle: f32) -> Option<usize> {
+        let variant = self.rand();
+        self.spawn_variant(level, kind, player, way, pos, angle, variant)
+    }
+
+    /// [`Game::spawn`], with the look picked by `variant`.
+    #[allow(clippy::too_many_arguments)]
+    fn spawn_variant(&mut self, level: &Level, kind: u8, player: bool, way: usize, pos: Vec3, angle: f32, variant: u32) -> Option<usize> {
         let people = level.people.as_ref()?;
         // Points can sit a little under the surface they're on (The Jump's jumper is 64 below
         // his ledge): look from half a storey up.
         let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 128.0);
-        let variant = self.rand();
         let fig = people.figure(kind, variant, Vec3::new(pos.x, y, pos.z), angle)?;
         self.people.push(Person::new(fig, kind, player, way));
         let i = self.people.len() - 1;
@@ -853,6 +904,14 @@ impl Game {
                 let d = (q - at[i]).abs();
                 d.max_element() + (d.x + d.y + d.z - d.max_element()) / 4.0
             };
+            // A driver out of a car walks to the door of the nearest one free.
+            if p.ai == AI_DRIVER {
+                if let (true, Some(vi)) = (matches!(p.state, State::Move), self.car_for(i)) {
+                    let door = self.vehicles[vi].door();
+                    goals[i] = (Some(Vec3::new(door.x, at[i].y, door.y)), person::Pace::Walk);
+                }
+                continue;
+            }
             goals[i] = match p.mv {
                 // Followers run after whoever they're following, as `PCOM_set_person_ai_follow`
                 // asks (`PERSON_SPEED_RUN`), and break into a sprint to keep up with a player
@@ -882,6 +941,126 @@ impl Game {
         for (p, (goal, pace)) in self.people.iter_mut().zip(goals) {
             (p.goal, p.pace) = (goal, pace);
         }
+    }
+
+    /// The car a driver out of one goes for (`PCOM_set_person_ai_findcar`): the nearest that
+    /// nobody is driving, isn't wrecked and isn't locked, measured x plus z.
+    fn car_for(&self, i: usize) -> Option<usize> {
+        let at = self.people[i].fig.pos;
+        self.vehicles.iter().enumerate()
+            .filter(|(_, v)| v.driver.is_none() && !v.wrecked() && !v.locked())
+            .map(|(k, v)| (k, (v.pos.x - at.x).abs() + (v.pos.z - at.z).abs()))
+            .filter(|&(_, d)| d < FIND_CAR)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(k, _)| k)
+    }
+
+    /// Drivers who have walked up to their car's door get in (`PCOM_process_findcar`).
+    fn board_cars(&mut self) {
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            if p.ai != AI_DRIVER || p.player || p.removed || p.is_dead() || p.is_down() || p.aggro() || !matches!(p.state, State::Move) {
+                continue;
+            }
+            let Some(vi) = self.car_for(i) else { continue };
+            let door = self.vehicles[vi].door();
+            if Vec2::new(p.fig.pos.x - door.x, p.fig.pos.z - door.y).length() < 150.0 {
+                self.vehicles[vi].driver = Some(i);
+                let p = &mut self.people[i];
+                p.state = State::InCar { vehicle: vi };
+                p.cues.push(Sfx::CarDoor);
+                self.drivers.insert(i, Driving::default());
+            }
+        }
+    }
+
+    /// The controls of a car someone other than the player is driving. Wandering
+    /// (`PCOM_MOVE_WANDER`) they drive the roads, picking a way at random at each junction
+    /// (`PCOM_process_driving_wander`) and keeping to their lane (`DriveCar`, both in
+    /// fallen/Source/pcom.cpp); otherwise they pull up and stay put
+    /// (`PCOM_process_driving_still`).
+    fn npc_drive(&mut self, vi: usize, pi: usize, dt: f32) -> Drive {
+        const TURN: f32 = 896.0; // `LEFT_TURN_DIST`: how near the junction before turning
+        let v = &self.vehicles[vi];
+        let (at, speed, yaw, y) = (Vec2::new(v.pos.x, v.pos.z), v.speed, v.yaw, v.pos.y);
+        let stop = if speed.abs() > 30.0 { Drive { throttle: -speed.signum(), ..Default::default() } } else { Drive::default() };
+        let (mv, bent) = (self.people[pi].mv, self.people[pi].bent);
+        let mut st = self.drivers.get(&pi).copied().unwrap_or_default();
+        if mv != 4 || self.roads.nodes.len() < 2 {
+            st.road = None;
+            self.drivers.insert(pi, st);
+            return stop;
+        }
+        // Onto the nearest road, going the way of the lane it's in.
+        let (n1, n2) = match st.road {
+            Some(r) => r,
+            None => {
+                let Some((mut a, mut b)) = self.roads.find(at) else { return stop };
+                if self.roads.signed_dist(a, b, at) < 0.0 {
+                    std::mem::swap(&mut a, &mut b);
+                }
+                st.next = 0;
+                (a, b)
+            }
+        };
+        // Near the junction: pick the next road, and turn into it (a left turn a little later).
+        let mut road = (n1, n2);
+        let to_end = creature::qdist2(self.roads.dest(n1, n2) - at);
+        if to_end < TURN {
+            if st.next == 0 {
+                let mut rng = self.rng;
+                st.next = self.roads.whereto_now(n1, n2, &mut || rand(&mut rng));
+                self.rng = rng;
+            }
+            let late = if st.next != 0 && self.roads.bend(n1, n2, st.next) < 0 { 256.0 } else { 0.0 };
+            if st.next != 0 && to_end + late < TURN {
+                road = (n2, st.next);
+                st.next = 0;
+            }
+        } else {
+            st.next = 0;
+        }
+        st.road = Some(road);
+        // Head for the far end of the road, or back into the lane first if well out of it.
+        let (n1, n2) = road;
+        let mut dest = self.roads.dest(n1, n2);
+        let reversing = st.reversing > 0.0;
+        if !reversing && (384.0 - self.roads.signed_dist(n1, n2, at)).abs() > 128.0 {
+            let (r1, r2) = (self.roads.pos(n1), self.roads.pos(n2));
+            let ab = r2 - r1;
+            let t = ((at - r1).dot(ab) / ab.length_squared().max(1.0)).clamp(0.0, 1.0);
+            let sign = |v: f32| if v > 0.0 { 1.0 } else if v < 0.0 { -1.0 } else { 0.0 };
+            let dr = Vec2::new(sign(ab.x), sign(ab.y)) * 256.0;
+            dest = r1 + ab * t + dr * 2.0 + Vec2::new(-dr.y, dr.x);
+        }
+        let to = dest - at;
+        let diff = (to.x.atan2(to.y) - yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        // Slow for a bend, down to a third of the limit; diligent drivers go twice as fast.
+        let dangle = diff.abs() * 2048.0 / std::f32::consts::TAU;
+        let mut want = if dangle > 100.0 { (1.0 - (dangle - 100.0) / 2.0 / 750.0).max(250.0 / 750.0) } else { 1.0 } * CRUISE;
+        if bent & 2 != 0 {
+            want *= 2.0;
+        }
+        // (The car turns away from its steering: steer left for a larger yaw.)
+        let mut steer = (-diff * 2.0).clamp(-1.0, 1.0);
+        if reversing {
+            st.reversing -= dt;
+            want = -CRUISE * 0.4;
+            steer = -steer;
+        }
+        // Stop for anyone in the road ahead (`PCOM_find_runover_thing`).
+        let fwd = Vec2::new(yaw.sin(), yaw.cos());
+        let side = Vec2::new(fwd.y, -fwd.x);
+        let blocked = self.people.iter().enumerate().any(|(j, o)| {
+            let r = Vec2::new(o.fig.pos.x - at.x, o.fig.pos.z - at.y);
+            j != pi && !o.removed && !matches!(o.state, State::InCar { .. }) && (o.fig.pos.y - y).abs() < 150.0
+                && r.dot(fwd) > 0.0 && r.dot(fwd) < 250.0 + speed.max(0.0) * 0.5 && r.dot(side).abs() < 170.0
+        });
+        self.drivers.insert(pi, st);
+        if blocked && want > 0.0 {
+            return stop;
+        }
+        Drive { throttle: Vehicle::throttle_for(want), steer, handbrake: false }
     }
 
     /// Where person `i` is: their car's position while driving.
@@ -1060,10 +1239,10 @@ impl Game {
                         p.start(colour, group, speed, flags);
                     }
                 }
-                Command::Vehicle { way, kind, pos, angle, locked } => {
+                Command::Vehicle { way, kind, pos, angle, key } => {
                     let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
                     // A vehicle's angle is its heading (its nose along (sin, cos)).
-                    self.vehicles.push(Vehicle::new(way, kind, Vec3::new(pos.x, y, pos.z), angle, locked));
+                    self.vehicles.push(Vehicle::new(way, kind, Vec3::new(pos.x, y, pos.z), angle, key));
                     self.veh_by_way.insert(way, self.vehicles.len() - 1);
                 }
                 Command::Stall { way } => {
@@ -1073,7 +1252,7 @@ impl Game {
                 }
                 Command::Lock { way, locked } => {
                     if let Some(&v) = self.veh_by_way.get(&way) {
-                        self.vehicles[v].locked = locked;
+                        self.vehicles[v].key = if locked { vehicle::Key::Never } else { vehicle::Key::None };
                     }
                 }
                 // A `visual_effect` point's bang. The original's shockwave here never goes
@@ -1171,8 +1350,22 @@ impl Game {
     /// The fly-by camera, or a filmed conversation's, if one is running: (position, looking
     /// at), world units.
     pub fn camera(&self) -> Option<(Vec3, Vec3)> {
-        self.cutscene.as_ref().map(|c| (c.pos, c.shot.target))
+        self.cutscene.as_ref().map(|c| (c.pos, self.look_at(c.shot.target)))
             .or_else(|| self.convo.as_ref().filter(|c| c.filmed()).and_then(|c| c.cam))
+    }
+
+    /// Where a fly-by's target is now (`EWAY_process_camera`, fallen/Source/eway.cpp).
+    fn look_at(&self, look: script::Look) -> Vec3 {
+        use script::{Look, Query};
+        match look {
+            Look::Place(at) => at,
+            // A person's chest rather than their feet.
+            Look::Thing { way, at } => self.thing(way).map_or(at, |t| t.pos + Vec3::new(0.0, 160.0, 0.0)),
+            Look::Near(at) => self.people.iter()
+                .filter(|p| !p.removed && !p.is_dead() && (p.fig.pos - at).length() < 1280.0)
+                .min_by(|a, b| (a.fig.pos - at).length().total_cmp(&(b.fig.pos - at).length()))
+                .map_or(at, |p| p.fig.pos),
+        }
     }
 
     /// Skips the rest of a fly-by (everything it would have triggered still happens).
@@ -1343,15 +1536,18 @@ impl Game {
                     self.messages.push(Message { text: "Five second fuse set".into(), left: 3.0, face: None, filmed: false });
                     return true;
                 }
-                let near = |v: &Vehicle| !v.wrecked() && !v.locked && v.driver.is_none()
+                let near = |v: &Vehicle| !v.wrecked() && v.driver.is_none()
                     && v.covers(Vec2::new(pos.x, pos.z), 140.0) && (v.pos.y - pos.y).abs() < 150.0;
-                if let Some(vi) = self.vehicles.iter().position(near) {
+                let has_key = self.people[pi].has_key;
+                if let Some(vi) = self.vehicles.iter().position(|v| near(v) && v.opens_for(has_key)) {
                     self.vehicles[vi].driver = Some(pi);
                     let p = &mut self.people[pi];
                     p.state = State::InCar { vehicle: vi };
                     p.cues.push(Sfx::CarDoor);
                     return true;
                 }
+                // Only locked ones: said below, if there's nothing else to do here.
+                let locked_near = self.vehicles.iter().any(near);
                 // Search a prop in front of her (`set_person_search`: the nearest searchable
                 // one within a square, no more than an eighth of a turn off her facing).
                 if let Some(ob) = find_ob(level, pos, 256.0, Some(&self.searchable)) {
@@ -1380,6 +1576,14 @@ impl Game {
                     }
                     return true;
                 }
+                if self.chat(pi) {
+                    return true;
+                }
+                // `set_person_enter_vehicle`'s `X_CAR_LOCKED`, an info message on the panel.
+                if locked_near {
+                    self.messages.push(Message { text: "The car is locked.".into(), left: 3.0, face: None, filmed: false });
+                    return true;
+                }
                 false
             }
             _ => false,
@@ -1390,13 +1594,31 @@ impl Game {
     /// cones and barrels around.
     fn drive(&mut self, dt: f32, input: &Controls, level: &Level) {
         let player = self.player;
-        for vi in 0..self.vehicles.len() {
+        // Anyone else at the wheel decides first. A driver who has gone (a kill_waypoint)
+        // leaves the car where it is.
+        let mut npc = vec![None; self.vehicles.len()];
+        for (vi, d) in npc.iter_mut().enumerate() {
+            if let Some(pi) = self.vehicles[vi].driver.filter(|&pi| Some(pi) != player) {
+                if self.people[pi].removed {
+                    self.vehicles[vi].driver = None;
+                } else {
+                    *d = Some((pi, self.npc_drive(vi, pi, dt)));
+                }
+            }
+        }
+        for (vi, npc) in npc.into_iter().enumerate() {
             let v = &mut self.vehicles[vi];
-            let d = if v.driver.is_some() && v.driver == player { input.drive } else { Drive::default() };
+            let d = if v.driver.is_some() && v.driver == player { input.drive } else { npc.map_or(Drive::default(), |(_, d)| d) };
             let sliding = v.slip.abs() > 300.0;
             if let Some(speed) = v.update(d, dt, &level.ground, &level.map) {
                 if speed > 300.0 {
                     self.sounds.push((Sfx::Crash, v.pos));
+                }
+                // Ran into something: back off and come round (`PCOM_MOVE_SUBSTATE_3PTURN`).
+                if let Some(dr) = npc.and_then(|(pi, _)| self.drivers.get_mut(&pi)) {
+                    if dr.reversing <= 0.0 {
+                        dr.reversing = 1.5;
+                    }
                 }
             }
             if !sliding && v.slip.abs() > 300.0 {
@@ -1612,7 +1834,12 @@ impl Game {
             // crowbar, a gas mask, a wrench, a video, gloves, weedkiller. They do nothing in
             // the hand; what matters is that she has them, which a mission reads with
             // `specific_item_held` (The Fallen's five clues are picked up this way).
-            1 | 13..=21 => true,
+            // A key opens the cars that ask for one (`SPECIAL_KEY`).
+            1 => {
+                p.has_key = true;
+                true
+            }
+            13..=21 => true,
             // Explosives are carried, four at most, and left lying once she has four
             // (`should_person_get_item`).
             EXPLOSIVES if p.explosives < 4 => {
@@ -1724,6 +1951,15 @@ impl Game {
         // (12 squares from the mark), then carries on: the original starts at once, so the
         // crash cops in RTA had shot the drunk long before she got there.
         self.walk_goals();
+        self.city_life(dt, level);
+        self.board_cars();
+        // `PCOM_AI_SUICIDE`, "the easiest AI! A random death" (fallen/Source/pcom.cpp): down
+        // as if shot with a pistol the first time it runs. The Fallen's bootlegger is made this
+        // way on the roof once Harney has spoken, and the first clue waits on his death.
+        for p in self.people.iter_mut().filter(|p| p.ai == 15 && !p.player && !p.is_dead() && !p.is_down()) {
+            let from = p.fig.pos + Vec3::new(0.0, 0.0, 1.0);
+            p.take_hit(from, 10_000, person::ko::KNOCKDOWN, false, false, Weapon::Pistol);
+        }
         let darci = player.map(|p| self.people[p].fig.pos);
         for i in 0..self.people.len() {
             let p = &self.people[i];
@@ -1816,6 +2052,7 @@ impl Game {
             // `GF_PLAYER_FIRED_GUN` where the shot leaves the gun, not where it lands.
             if let Event::Shot { attacker, .. } = &e {
                 self.player_fired |= Some(*attacker) == self.player;
+                self.gunshot(*attacker);
             }
             match e {
                 Event::Hit { attacker, victim, mut damage, ko, high, low, weapon } => {
@@ -2050,17 +2287,21 @@ impl Game {
         // Cars: body and wheels (front wheels turned by the steering), and a long shadow.
         for v in &self.vehicles {
             let (body, wheel, wx, fz, rz) = vehicle::TYPES[v.kind as usize];
-            // The meshes are modelled nose towards -z: turn them round to face the way it drives.
-            // They sit on the road as modelled, so the body goes down as it is.
-            if let Some(prim) = level.item_prims.get(&body) {
-                uc_world::level::prim_batches(prim, |p| v.place(Vec3::new(-p.x, p.y, -p.z)), lighter.as_ref(), &mut out);
-            }
-            if let Some(prim) = level.item_prims.get(&wheel) {
-                let (ss, cs) = v.wheel_spin.sin_cos();
-                // A wheel is modelled about its axle, so it rides on its own radius: the vans
-                // and the jeep run on a bigger one than the cars do.
+            // A wheel is modelled about its axle, so it rides on its own radius: the vans and
+            // the jeep run on a bigger one than the cars do.
+            let wheel_prim = level.item_prims.get(&wheel);
+            let radius = wheel_prim.map_or(38.0, |prim| {
                 let (lo, hi) = uc_world::level::prim_bounds(prim);
-                let radius = (hi.y - lo.y) / 2.0;
+                (hi.y - lo.y) / 2.0
+            });
+            // The meshes are modelled nose towards -z: turn them round to face the way it drives.
+            // The body sits so the wheels are where the original has them in it.
+            let lift = radius - vehicle::WHEEL_ABOVE_BODY;
+            if let Some(prim) = level.item_prims.get(&body) {
+                uc_world::level::prim_batches(prim, |p| v.place(Vec3::new(-p.x, p.y + lift, -p.z)), lighter.as_ref(), &mut out);
+            }
+            if let Some(prim) = wheel_prim {
+                let (ss, cs) = v.wheel_spin.sin_cos();
                 // Wheel positions mirrored like the body; the ones towards the nose steer.
                 for (x, z, front) in [(wx, -rz, true), (-wx, -rz, true), (wx, -fz, false), (-wx, -fz, false)] {
                     let (st, ct) = if front { (v.steer * 0.5).sin_cos() } else { (0.0, 1.0) };
