@@ -14,7 +14,7 @@ const PLAYABLE: [&str; 28] = ["ftutor1", "assault1", "testdrive1a", "fight1", "f
                               "testdrive3", "police2", "Bankbomb1", "police3", "Gangorder2", "Gordout1",
                               "Stealtst1", "Baalrog3", "Gangorder1", "police4", "bball2",
                               "wstores1", "e3", "westcrime1", "carbomb1", "botanicc",
-                              "park2", "factory1", "snow2", "MIB", "Semtex"];
+                              "park2", "factory1", "snow2", "MIB", "Semtex", "estate2"];
 
 pub struct Entry {
     /// The mission file's name, without `.ucm`.

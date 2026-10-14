@@ -25,6 +25,7 @@ pub mod road;
 pub mod script;
 pub mod steam;
 pub mod talk;
+pub mod trip;
 pub mod vehicle;
 pub mod wand;
 pub mod ware;
@@ -380,6 +381,8 @@ pub struct Game {
     pub drops: dirt::Drops,
     /// Steam from the mission's vents.
     pub steam: steam::Steam,
+    /// The beams `tripwire` points watch.
+    pub trips: trip::Trips,
     /// Estate of Emergency, where the tramp's face is the boss's (`estate`).
     estate: bool,
     /// Grim Gardens, where jumping onto a platform puts you on it (`playing_level`).
@@ -437,6 +440,7 @@ impl Game {
             creatures: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
             aim_creature: None, aim_barrel: None, creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), steam: steam::Steam::default(),
+            trips: trip::Trips::new(level, &level.mission),
             player_name: "",
             estate: level.mission.mission_name.eq_ignore_ascii_case("estate2"),
             botanicc: level.name.eq_ignore_ascii_case("botanicc"),
@@ -861,6 +865,18 @@ impl Game {
         self.indoors.map(|(_, amb)| amb)
     }
 
+    /// The tripwires watch for the player, from her lower foot to her head
+    /// (`TRIP_process`, calc_sub_objects_position on SUB_OBJECT_LEFT_FOOT, RIGHT_FOOT and
+    /// HEAD).
+    fn trip_wires(&mut self, dt: f32) {
+        let body = self.player().map(|p| {
+            let part = |k: usize| p.fig.part_world(k).map(|(_, at)| at.y);
+            let feet = part(3).zip(part(14)).map_or(p.fig.pos.y, |(l, r)| l.min(r));
+            (p.fig.pos, feet, part(11).unwrap_or(p.fig.pos.y + 0xc0 as f32))
+        });
+        self.trips.update(dt, body);
+    }
+
     /// The vents blow, and their steam scalds whoever stands in it: no stagger, just the
     /// health and a cry of pain, until it's too much (`PFLAG_HURTPEOPLE`). Nobody in a car is
     /// touched, nor anyone only the player can hurt (`PCOM_BENT_PLAYERKILL`).
@@ -1238,6 +1254,7 @@ impl Game {
                         None => eprintln!("mission: warehouse ambience point at {:.0},{:.0} is not inside a warehouse", pos.x, pos.z),
                     }
                 }
+                Command::Untrip { way } => self.trips.deactivate(way),
                 Command::Pee { way, on } => {
                     if let Some(&i) = self.by_way.get(&way) {
                         self.people[i].peeing = on;
@@ -1967,6 +1984,7 @@ impl Game {
             self.charges(dt, level);
         }
         self.vent_steam(dt, level);
+        self.trip_wires(dt);
         self.go_indoors(level);
         self.move_platforms(dt, level);
         self.run_creatures(dt, level, self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player));
@@ -2535,6 +2553,7 @@ impl Game {
                 [puff.colour(); 4],
             );
         }
+        self.trips.batches(&mut out);
         out
     }
 
@@ -2678,12 +2697,16 @@ impl script::Query for Scene<'_> {
     fn prim_damaged(&self, pos: Vec3) -> bool {
         self.game.prim_damaged(self.level, pos)
     }
+    fn tripped(&self, way: usize) -> bool {
+        self.game.trips.tripped(way)
+    }
     fn player_fired(&self) -> bool {
         self.game.player_fired()
     }
 
     /// `can_a_see_b` (fallen/Source/Person.cpp): up to 8 squares, within about 74 degrees of
-    /// straight ahead (much wider up close), with a clear line between their heads.
+    /// straight ahead (much wider up close), with a clear line between their heads: 0x60 up,
+    /// or 0x20 for someone crouching, who can hide behind a low wall.
     fn sees(&self, a: usize, b: usize) -> bool {
         let g = self.game;
         let (Some(&a), Some(&b)) = (g.by_way.get(&a), g.by_way.get(&b)) else { return false };
@@ -2699,8 +2722,8 @@ impl script::Query for Scene<'_> {
         }
         let ahead = pa.facing_dir().dot(d / dist.max(1.0));
         let cone = if dist < 192.0 { -0.54 } else { 0.28 };
-        let head = Vec3::new(0.0, 96.0, 0.0);
-        ahead > cone && self.level.ground.line_of_sight(from + head, to + head)
+        let head = |p: &Person| Vec3::new(0.0, if p.crouching() { 0x20 as f32 } else { 0x60 as f32 }, 0.0);
+        ahead > cone && self.level.ground.line_of_sight(from + head(pa), to + head(pb))
     }
 }
 
