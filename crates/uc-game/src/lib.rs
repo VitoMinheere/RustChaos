@@ -44,7 +44,7 @@ pub use vehicle::{Drive, Vehicle};
 
 /// `facet_rand`'s LCG (fallen/Source/facet.cpp): the one source of chance in the game, so a
 /// run plays out the same way twice.
-pub(crate) fn rand(seed: &mut u32) -> u32 {
+pub fn rand(seed: &mut u32) -> u32 {
     *seed = seed.wrapping_mul(69069).wrapping_add(1);
     *seed >> 16
 }

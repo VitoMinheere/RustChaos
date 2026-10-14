@@ -318,6 +318,13 @@ impl Audio {
         }
     }
 
+    /// Changes the volume of the ambience playing, if any.
+    pub fn ambience_volume(&mut self, volume: f32) {
+        if let Some(a) = &self.ambience {
+            a.set_gain(volume * self.sfx_volume);
+        }
+    }
+
     /// The car engine: running (`Some(revs)`, 0 idle .. 1 flat out) or off (`None`).
     pub fn engine(&mut self, revs: Option<f32>) {
         match revs {
