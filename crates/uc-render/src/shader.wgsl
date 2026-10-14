@@ -40,6 +40,14 @@ fn fs_shadow(in: VOut) -> @location(0) vec4<f32> {
     return vec4<f32>(in.color.rgb, t.a * in.color.a * (1.0 - f));
 }
 
+// The sky behind everything and the moon added over it (`POLY_PAGE_SKY`, `_MOON`): the
+// texture times the vertex colour, with no fog.
+@fragment
+fn fs_sky(in: VOut) -> @location(0) vec4<f32> {
+    let t = textureSample(tex, samp, in.uv);
+    return vec4<f32>(t.rgb * in.color.rgb, 1.0);
+}
+
 @fragment
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let t = textureSample(tex, samp, in.uv);

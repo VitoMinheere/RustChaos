@@ -19,7 +19,7 @@ impl Game {
     pub(crate) fn board_cars(&mut self) {
         for i in 0..self.people.len() {
             let p = &self.people[i];
-            if p.ai != AI_DRIVER || p.player || p.removed || p.is_dead() || p.is_down() || p.aggro() || !matches!(p.state, State::Move) {
+            if !p.drives() || p.player || p.removed || p.is_dead() || p.is_down() || p.aggro() || !matches!(p.state, State::Move) {
                 continue;
             }
             let Some(vi) = self.car_for(i) else { continue };
@@ -134,6 +134,22 @@ impl Game {
             if let Some(pi) = self.vehicles[vi].driver.filter(|&pi| Some(pi) != player) {
                 if self.people[pi].removed {
                     self.vehicles[vi].driver = None;
+                } else if self.people[pi].scared.is_some() {
+                    // Frightened: pull up, then get out and run (`PCOM_set_person_ai_leavecar`,
+                    // parking first if the car is moving).
+                    let v = &mut self.vehicles[vi];
+                    if v.speed.abs() > 60.0 {
+                        *d = Some((pi, Drive { throttle: -v.speed.signum(), ..Default::default() }));
+                    } else {
+                        v.driver = None;
+                        let door = v.door();
+                        let y = level.ground.surface(&level.map, door.x, door.y, v.pos.y + 64.0);
+                        let p = &mut self.people[pi];
+                        p.state = State::Move;
+                        p.fig.pos = Vec3::new(door.x, y, door.y);
+                        p.cues.push(Sfx::CarDoor);
+                        self.drivers.remove(&pi);
+                    }
                 } else {
                     *d = Some((pi, self.npc_drive(vi, pi, dt)));
                 }
