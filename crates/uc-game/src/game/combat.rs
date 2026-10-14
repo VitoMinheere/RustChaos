@@ -14,8 +14,10 @@ impl Game {
             }
             match e {
                 Event::Hit { attacker, victim, mut damage, ko, high, low, weapon } => {
+                    // The player's strength badges add to every blow, and her reflexes to every
+                    // shot (`damage += Strength` / `Skill`, combat.cpp:2070).
                     if Some(attacker) == self.player {
-                        damage += damage * self.stats[1] as i32 / 20;
+                        damage += self.stats[1] as i32;
                     }
                     let from = self.people[attacker].fig.pos;
                     if let State::Held { .. } = self.people[victim].state {
@@ -108,6 +110,9 @@ impl Game {
                         Weapon::Shotgun => (250.0 * (1.0 - dist / (8.0 * 256.0))).max(30.0) as i32,
                         _ => 0,
                     };
+                    if a.player {
+                        damage += self.stats[2] as i32;
+                    }
                     if v.player {
                         damage /= 2;
                     }

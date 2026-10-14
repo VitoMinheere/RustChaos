@@ -1,0 +1,137 @@
+{
+"jung3": {
+  "title": "El Cossa Island *(unofficial title; `jung3`)*",
+  "district": "El Cossa Island (in the district list, unused by any shipped mission)",
+  "synopsis": "The jungle mission, a bonus meant to follow the main story (it comes right after the 33 in the frontend's recommended order, has its own textures and speech, and is mission 31 in the console conversion table). After Gaemin Research's silos, Bane and his men have retreated to El Cosso Island, where a construction site may be building MORE silos. Darci lands on the jetty, makes her way into the Launcher Compound past steam vents and mines, and takes down Bane's fanatical workmen. Island residents have already been killed; she has to keep the rest of the hostages alive. Picking up a certain AK-47 earns 'Lord of the Jungle!'. Note the spelling: the district list says El Cossa, Despatch says El Cosso.",
+  "characters": ["**Darci Stern**", "**Bane's workmen**: fanatical followers building the silos", "**Island residents** held hostage", "A frightened man at the jetty, Wildcats, a Man In Black"],
+  "names": {"2": "Man at the jetty", "57": "Bane workman", "58": "Bane workman", "59": "Bane workman", "60": "Bane workman", "61": "Bane workman", "64": "Bane workman", "81": "Islander", "82": "Islander", "93": "Islander", "94": "Islander"}
+},
+"FreeCD1": {
+  "title": "Construction Site Siege *(the 'Demo map'; `FreeCD1`)*",
+  "synopsis": "The mission of the playable demo (`levels_demo` in supermap.cpp pairs it with the combat tutorial; the attract mode calls it 'Demo map'). The local Wildcat chapter has stormed a construction site and taken workers hostage: Darci has four minutes to take out every Wildcat and keep the hostages alive. A tramp who 'already PAID you cops this month' sets his boys on her. The install has its speech but not its textures.",
+  "characters": ["**Darci Stern**", "**Hostage construction workers**", "**The tramp**: claims he pays off the cops", "The local Wildcat chapter"],
+  "names": {"67": "The tramp", "103": "Hostage worker", "104": "Hostage worker", "105": "Hostage worker", "106": "Hostage worker"}
+},
+"jung1": {
+  "title": "Summoning Stones *(unofficial title; `jung1`)*",
+  "synopsis": "A second jungle level whose map is missing from the install (only `jung1bak.iam` survives). Darci destroys two summoning stones, then gets back before three waves of reinforcements arrive. Pressing action somewhere announces 'Extra multiplayer map available.'",
+  "characters": ["**Darci Stern**", "Seventeen armed Wildcats"],
+  "names": {}
+},
+"BAALROG1": {
+  "title": "Three Balrogs *(unofficial title; `BAALROG1`)*",
+  "synopsis": "A bigger version of Insane Assault in Central Park: 'looks like Bane has finally done it. Somehow, 3 Baalrogs have been summoned and unleashed on Union City.' Darci has to take them down one by one before they kill more than 20 civilians.",
+  "characters": ["**Darci Stern**", "**Three Balrogs**", "Civilians"],
+  "names": {}
+},
+"creds1": {
+  "title": "The Credits Level *(unofficial title; `creds1`)*",
+  "synopsis": "The credits as a walkable level: 'So this is Mucky Foot!' Areas announce PROGRAMMING, DESIGN, ART and SPECIAL THANKS, and the people standing about, as civilians and Wildcats, are the development team, each saying their own name when spoken to (Mike Diskett adds 'Smell my shorts'). Five 'Work Experience?' civilians round it off.",
+  "characters": ["**Darci Stern**", "The Mucky Foot team, as themselves"],
+  "names": {}
+},
+"Capflag1": {
+  "title": "Capture the Disk *(unofficial title; `Capflag1`)*",
+  "synopsis": "Two-player capture the flag on `multi1.iam`: Darci (player one) against Roper (player two), racing for a floppy disk and back, with grenades and mines scattered about. Part of the cut multiplayer mode.",
+  "characters": ["**Darci Stern** (player one)", "**Roper** (player two)"],
+  "names": {}
+},
+"Takeover1": {
+  "title": "Bank Sector Takeover *(unofficial title; `Takeover1`)*",
+  "synopsis": "An early prototype from before Bane: 'Mr X's gang have overrun the banking sector and sealed off the surrounding area.' Darci gets in with a keycard and rescues two workers, taking them out of the front gates to the extraction point, while cops wait for backup. A civilian introduces himself as 'Mark, I'm a programmer'.",
+  "characters": ["**Darci Stern**", "**Mr X** (mentioned): the early villain", "Two hostage workers, nervous cops"],
+  "names": {"62": "Worker 1", "63": "Worker 2", "87": "Mark, a programmer"}
+},
+"Getaway1": {
+  "title": "Mr X's Getaway *(unofficial title; `Getaway1`)*",
+  "synopsis": "Prototype on the TV-centre map: 'Mr X and his bodyguards are making a hasty exit from the TV station.' Darci meets her police contact at Lexington and 12th and must intercept Mr X before his van gets away, last seen near York Park. Street signs name the area's junctions.",
+  "characters": ["**Darci Stern**", "**Mr X**", "**Police contact**"],
+  "names": {"131": "Mr X", "162": "Police contact"}
+},
+"Transmit1": {
+  "title": "Transmitter *(prototype of Transmission Terminated; `Transmit1`)*",
+  "synopsis": "Destroy the main transmitter on top of the television building. Roper supplies the sabotage equipment; a cop has orders to stay away though 'that Madman is about to broadcast on State TV' to scare the city into his lunatic beliefs. Side job: arrest two dealers.",
+  "characters": ["**Darci Stern**", "**Roper**", "**'The Madman'** (mentioned): the broadcaster", "A cop under orders, a metal-works night worker, dealers"],
+  "names": {"138": "Roper", "142": "Cop under orders", "162": "Night worker"}
+},
+"subdock1": {
+  "title": "Dock Extraction *(unofficial title; `subdock1`)*",
+  "synopsis": "A short prototype: terminate the dock operator and get to the chopper for extraction at the southern end of the sector, across moving platforms.",
+  "characters": ["**Darci Stern**", "**The dock operator**"],
+  "names": {}
+},
+"backalley1": {
+  "title": "Downtown Outpost *(unofficial title; `backalley1`)*",
+  "synopsis": "A combat prototype: 'The gang have constructed a downtown outpost. Eliminate all gang members! Use the surrounding buildings to your advantage.'",
+  "characters": ["**Darci Stern**", "The gang"],
+  "names": {}
+},
+"estate1": {
+  "title": "Farraday's Files *(early Estate of Emergency; `estate1`)*",
+  "synopsis": "An earlier take on Bane's estate: disarm the security from the pool house, rescue Mr Farraday, copy 'all information about the cult' from the main computer onto a disk, and hand it to Officer Jed at the main gates.",
+  "characters": ["**Darci Stern**", "**Mr Farraday**: captive", "**Officer Jed**: Darci's superior on the job"],
+  "names": {"41": "Mr Farraday", "105": "Officer Jed"}
+},
+"Crimescene": {
+  "title": "24th Street Shooting *(unofficial title; `Crimescene`)*",
+  "synopsis": "An unfinished Southside investigation: a man shot with two .44 slugs, 'not no gang-banger'. A witness, beaten to half health, describes two killers: one with a handgun, the other dressed in black and HUGE. A silencer goes to forensics; the trail leads to Harley Blvd. An early sketch of The Fallen and its Men In Black.",
+  "characters": ["**Darci Stern**", "**The witness**", "Cops at the scene, a Wildcat loan shark ('Red') and his debtor"],
+  "names": {"44": "The witness", "91": "Debtor", "93": "Red"}
+},
+"police5": {
+  "title": "Station Bombed *(unofficial title; `police5`)*",
+  "synopsis": "A West District prototype: someone has bombed Darci's station. She asks around (a man saw 'a guy in combats' beat someone up opposite the park). Mostly placeholder chatter.",
+  "characters": ["**Darci Stern**", "Witnesses"],
+  "names": {}
+},
+"southsideroads": {
+  "title": "Southside Patrol *(unofficial title; `southsideroads`)*",
+  "synopsis": "'Southside. Dawn. Unit 37 proceed with patrol of Southside district.' A route that names every street corner of Southside, 35 badges along it: a ready-made street map.",
+  "characters": ["**Darci Stern** (Unit 37)"],
+  "names": {}
+},
+"train1": {
+  "title": "Basic Training *(unofficial title; `train1`)*",
+  "synopsis": "An early training course on its own map, with laser tripwires ('You hit a laser, consider yourself dead'), a motorbike, and a lesson in talking to people with the action key.",
+  "characters": ["**Darci Stern**", "Training officers"],
+  "names": {}
+},
+"train11": {
+  "title": "Driving School *(unofficial title; `train11`)*",
+  "synopsis": "A variant of Basic Training with a driving-school section.",
+  "characters": ["**Darci Stern**", "Training officers"],
+  "names": {}
+},
+"testdrive1": {
+  "title": "Driving Basics *(early Driving Bronze; `testdrive1`)*",
+  "synopsis": "Two laps of the basic course, clockwise, in one minute, avoiding cones.",
+  "characters": ["**Darci Stern**", "**Training officer**"],
+  "names": {"199": "Training officer"}
+},
+"fight3": {
+  "title": "Combat, third grade *(unofficial title; `fight3`)*",
+  "synopsis": "A harder version of the combat grades: waves of five and six targets.",
+  "characters": ["**Darci Stern**", "Sparring partners"],
+  "names": {}
+},
+"police1b": {"title": "RTA *(draft; `police1b`)*", "synopsis": "An earlier RTA: the abandoned car and the drunk driver, with placeholder chatter ('Hi, I'm Simon, I created all the world... jibber jibber').", "characters": [], "names": {}},
+"bball1": {"title": "Gatecrasher *(draft; `bball1`)*", "synopsis": "An earlier Gatecrasher in which the villain is 'the Judge' ('I guess the Judge needs em pretty soon'), the bouncer sends Darci to 'Big Joe', and there's a club called The Purple Palace.", "characters": [], "names": {}},
+"wstores11": {"title": "Arms Breaker *(draft; `wstores11`)*", "synopsis": "An earlier Arms Breaker with different street signs (Holly Vale, Great Eastern and Banner, Rio Ices).", "characters": [], "names": {}},
+"wstoresD": {"title": "Arms Breaker *(late draft; `wstoresD`)*", "synopsis": "Arms Breaker almost as shipped.", "characters": [], "names": {}},
+"wstores1D": {"title": "Arms Breaker *(German; `wstores1D`)*", "synopsis": "The same as `wstoresD`, translated into German.", "characters": [], "names": {}},
+"carbomb2": {"title": "Auto-Destruct *(draft; `carbomb2`)*", "synopsis": "Auto-Destruct almost as shipped.", "characters": [], "names": {}},
+"botanic1": {"title": "Grim Gardens *(draft; `botanic1`)*", "synopsis": "An earlier Grim Gardens: sabotage the supplies. A plaque reads 'In loving memory of Simon Keating'.", "characters": [], "names": {}},
+"botanicb": {"title": "Grim Gardens *(draft; `botanicb`)*", "synopsis": "Another earlier Grim Gardens.", "characters": [], "names": {}},
+"memtex": {"title": "Semtex *(draft; `memtex`)*", "synopsis": "Semtex almost as shipped.", "characters": [], "names": {}},
+"test3": {"title": "Semtex *(early draft; `test3`)*", "synopsis": "An earlier Semtex with the Southside street signs, Officer Molko on 11th Avenue, and one Semtex barrel.", "characters": [], "names": {}},
+"test3old": {"title": "Semtex *(earliest draft; `test3old`)*", "synopsis": "The earliest Semtex: Deeks, Molko and Roper.", "characters": [], "names": {}},
+"snow1": {"title": "Target UC *(draft; `snow1`)*", "synopsis": "An earlier Target UC on another snow map, with a motorbike.", "characters": [], "names": {}},
+"snow2_test": {"title": "Target UC *(test copy; `snow2_test`)*", "synopsis": "Target UC as shipped.", "characters": [], "names": {}},
+"Acarry": {"title": "Cop Killers *(draft; `Acarry`)*", "synopsis": "Cop Killers almost as shipped: the carrying test ('A carry').", "characters": [], "names": {}},
+"Finale1b": {"title": "Day Of Reckoning *(draft; `Finale1b`)*", "synopsis": "An earlier Day Of Reckoning on a missing map, with a longer opening from Roper: 'D'arci - now is the final reckoning. Here, we will probably die - but what we will avert may very well save this City and even this earth...'", "characters": [], "names": {}},
+"gang1": {"title": "Mr Bates *(early Mako mission; `gang1`)*", "synopsis": "An early Mako mission: find 'Mr Bates', hanging out by the park. Civilians cower from him ('More like pussy cats than Wild cats!').", "characters": [], "names": {}},
+"gang2": {"title": "Rat Catch *(draft; `gang2`)*", "synopsis": "An earlier Rat Catch: fetch Bish and McLean, then 'Blood' and 'Kidnap'.", "characters": [], "names": {}},
+"gang3": {"title": "Trash the Place *(early Mako mission; `gang3`)*", "synopsis": "Mako rounds up Wildcats to 'trash that place'; one stays to guard the den and hands over supplies.", "characters": [], "names": {}},
+"Gang order1": {"title": "Assassin *(draft; `Gang order1`)*", "synopsis": "Assassin almost as shipped.", "characters": [], "names": {}},
+"Gang order3": {"title": "Getaway Van *(early Mako mission; `Gang order3`)*", "synopsis": "Like `gang3`, ending at a getaway van.", "characters": [], "names": {}}
+}

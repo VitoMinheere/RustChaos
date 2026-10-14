@@ -204,13 +204,14 @@ impl Game {
             );
         }
         self.trips.batches(&mut out);
+        self.sky(&mut out, level, eye);
         out
     }
 
     /// Texture pages any person in this level might use.
     pub fn pages(level: &Level) -> Vec<u32> {
         let Some(people) = &level.people else { return Vec::new() };
-        let mut out = Vec::new();
+        let mut out = vec![uc_world::SKY_PAGE, uc_world::MOON_PAGE];
         // The platforms' props, which the level leaves to the game.
         for &(_, ob) in &level.platforms {
             if let Some(prim) = uc_world::level::load_prim(&level.game, level.map.objects[ob].prim) {
@@ -238,6 +239,58 @@ impl Game {
         out.sort_unstable();
         out.dedup();
         out
+    }
+}
+
+impl Game {
+    /// `AENG_NUM_RAINDROPS`: the drops drawn each frame.
+    pub const RAINDROPS: usize = 128;
+
+    /// It rains whenever it's night (`GF_RAINING`, set when the lighting isn't
+    /// `NIGHT_FLAG_DAYTIME`, elev.cpp:2406).
+    pub fn raining(level: &Level) -> bool {
+        level.lighting.as_ref().is_some_and(|l| l.flags & uc_formats::lgt::FLAG_DAYTIME == 0)
+    }
+
+    /// The rain (`AENG_draw_rain`, aeng.cpp:2448): out of doors on a night mission, a fresh
+    /// scatter of drops each frame in front of the camera and up to eight squares off, each
+    /// a short streak lit by the light where it is (`SHAPE_droplet`, shape.cpp:1440: a
+    /// triangle at the drop narrowing to a point 64 up and 8 back along x and z). The original
+    /// scatters them through its own view volume; here it's the camera's, `look` being the way
+    /// it faces. They're blended over the scene as the raindrop page is, but with the soft
+    /// blob in place of `raindrop.tga`, so they're drawn half the original's ten units wide
+    /// and faint to look as thin.
+    pub fn rain(&self, level: &Level, eye: Vec3, look: Vec3, out: &mut BTreeMap<u32, Batch>) {
+        if !Self::raining(level) || self.indoors.is_some() {
+            return;
+        }
+        let fwd = look.normalize_or(Vec3::Z);
+        let right = fwd.cross(Vec3::Y).normalize_or(Vec3::X);
+        let up = right.cross(fwd);
+        // A 60 degree view at 4:3.
+        let (half_h, half_w) = (30f32.to_radians().tan(), 30f32.to_radians().tan() * 4.0 / 3.0);
+        let lighter = level.lighter();
+        let mut seed = self.time.to_bits() ^ 0x5ca1ab1e;
+        let mut unit = || crate::rand(&mut seed) as f32 / 65535.0;
+        let batch = out.entry(uc_world::SHADOW).or_default();
+        let size = uc_formats::iam::MAP_SIZE as f32 * 256.0;
+        for _ in 0..Self::RAINDROPS {
+            let (x, y) = (unit() * 2.0 - 1.0, unit() * 2.0 - 1.0);
+            let d = (unit() + 0.1) * 256.0 * 8.0;
+            let at = eye + fwd * d + right * (x * half_w * d) + up * (y * half_h * d);
+            if at.x < 0.0 || at.z < 0.0 || at.x >= size || at.z >= size {
+                continue;
+            }
+            let [r, g, b] = lighter.as_ref().map_or([0.4; 3], |l| l.light(at.into(), [0.0, 1.0, 0.0]));
+            let colour = [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8, 110];
+            let tip = at + Vec3::new(-8.0, 64.0, -8.0);
+            let across = (at - eye).cross(tip - at).normalize_or(Vec3::X) * 2.5;
+            batch.tri(
+                [(at + across) / uc_world::UNIT, (at - across) / uc_world::UNIT, tip / uc_world::UNIT],
+                [[0.5, 0.2], [0.5, 0.8], [0.95, 0.5]],
+                [colour; 3],
+            );
+        }
     }
 }
 
@@ -271,4 +324,47 @@ fn shadow(out: &mut BTreeMap<u32, Batch>, p: &Person, level: &Level) {
             None => [0, 0, 0, a],
         }; 4],
     );
+}
+
+impl Game {
+    /// The sky round the camera (`SKY_draw_poly_sky_old`, sky.cpp:1058): thirty panels 66
+    /// squares out, from the ground up to 12072, the world's `sky.tga` across five at a time.
+    /// At night, out of doors, the moon too (`SKY_draw_poly_moon`): an eighth of a turn up to
+    /// the north, 22 squares off and half the camera's height up, about as wide as the
+    /// original's 15% of the screen. The original's stars and clouds are commented out of it
+    /// (aeng.cpp:7720, 9093).
+    fn sky(&self, out: &mut BTreeMap<u32, Batch>, level: &Level, eye: Vec3) {
+        const STEPS: usize = 30;
+        const RADIUS: f32 = 66.0 * 256.0;
+        const TOP: f32 = 12072.0;
+        let white = [[255, 255, 255, 255]; 4];
+        let at = |a: f32, y: f32| Vec3::new(eye.x + a.sin() * RADIUS, y, eye.z + a.cos() * RADIUS) / uc_world::UNIT;
+        let sky = out.entry(uc_world::SKY_PAGE).or_default();
+        for i in 0..STEPS {
+            let (a0, a1) = (i as f32, (i + 1) as f32);
+            let (a0, a1) = (a0 * std::f32::consts::TAU / STEPS as f32, a1 * std::f32::consts::TAU / STEPS as f32);
+            let u = (i % 5) as f32 * 0.2;
+            sky.quad([at(a0, TOP), at(a1, TOP), at(a0, 0.0), at(a1, 0.0)], [[u, 0.0], [u + 0.2, 0.0], [u, 1.0], [u + 0.2, 1.0]], white);
+        }
+        // `NIGHT_FLAG_DAYTIME`.
+        let night = level.lighting.as_ref().is_some_and(|l| l.flags & (1 << 2) == 0);
+        if !night || self.indoors.is_some() {
+            return;
+        }
+        let dist = 22.0 * 256.0 - 128.0;
+        let pitch = std::f32::consts::PI / 8.0;
+        let mid = Vec3::new(eye.x, eye.y * 0.5 + pitch.sin() * dist, eye.z + pitch.cos() * dist);
+        let away = (mid - eye).normalize_or(Vec3::Z);
+        let radius = dist * 0.3;
+        let right = away.cross(Vec3::Y).normalize_or(Vec3::X) * radius;
+        let up = right.cross(away).normalize_or(Vec3::Y) * radius;
+        let corner = |x: f32, y: f32| (mid + right * x + up * y) / uc_world::UNIT;
+        // `SKY_MOON_UV_IN`: the texture's edge left off.
+        let (lo, hi) = (0.02, 0.98);
+        out.entry(uc_world::MOON_PAGE).or_default().quad(
+            [corner(-1.0, 1.0), corner(1.0, 1.0), corner(-1.0, -1.0), corner(1.0, -1.0)],
+            [[lo, lo], [hi, lo], [lo, hi], [hi, hi]],
+            white,
+        );
+    }
 }
