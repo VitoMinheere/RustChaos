@@ -236,6 +236,58 @@ impl Game {
     }
 }
 
+impl Game {
+    /// `AENG_NUM_RAINDROPS`: the drops drawn each frame.
+    pub const RAINDROPS: usize = 128;
+
+    /// It rains whenever it's night (`GF_RAINING`, set when the lighting isn't
+    /// `NIGHT_FLAG_DAYTIME`, elev.cpp:2406).
+    pub fn raining(level: &Level) -> bool {
+        level.lighting.as_ref().is_some_and(|l| l.flags & uc_formats::lgt::FLAG_DAYTIME == 0)
+    }
+
+    /// The rain (`AENG_draw_rain`, aeng.cpp:2448): out of doors on a night mission, a fresh
+    /// scatter of drops each frame in front of the camera and up to eight squares off, each
+    /// a short streak lit by the light where it is (`SHAPE_droplet`, shape.cpp:1440: a
+    /// triangle at the drop narrowing to a point 64 up and 8 back along x and z). The original
+    /// scatters them through its own view volume; here it's the camera's, `look` being the way
+    /// it faces. They're blended over the scene as the raindrop page is, but with the soft
+    /// blob in place of `raindrop.tga`, so they're drawn half the original's ten units wide
+    /// and faint to look as thin.
+    pub fn rain(&self, level: &Level, eye: Vec3, look: Vec3, out: &mut BTreeMap<u32, Batch>) {
+        if !Self::raining(level) || self.indoors.is_some() {
+            return;
+        }
+        let fwd = look.normalize_or(Vec3::Z);
+        let right = fwd.cross(Vec3::Y).normalize_or(Vec3::X);
+        let up = right.cross(fwd);
+        // A 60 degree view at 4:3.
+        let (half_h, half_w) = (30f32.to_radians().tan(), 30f32.to_radians().tan() * 4.0 / 3.0);
+        let lighter = level.lighter();
+        let mut seed = self.time.to_bits() ^ 0x5ca1ab1e;
+        let mut unit = || crate::rand(&mut seed) as f32 / 65535.0;
+        let batch = out.entry(uc_world::SHADOW).or_default();
+        let size = uc_formats::iam::MAP_SIZE as f32 * 256.0;
+        for _ in 0..Self::RAINDROPS {
+            let (x, y) = (unit() * 2.0 - 1.0, unit() * 2.0 - 1.0);
+            let d = (unit() + 0.1) * 256.0 * 8.0;
+            let at = eye + fwd * d + right * (x * half_w * d) + up * (y * half_h * d);
+            if at.x < 0.0 || at.z < 0.0 || at.x >= size || at.z >= size {
+                continue;
+            }
+            let [r, g, b] = lighter.as_ref().map_or([0.4; 3], |l| l.light(at.into(), [0.0, 1.0, 0.0]));
+            let colour = [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8, 110];
+            let tip = at + Vec3::new(-8.0, 64.0, -8.0);
+            let across = (at - eye).cross(tip - at).normalize_or(Vec3::X) * 2.5;
+            batch.tri(
+                [(at + across) / uc_world::UNIT, (at - across) / uc_world::UNIT, tip / uc_world::UNIT],
+                [[0.5, 0.2], [0.5, 0.8], [0.95, 0.5]],
+                [colour; 3],
+            );
+        }
+    }
+}
+
 /// A soft round shadow on the surface under a person, like the original's blob shadows:
 /// fainter the higher they are above it, wider when lying down.
 fn shadow(out: &mut BTreeMap<u32, Batch>, p: &Person, level: &Level) {
