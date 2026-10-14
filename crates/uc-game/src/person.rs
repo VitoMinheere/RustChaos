@@ -534,6 +534,14 @@ pub struct Person {
     /// A mission has set them peeing (`FLAG_PERSON_PEEING`).
     pub peeing: bool,
     /// Charges carried (the special's `ammo`): four at most.
+    /// Breath for sprinting (`Genus.Person->Stamina`), the player's only: up to
+    /// `max_stamina`, which is 128 and the stamina badges (Person.cpp:4319).
+    pub stamina: f32,
+    pub max_stamina: f32,
+    /// Ran out of breath, and still holding action: no sprinting until it's let go.
+    winded: bool,
+    /// Sprinting this frame.
+    pub sprinting: bool,
     pub explosives: u8,
     /// Carrying a key (`SPECIAL_KEY`): cars locked with a coloured key open for them.
     pub has_key: bool,
@@ -621,7 +629,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 3], knocked_out: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
-            peeing: false, explosives: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false,
+            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false,
         }
     }
 
@@ -1146,6 +1154,50 @@ impl Person {
         matches!(self.state, State::Crouch { phase: 0..=2 })
     }
 
+    /// Getting breath back, a point a tick while action isn't held, jumping from 5 to 20 as
+    /// it comes back from nothing; bleeding (under a quarter of health) loses a point a tick
+    /// down to 50 (Person.cpp:4315, 4469).
+    fn breathe(&mut self, c: &Controls, dt: f32) {
+        const TICK: f32 = 20.0;
+        if !c.sprint {
+            self.winded = false;
+            if self.stamina < self.max_stamina {
+                let before = self.stamina;
+                self.stamina = (self.stamina + TICK * dt).min(self.max_stamina);
+                if before < 5.0 && self.stamina >= 5.0 {
+                    self.stamina = 20.0f32.min(self.max_stamina);
+                }
+            }
+        }
+        if self.health < self.max_health / 4 && self.stamina > 50.0 {
+            self.stamina -= TICK * dt;
+        }
+    }
+
+    /// Whether the player sprints: running with action held, starting only with more than 3
+    /// breath, a point every fourth tick while at it, and out of breath under 10 (back to a
+    /// run, panting, `S_DARCI_OUTOFBREATH`; Person.cpp:15700). Roper never sprints
+    /// (interfac.cpp: `PersonType != PERSON_ROPER`). The AI's sprinting is left as it was.
+    fn sprint(&mut self, c: &Controls, moving: bool, dt: f32) -> bool {
+        use uc_world::character::person as ptype;
+        if !self.player {
+            return c.sprint;
+        }
+        if !(c.sprint && c.run && moving) || self.winded || self.kind == ptype::ROPER || self.stamina <= 3.0 {
+            return false;
+        }
+        if self.stamina < 10.0 {
+            self.stamina = 0.0;
+            self.winded = true;
+            let id = if self.kind == ptype::ROPER { 203 } else { 176 };
+            self.cues.push(Sfx::ById { id, replace: false });
+            return false;
+        }
+        self.stamina -= 20.0 / 4.0 * dt;
+        self.sprinting = true;
+        true
+    }
+
     fn idle(&mut self, fight: bool) {
         let a = match (fight, self.weapon) {
             (_, w) if w.is_gun() && self.gun_out() => w.aim_anim(),
@@ -1277,6 +1329,10 @@ impl Person {
     pub fn step(&mut self, me: usize, c: &Controls, snaps: &[Snap], ground: &Ground, map: &Map, dt: f32, events: &mut Vec<Event>) {
         if self.removed {
             return;
+        }
+        self.sprinting = false;
+        if self.player {
+            self.breathe(c, dt);
         }
         // Jumps, landings and knockdowns draw the body offset from where the animation puts it.
         self.fig.cancel_rise = matches!(self.state, State::Fall { .. } | State::Land { .. });
@@ -1751,6 +1807,7 @@ impl Person {
             self.cues.push(Sfx::Pickup);
         }
         let moving = c.wish.length_squared() > 0.01;
+        let sprint = self.sprint(c, moving, dt);
         let target = self.nearest_opponent(me, snaps, FIGHT_RANGE);
         // A gun drawn: no fighting stance (punch fires).
         let fight = target.is_some() && !c.run && !self.weapon.is_gun();
@@ -1872,7 +1929,7 @@ impl Person {
         }
         if c.kick {
             if moving && c.run {
-                let speed = if c.sprint { SPRINT_SPEED * 1.15 } else { RUN_SPEED * 1.1 };
+                let speed = if sprint { SPRINT_SPEED * 1.15 } else { RUN_SPEED * 1.1 };
                 self.fig.restart(anim::SLIDER_START, Play::Once);
                 self.state = State::Slide { phase: 0, speed, hit: 0 };
                 events.push(Event::Kick { attacker: me });
@@ -1911,7 +1968,7 @@ impl Person {
         } else if moving {
             let dir = c.wish.normalize();
             self.fig.turn_towards(dir, 10.0, dt);
-            let (speed, a, rate) = match (c.run, c.sprint) {
+            let (speed, a, rate) = match (c.run, sprint) {
                 (true, true) => (SPRINT_SPEED, anim::RUN, 1.35),
                 (true, false) => (RUN_SPEED, anim::RUN, 1.0),
                 _ => (WALK_SPEED, anim::WALK, 1.0),
