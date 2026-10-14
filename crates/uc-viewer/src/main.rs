@@ -371,9 +371,13 @@ impl World {
         let n = 1024;
         let half = uc_formats::iam::MAP_SIZE as f32 / 2.0;
         let top = Camera { pos: vec3(half, 100.0, half), target: vec3(half, 0.0, half), fov_y: 1.0, ortho: Some(half) };
-        let layers: Vec<Layer> = Layer::ALL.iter().copied().filter(|&l| l != Layer::Character).collect();
+        // Of what the game draws, only the sea's floor (the dynamic batches come with the
+        // character layer).
+        let layers: Vec<Layer> = Layer::ALL.to_vec();
+        let mut sea = BTreeMap::new();
+        self.game.draw_sea(&mut sea);
         let shot = |r: &mut Renderer, cam: &Camera| {
-            r.render_to_image((n, n), cam, &Settings { sky: self.level.sky, fog: None, layers: layers.clone() }, &BTreeMap::new(), &Overlay::new())
+            r.render_to_image((n, n), cam, &Settings { sky: self.level.sky, fog: None, layers: layers.clone() }, &sea, &Overlay::new())
         };
         let mut rgba = shot(r, &top);
         // Warehouse roofs (and some ceilings) are black from above, as on PC: there, show the

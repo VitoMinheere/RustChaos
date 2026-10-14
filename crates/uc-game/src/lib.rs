@@ -389,6 +389,8 @@ pub struct Game {
     pub mists: Mists,
     /// Drops in the air.
     pub drops: dirt::Drops,
+    /// The floor squares on the sea, drawn with the waves.
+    sea: Vec<uc_world::level::SeaSquare>,
     /// Steam from the mission's vents.
     pub steam: steam::Steam,
     /// The beams `tripwire` points watch.
@@ -457,7 +459,7 @@ impl Game {
             plat_clock: 0.0,
             creatures: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
             aim_creature: None, aim_barrel: None, creature_clock: 0.0, creature_rng: 0xba7,
-            pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), steam: steam::Steam::default(),
+            pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), sea: level.sea(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
             electrified: BTreeSet::new(), fence_spark_clock: 0.0, no_floor: false,
             player_name: "",
