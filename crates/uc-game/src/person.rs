@@ -449,6 +449,8 @@ pub struct Snap {
     pub standing: bool,
     pub down: bool,
     pub arrested: bool,
+    /// Lying knocked down and still alive, so they can be cuffed (see [`Person::arrestable`]).
+    pub arrestable: bool,
     pub player: bool,
     pub hostile: bool,
     /// Worth a fighting stance: hostile, or a fight-test dummy.
@@ -636,6 +638,16 @@ impl Person {
         self.player && self.kind == uc_world::character::person::DARCI
     }
 
+    /// Can be arrested: knocked down and waiting to get up, not dead
+    /// (`is_person_ko_and_lay_down` in `find_arrestee`, fallen/Source/Person.cpp). Someone
+    /// out of health is `STATE_DEAD` in the original, which it never cuffs; the one exception
+    /// is a fight-test dummy, which its lesson move "knocks out" and the tutorial then asks
+    /// for an arrest of.
+    pub fn arrestable(&self) -> bool {
+        self.is_down() && !self.arrested && !self.removed && (!self.knocked_out || self.is_dummy())
+            && !matches!(self.state, State::Cuffed)
+    }
+
     pub fn is_dummy(&self) -> bool {
         self.ai == crate::script::PCOM_AI_FIGHT_TEST
     }
@@ -703,6 +715,7 @@ impl Person {
             standing: !self.removed && matches!(self.state, State::Move | State::Attack { .. } | State::Hurt | State::Land { .. } | State::Block | State::Shoot { .. }),
             down: self.is_down(),
             arrested: self.arrested,
+            arrestable: self.arrestable(),
             player: self.player,
             hostile: self.hostile(),
             fighter: self.hostile() || self.is_dummy(),
@@ -1460,7 +1473,7 @@ impl Person {
         if c.action && self.can_arrest() {
             // Arrest a downed opponent.
             let downed = snaps.iter().enumerate().find(|&(j, s)| {
-                j != me && s.present && s.down && !s.arrested && !s.player
+                j != me && s.present && s.arrestable && !s.player
                     && flat(s.pos, self.fig.pos).length() < ARREST_RANGE && (s.pos.y - self.fig.pos.y).abs() < 64.0
             });
             if let Some((j, s)) = downed {

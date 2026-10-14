@@ -158,7 +158,7 @@ Guns can aim at the Balrog and gargoyles, and a bar under the clock shows the he
 
 **Fighting:**
 - Hold block to stop blows from the front. Knives and bats still hurt a little, and attacks from behind get through. Skilled enemies block too.
-- Finishing moves knock people down; they get up again unless they're out of health. Arrest them while they're down.
+- Finishing moves knock people down; they get up again unless they're out of health. Arrest them while they're down: only the living, as in the original, so someone out of health can't be cuffed.
 - Walk over a knife or baseball bat to pick it up (enemies drop theirs when knocked out); punch then swings it. Walk over a health pack to heal.
 - A bullet landing makes no sound of its own, as in the original: the shot and the victim's voice carry it.
 - **Guns:** walk over a pistol, shotgun or AK-47 to pick it up (it comes loaded, and is drawn if your hands are empty), or over an ammo box for another clip. A mission can also start you carrying a pistol (its `create_player` point says so, as Nitro Car's does): that one is stowed, not drawn. The HUD lists what's in hand brightly and what else is on you dimmed beside it, as the original's weapon panel did. Armed enemies drop their guns when knocked out or arrested. G (or RB) switches weapon.
