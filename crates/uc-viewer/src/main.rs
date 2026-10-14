@@ -319,7 +319,10 @@ impl World {
     }
 
     fn settings(&self) -> Settings {
-        Settings { sky: self.level.sky, fog: self.args.fog, layers: self.layers.clone() }
+        // No floor (`GF_NO_FLOOR`): the street under Gunston Tower isn't drawn
+        // (`AENG_draw`, aeng.cpp:9287); the roofs still are.
+        let layers = self.layers.iter().copied().filter(|&l| !(self.game.no_floor && l == Layer::Floor)).collect();
+        Settings { sky: self.level.sky, fog: self.args.fog, layers }
     }
 
     fn eye(&self) -> Option<Vec3> {
@@ -341,7 +344,12 @@ impl World {
                 if self.game.player_vehicle().is_some() {
                     orbit.dist = orbit.dist.max(4.0);
                 }
-                orbit.cam(eye).camera()
+                let mut cam = orbit.cam(eye);
+                // With no floor the camera never goes below 0x280 (fc.cpp:1650).
+                if self.game.no_floor {
+                    cam.pos.y = cam.pos.y.max(0x280 as f32 / uc_world::UNIT);
+                }
+                cam.camera()
             }
             _ => self.fly.camera(),
         }

@@ -153,4 +153,109 @@ impl plat::Route for Route<'_> {
     fn delay(&self, way: usize, default: f32) -> f32 {
         self.0.point_delay(way, default)
     }
+
+}
+
+impl Game {
+    /// `set_electric_fence_state` for the fence nearest `pos` (`find_electric_fence_dbuilding`,
+    /// supermap.cpp:2407): the nearest facet's whole building, every facet of it.
+    pub(crate) fn electrify(&mut self, level: &Level, pos: Vec3, on: bool) {
+        let p = vec2(pos.x, pos.z);
+        let nearest = level.map.facets.iter().skip(1)
+            .map(|f| {
+                let (a, b) = (vec2(f.x[0] as f32, f.z[0] as f32) * 256.0, vec2(f.x[1] as f32, f.z[1] as f32) * 256.0);
+                let t = ((p - a).dot(b - a) / (b - a).length_squared().max(1.0)).clamp(0.0, 1.0);
+                (f.building, (a + (b - a) * t - p).length())
+            })
+            // It looks through the map cells within 256 of the point, a square of 1024 apiece.
+            .filter(|&(_, d)| d < 1024.0)
+            .min_by(|a, b| a.1.total_cmp(&b.1));
+        match nearest {
+            Some((building, _)) if on => {
+                self.electrified.insert(building);
+            }
+            Some((building, _)) => {
+                self.electrified.remove(&building);
+            }
+            None => eprintln!("mission: no fence near {:.0},{:.0} to electrify", pos.x, pos.z),
+        }
+    }
+
+    /// Electrified fences: whoever lands on one climbing it is thrown off it with sparks from
+    /// their hands and feet, knocked down for 30 (Person.cpp:14232), and every 32 ticks each
+    /// one sparks to the ground somewhere along it (`SPARK_process`, spark.cpp:1270).
+    pub(crate) fn electric_fences(&mut self, dt: f32, level: &Level) {
+        if self.electrified.is_empty() {
+            return;
+        }
+        let live = |at: Vec2| {
+            level.ground.fences.iter().zip(&level.ground.fence_buildings)
+                .filter(|(w, _)| {
+                    let (a, b) = (Vec2::from(w.a), Vec2::from(w.b));
+                    let t = ((at - a).dot(b - a) / (b - a).length_squared().max(1.0)).clamp(0.0, 1.0);
+                    (a + (b - a) * t - at).length() < 16.0
+                })
+                .any(|(_, b)| self.electrified.contains(b))
+        };
+        for i in 0..self.people.len() {
+            let State::Fence { phase: 1, at, .. } = self.people[i].state else { continue };
+            if !live(at) {
+                continue;
+            }
+            let p = &mut self.people[i];
+            // `SUB_OBJECT_LEFT_FOOT`, `_LEFT_HAND`, `_RIGHT_FOOT`, `_RIGHT_HAND`.
+            for limb in [3, 7, 14, 10] {
+                if let Some((_, from)) = p.fig.part_world(limb) {
+                    let to = Vec3::new(at.x, from.y, at.y);
+                    self.sparks.push(Spark { from, to, left: 1.0 });
+                }
+            }
+            // Off the fence, and knocked down away from it.
+            let h = p.fig.hips();
+            p.fig.pin_root = false;
+            p.fig.pos = h - Vec3::new(0.0, p.fig.stand_root().y, 0.0);
+            p.state = State::Move;
+            let f = p.fig.facing();
+            let from = p.fig.pos + Vec3::new(f.x, 0.0, f.y) * 64.0;
+            p.take_hit(from, 30, person::ko::KNOCKDOWN, false, false, Weapon::None);
+            self.sounds.push((Sfx::Explosion, from));
+        }
+        self.fence_spark_clock -= dt;
+        if self.fence_spark_clock > 0.0 {
+            return;
+        }
+        self.fence_spark_clock = 32.0 / 20.0;
+        let fences: Vec<(Vec2, Vec2, f32)> = level.ground.fences.iter().zip(&level.ground.fence_buildings)
+            .filter(|(_, b)| self.electrified.contains(b))
+            .map(|(w, _)| (Vec2::from(w.a), Vec2::from(w.b), w.y0))
+            .collect();
+        for (a, b, bottom) in fences {
+            let along = (self.rand() & 0xff) as f32 / 256.0;
+            let at = a + (b - a) * along;
+            let from = Vec3::new(at.x, bottom + (self.rand() & 0x7f) as f32 + 64.0, at.y);
+            let (x, z) = (at.x + (self.rand() & 0x7f) as f32 - 64.0, at.y + (self.rand() & 0x7f) as f32 - 64.0);
+            let ground = level.ground.surface(&level.map, x, z, bottom + 64.0);
+            // Only where the fence stands on the ground there.
+            if (bottom - ground).abs() < 64.0 {
+                self.sparks.push(Spark { from, to: Vec3::new(x, ground, z), left: 50.0 / 20.0 });
+            }
+        }
+    }
+
+    /// With no floor, someone falling fast below the street stops moving sideways, so they
+    /// can't come up under a building and pop out on top of it (Darci.cpp:1010).
+    pub(crate) fn no_floor_falls(&mut self) {
+        if !self.no_floor {
+            return;
+        }
+        // `DY < -6000` a tick: in world units a second at 20 ticks.
+        const FAST: f32 = -6000.0 / 256.0 * 20.0;
+        for p in &mut self.people {
+            if let State::Fall { vy, vel } = &mut p.state {
+                if p.fig.pos.y < 0.0 && *vy < FAST {
+                    *vel = Vec2::ZERO;
+                }
+            }
+        }
+    }
 }

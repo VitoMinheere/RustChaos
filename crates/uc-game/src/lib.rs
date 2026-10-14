@@ -393,6 +393,12 @@ pub struct Game {
     pub steam: steam::Steam,
     /// The beams `tripwire` points watch.
     pub trips: trip::Trips,
+    /// Buildings whose fences are electrified (`FACET_FLAG_ELECTRIFIED`).
+    pub electrified: BTreeSet<u16>,
+    /// Seconds to the next sparks off the electrified fences.
+    fence_spark_clock: f32,
+    /// There's no floor (`GF_NO_FLOOR`, Day Of Reckoning on top of Gunston Tower).
+    pub no_floor: bool,
     /// Estate of Emergency, where the tramp's face is the boss's (`estate`).
     estate: bool,
     /// Grim Gardens, where jumping onto a platform puts you on it (`playing_level`).
@@ -453,6 +459,7 @@ impl Game {
             aim_creature: None, aim_barrel: None, creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
+            electrified: BTreeSet::new(), fence_spark_clock: 0.0, no_floor: false,
             player_name: "",
             estate: level.mission.mission_name.eq_ignore_ascii_case("estate2"),
             botanicc: level.name.eq_ignore_ascii_case("botanicc"),
@@ -547,6 +554,8 @@ impl Game {
         }
         self.vent_steam(dt, level);
         self.trip_wires(dt);
+        self.electric_fences(dt, level);
+        self.no_floor_falls();
         self.go_indoors(level);
         self.move_platforms(dt, level);
         self.run_creatures(dt, level, self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player));
