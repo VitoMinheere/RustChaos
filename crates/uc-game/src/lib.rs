@@ -367,6 +367,8 @@ pub struct Game {
     indoors: Option<(usize, u8)>,
     /// The mission's creatures (`CLASS_BAT`).
     pub creatures: Vec<creature::Creature>,
+    /// People getting into cars: (who, which car).
+    entering: Vec<(usize, usize)>,
     creature_by_way: HashMap<usize, usize>,
     pub fireballs: Vec<creature::Fireball>,
     pub sparks: Vec<Spark>,
@@ -455,7 +457,7 @@ impl Game {
             }).collect(),
             plat_prims: level.platforms.iter().map(|&(_, ob)| uc_world::level::load_prim(&level.game, level.map.objects[ob].prim)).collect(),
             plat_clock: 0.0,
-            creatures: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
+            creatures: Vec::new(), entering: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
             aim_creature: None, aim_barrel: None, creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
@@ -615,7 +617,7 @@ impl Game {
         // crash cops in RTA had shot the drunk long before she got there.
         self.walk_goals();
         self.city_life(dt, level);
-        self.board_cars();
+        self.board_cars(level);
         // `PCOM_AI_SUICIDE`, "the easiest AI! A random death" (fallen/Source/pcom.cpp): down
         // as if shot with a pistol the first time it runs. The Fallen's bootlegger is made this
         // way on the roof once Harney has spoken, and the first clue waits on his death.
@@ -688,6 +690,7 @@ impl Game {
         for p in &mut self.people {
             p.advance(dt, &level.ground);
         }
+        self.finish_entering();
         self.sync_grapples();
         self.sync_carrying(level);
         self.separate(level);

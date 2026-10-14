@@ -15,8 +15,55 @@ impl Game {
             .map(|(k, _)| k)
     }
 
+    /// Person `i` gets into car `vi` (`set_person_enter_vehicle`, Person.cpp:8254): put at
+    /// the nearer door (`position_person_for_vehicle`) facing a quarter turn off the car's
+    /// heading, playing `ANIM_ENTER_CAR` at the driver's door and `ANIM_ENTER_TAXI` at the
+    /// passenger's, with the door's slam. The car is theirs from now on; they're in it when
+    /// the animation ends ([`Game::finish_entering`]).
+    pub(crate) fn enter_car(&mut self, i: usize, vi: usize, level: &Level) {
+        let v = &mut self.vehicles[vi];
+        v.driver = Some(i);
+        let pos = self.people[i].fig.pos;
+        let doors = [v.door(), v.to_world(-200.0, 20.0)];
+        let near = |d: Vec2| (d - Vec2::new(pos.x, pos.z)).length();
+        let door = usize::from(near(doors[1]) < near(doors[0]));
+        let at = doors[door];
+        let quarter = std::f32::consts::FRAC_PI_2;
+        let angle = v.driver_angle() + if door == 0 { -quarter } else { quarter };
+        let y = level.ground.surface(&level.map, at.x, at.y, pos.y + 64.0);
+        let p = &mut self.people[i];
+        p.fig.pos = Vec3::new(at.x, y, at.y);
+        p.fig.angle = angle;
+        let anim = if door == 0 { uc_world::character::anim::ENTER_CAR } else { uc_world::character::anim::ENTER_TAXI };
+        p.state = if p.fig.restart_now(anim, uc_world::character::Play::Once) {
+            self.entering.push((i, vi));
+            State::Enter { vehicle: vi }
+        } else {
+            State::InCar { vehicle: vi }
+        };
+        p.cues.push(Sfx::CarDoor);
+    }
+
+    /// `SUB_STATE_ENTERING_VEHICLE`: in once the animation's played out
+    /// (`set_person_in_vehicle`). Anyone knocked out of it leaves the car free again.
+    pub(crate) fn finish_entering(&mut self) {
+        let entering = std::mem::take(&mut self.entering);
+        for (i, vi) in entering {
+            let p = &mut self.people[i];
+            match p.state {
+                State::Enter { vehicle } if p.fig.finished() => p.state = State::InCar { vehicle },
+                State::Enter { .. } => self.entering.push((i, vi)),
+                _ => {
+                    if self.vehicles[vi].driver == Some(i) {
+                        self.vehicles[vi].driver = None;
+                    }
+                }
+            }
+        }
+    }
+
     /// Drivers who have walked up to their car's door get in (`PCOM_process_findcar`).
-    pub(crate) fn board_cars(&mut self) {
+    pub(crate) fn board_cars(&mut self, level: &Level) {
         for i in 0..self.people.len() {
             let p = &self.people[i];
             if !p.drives() || p.player || p.removed || p.is_dead() || p.is_down() || p.aggro() || !matches!(p.state, State::Move) {
@@ -25,10 +72,7 @@ impl Game {
             let Some(vi) = self.car_for(i) else { continue };
             let door = self.vehicles[vi].door();
             if Vec2::new(p.fig.pos.x - door.x, p.fig.pos.z - door.y).length() < 150.0 {
-                self.vehicles[vi].driver = Some(i);
-                let p = &mut self.people[i];
-                p.state = State::InCar { vehicle: vi };
-                p.cues.push(Sfx::CarDoor);
+                self.enter_car(i, vi, level);
                 self.drivers.insert(i, Driving::default());
             }
         }
@@ -132,7 +176,9 @@ impl Game {
         let mut npc = vec![None; self.vehicles.len()];
         for (vi, d) in npc.iter_mut().enumerate() {
             if let Some(pi) = self.vehicles[vi].driver.filter(|&pi| Some(pi) != player) {
-                if self.people[pi].removed {
+                if matches!(self.people[pi].state, State::Enter { .. }) {
+                    // Still getting in.
+                } else if self.people[pi].removed {
                     self.vehicles[vi].driver = None;
                 } else if self.people[pi].scared.is_some() {
                     // Frightened: pull up, then get out and run (`PCOM_set_person_ai_leavecar`,
@@ -174,7 +220,8 @@ impl Game {
                 self.sounds.push((Sfx::Skid, v.pos));
             }
             let v = self.vehicles[vi].clone();
-            if let Some(d) = v.driver {
+            // (Not someone still getting in: they're at the door.)
+            if let Some(d) = v.driver.filter(|&d| matches!(self.people[d].state, State::InCar { .. })) {
                 let p = &mut self.people[d];
                 p.fig.pos = v.pos;
                 p.fig.angle = v.driver_angle();

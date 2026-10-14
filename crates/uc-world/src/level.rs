@@ -166,7 +166,16 @@ impl Level {
                     darci.graft(r, from, to);
                 }
             }
-            Some(People { darci: Arc::new(darci), thug: chunk("rthug.all")?, trainer, roper })
+            let thug = chunk("rthug.all")?;
+            // And the civilians' and Roper's others (Anim.cpp:1373).
+            let mut files: HashMap<&str, Option<Arc<AnimChunk>>> = HashMap::new();
+            files.insert("rthug.all", Some(thug.clone()));
+            for &(file, from, to) in &crate::character::EXTRA_ANIMS {
+                if let Some(f) = files.entry(file).or_insert_with(|| chunk(file).ok()) {
+                    darci.graft(f, from, to);
+                }
+            }
+            Some(People { darci: Arc::new(darci), thug, trainer, roper })
         } else {
             None
         };
