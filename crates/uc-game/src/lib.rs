@@ -67,6 +67,10 @@ pub struct Barrel {
     pub yaw: f32,
     /// How far it has toppled over (0 upright .. pi/2 on its side).
     pub tilt: f32,
+    /// The barrel it stands on (`bb->on`), if it was put down on top of another.
+    pub on: Option<usize>,
+    /// Falling speed, once the barrel under it has gone.
+    pub vy: f32,
 }
 
 impl Barrel {
@@ -495,8 +499,8 @@ impl Game {
             let at = Vec3::new(o.x as f32, o.y as f32, o.z as f32);
             let y = level.ground.surface(&level.map, at.x, at.z, at.y + 32.0);
             let yaw = o.yaw as f32 * std::f32::consts::TAU / 2048.0;
-            g.barrels.push(Barrel { kind: 0, prim: uc_world::level::BARREL_PROP, explodes: true, way: 0, gone: false,
-                                    pos: Vec3::new(at.x, y, at.z), vel: Vec2::ZERO, yaw, tilt: 0.0 });
+            g.add_barrel(Barrel { kind: 0, prim: uc_world::level::BARREL_PROP, explodes: true, way: 0, gone: false,
+                                  pos: Vec3::new(at.x, y, at.z), vel: Vec2::ZERO, yaw, tilt: 0.0, on: None, vy: 0.0 });
         }
         g
     }

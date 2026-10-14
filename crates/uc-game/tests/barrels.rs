@@ -137,3 +137,24 @@ fn a_charge_leaves_barrels_alone() {
     r.run(2.0, Controls::default());
     assert!(!r.g.barrels[k].gone, "the charge set the barrel off");
 }
+
+/// Barrels put down where there's one already stand on top of it (`BARREL_alloc`, 93 up),
+/// and fall when the one beneath goes up (`BARREL_process_normal`).
+#[test]
+fn stacked_barrels_fall_when_the_one_under_goes() {
+    let Some(mut r) = start("Semtex") else { return };
+    r.run(1.0, Controls::default());
+    let top = r.g.barrels.iter().position(|b| b.on.is_some()).expect("nothing stacked in Semtex");
+    let under = r.g.barrels[top].on.unwrap();
+    assert_eq!(r.g.barrels[top].pos.y, r.g.barrels[under].pos.y + 93.0);
+    // Stays put while the one under it does.
+    r.run(1.0, Controls::default());
+    assert_eq!(r.g.barrels[top].on, Some(under));
+    // Gone from under it: down it comes, onto the ground.
+    let floor = r.g.barrels[under].pos.y;
+    r.g.barrels[under].gone = true;
+    r.run(2.0, Controls::default());
+    let b = &r.g.barrels[top];
+    assert!(b.on.is_none() && b.vy == 0.0);
+    assert!((b.pos.y - floor).abs() < 1.0, "came to rest at {} (ground {floor})", b.pos.y);
+}
