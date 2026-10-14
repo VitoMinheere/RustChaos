@@ -186,6 +186,10 @@ impl Game {
                     self.vehicles.push(Vehicle::new(way, kind, Vec3::new(pos.x, y, pos.z), angle, key));
                     self.veh_by_way.insert(way, self.vehicles.len() - 1);
                 }
+                Command::Chopper { way, pos, victim } => {
+                    let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
+                    self.choppers.push(chopper::Chopper::new(way, Vec3::new(pos.x, y, pos.z), victim));
+                }
                 Command::Stall { way } => {
                     if let Some(&v) = self.veh_by_way.get(&way) {
                         self.vehicles[v].stalled = true;

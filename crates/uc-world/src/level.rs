@@ -355,12 +355,13 @@ pub const ITEM_PRIMS: [(u8, u8); 25] = [
     (100, 81), (101, 94), (102, 71), (103, 39),
 ];
 
-/// Other prims missions place: traffic cone, barrels, and vehicle bodies and wheels.
+/// Other prims missions place: traffic cone, barrels, vehicle bodies and wheels, and the
+/// helicopter's body and rotors (74, 75).
 /// The prop every map's barrels are (prim 33, `PRIM_OBJ_BIN`, which ob.cpp calls "the
 /// barrel prim").
 pub const BARREL_PROP: u8 = 33;
 
-pub const EXTRA_PRIMS: [u8; 14] = [33, 67, 145, 88, 87, 108, 220, 155, 150, 159, 90, 91, 131, 27];
+pub const EXTRA_PRIMS: [u8; 16] = [33, 67, 145, 88, 87, 108, 220, 155, 150, 159, 90, 91, 131, 27, 74, 75];
 
 /// The prim for item type `kind`.
 pub fn item_prim(kind: u8) -> Option<u8> {

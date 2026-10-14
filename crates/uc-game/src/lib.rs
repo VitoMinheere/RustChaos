@@ -13,6 +13,7 @@
 //! Finally the events they produced (hits, grabs, arrests) are applied, grappled pairs are
 //! kept together and people are pushed apart.
 
+pub mod chopper;
 pub mod city;
 mod game;
 pub mod creature;
@@ -367,6 +368,10 @@ pub struct Game {
     indoors: Option<(usize, u8)>,
     /// The mission's creatures (`CLASS_BAT`).
     pub creatures: Vec<creature::Creature>,
+    /// The mission's helicopters.
+    pub choppers: Vec<chopper::Chopper>,
+    /// Seconds into the helicopters' next tick.
+    chopper_clock: f32,
     creature_by_way: HashMap<usize, usize>,
     pub fireballs: Vec<creature::Fireball>,
     pub sparks: Vec<Spark>,
@@ -455,7 +460,7 @@ impl Game {
             }).collect(),
             plat_prims: level.platforms.iter().map(|&(_, ob)| uc_world::level::load_prim(&level.game, level.map.objects[ob].prim)).collect(),
             plat_clock: 0.0,
-            creatures: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
+            creatures: Vec::new(), choppers: Vec::new(), chopper_clock: 0.0, creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
             aim_creature: None, aim_barrel: None, creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
@@ -561,6 +566,7 @@ impl Game {
         self.go_indoors(level);
         self.move_platforms(dt, level);
         self.run_creatures(dt, level, self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player));
+        self.fly_choppers(dt, level);
         // From just under the pelvis, for as long as they're on their feet (the original asks
         // only that they're peeing, but its pelvis is never anywhere sensible once they're down).
         let streams: Vec<(Vec3, Vec2)> = self.people.iter()

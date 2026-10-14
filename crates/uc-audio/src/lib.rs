@@ -143,6 +143,8 @@ pub struct Audio {
     music: Vec<Track>,
     ambience: Option<Arc<Control>>,
     engine: Option<Arc<Control>>,
+    /// A helicopter's rotors (`S_HELI`), looped while one's in the air.
+    rotor: Option<Arc<Control>>,
     rng: u32,
     /// The line being said, and the ones waiting behind it. A mission's voices are said one
     /// at a time: skipping a fly-by or a message brings the next one up before this one has
@@ -172,7 +174,7 @@ impl Audio {
         let mut sink = rodio::DeviceSinkBuilder::open_default_sink().map_err(|e| format!("no audio device: {e}"))?;
         sink.log_on_drop(false);
         Ok(Audio {
-            sink, game: game.to_path_buf(), cache: HashMap::new(), music: Vec::new(), ambience: None, engine: None, rng: 12345,
+            sink, game: game.to_path_buf(), cache: HashMap::new(), music: Vec::new(), ambience: None, engine: None, rotor: None, rng: 12345,
             speaking: None, waiting: VecDeque::new(), effect: None,
             sfx_volume: 0.8, music_volume: 0.55,
         })
@@ -333,6 +335,27 @@ impl Audio {
     pub fn ambience_volume(&mut self, volume: f32) {
         if let Some(a) = &self.ambience {
             a.set_gain(volume * self.sfx_volume);
+        }
+    }
+
+    /// A helicopter's rotors at `volume` (`Some`), or none in the air (`None`).
+    pub fn rotor(&mut self, volume: Option<f32>) {
+        match volume {
+            Some(v) => {
+                if self.rotor.is_none() {
+                    if let Some(c) = self.sfx("heli.wav") {
+                        self.rotor = Some(self.start(c, 1.0, 1.0, 0.0, true));
+                    }
+                }
+                if let Some(r) = &self.rotor {
+                    r.set_gain(self.sfx_volume * v);
+                }
+            }
+            None => {
+                if let Some(r) = self.rotor.take() {
+                    r.stop.store(true, Ordering::Relaxed);
+                }
+            }
         }
     }
 
