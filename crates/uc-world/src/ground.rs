@@ -165,6 +165,9 @@ pub struct Ground {
     /// The tops of moving platforms where they are now (`WMOVE`): the game moves them, and
     /// they're in a `RefCell` for the same reason the doors' state is in a `Cell`.
     moving: std::cell::RefCell<Vec<PropTop>>,
+    /// Which of `walls` each prop's collision outline is: (index into the map's objects,
+    /// range of walls).
+    pub prop_walls: Vec<(usize, std::ops::Range<usize>)>,
     /// Each prop's prim's `damage` and `flag` bytes, by index into the map's objects: whether
     /// it can be damaged, and whether it blows up when it is (`PRIM_DAMAGE_*`, `PRIM_FLAG_*`).
     pub prop_damage: Vec<(u8, u8)>,
@@ -233,7 +236,9 @@ impl Ground {
         let mut prop_tops: HashMap<(i32, i32), Vec<PropTop>> = HashMap::new();
         let mut prop_tris: HashMap<(i32, i32), Vec<[Vec3; 3]>> = HashMap::new();
         let mut prims = HashMap::new();
+        let mut prop_walls = Vec::new();
         for (i, ob) in map.objects.iter().enumerate() {
+            let first_wall = walls.len();
             if moving.contains(&i) {
                 continue;
             }
@@ -271,6 +276,9 @@ impl Ground {
                     }
                 }
                 _ => {}
+            }
+            if walls.len() > first_wall {
+                prop_walls.push((i, first_wall..walls.len()));
             }
             // Walkable faces (stair treads, ramps, crate tops): the faces the prim marks walkable
             // that face up. Props flagged walkable without such faces use their top.
@@ -336,7 +344,7 @@ impl Ground {
                     .as_ref().map_or((0, 0), |p| (p.damage, p.flag))
             })
             .collect();
-        Ground { roofs, prop_tops, prop_tris, walls, doors, ladders, cables, fences, prop_damage, moving: Default::default() }
+        Ground { roofs, prop_tops, prop_tris, walls, doors, ladders, cables, fences, prop_walls, prop_damage, moving: Default::default() }
     }
 
     fn roof_height(&self, x: f32, z: f32) -> Option<f32> {
