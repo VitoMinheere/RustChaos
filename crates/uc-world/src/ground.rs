@@ -353,6 +353,13 @@ impl Ground {
         })
     }
 
+    /// The map's own height at (x, z), roofs included but not props (`PAP_calc_map_height_at`):
+    /// what thrown things fall onto and bounce off.
+    pub fn map_height(&self, map: &Map, x: f32, z: f32) -> f32 {
+        let ground = map.ground_height(x, z);
+        self.roof_height(x, z).map_or(ground, |r| r.max(ground))
+    }
+
     /// Height of the surface under feet at (x, y, z): the highest of terrain and roof that is
     /// no more than a step above `y`. Below `y` means the person should fall.
     pub fn surface(&self, map: &Map, x: f32, z: f32, y: f32) -> f32 {
