@@ -58,8 +58,9 @@ impl Wares {
                         hi = (hi.0.max(x), hi.1.max(z));
                     }
                 }
-                // `WARE_bounding_box` is exclusive at the far edge.
-                (lo.0 <= hi.0).then_some(Ware { building: i, min: lo, max: (hi.0 - 1, hi.1 - 1), ambience: 0 })
+                // `WARE_bounding_box` is exclusive at the far edge. Lazily: a warehouse with
+                // no outside walls (gpost3.iam has one) leaves `hi` at its minimum.
+                (lo.0 <= hi.0).then(|| Ware { building: i, min: lo, max: (hi.0 - 1, hi.1 - 1), ambience: 0 })
             })
             .collect();
         Wares { wares }

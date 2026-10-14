@@ -72,13 +72,65 @@ fn read(game: &Path, rel: &str) -> Result<Vec<u8>, String> {
     std::fs::read(&p).map_err(|e| format!("{}: {e}", p.display()))
 }
 
+/// Whether texture page `p` belongs to the map's world (`TEXTURE_load_needed`,
+/// DDEngine/Source/texture.cpp:770): pages 0-255 come from `world<n>\`, 512-575 from
+/// `world<n>\insides\`. The rest are shared by every world.
+fn world_page(p: u32) -> bool {
+    p < 64 * 4 || (64 * 8..64 * 9).contains(&p)
+}
+
+/// The world whose textures stand in for a world no shipped mission uses (`freeoncd1.iam`
+/// and `training1.iam` are world 2): the city of RTA and the other downtown missions.
+const STAND_IN_WORLD: i32 = 3;
+
+/// Textures for a mission the install has no clump for: the shipped missions only have
+/// clumps of their own, packed from the loose textures (`server\textures\`) that the
+/// install no longer has. The pages come from the clumps of other missions: first those on
+/// the same map, then those in the same world; the shared pages from any. A world no
+/// clump covers borrows `STAND_IN_WORLD`'s pages, which fit its style table only roughly.
+fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> Clump {
+    // (rank, mission): 0 same map, 1 same world, 2 the stand-in world, 3 any other.
+    let mut donors: Vec<(u8, String)> = Vec::new();
+    let mut sets: HashMap<String, Option<i32>> = HashMap::new();
+    let entries = resolve(game, "levels").and_then(|d| std::fs::read_dir(d).ok());
+    for e in entries.into_iter().flatten().flatten() {
+        let file = e.file_name().to_string_lossy().into_owned();
+        let Some(name) = file.strip_suffix(".ucm").or_else(|| file.strip_suffix(".UCM")) else { continue };
+        if resolve(game, &format!("clumps\\{name}.txc")).is_none() {
+            continue;
+        }
+        let Some(m) = std::fs::read(e.path()).ok().and_then(|b| Mission::parse(&b).ok()) else { continue };
+        let rank = if m.map.eq_ignore_ascii_case(map_file) {
+            0
+        } else {
+            let set = sets.entry(m.map.to_ascii_lowercase()).or_insert_with(|| {
+                read(game, &m.map).ok().and_then(|b| Map::parse(&b).ok()).and_then(|map| map.texture_set)
+            });
+            if *set == texture_set { 1 } else if *set == Some(STAND_IN_WORLD) { 2 } else { 3 }
+        };
+        donors.push((rank, name.to_string()));
+    }
+    donors.sort();
+    let own_world = donors.iter().any(|&(rank, _)| rank < 2);
+    let mut clump = Clump::empty();
+    for (rank, name) in donors {
+        if let Some(c) = read(game, &format!("clumps\\{name}.txc")).ok().and_then(|b| Clump::parse(b).ok()) {
+            clump.fill_from(&c, |p| rank < 2 || (rank == 2 && !own_world) || !world_page(p));
+        }
+    }
+    clump
+}
+
 impl Level {
     pub fn load(game: &Path, mission_name: &str, opt: &LoadOptions) -> Result<Level, String> {
         let mission = Mission::parse(&read(game, &format!("levels\\{mission_name}.ucm"))?)
             .map_err(|e| format!("{mission_name}.ucm: {e}"))?;
         let map = Map::parse(&read(game, &mission.map)?).map_err(|e| format!("{}: {e}", mission.map))?;
         // Textures are looked up by mission name, not by map (TEXTURE_initialise_clumping).
-        let clump = Clump::parse(read(game, &format!("clumps\\{mission_name}.txc"))?).map_err(|e| e.to_string())?;
+        let clump = match read(game, &format!("clumps\\{mission_name}.txc")) {
+            Ok(b) => Clump::parse(b).map_err(|e| e.to_string())?,
+            Err(_) => borrowed_clump(game, &mission.map, map.texture_set),
+        };
         let styles = map
             .texture_set
             .and_then(|w| read(game, &format!("server\\textures\\world{w}\\style.tma")).ok())

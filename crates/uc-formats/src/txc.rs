@@ -42,6 +42,27 @@ impl Clump {
         Ok(Clump { max_id, entries, data })
     }
 
+    /// A clump with nothing in it, to fill from others.
+    pub fn empty() -> Clump {
+        Clump { max_id: 0, entries: BTreeMap::new(), data: Vec::new() }
+    }
+
+    /// Copies in the entries of `other` this clump lacks and `take` accepts. Returns how
+    /// many it copied.
+    pub fn fill_from(&mut self, other: &Clump, take: impl Fn(u32) -> bool) -> usize {
+        let mut n = 0;
+        for (&id, &(off, len)) in &other.entries {
+            if self.entries.contains_key(&id) || !take(id) {
+                continue;
+            }
+            self.entries.insert(id, (self.data.len(), len));
+            self.data.extend_from_slice(&other.data[off..off + len]);
+            self.max_id = self.max_id.max(id + 1);
+            n += 1;
+        }
+        n
+    }
+
     pub fn ids(&self) -> impl Iterator<Item = u32> + '_ {
         self.entries.keys().copied()
     }
