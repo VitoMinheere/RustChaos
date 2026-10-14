@@ -184,13 +184,13 @@ fn sin_cos(a: f32) -> Vec2 {
 }
 
 /// `QDIST2`: the larger of the two plus half the smaller.
-fn qdist2(d: Vec2) -> f32 {
+pub(crate) fn qdist2(d: Vec2) -> f32 {
     let d = d.abs();
     d.max_element() + d.min_element() / 2.0
 }
 
 /// `QDIST3`: the largest plus a quarter of the other two.
-fn qdist3(d: Vec3) -> f32 {
+pub(crate) fn qdist3(d: Vec3) -> f32 {
     let d = d.abs();
     let m = d.max_element();
     m + (d.x + d.y + d.z - m) / 4.0

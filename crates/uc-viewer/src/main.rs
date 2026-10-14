@@ -221,7 +221,13 @@ fn save_png(path: &Path, size: (u32, u32), rgba: &[u8]) -> Result<(), String> {
 }
 
 /// A mission starts: Darci with the badges of missions completed so far, and `--weapon`.
-fn arm(game: &mut Game, weapon: uc_game::Weapon) {
+/// Sets a new game up for this run: badge stats from earlier missions, the weapon asked for,
+/// and how far the camera sees, beyond which the city's extra people can come and go.
+fn arm(game: &mut Game, args: &Args) {
+    let weapon = args.weapon;
+    if let Some((_, end)) = args.fog {
+        game.view_dist = game.view_dist.max(end * 256.0);
+    }
     game.set_stats(progress::Progress::load().stats());
     if let Some(p) = game.player {
         game.people[p].give(weapon);
@@ -259,7 +265,7 @@ impl World {
         let opt = LoadOptions { fullbright: args.fullbright, character: !args.no_character, overrides: args.overrides.clone() };
         let level = Level::load(&args.game, &args.mission, &opt)?;
         let mut game = Game::new(&level, !args.explore);
-        arm(&mut game, args.weapon);
+        arm(&mut game, &args);
         if !game.unsupported().is_empty() {
             println!("{}: {} event points aren't supported yet and do nothing: {}", level.name,
                      game.unsupported().len(), game.unsupported().join(", "));
@@ -306,7 +312,7 @@ impl World {
     fn restart(&mut self) {
         self.result = None;
         self.game = Game::new(&self.level, !self.args.explore);
-        arm(&mut self.game, self.args.weapon);
+        arm(&mut self.game, &self.args);
         if let Some(p) = self.game.player() {
             self.orbit = Orbit::behind(p.fig.angle);
         }

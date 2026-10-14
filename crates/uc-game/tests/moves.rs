@@ -128,6 +128,27 @@ fn ladder_climb_reaches_the_roof() {
 }
 
 #[test]
+fn a_ladder_off_the_ground_is_caught_with_a_jump() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let level = Level::load(&game, "MIB", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    // The way up to The Fallen's first clue: a ladder from 128 to 640 over ground at 0, out of
+    // reach of anyone walking into it.
+    let l = *level.ground.ladders.iter().find(|l| l.base == 128.0 && (l.foot - vec2(18048.0, 15072.0)).length() < 1.0).unwrap();
+    let start = l.foot + l.out * 40.0;
+    let mut p = darci(&level, vec3(start.x, 0.0, start.y), -l.out);
+    assert_eq!(p.fig.pos.y, 0.0);
+    assert_eq!(level.ground.ladder_near(p.fig.pos, 90.0), None);
+    let up = Controls { wish: -l.out, ..Default::default() };
+    // A jump catches it on the way down, and from there it climbs as any other.
+    until(&mut p, &level, Controls { jump: true, ..up }, 0.2, 60.0, |p| matches!(p.state, State::Fall { .. }));
+    until(&mut p, &level, up, 2.0, 60.0, |p| matches!(p.state, State::Climb { .. }));
+    until(&mut p, &level, up, 20.0, 60.0, |p| matches!(p.state, State::PullUp { .. }));
+    until(&mut p, &level, Controls::default(), 5.0, 90.0, |p| matches!(p.state, State::Move));
+    // On the walkway at the top, a prop a little under the ladder's top.
+    assert_eq!(p.fig.pos.y, 614.0, "should stand at the top");
+}
+
+#[test]
 fn running_jump_keeps_momentum() {
     let Some(level) = level() else { return };
     // Open ground in the yard.

@@ -115,6 +115,17 @@ impl Vehicle {
         }
     }
 
+    /// Puts the car down at `pos` facing `yaw`, standing still (`reinit_vehicle`).
+    pub fn reset(&mut self, pos: Vec3, yaw: f32) {
+        (self.pos, self.yaw) = (pos, yaw);
+        (self.speed, self.slip, self.slide, self.steer, self.pitch, self.roll) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    }
+
+    /// The throttle that settles the car at `speed` (negative is reversing).
+    pub fn throttle_for(speed: f32) -> f32 {
+        if speed >= 0.0 { (speed / TOP_SPEED).min(1.0) } else { (speed / REVERSE_SPEED).max(-1.0) }
+    }
+
     pub fn wrecked(&self) -> bool {
         self.health <= 0
     }
