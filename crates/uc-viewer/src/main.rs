@@ -437,6 +437,18 @@ impl World {
                 let all = badges == nb && sides == ns;
                 o.text(x, by + bh + 4.0 * s, s, if all { [255, 210, 70, 255] } else { [190, 190, 180, 200] }, &text);
             }
+            // The crime rate, for the missions that show it, pulsing red from 95%
+            // (`GF_SHOW_CRIMERATE`, DDEngine/Source/panel.cpp:4789).
+            if self.game.show_crime_rate {
+                let rate = self.game.crime_rate;
+                let col = if rate >= 95 {
+                    let g = (128.0 + 127.0 * (self.game.time * 9.0).sin()) as u8;
+                    [255, g, g, 255]
+                } else {
+                    white
+                };
+                o.text(bx, by + bh + 16.0 * s, s, col, &format!("CRIME RATE {rate}%"));
+            }
         }
 
         // Driving: speed and the car's damage.

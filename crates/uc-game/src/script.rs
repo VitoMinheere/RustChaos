@@ -53,6 +53,10 @@ pub trait Query {
     fn prim_damaged(&self, _pos: Vec3) -> bool {
         false
     }
+    /// The city's crime rate, 0..100 (`CRIME_RATE`).
+    fn crime_rate(&self) -> u8 {
+        50
+    }
     /// The person created by `a` can see the one created by `b` (`can_a_see_b`).
     fn sees(&self, _a: usize, _b: usize) -> bool {
         false
@@ -240,7 +244,8 @@ fn trigger_supported(t: u8) -> bool {
         | ENEMY_RADIUS | VISIBLE_COUNTDOWN | CUBOID | HALF_DEAD | GROUP_DEAD | PERSON_SEEN
         | PERSON_USED | PLAYER_USES_RADIUS | PERSON_ARRESTED | CONVERSATION_OVER | COUNTER
         | KILLED_NOT_ARRESTED | PERSON_IN_VEHICLE | SPECIFIC_ITEM_HELD | THING_RADIUS_DIR | RANDOM
-        | DARCI_GRABBED | PUNCHED_AND_KICKED | MOVE_RADIUS_DIR | ITEM_HELD | PLAYER_FIRES_GUN | PRIM_DAMAGED)
+        | DARCI_GRABBED | PUNCHED_AND_KICKED | MOVE_RADIUS_DIR | ITEM_HELD | PLAYER_FIRES_GUN | PRIM_DAMAGED
+        | CRIME_RATE_ABOVE | CRIME_RATE_BELOW)
 }
 
 /// `EWAY_ARG_ITEM_STASHED_IN_PRIM` (fallen/Headers/eway.h): a `create_item`'s item is hidden
@@ -570,6 +575,9 @@ impl Script {
             trigger::SPECIFIC_ITEM_HELD | trigger::ITEM_HELD => q.got_item(r1),
             trigger::PLAYER_FIRES_GUN => q.player_fired(),
             trigger::PRIM_DAMAGED => q.prim_damaged(pos),
+            // The threshold is a percentage times 100 (`Radius / 100`, elev.cpp:634).
+            trigger::CRIME_RATE_ABOVE => q.crime_rate() as i32 >= radius / 100,
+            trigger::CRIME_RATE_BELOW => q.crime_rate() as i32 <= radius / 100,
             trigger::PERSON_SEEN => q.sees(r1, r2),
             trigger::RANDOM => {
                 // Once the dependency is active, one of the points sharing it (or none) goes

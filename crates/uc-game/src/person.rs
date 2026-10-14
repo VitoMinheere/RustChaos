@@ -151,6 +151,12 @@ pub const BENT_PLAYERKILL: u8 = 1 << 7;
 pub const AI_BODYGUARD: u8 = 8;
 /// `PCOM_AI_CIV`: a member of the public.
 pub const AI_CIV: u8 = 1;
+/// `PCOM_AI_GUARD`, `PCOM_AI_GANG`, `PCOM_AI_SUICIDE` (fallen/Headers/pcom.h).
+pub const AI_GUARD: u8 = 2;
+pub const AI_GANG: u8 = 6;
+pub const AI_SUICIDE: u8 = 15;
+/// `PCOM_MOVE_WANDER`.
+pub const MOVE_WANDER: u8 = 4;
 
 /// Speeds in world units per second (a map square is 256). Chosen by eye.
 pub const WALK_SPEED: f32 = 190.0;
@@ -688,6 +694,15 @@ impl Person {
         !self.knocked_out && !self.invulnerable && !self.protected
             && !matches!(self.kind, ptype::MIB1 | ptype::MIB2 | ptype::MIB3)
             && (self.kind != ptype::COP || self.guilty)
+    }
+
+    /// `is_person_guilty` (fallen/Source/Person.cpp:2763): marked guilty, a Wildcat, one of
+    /// the Men In Black, or a guard or gang member.
+    pub fn is_guilty(&self) -> bool {
+        use uc_world::character::person as ptype;
+        self.guilty
+            || matches!(self.kind, ptype::THUG_RASTA | ptype::THUG_RED | ptype::THUG_GREY | ptype::MIB1 | ptype::MIB2 | ptype::MIB3)
+            || matches!(self.ai, AI_GUARD | AI_GANG)
     }
 
     pub fn is_dummy(&self) -> bool {
