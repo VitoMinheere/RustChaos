@@ -57,6 +57,10 @@ pub trait Query {
     fn crime_rate(&self) -> u8 {
         50
     }
+    /// The beam a `tripwire` point `way` watches is broken (`TRIP_activated`).
+    fn tripped(&self, _way: usize) -> bool {
+        false
+    }
     /// The person created by `a` can see the one created by `b` (`can_a_see_b`).
     fn sees(&self, _a: usize, _b: usize) -> bool {
         false
@@ -166,6 +170,8 @@ pub enum Command {
     WareFx { pos: Vec3, ambience: u8 },
     /// Start or stop the person created by `way` peeing (`FLAG_PERSON_PEEING`).
     Pee { way: usize, on: bool },
+    /// Switch off the wire `tripwire` point `way` watches (`TRIP_deactivate`).
+    Untrip { way: usize },
     /// Let the prop nearest `pos` be searched (`WPT_MAKE_SEARCHABLE`).
     Searchable { pos: Vec3 },
     Camera { way: usize, shot: Shot },
@@ -245,12 +251,15 @@ fn trigger_supported(t: u8) -> bool {
         | PERSON_USED | PLAYER_USES_RADIUS | PERSON_ARRESTED | CONVERSATION_OVER | COUNTER
         | KILLED_NOT_ARRESTED | PERSON_IN_VEHICLE | SPECIFIC_ITEM_HELD | THING_RADIUS_DIR | RANDOM
         | DARCI_GRABBED | PUNCHED_AND_KICKED | MOVE_RADIUS_DIR | ITEM_HELD | PLAYER_FIRES_GUN | PRIM_DAMAGED
-        | CRIME_RATE_ABOVE | CRIME_RATE_BELOW)
+        | CRIME_RATE_ABOVE | CRIME_RATE_BELOW | TRIPWIRE)
 }
 
 /// `EWAY_ARG_ITEM_STASHED_IN_PRIM` (fallen/Headers/eway.h): a `create_item`'s item is hidden
 /// inside the nearest prop and only turns up when someone searches it.
 const STASHED_IN_PRIM: i32 = 2;
+
+/// `IT_BARREL`: a `create_item` that puts down barrels.
+const IT_BARREL: i32 = 9;
 
 /// `EWAY_counter[7]`: how many cops have been killed.
 const COPS_KILLED: usize = 7;
@@ -406,6 +415,15 @@ impl Script {
             // of it (`goto dont_create_a_waypoint`): its trigger is never even looked at.
             if ep.kind == MAKE_SEARCHABLE {
                 commands.push(Command::Searchable { pos: vec3(ep.x as f32, ep.y as f32, ep.z as f32) });
+                continue;
+            }
+            // Barrels as an item aren't a waypoint either: `Data[1]` plain barrels put down as
+            // the level loads, a few units either side of the point (elev.cpp:1078).
+            if ep.kind == CREATE_ITEM && ep.data[0] == IT_BARREL {
+                for k in 0..ep.data[1].max(0) {
+                    let off = (k % 3 - 1) as f32 * 7.0;
+                    commands.push(Command::Barrel { way: 0, kind: 0, pos: vec3(ep.x as f32 + off, ep.y as f32, ep.z as f32 - off) });
+                }
                 continue;
             }
             ways[ep.index] = Some(Way {
@@ -578,6 +596,7 @@ impl Script {
             // The threshold is a percentage times 100 (`Radius / 100`, elev.cpp:634).
             trigger::CRIME_RATE_ABOVE => q.crime_rate() as i32 >= radius / 100,
             trigger::CRIME_RATE_BELOW => q.crime_rate() as i32 <= radius / 100,
+            trigger::TRIPWIRE => q.tripped(w.ep.index),
             trigger::PERSON_SEEN => q.sees(r1, r2),
             trigger::RANDOM => {
                 // Once the dependency is active, one of the points sharing it (or none) goes
@@ -783,6 +802,10 @@ impl Script {
                     // Killing a pee point is what stops the person peeing.
                     if t.ep.kind == waypoint::MAKE_PERSON_PEE {
                         self.commands.push(Command::Pee { way: t.ep.data[0] as usize, on: false });
+                    }
+                    // And killing a tripwire point switches its wire off (eway.cpp:5669).
+                    if t.ep.trigger == trigger::TRIPWIRE {
+                        self.commands.push(Command::Untrip { way: target });
                     }
                     // A car goes up where it stands; a person is carried off the map. Either
                     // way the point forgets it ever made them, so triggers watching for their

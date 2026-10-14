@@ -29,6 +29,15 @@ pub mod anim {
     pub const RUN: usize = 119;
     pub const MID_AIR: usize = 122;
     pub const BREATHE: usize = 124;
+    pub const CROUTCH_DOWN: usize = 143;
+    pub const CRAWL: usize = 144;
+    pub const IDLE_CROUTCH: usize = 222;
+    pub const CROUTCH_GETUP: usize = 278;
+    pub const PISTOL_DUCK: usize = 309;
+    pub const UNCROUTCH_PISTOL: usize = 311;
+    pub const SHOTGUN_DUCK: usize = 312;
+    pub const UNCROUTCH_AK: usize = 314;
+    pub const SNIPER_CRAWL: usize = 315;
     pub const PUNCH_COMBO1: usize = 146;
     pub const PUNCH_COMBO2: usize = 147;
     pub const PUNCH_COMBO3: usize = 148;
@@ -86,7 +95,39 @@ pub mod anim {
     pub const AK_JOG: usize = 266;
     pub const ARREST_CROUTCH: usize = 282;
     pub const ARREST_BE_CUFFED: usize = 283;
+    /// `ANIM_INJURED_LOOP`: lying hurt (`set_person_injured`).
+    pub const INJURED_LOOP: usize = 386;
+    /// `ANIM_END` + n (fallen/Headers/animate.h): carrying someone, and `_V` being carried.
+    pub const PUTDOWN_CARRY_V: usize = 408;
+    pub const STAND_CARRY: usize = 409;
+    pub const STAND_CARRY_V: usize = 410;
+    pub const PICKUP_CARRY: usize = 427;
+    pub const START_WALK_CARRY: usize = 428;
+    pub const WALK_CARRY: usize = 429;
+    pub const WALK_STOP_CARRY: usize = 430;
+    pub const PUTDOWN_CARRY: usize = 431;
+    pub const PICKUP_CARRY_V: usize = 432;
+    pub const START_WALK_CARRY_V: usize = 433;
+    pub const WALK_CARRY_V: usize = 434;
+    pub const WALK_STOP_CARRY_V: usize = 435;
 }
+
+/// Roper's file's carrying animations (`NROPER_*`, fallen/Source/Anim.cpp:137) and the
+/// slots everyone's set takes them into (Anim.cpp:1398): (from, to).
+pub const CARRY_ANIMS: [(usize, usize); 12] = [
+    (34, anim::PICKUP_CARRY),
+    (35, anim::START_WALK_CARRY),
+    (36, anim::WALK_CARRY),
+    (37, anim::WALK_STOP_CARRY),
+    (38, anim::PUTDOWN_CARRY),
+    (39, anim::PICKUP_CARRY_V),
+    (40, anim::START_WALK_CARRY_V),
+    (41, anim::WALK_CARRY_V),
+    (42, anim::WALK_STOP_CARRY_V),
+    (43, anim::PUTDOWN_CARRY_V),
+    (44, anim::STAND_CARRY),
+    (45, anim::STAND_CARRY_V),
+];
 
 /// One game tick is NORMAL_TICK_TOCK = 1000/15 ms; the tween advances TweenStep*2 per tick.
 const TICKS_PER_SECOND: f32 = 15.0;

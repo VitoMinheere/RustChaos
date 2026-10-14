@@ -685,7 +685,7 @@ impl World {
 
         // The controls, for the first 20 seconds (H toggles them).
         if self.help && !self.checklist && self.game.cutscene.is_none() && (self.game.time < 20.0 || self.help_forced) {
-            let help = ["WASD move   Shift run   Space jump   E action (hold to sprint)", "J / left mouse punch   K kick   Q block   M mouse look on/off",
+            let help = ["WASD move   Shift run   Space jump   E action (hold: sprint, or crouch and crawl)", "J / left mouse punch   K kick   Q block   M mouse look on/off",
                         "G next weapon   T next target   Tab checklist   R restart   V free camera   H hide help"];
             for (k, line) in help.iter().enumerate() {
                 o.text(12.0 * s, 44.0 * s + k as f32 * 10.0 * s, s, [200, 200, 190, 200], line);

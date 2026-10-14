@@ -60,6 +60,10 @@ pub struct Level {
     /// The mission's moving platforms: (the `link_platform` point, the prop it moves, as an
     /// index into the map's objects). The game draws those props, not the level.
     pub platforms: Vec<(usize, usize)>,
+    /// Props that are barrels, which the game turns into barrels it moves and blows up
+    /// (`OB_convert_dustbins_to_barrels`, fallen/Source/ob.cpp:1627): as indices into the
+    /// map's objects. They're left out of the scenery and of what people walk into.
+    pub barrel_props: Vec<usize>,
     overrides: Option<PathBuf>,
 }
 
@@ -84,7 +88,8 @@ impl Level {
 
         // The mission's player spawn.
         let platforms = platform_props(&map, &mission);
-        let moving = platforms.iter().map(|&(_, ob)| ob).collect();
+        let barrel_props: Vec<usize> = map.objects.iter().enumerate().filter(|(_, o)| o.prim == BARREL_PROP).map(|(i, _)| i).collect();
+        let moving = platforms.iter().map(|&(_, ob)| ob).chain(barrel_props.iter().copied()).collect();
         let ground = Ground::new(&map, game, &moving);
         let ep = mission.event_points.iter().find(|e| e.kind == waypoint::CREATE_PLAYER);
         let (sx, sy, sz) = ep.map_or((64.0 * UNIT, 0.0, 64.0 * UNIT), |e| (e.x as f32, e.y as f32, e.z as f32));
@@ -101,13 +106,21 @@ impl Level {
             // Roper has a body of his own (`game_chunk[ANIM_TYPE_ROPER]`, Anim.cpp); without it
             // he falls back to a thug's.
             let roper = chunk("roper.all").ok();
-            Some(People { darci: chunk("darci1.all")?, thug: chunk("rthug.all")?, trainer, roper })
+            // Everyone animates from Darci's set, with Roper's carrying (and being carried)
+            // filled in from his file into the slots from `ANIM_END` up (Anim.cpp:1398).
+            let mut darci = AnimChunk::parse(&read(game, "data\\darci1.all")?).map_err(|e| format!("darci1.all: {e}"))?;
+            if let Some(r) = &roper {
+                for &(from, to) in &crate::character::CARRY_ANIMS {
+                    darci.graft(r, from, to);
+                }
+            }
+            Some(People { darci: Arc::new(darci), thug: chunk("rthug.all")?, trainer, roper })
         } else {
             None
         };
         Ok(Level {
             game: game.to_path_buf(), name: mission_name.to_string(), mission, map, clump, styles, lighting,
-            ground, spawn, sky, people, overrides: opt.overrides.clone(), platforms,
+            ground, spawn, sky, people, overrides: opt.overrides.clone(), platforms, barrel_props,
             item_prims: ITEM_PRIMS.iter().map(|&(_, id)| id).chain(EXTRA_PRIMS)
                 .filter_map(|id| Some((id, load_prim(game, id)?))).collect(),
             weapon_prims: (256..=263).filter_map(|id| Some((id, load_prim(game, id)?))).collect(),
@@ -145,7 +158,7 @@ impl Level {
                 }
             }
         }
-        let moving: std::collections::BTreeSet<usize> = self.platforms.iter().map(|&(_, ob)| ob).collect();
+        let moving: std::collections::BTreeSet<usize> = self.platforms.iter().map(|&(_, ob)| ob).chain(self.barrel_props.iter().copied()).collect();
         build_props(&mut b, &self.map, &self.game, &sh, &moving);
         build_details(&mut b, &self.map, &sh);
         b.finish()
@@ -291,7 +304,11 @@ pub const ITEM_PRIMS: [(u8, u8); 25] = [
 ];
 
 /// Other prims missions place: traffic cone, barrels, and vehicle bodies and wheels.
-pub const EXTRA_PRIMS: [u8; 13] = [67, 145, 88, 87, 108, 220, 155, 150, 159, 90, 91, 131, 27];
+/// The prop every map's barrels are (prim 33, `PRIM_OBJ_BIN`, which ob.cpp calls "the
+/// barrel prim").
+pub const BARREL_PROP: u8 = 33;
+
+pub const EXTRA_PRIMS: [u8; 14] = [33, 67, 145, 88, 87, 108, 220, 155, 150, 159, 90, 91, 131, 27];
 
 /// The prim for item type `kind`.
 pub fn item_prim(kind: u8) -> Option<u8> {
