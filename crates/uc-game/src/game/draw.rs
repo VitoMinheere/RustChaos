@@ -82,6 +82,12 @@ impl Game {
                 [[0, 0, 0, 170]; 4],
             );
         }
+        // Mines, lying flat where they were laid (modelled 6 below their origin).
+        for m in self.mines.iter().filter(|m| !m.gone) {
+            if let Some(prim) = level.item_prims.get(&game::mines::MINE_PRIM) {
+                uc_world::level::prim_batches(prim, |p| m.pos + p + Vec3::new(0.0, 6.0, 0.0), lighter.as_ref(), &mut out);
+            }
+        }
         // Barrels and cones: modelled with z up, they topple when knocked.
         for b in self.barrels.iter().filter(|b| !b.gone) {
             let Some(prim) = level.item_prims.get(&b.prim()) else { continue };

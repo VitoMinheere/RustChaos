@@ -101,6 +101,7 @@ impl Game {
             self.target = None;
             self.aim_creature = None;
             self.aim_barrel = None;
+            self.aim_mine = None;
             return;
         }
         let (pos, f) = (p.fig.pos, p.facing_dir());
@@ -124,12 +125,17 @@ impl Game {
         let barrels = self.barrels.iter().enumerate()
             .filter(|(_, b)| b.explodes && !b.gone)
             .filter_map(|(k, b)| seen(b.pos, Aim::Barrel(k)).map(|(a, d, off)| (a, d * 256.0 / 220.0, off)));
-        let mut options: Vec<(Aim, f32, f32)> = people.chain(creatures).chain(barrels).collect();
+        // Mines, as keenly as people ("nothing bad/good about mines").
+        let mines = self.mines.iter().enumerate()
+            .filter(|(_, m)| !m.gone)
+            .filter_map(|(k, m)| seen(m.pos, Aim::Mine(k)));
+        let mut options: Vec<(Aim, f32, f32)> = people.chain(creatures).chain(barrels).chain(mines).collect();
         options.sort_by(|a, b| a.1.total_cmp(&b.1));
-        let current = match (self.target, self.aim_creature, self.aim_barrel) {
+        let current = match (self.target, self.aim_creature, self.aim_barrel, self.aim_mine) {
             (Some(t), ..) => Some(Aim::Person(t)),
-            (None, Some(k), _) => Some(Aim::Creature(k)),
-            (None, None, Some(k)) => Some(Aim::Barrel(k)),
+            (None, Some(k), ..) => Some(Aim::Creature(k)),
+            (None, None, Some(k), _) => Some(Aim::Barrel(k)),
+            (None, None, None, Some(k)) => Some(Aim::Mine(k)),
             _ => None,
         };
         let kept = current.filter(|t| options.iter().any(|o| o.0 == *t));
@@ -142,11 +148,12 @@ impl Game {
             // The nearest, favouring those ahead (someone right behind counts as 3x as far).
             options.iter().min_by(|a, b| (a.1 * (1.0 + a.2)).total_cmp(&(b.1 * (1.0 + b.2)))).map(|o| o.0)
         };
-        (self.target, self.aim_creature, self.aim_barrel) = match aim {
-            Some(Aim::Person(t)) => (Some(t), None, None),
-            Some(Aim::Creature(k)) => (None, Some(k), None),
-            Some(Aim::Barrel(k)) => (None, None, Some(k)),
-            None => (None, None, None),
+        (self.target, self.aim_creature, self.aim_barrel, self.aim_mine) = match aim {
+            Some(Aim::Person(t)) => (Some(t), None, None, None),
+            Some(Aim::Creature(k)) => (None, Some(k), None, None),
+            Some(Aim::Barrel(k)) => (None, None, Some(k), None),
+            Some(Aim::Mine(k)) => (None, None, None, Some(k)),
+            None => (None, None, None, None),
         };
     }
 

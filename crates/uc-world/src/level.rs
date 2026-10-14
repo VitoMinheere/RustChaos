@@ -360,7 +360,7 @@ pub const ITEM_PRIMS: [(u8, u8); 25] = [
 /// barrel prim").
 pub const BARREL_PROP: u8 = 33;
 
-pub const EXTRA_PRIMS: [u8; 14] = [33, 67, 145, 88, 87, 108, 220, 155, 150, 159, 90, 91, 131, 27];
+pub const EXTRA_PRIMS: [u8; 15] = [33, 67, 145, 188, 88, 87, 108, 220, 155, 150, 159, 90, 91, 131, 27];
 
 /// The prim for item type `kind`.
 pub fn item_prim(kind: u8) -> Option<u8> {

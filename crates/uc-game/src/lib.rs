@@ -14,7 +14,7 @@
 //! kept together and people are pushed apart.
 
 pub mod city;
-mod game;
+pub mod game;
 pub mod creature;
 pub mod dirt;
 pub mod goals;
@@ -41,6 +41,7 @@ pub use person::{Controls, Person, Sfx, State, Weapon};
 pub use pyro::Pyro;
 pub use script::Shot;
 pub use vehicle::{Drive, Vehicle};
+pub use game::mines::Mine;
 
 /// `facet_rand`'s LCG (fallen/Source/facet.cpp): the one source of chance in the game, so a
 /// run plays out the same way twice.
@@ -254,6 +255,7 @@ enum Aim {
     Person(usize),
     Creature(usize),
     Barrel(usize),
+    Mine(usize),
 }
 
 /// A bolt of lightning from a creature to someone (`SPARK_create`): from, to, seconds left.
@@ -374,6 +376,10 @@ pub struct Game {
     pub aim_creature: Option<usize>,
     /// The barrel the player's gun is pointed at (`find_target_new` takes barrels too).
     pub aim_barrel: Option<usize>,
+    /// The mine the player's gun is pointed at (`find_target_new` takes mines too).
+    pub aim_mine: Option<usize>,
+    /// Mines laid by the mission (`IT_MINE`).
+    pub mines: Vec<Mine>,
     /// Seconds into the creatures' next tick.
     creature_clock: f32,
     creature_rng: u32,
@@ -450,7 +456,7 @@ impl Game {
             plat_prims: level.platforms.iter().map(|&(_, ob)| uc_world::level::load_prim(&level.game, level.map.objects[ob].prim)).collect(),
             plat_clock: 0.0,
             creatures: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
-            aim_creature: None, aim_barrel: None, creature_clock: 0.0, creature_rng: 0xba7,
+            aim_creature: None, aim_barrel: None, aim_mine: None, mines: Vec::new(), creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
             player_name: "",
@@ -547,6 +553,9 @@ impl Game {
         }
         self.vent_steam(dt, level);
         self.trip_wires(dt);
+        if self.outcome.is_none() {
+            self.run_mines(dt, level);
+        }
         self.go_indoors(level);
         self.move_platforms(dt, level);
         self.run_creatures(dt, level, self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player));
@@ -572,7 +581,8 @@ impl Game {
         let mut input = *input;
         input.target = self.target;
         input.aim = self.aim_creature.map(|k| self.creatures[k].middle())
-            .or_else(|| self.aim_barrel.map(|k| self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0)));
+            .or_else(|| self.aim_barrel.map(|k| self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0)))
+            .or_else(|| self.aim_mine.map(|k| self.mines[k].pos));
         if self.outcome.is_none() && !held && input.action && self.use_something(level) {
             input.action = false;
         }

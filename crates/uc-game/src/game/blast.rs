@@ -41,6 +41,7 @@ impl Game {
 
     pub(crate) fn shockwave(&mut self, level: &Level, at: Vec3, radius: f32, damage: i32, by: Blame) {
         self.shock_props(level, at, radius, damage);
+        self.light_mines(at);
         // Creatures: a little more than people get, as far out as the edge, and four times
         // that for the Balrog, who is "so hard that we'd better hurt them more here".
         let mut acts = Vec::new();
