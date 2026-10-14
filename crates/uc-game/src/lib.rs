@@ -367,6 +367,13 @@ pub struct Game {
     indoors: Option<(usize, u8)>,
     /// The mission's creatures (`CLASS_BAT`).
     pub creatures: Vec<creature::Creature>,
+    /// The navigation map (`MAV_precalculate`).
+    mav: uc_world::mav::Mav,
+    /// Each person's last route: (from square, to square, furthest square to walk to, first
+    /// square along it).
+    ways: HashMap<usize, ((u8, u8), (u8, u8), Option<(u8, u8)>, Option<(u8, u8)>)>,
+    /// The route search's own chance (its bias against odd moves).
+    mav_rng: u32,
     creature_by_way: HashMap<usize, usize>,
     pub fireballs: Vec<creature::Fireball>,
     pub sparks: Vec<Spark>,
@@ -455,7 +462,7 @@ impl Game {
             }).collect(),
             plat_prims: level.platforms.iter().map(|&(_, ob)| uc_world::level::load_prim(&level.game, level.map.objects[ob].prim)).collect(),
             plat_clock: 0.0,
-            creatures: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
+            creatures: Vec::new(), mav: uc_world::mav::Mav::new(level), ways: HashMap::new(), mav_rng: 0x3a7, creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
             aim_creature: None, aim_barrel: None, creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
@@ -614,6 +621,7 @@ impl Game {
         // (12 squares from the mark), then carries on: the original starts at once, so the
         // crash cops in RTA had shot the drunk long before she got there.
         self.walk_goals();
+        self.find_ways(level);
         self.city_life(dt, level);
         self.board_cars();
         // `PCOM_AI_SUICIDE`, "the easiest AI! A random death" (fallen/Source/pcom.cpp): down
