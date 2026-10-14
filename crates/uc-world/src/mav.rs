@@ -48,6 +48,9 @@ pub struct Action {
     pub dir: u8,
     /// For `GOTO`: the furthest square along the route she can walk straight to.
     pub dest: (u8, u8),
+    /// The first square along the route (one step on), for someone who can't make for
+    /// `dest` directly after all.
+    pub first: (u8, u8),
 }
 
 /// The navigation map.
@@ -340,7 +343,7 @@ impl Mav {
         let mut order = 0u32;
         heap.push(Reverse((score(start.0, start.1), order, 0u8, start)));
         came.insert(start, (GOTO, 0));
-        let mut answer = Action { action: GOTO, dir: 0, dest: from };
+        let mut answer = Action { action: GOTO, dir: 0, dest: from, first: from };
         let mut best_score = u8::MAX as u32 + 1;
         let mut overflows = 0;
         while let Some(Reverse((sc, _, length, (x, z)))) = heap.pop() {
@@ -408,10 +411,11 @@ impl Mav {
             x -= dx * steps;
             z -= dz * steps;
         }
-        let mut ans = Action { action: GOTO, dir: 0, dest: from };
+        let first = nodes.last().map_or(from, |&(x, z, ..)| (x as u8, z as u8));
+        let mut ans = Action { action: GOTO, dir: 0, dest: from, first };
         for &(x, z, action, dir) in nodes.iter().rev() {
             if action != GOTO {
-                return Action { action, dir, dest: ans.dest };
+                return Action { action, dir, dest: ans.dest, first };
             }
             if self.can_walk(from, (x as u8, z as u8)) {
                 ans.dest = (x as u8, z as u8);
