@@ -162,6 +162,46 @@ impl AnimChunk {
         let first = self.keyframes.get(frame)?.first_element?;
         self.elements.get(first..first + self.element_count)
     }
+
+    /// Copies animation `from_id` of `from` into slot `to_id` here, as the original fills
+    /// `global_anim_array` from other characters' files (`setup_global_anim_array`,
+    /// fallen/Source/Anim.cpp). The frames are copied with their poses; a loop back to the
+    /// first frame is kept. Returns false if `from` has no such animation or a different
+    /// skeleton.
+    pub fn graft(&mut self, from: &AnimChunk, from_id: usize, to_id: usize) -> bool {
+        let Some(start) = from.anims.get(from_id).copied().flatten() else { return false };
+        if from.element_count != self.element_count {
+            return false;
+        }
+        // The animation's frames, in order, up to the last frame or back round to the start.
+        let mut frames = vec![start];
+        let mut k = start;
+        while from.keyframes[k].flags & FLAG_LAST_FRAME == 0 {
+            match from.keyframes[k].next {
+                Some(n) if n != start && !frames.contains(&n) && n < from.keyframes.len() => {
+                    frames.push(n);
+                    k = n;
+                }
+                _ => break,
+            }
+        }
+        let base = self.keyframes.len();
+        let at = |old: usize| frames.iter().position(|&f| f == old).map(|i| base + i);
+        for &f in &frames {
+            let kf = from.keyframes[f];
+            let first_element = kf.first_element.and_then(|e| from.elements.get(e..e + from.element_count)).map(|pose| {
+                let i = self.elements.len();
+                self.elements.extend_from_slice(pose);
+                i
+            });
+            self.keyframes.push(KeyFrame { first_element, prev: kf.prev.and_then(at), next: kf.next.and_then(at), ..kf });
+        }
+        if self.anims.len() <= to_id {
+            self.anims.resize(to_id + 1, None);
+        }
+        self.anims[to_id] = Some(base);
+        true
+    }
 }
 
 /// `read_a_prim`: one mesh inside a multi-prim. Face point indices are rebased to 0.
