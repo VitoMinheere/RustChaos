@@ -44,7 +44,7 @@ pub use vehicle::{Drive, Vehicle};
 
 /// `facet_rand`'s LCG (fallen/Source/facet.cpp): the one source of chance in the game, so a
 /// run plays out the same way twice.
-pub(crate) fn rand(seed: &mut u32) -> u32 {
+pub fn rand(seed: &mut u32) -> u32 {
     *seed = seed.wrapping_mul(69069).wrapping_add(1);
     *seed >> 16
 }
@@ -396,6 +396,12 @@ pub struct Game {
     pub steam: steam::Steam,
     /// The beams `tripwire` points watch.
     pub trips: trip::Trips,
+    /// Buildings whose fences are electrified (`FACET_FLAG_ELECTRIFIED`).
+    pub electrified: BTreeSet<u16>,
+    /// Seconds to the next sparks off the electrified fences.
+    fence_spark_clock: f32,
+    /// There's no floor (`GF_NO_FLOOR`, Day Of Reckoning on top of Gunston Tower).
+    pub no_floor: bool,
     /// Estate of Emergency, where the tramp's face is the boss's (`estate`).
     estate: bool,
     /// Grim Gardens, where jumping onto a platform puts you on it (`playing_level`).
@@ -456,6 +462,7 @@ impl Game {
             aim_creature: None, aim_barrel: None, creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
+            electrified: BTreeSet::new(), fence_spark_clock: 0.0, no_floor: false,
             player_name: "",
             estate: level.mission.mission_name.eq_ignore_ascii_case("estate2"),
             botanicc: level.name.eq_ignore_ascii_case("botanicc"),
@@ -515,6 +522,8 @@ impl Game {
             let p = &mut self.people[p];
             p.max_health += 10 * stats[3] as i32;
             p.health = p.max_health;
+            p.max_stamina = 128.0 + stats[0] as f32;
+            p.stamina = p.max_stamina;
         }
     }
 
@@ -550,6 +559,8 @@ impl Game {
         }
         self.vent_steam(dt, level);
         self.trip_wires(dt);
+        self.electric_fences(dt, level);
+        self.no_floor_falls();
         self.go_indoors(level);
         self.move_platforms(dt, level);
         self.run_creatures(dt, level, self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player));
@@ -696,7 +707,8 @@ impl Game {
             let pos = pl.fig.pos;
             let fighting = matches!(pl.state, State::Attack { .. } | State::Grapple { .. } | State::Hurt)
                 || self.people.iter().any(|p| p.aggro() && (p.fig.pos - pos).length() < 6.0 * 256.0);
-            let sprinting = input.sprint && input.run && input.wish.length() > 0.5 && matches!(pl.state, State::Move);
+            // Really sprinting: out of breath she's only running, whatever is held.
+            let sprinting = pl.sprinting;
             self.fight_timer = if fighting { 6.0 } else { (self.fight_timer - dt).max(0.0) };
             // A fight, a fly-by or a conversation resets it; otherwise it counts up.
             if fighting || self.cutscene.is_some() || self.in_conversation() {

@@ -230,6 +230,17 @@ impl Audio {
         self.start(c, l, r, g, false);
     }
 
+    /// Plays a sound effect from the direction of `pos`, at full volume however far off it is:
+    /// for the world's own far-off sounds (`PlayAmbient3D`), which are put 16 squares away,
+    /// past where [`Audio::play_at`] would have faded them out.
+    pub fn play_toward(&mut self, name: &str, volume: f32, pos: Vec3, listener: &Listener) {
+        let Some(c) = self.sfx(name) else { return };
+        let d = pos - listener.pos;
+        let pan = d.normalize_or_zero().dot(listener.right).clamp(-1.0, 1.0) * 0.7;
+        let (l, r) = ((1.0 - pan).min(1.0), (1.0 + pan).min(1.0));
+        self.start(c, l, r, volume * self.sfx_volume, false);
+    }
+
     /// Like [`Audio::play_at`], but this one takes over from the last sound played this way
     /// rather than sounding over it: `play_glue_wave`'s type 1 asks for `MFX_REPLACE`, which
     /// is how a mission keeps one long effect going without stacking them up.
@@ -315,6 +326,13 @@ impl Audio {
         }
         if let Some(c) = name.and_then(|n| self.sfx(n)) {
             self.ambience = Some(self.start(c, 1.0, 1.0, volume * self.sfx_volume, true));
+        }
+    }
+
+    /// Changes the volume of the ambience playing, if any.
+    pub fn ambience_volume(&mut self, volume: f32) {
+        if let Some(a) = &self.ambience {
+            a.set_gain(volume * self.sfx_volume);
         }
     }
 

@@ -94,6 +94,16 @@ fn never_where_the_rate_is_255() {
     }
     g.bored = 10_000.0;
     let i = send_away(&mut g);
+    // The rest of the crowd out of the way, and not due back for a while, so the places near
+    // her aren't all taken (there are few here).
+    let p = g.player.unwrap();
+    let me = g.people[p].fig.pos;
+    for (j, q) in g.people.iter_mut().enumerate() {
+        if j != i && q.fake && q.ai == AI_CIV {
+            q.fig.pos = me + vec3(-40.0 * 256.0, 0.0, 0.0);
+            q.unseen = 0.0;
+        }
+    }
     brought_back(&mut g, &level, i);
     assert_eq!(g.people[i].kind, ptype::CIV, "turned with a rate of 255");
 }

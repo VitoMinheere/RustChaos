@@ -55,7 +55,7 @@ impl Game {
                 d.max_element() + (d.x + d.y + d.z - d.max_element()) / 4.0
             };
             // A driver out of a car walks to the door of the nearest one free.
-            if p.ai == AI_DRIVER {
+            if p.drives() {
                 if let (true, Some(vi)) = (matches!(p.state, State::Move), self.car_for(i)) {
                     let door = self.vehicles[vi].door();
                     goals[i] = (Some(Vec3::new(door.x, at[i].y, door.y)), person::Pace::Walk);
