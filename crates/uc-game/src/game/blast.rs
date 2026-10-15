@@ -106,6 +106,9 @@ impl Game {
             }
             let hit = (damage as f32 * (radius - dist) / radius) as i32;
             let ko = if hit > 30 { person::ko::FINISHERS } else { 0 };
+            if let Blame::Person(by) = by {
+                self.people[i].hurt_by = Some(by);
+            }
             self.people[i].take_hit(at, hit, ko, false, false, Weapon::None);
         }
     }

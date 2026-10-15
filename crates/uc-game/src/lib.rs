@@ -364,6 +364,9 @@ pub struct Game {
     /// The city's crime rate, 0..100 (`CRIME_RATE`): the mission's, or 50 if it has none
     /// (elev.cpp:309).
     pub crime_rate: u8,
+    /// The player's red marks: innocents they've killed (`Genus.Player->RedMarks`). More than
+    /// one at the end of a mission as Darci, and the chief has words (Game.cpp:2783).
+    pub red_marks: u8,
     /// The mission shows the crime rate on the HUD (`MISSION_FLAG_SHOW_CRIMERATE`).
     pub show_crime_rate: bool,
     /// Deaths and arrests already counted towards the crime rate.
@@ -512,6 +515,7 @@ impl Game {
             items: Vec::new(), cutscene: None, convo: None, wide: None, used: false, vehicles: Vec::new(), veh_by_way: HashMap::new(),
             barrels: Vec::new(), sign: None, target: None, stats: [0; 4], badges: [0; 4], found: BTreeSet::new(),
             taken: BTreeSet::new(), dead_cops: BTreeSet::new(), player_fired: false,
+            red_marks: 0,
             crime_rate: if level.mission.crime_rate == 0 { 50 } else { level.mission.crime_rate.min(100) },
             show_crime_rate: level.mission.flags & MISSION_FLAG_SHOW_CRIMERATE != 0, crimes: BTreeSet::new(),
             searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(), bored: 0.0,
