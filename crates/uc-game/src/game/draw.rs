@@ -212,6 +212,7 @@ impl Game {
         }
         self.trips.batches(&mut out);
         self.sky(&mut out, level, eye);
+        self.draw_choppers(&mut out, level);
         self.draw_dirt(&mut out, level);
         out
     }
