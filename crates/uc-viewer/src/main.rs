@@ -263,8 +263,20 @@ struct World {
     objectives: Vec<String>,
     /// Tab held: show the checklist.
     checklist: bool,
+    /// The chief's word at the end of a mission with too many civilians dead.
+    civ_warning: Option<String>,
     /// The in-game menu, while it's up.
     pause: Option<Pause>,
+}
+
+/// The chief's `n`th warning about civilian casualties (`X_CIVSDEAD_WARNING_1` to `_4`, the
+/// game's strings 151 to 154: `text\lang_english.txt`'s lines 152 to 155).
+fn civ_warning(game: &Path, n: u8) -> String {
+    let line = 151 + n.min(3) as usize;
+    uc_formats::resolve(game, "text\\lang_english.txt")
+        .and_then(|p| std::fs::read(p).ok())
+        .and_then(|b| String::from_utf8_lossy(&b).lines().nth(line).map(|l| l.trim().to_string()))
+        .unwrap_or_else(|| "Too many civilian casualties.".to_string())
 }
 
 /// The in-game menus (`GAMEMENU_menu`, fallen/Source/gamemenu.cpp:97): paused, lost, and
@@ -378,6 +390,7 @@ impl World {
             objectives,
             checklist: false,
             pause: None,
+            civ_warning: None,
         })
     }
 
@@ -391,6 +404,7 @@ impl World {
 
     fn restart(&mut self) {
         self.result = None;
+        self.civ_warning = None;
         self.game = Game::new(&self.level, !self.args.explore);
         arm(&mut self.game, &self.args);
         if let Some(p) = self.game.player() {
@@ -521,6 +535,14 @@ impl World {
             o.rect(bx - s, by - s, bw + 2.0 * s, bh + 2.0 * s, [0, 0, 0, 160]);
             let col = if frac > 0.5 { [90, 200, 90, 255] } else if frac > 0.25 { [230, 190, 60, 255] } else { [220, 60, 50, 255] };
             o.rect(bx, by, bw * frac, bh, col);
+            // A grim reaper for each innocent killed (`PANEL_IC_GRIMREAPER`, panel.cpp:3315).
+            for k in 0..self.game.red_marks as usize {
+                let (x, y) = (bx + k as f32 * 9.0 * s, by + bh + 4.0 * s);
+                o.rect(x, y + 2.0 * s, 6.0 * s, 9.0 * s, [30, 30, 34, 230]);
+                o.rect(x + 2.0 * s, y + 3.0 * s, 2.0 * s, 2.0 * s, [225, 220, 200, 255]);
+                o.rect(x + 7.0 * s, y, 1.0 * s, 11.0 * s, [190, 190, 190, 255]);
+                o.rect(x + 4.0 * s, y, 4.0 * s, 1.0 * s, [190, 190, 190, 255]);
+            }
             // What's in hand, and the rounds left in a gun.
             let weapon = match p.rounds() {
                 Some(n) => format!("{} {n}", p.weapon.name()),
@@ -775,6 +797,15 @@ impl World {
             o.rect(0.0, h * 0.33, w, 50.0 * s, [0, 0, 0, 160]);
             o.text(w / 2.0 - Overlay::text_width(&title, big) / 2.0, h * 0.33 + 8.0 * s, big, col, &title);
             o.text(w / 2.0 - Overlay::text_width(&sub, s) / 2.0, h * 0.33 + 36.0 * s, s, white, &sub);
+            // The chief's word on the civilians killed (`deadcivs.tga`'s message).
+            if let Some(warning) = &self.civ_warning {
+                let lines = Overlay::wrap(warning, w * 0.6, s);
+                let top = h * 0.33 + 56.0 * s;
+                o.rect(w * 0.18, top - 4.0 * s, w * 0.64, (lines.len() as f32 * 11.0 + 8.0) * s, [60, 0, 0, 190]);
+                for (k, l) in lines.iter().enumerate() {
+                    o.text(w / 2.0 - Overlay::text_width(l, s) / 2.0, top + k as f32 * 11.0 * s, s, [255, 220, 200, 255], l);
+                }
+            }
         }
 
         // Tab held: the mission's checklist, ticked as things get done (side objectives and
@@ -1461,6 +1492,16 @@ impl App {
         }
         let Some(world) = self.world.as_mut() else { return };
         // Remember a win (once) for the menu.
+        // Won as Darci with more than one innocent dead: the chief's warning, and at the
+        // fourth her badge, which loses the mission (Game.cpp:2783, `X_CIVSDEAD_WARNING_*`).
+        let darci = world.game.player().is_some_and(|p| p.kind == uc_world::character::person::DARCI);
+        if world.game.outcome == Some(Outcome::Won) && world.result.is_none() && world.civ_warning.is_none() && darci && world.game.red_marks > 1 {
+            let n = progress::Progress::load().warn();
+            world.civ_warning = Some(civ_warning(&world.args.game, n));
+            if n >= 3 {
+                world.game.outcome = Some(Outcome::Lost("Too many civilian casualties".into()));
+            }
+        }
         if world.game.outcome == Some(Outcome::Won) && world.result.is_none() {
             let mut p = progress::Progress::load();
             let before = p.best_time(&world.level.name);

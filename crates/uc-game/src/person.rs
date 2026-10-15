@@ -695,6 +695,9 @@ pub struct Person {
     pub scared: Option<Scare>,
     /// Somebody has given them a fright (`pcom_ai_memory`): they don't forget it, and say so.
     pub annoyed: bool,
+    /// Who last hurt them (a blow, a shot, a blast they're blamed for, a car they drove), to
+    /// know whose doing a death was.
+    pub hurt_by: Option<usize>,
     /// Heard something there, and looking that way for this many seconds more
     /// (`PCOM_AI_STATE_INVESTIGATING`).
     pub heard: Option<(Vec3, f32)>,
@@ -735,7 +738,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, via: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
-            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, heard: None,
+            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, heard: None,
         }
     }
 
@@ -1274,6 +1277,7 @@ impl Person {
         (self.knocked_out, self.arrested, self.removed, self.out_cold) = (false, false, false, false);
         self.health = self.max_health;
         (self.scared, self.dodge, self.aggro) = (None, None, false);
+        self.hurt_by = None;
         self.wander = (None, 0.0);
         self.down_timer = 0.0;
         self.unseen = 0.0;

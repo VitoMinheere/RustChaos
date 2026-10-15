@@ -306,6 +306,14 @@ impl Game {
                 } else if p.ai == person::AI_CIV && p.mv == person::MOVE_WANDER {
                     rate += 5;
                 }
+                // The player killing an innocent, a civilian out for a stroll or a cop, and not
+                // marked guilty (`FLAG2_PERSON_GUILTY`), earns a red mark (`RedMarks`,
+                // Person.cpp:2340).
+                let civ = p.ai == person::AI_CIV && p.mv == person::MOVE_WANDER;
+                let cop = p.kind == uc_world::character::person::COP;
+                if p.hurt_by.is_some() && p.hurt_by == self.player && (civ || cop) && !p.guilty {
+                    self.red_marks = self.red_marks.saturating_add(1);
+                }
             }
             rate = rate.clamp(0, 100);
         }

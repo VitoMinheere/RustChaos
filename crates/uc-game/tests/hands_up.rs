@@ -89,3 +89,29 @@ fn cops_pay_no_heed() {
     run(&mut g, &level, DT);
     assert!(!matches!(g.people[i].state, State::HandsUp { .. }));
 }
+
+/// Red marks (`RedMarks`, Person.cpp:2340): Darci killing a passer-by or a cop who isn't
+/// guilty earns one; a guilty one doesn't.
+#[test]
+fn killing_innocents_earns_red_marks() {
+    let Some((level, mut g)) = start() else { return };
+    let p = g.player.unwrap();
+    let from = g.people[p].fig.pos;
+    let civ = g.people.iter().position(|q| q.fake && q.ai == AI_CIV && !q.is_dead() && q.mv == uc_game::person::MOVE_WANDER).expect("no passer-by");
+    g.people[civ].hurt_by = Some(p);
+    g.people[civ].take_hit(from, 10_000, uc_game::person::ko::FINISHERS, false, false, Weapon::Pistol);
+    run(&mut g, &level, DT);
+    assert_eq!(g.red_marks, 1);
+    // Someone guilty, killed: no mark.
+    let thug = g.people.iter().position(|q| !q.player && !q.is_dead() && q.guilty).or_else(|| { let k = g.people.iter().position(|q| !q.player && !q.is_dead() && q.ai == AI_CIV)?; g.people[k].guilty = true; Some(k) }).expect("nobody");
+    g.people[thug].hurt_by = Some(p);
+    g.people[thug].take_hit(from, 10_000, uc_game::person::ko::FINISHERS, false, false, Weapon::Pistol);
+    run(&mut g, &level, DT);
+    assert_eq!(g.red_marks, 1);
+    // Killed by someone else: no mark either.
+    let other = g.people.iter().position(|q| q.fake && q.ai == AI_CIV && !q.is_dead() && q.mv == uc_game::person::MOVE_WANDER).expect("no passer-by");
+    g.people[other].hurt_by = None;
+    g.people[other].take_hit(from, 10_000, uc_game::person::ko::FINISHERS, false, false, Weapon::Pistol);
+    run(&mut g, &level, DT);
+    assert_eq!(g.red_marks, 1);
+}

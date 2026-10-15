@@ -36,6 +36,8 @@ impl Done {
 #[derive(Default)]
 pub struct Progress {
     done: BTreeMap<String, Done>,
+    /// The chief's warnings so far about civilian casualties (`DarciDeadCivWarnings`).
+    civ_warnings: u8,
     path: Option<PathBuf>,
 }
 
@@ -57,8 +59,10 @@ impl Progress {
     pub fn load() -> Progress {
         let path = Progress::default_path();
         let text = path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+        let civ_warnings = text.lines().find_map(|l| l.strip_prefix("@civ_warnings ")?.trim().parse().ok()).unwrap_or(0);
         let done = text
             .lines()
+            .filter(|l| !l.starts_with('@'))
             .filter_map(|l| {
                 let mut f = l.split_whitespace();
                 let mission = f.next()?.to_ascii_lowercase();
@@ -77,7 +81,16 @@ impl Progress {
                 Some((mission, d))
             })
             .collect();
-        Progress { done, path }
+        Progress { done, civ_warnings, path }
+    }
+
+    /// Another mission ended with too many civilian casualties: the chief's warnings before
+    /// this one (Game.cpp:2783). The fourth costs her badge.
+    pub fn warn(&mut self) -> u8 {
+        let before = self.civ_warnings;
+        self.civ_warnings = before.saturating_add(1);
+        self.save();
+        before
     }
 
     pub fn get(&self, mission: &str) -> Option<&Done> {
@@ -124,6 +137,7 @@ impl Progress {
                 let legacy = if d.legacy == [0; 4] { String::new() } else { format!(" {a} {b} {c} {e}") };
                 format!("{m} {:.1} b={} s={}{legacy}\n", d.best, join(&d.badges), join(&d.sides))
             })
+            .chain((self.civ_warnings > 0).then(|| format!("@civ_warnings {}\n", self.civ_warnings)))
             .collect();
         let saved = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| std::fs::write(path, text));
         if let Err(e) = saved {
@@ -141,6 +155,13 @@ pub fn clock(secs: f32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_chiefs_warnings_add_up() {
+        let mut p = Progress::default();
+        assert_eq!((p.warn(), p.warn(), p.warn()), (0, 1, 2));
+        assert_eq!(p.civ_warnings, 3);
+    }
 
     #[test]
     fn badges_count_once_and_old_saves_still_count() {

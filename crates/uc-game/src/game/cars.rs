@@ -281,6 +281,7 @@ impl Game {
                     continue;
                 }
                 if v.speed.abs() > 300.0 && !p.is_down() {
+                    p.hurt_by = v.driver;
                     p.take_hit(v.pos, (v.speed.abs() / 12.0) as i32, person::ko::KNOCKDOWN, false, true, Weapon::None);
                 }
                 let away = if (at - Vec2::new(v.pos.x, v.pos.z)).dot(side) >= 0.0 { side } else { -side };

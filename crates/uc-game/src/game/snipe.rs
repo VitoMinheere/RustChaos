@@ -154,6 +154,7 @@ impl Game {
             .map(|(i, _)| i);
         if let Some(t) = best {
             let was_down = self.people[t].is_down();
+            self.people[t].hurt_by = Some(pi);
             self.people[t].take_hit(me, SNIPER_DAMAGE, 0, true, false, Weapon::Sniper);
             if !was_down && self.people[t].is_down() {
                 let kind = self.people[pi].kind;
