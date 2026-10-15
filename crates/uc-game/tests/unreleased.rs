@@ -118,3 +118,20 @@ fn el_cossa_island_needs_the_islanders_alive() {
     assert!(r.said("You killed a hostage!"), "nobody noticed: {:?}", r.seen);
     assert!(matches!(r.g.outcome, Some(Outcome::Lost(_))), "{:?}", r.g.outcome);
 }
+
+/// Officer Training (`train11`) and the Missile Silos (`snow1`), both with motorbikes, load
+/// with every point supported; the training course has the sniper rifle at its shooting
+/// range, beside the pistol.
+#[test]
+fn officer_training_and_the_missile_silos() {
+    for (mission, bikes) in [("train11", 1), ("snow1", 3)] {
+        let Some(mut r) = start(mission) else { return };
+        r.play(1.0, false);
+        assert_eq!(r.g.bikes.len(), bikes, "{mission}'s bikes");
+        if mission == "train11" {
+            let pistol = r.g.items.iter().find(|i| i.way == 29).expect("no pistol").pos;
+            let rifle = r.g.items.iter().find(|i| i.kind == uc_game::SNIPER).expect("no sniper rifle").pos;
+            assert!((rifle - pistol).length() < 200.0, "the rifle's at {rifle:?}, the pistol at {pistol:?}");
+        }
+    }
+}

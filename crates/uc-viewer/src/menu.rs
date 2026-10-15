@@ -172,7 +172,7 @@ impl Menu {
 /// order (`suggest_order`, fallen/Source/frontend.cpp:259): (mission, title, briefing).
 /// `urban.sty` has neither, so the titles are this project's and the briefings are written
 /// from the missions' opening messages.
-const UNRELEASED: [(&str, &str, &str); 2] = [
+const UNRELEASED: [(&str, &str, &str); 4] = [
     ("FreeCD1", "Construction Site Siege",
      "The local Wildcat chapter have stormed the construction site and taken some workers hostage, \
       and they've spread out all over this section of town. We want those hostages ALIVE, Stern!\r\
@@ -182,6 +182,18 @@ const UNRELEASED: [(&str, &str, &str); 2] = [
       site, possibly building MORE silos. We want those sites LEVELLED, Stern! Island residents have \
       already been killed: expect severe resistance.\r\
       - Get into the compound and take down Bane's workmen.\r- Ensure no more islanders come to harm."),
+    // These two have no title or briefing anywhere in the game: both are made up from their
+    // scripts. Officer Training is the later of the training course's two versions (`train1`
+    // is the other), and both have a motorbike, as do the Missile Silos.
+    ("train11", "Officer Training",
+     "Welcome to officer training, Stern. Learn to jump, climb, drive and shoot like a Union City \
+      officer: the assault course, the shooting range (with a sniper rifle to try out), the \
+      driving school with its motorbike, and the hand to hand arena.\r\
+      - Talk to the training officer.\r- Don't break the lasers, and don't hit a fellow officer."),
+    ("snow1", "Missile Silos",
+     "The Wildcats have three missiles up on the mountain, and they'll launch them the moment \
+      they see you coming. Take a bike and get there first.\r\
+      - Destroy all three missiles before they launch."),
 ];
 
 /// The game's mission list (`data\urban.sty`): (mission file without `.ucm`, title,

@@ -2,6 +2,9 @@
 
 use crate::*;
 
+/// Officer Training's (`train11`) pistol at the shooting range: point 29.
+const TRAINING_PISTOL: usize = 29;
+
 impl Game {
     /// Where person `i` is: their car's position while driving.
     pub(crate) fn thing_pos(&self, i: usize) -> Vec3 {
@@ -101,6 +104,13 @@ impl Game {
                             self.hidden.push((ob, item));
                         }
                         None => self.items.push(item),
+                    }
+                    // Not in the original: Officer Training's shooting range has the sniper
+                    // rifle lying beside its pistol, to try the scope out on the targets.
+                    if way == TRAINING_PISTOL && level.mission.mission_name.eq_ignore_ascii_case("train11") {
+                        let at = Vec3::new(pos.x + 96.0, 0.0, pos.z);
+                        let y = level.ground.surface(&level.map, at.x, at.z, pos.y + 32.0);
+                        self.items.push(Item { way: 0, kind: crate::SNIPER, pos: Vec3::new(at.x, y, at.z) });
                     }
                 }
                 Command::Bike { way, pos, angle } => self.add_bike(level, way, pos, angle),
