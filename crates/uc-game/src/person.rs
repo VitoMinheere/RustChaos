@@ -324,6 +324,8 @@ pub struct Controls {
     pub scope: bool,
     /// Taunt `target` (`ANIM_WANKER`), standing.
     pub taunt: bool,
+    /// Held: crouch (and crawl when moving), as action held standing still does.
+    pub crouch: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -412,6 +414,8 @@ pub enum Grab {
     /// Roper's grapples (`grapples[]`, combat.cpp:179, only his): strangling, and a headbutt.
     Strangle,
     Headbutt,
+    /// The player's takedown from behind (`grapples[0]`, `ANIM_PISTOL_WHIP`): out cold.
+    PistolWhip,
 }
 
 impl Grab {
@@ -424,6 +428,7 @@ impl Grab {
             Grab::Throw => (anim::GRAB_ARM_THROW, anim::GRAB_ARM_THROWV),
             Grab::Strangle => (anim::STRANGLE, anim::STRANGLE_VICTIM),
             Grab::Headbutt => (anim::HEADBUTT, anim::HEADBUTT_VICTIM),
+            Grab::PistolWhip => (anim::PISTOL_WHIP, anim::PISTOL_WHIP_TAKE),
         }
     }
 
@@ -431,8 +436,15 @@ impl Grab {
     pub fn reach(self) -> f32 {
         match self {
             Grab::Strangle | Grab::Headbutt => 100.0,
+            Grab::PistolWhip => 70.0,
             _ => 90.0,
         }
+    }
+
+    /// Whether the victim is held facing the one grappling them (else facing away: the
+    /// pistol whip's `Angle` of 1024 turns them round).
+    pub fn face_to_face(self) -> bool {
+        self != Grab::PistolWhip
     }
 }
 
@@ -525,6 +537,9 @@ pub enum Event {
     /// A frame of Roper's strangle or his headbutt landing on `victim`: the damage is taken
     /// straight off their health, by how skilled they are (Person.cpp:18969).
     Squeeze { victim: usize, headbutt: bool },
+    /// The pistol whip's done: the victim lies out cold, alive (`PERSON_DEATH_TYPE_STAY_ALIVE_
+    /// PRONE`, Person.cpp:19090), until cuffed.
+    OutCold { attacker: usize, victim: usize },
     /// The attacker changed grapple move; the victim follows.
     GrabMove { victim: usize, grab: Grab },
     Release { victim: usize },
@@ -555,6 +570,8 @@ pub struct Snap {
     pub hostile: bool,
     /// Worth a fighting stance: hostile, or a fight-test dummy.
     pub fighter: bool,
+    /// A fight-test dummy (`PCOM_AI_FIGHT_TEST`).
+    pub dummy: bool,
     pub attacking: bool,
     /// Guarding (an attacker can see it).
     pub blocking: bool,
@@ -608,6 +625,8 @@ pub struct Person {
     pub ammo: [u32; 4],
     /// Out for good (health gone): won't get up.
     pub knocked_out: bool,
+    /// Lying out cold but alive (the pistol whip's `STAY_ALIVE_PRONE`): down until cuffed.
+    pub out_cold: bool,
     /// A mission has set them peeing (`FLAG_PERSON_PEEING`).
     pub peeing: bool,
     /// Charges carried (the special's `ammo`): four at most.
@@ -713,7 +732,7 @@ impl Person {
         Person {
             fig, way, player, kind, ai: 0, bent: 0, ko_moves: 0, health, max_health: health, state: State::Move,
             pace: Pace::Walk,
-            arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 4], knocked_out: false, down_timer: 0.0,
+            arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, via: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, heard: None,
@@ -945,6 +964,7 @@ impl Person {
             player: self.player,
             hostile: self.hostile(),
             fighter: self.hostile() || self.is_dummy(),
+            dummy: self.is_dummy(),
             attacking: matches!(self.state, State::Attack { .. }),
             blocking: matches!(self.state, State::Block),
             in_car: matches!(self.state, State::InCar { .. }),
@@ -1251,7 +1271,7 @@ impl Person {
     pub fn respawn(&mut self, pos: Vec3) {
         self.fig.pos = pos;
         self.state = State::Move;
-        (self.knocked_out, self.arrested, self.removed) = (false, false, false);
+        (self.knocked_out, self.arrested, self.removed, self.out_cold) = (false, false, false, false);
         self.health = self.max_health;
         (self.scared, self.dodge, self.aggro) = (None, None, false);
         self.wander = (None, 0.0);
@@ -1332,10 +1352,37 @@ impl Person {
     /// Crouching and crawling. Letting go of action stands her up; pushing a direction
     /// crawls that way at the original's velocity 15 to walking's 16, on all fours (or on
     /// her belly with a gun drawn: `ANIM_SNIPER_CRAWL`); stopping goes back to crouching.
+    /// The takedown from behind (`find_best_grapple` trying `grapples[0]`, combat.cpp:181:
+    /// `{ANIM_PISTOL_WHIP, 75, 65, 1024, 0, 1}`, the player's only): someone 10 to 140 off, in
+    /// front of her, with their back to her (facing her way within 160 of 2048), and not
+    /// one of the Men in Black, Roper, or a fight-test dummy (combat.cpp:752, 777). Whipped,
+    /// they go down out cold whatever their health. Returns whether she did it.
+    fn takedown(&mut self, me: usize, snaps: &[Snap], events: &mut Vec<Event>) -> bool {
+        use uc_world::character::person as ptype;
+        let f = self.fig.facing();
+        let back_to_her = (160.0 / 2048.0 * std::f32::consts::TAU).cos();
+        let t = snaps.iter().enumerate().filter(|&(j, s)| {
+            let d = flat(s.pos, self.fig.pos);
+            j != me && s.present && s.standing && !s.player && !s.in_car && !s.dummy
+                && !matches!(s.kind, ptype::MIB1 | ptype::MIB2 | ptype::MIB3 | ptype::ROPER)
+                && (10.0..140.0).contains(&d.length()) && (s.pos.y - self.fig.pos.y).abs() < 50.0
+                && f.dot(d.normalize_or_zero()) > 0.7 && s.facing.dot(f) > back_to_her
+        }).min_by(|a, b| flat(a.1.pos, self.fig.pos).length().total_cmp(&flat(b.1.pos, self.fig.pos).length()))
+            .map(|(j, _)| j);
+        let Some(t) = t else { return false };
+        if !self.fig.restart(anim::PISTOL_WHIP, Play::Once) {
+            return false;
+        }
+        self.fig.angle = uc_world::character::angle_of(flat(snaps[t].pos, self.fig.pos));
+        self.state = State::Grapple { victim: t, grab: Grab::PistolWhip, hit: false, timer: 0.0, frame: None };
+        events.push(Event::Grab { attacker: me, victim: t, grab: Grab::PistolWhip });
+        true
+    }
+
     fn step_crouch(&mut self, phase: u8, c: &Controls, ground: &Ground, map: &Map, dt: f32) {
         let moving = c.wish.length_squared() > 0.01;
         match phase {
-            0 | 1 | 2 if !c.sprint => {
+            0 | 1 | 2 if !c.sprint && !c.crouch => {
                 let a = match self.weapon {
                     _ if !self.gun_out() => anim::CROUTCH_GETUP,
                     Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper => anim::UNCROUTCH_AK,
@@ -1680,7 +1727,14 @@ impl Person {
             }
             State::Dangle { to, dir, shift } => self.step_dangle(to, dir, shift, c, ground, map),
             State::Carry { victim, phase } => self.step_carry(victim, phase, c, ground, map, dt),
-            State::Crouch { phase } => self.step_crouch(phase, c, ground, map, dt),
+            State::Crouch { phase } => {
+                // Up from a crouch or a crawl straight into the takedown, if someone's back
+                // is to her.
+                if matches!(phase, 1 | 2) && c.punch && self.takedown(me, snaps, events) {
+                    return;
+                }
+                self.step_crouch(phase, c, ground, map, dt)
+            }
             State::GetUp => {
                 if self.fig.finished() {
                     self.state = State::Move;
@@ -1925,7 +1979,7 @@ impl Person {
                 // Knocked down, not out: get up after a while (unless arrested meanwhile).
                 self.down_timer += dt;
                 let lying = matches!(self.fig.anim(), anim::KD_FRONT_LAND | anim::KD_BACK_LAND);
-                if !self.knocked_out && lying && self.fig.finished() && self.down_timer > 2.5 {
+                if !self.knocked_out && !self.out_cold && lying && self.fig.finished() && self.down_timer > 2.5 {
                     self.fig.restart_locked(anim::QUICK_GET_UP, Play::Once);
                     self.fig.lift = 0.0;
                     self.state = State::GetUp;
@@ -2077,6 +2131,14 @@ impl Person {
                 }
                 self.state = State::Grapple { victim, grab, hit, timer, frame: now };
             }
+            State::Grapple { victim, grab: Grab::PistolWhip, .. } => {
+                // `SUB_STATE_GRAPPLE`: when it's played out, the one whipped goes down out cold.
+                if self.fig.finished() {
+                    events.push(Event::OutCold { attacker: me, victim });
+                    self.state = State::Move;
+                    self.idle(false);
+                }
+            }
             State::Grapple { victim, grab, mut hit, mut timer, frame } => {
                 let v = snaps[victim];
                 if !v.present {
@@ -2224,7 +2286,10 @@ impl Person {
             }
         }
         // Action standing still with nothing else to do: crouch, gun and all.
-        if c.action && self.player && !moving {
+        if self.player && c.punch && self.takedown(me, snaps, events) {
+            return;
+        }
+        if self.player && ((c.action && !moving) || c.crouch) {
             let a = match self.weapon {
                 _ if !self.gun_out() => anim::CROUTCH_DOWN,
                 Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper => anim::SHOTGUN_DUCK,

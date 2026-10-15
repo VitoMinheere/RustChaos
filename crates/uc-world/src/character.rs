@@ -79,6 +79,8 @@ pub mod anim {
     pub const SLIDER_HOLD: usize = 218;
     pub const GRAB_ARM: usize = 226;
     pub const GRAB_ARMV: usize = 227;
+    pub const PISTOL_WHIP: usize = 391;
+    pub const PISTOL_WHIP_TAKE: usize = 392;
     pub const GRAB_ARM_THROW: usize = 228;
     pub const GRAB_ARM_THROWV: usize = 229;
     pub const GRAB_ARM_KNEE1: usize = 230;

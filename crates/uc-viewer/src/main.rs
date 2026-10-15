@@ -53,6 +53,8 @@ uc-viewer [--game DIR] [--mission NAME] [--explore] [--overrides DIR] [--linear]
 
 Darci: WASD move (relative to the camera), Shift run, J or left mouse punch, K kick, Q block,
   E action (arrest, climb; hold while running to sprint), mouse turns the camera, wheel zoom.
+  C or Left Ctrl crouch (hold; move to crawl). Punch someone with their back to her, close by,
+  to knock them out cold from behind (crouching or crawling up is quietest).
   G next weapon. With a gun: punch fires (hold for the AK-47) at the bracketed target,
   T targets the next enemy. Walk over weapons and ammo to pick them up. With the sniper rifle,
   Z looks through its scope: WASD turn it, punch fires, Z again to put it down.
@@ -60,7 +62,7 @@ Darci: WASD move (relative to the camera), Shift run, J or left mouse punch, K k
   or kick. Back/side + kick in a fight: back or side kick. Three punches or kicks in time: combo.
 Gamepad: left stick move (push fully to run), right stick camera, A/Cross jump,
   X/Square punch, Y/Triangle kick, B/Circle action (hold while running to sprint), LB block,
-  RB next weapon, right stick click next target,
+  RB next weapon, right stick click next target, D-pad down crouch,
   Start pause, Back/Select free camera.
 Mouse: M switches between mouse look (default: the cursor is captured) and right-drag look.
 Hold Tab for the mission's checklist: objectives, side objectives and badges.
@@ -797,7 +799,7 @@ impl World {
 
         // The controls, for the first 20 seconds (H toggles them).
         if self.help && !self.checklist && self.game.cutscene.is_none() && (self.game.time < 20.0 || self.help_forced) {
-            let help = ["WASD move   Shift run   Space jump   E action (hold: sprint, or crouch and crawl)", "J / left mouse punch   K kick   Q block   M mouse look on/off",
+            let help = ["WASD move   Shift run   Space jump   E action (hold: sprint)   C crouch (move: crawl)", "J / left mouse punch   K kick   Q block   M mouse look on/off",
                         "G next weapon   T next target   Z scope (sniper rifle)   Tab checklist   R restart   V free camera   H hide help"];
             for (k, line) in help.iter().enumerate() {
                 o.text(12.0 * s, 44.0 * s + k as f32 * 10.0 * s, s, [200, 200, 190, 200], line);
@@ -1169,6 +1171,7 @@ impl App {
                 switch: inp.hit(KeyCode::KeyG) || pad.hit(Button::RightTrigger),
                 cycle_target: inp.hit(KeyCode::KeyT) || pad.hit(Button::RightThumb),
                 scope: inp.hit(KeyCode::KeyZ) || pad.hit(Button::LeftThumb),
+                crouch: inp.held(KeyCode::KeyC) || inp.held(KeyCode::ControlLeft) || pad.held(Button::DPadDown),
                 ..Default::default()
             };
             // Through the sniper rifle's scope: WASD (or the stick) turn it, punch fires, Z
