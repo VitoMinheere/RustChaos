@@ -81,3 +81,34 @@ fn a_follower_goes_round_a_building() {
     }
     assert!(closest < 3.0 * 256.0, "got from {start} no nearer than {closest}");
 }
+
+/// Running from gunfire (`PCOM_set_person_move_runaway`): one of a mission's own civilians,
+/// not just the crowd, runs, and by the way the navigation map finds gets well away from the
+/// danger rather than into the nearest wall.
+#[test]
+fn a_mission_civilian_runs_from_gunfire() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let level = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let mut g = Game::new(&level, true);
+    for _ in 0..(60.0 / DT) as usize {
+        g.skip_cutscene();
+        g.update(DT, &Controls::default(), &level);
+        if g.time > 1.0 && !g.in_conversation() {
+            break;
+        }
+    }
+    let Some(i) = g.people.iter().position(|q| !q.fake && q.way != 0 && q.ai == uc_game::person::AI_CIV && !q.is_dead() && matches!(q.state, State::Move))
+        else { return };
+    let start = g.people[i].fig.pos;
+    // A shot fired right beside them, by nobody they can see (a bang where it lands).
+    let danger = start + vec3(200.0, 0.0, 0.0);
+    g.people[i].scare(None, danger);
+    assert!(g.people[i].scared.is_some(), "a mission civilian didn't take fright");
+    let mut furthest: f32 = 0.0;
+    for _ in 0..(10.0 / DT) as usize {
+        g.update(DT, &Controls::default(), &level);
+        let d = g.people[i].fig.pos - danger;
+        furthest = furthest.max((d.x * d.x + d.z * d.z).sqrt());
+    }
+    assert!(furthest > 8.0 * 256.0, "got no further than {} from it", furthest / 256.0);
+}
