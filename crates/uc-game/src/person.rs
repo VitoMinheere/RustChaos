@@ -39,6 +39,8 @@ pub enum Weapon {
     Ak47,
     /// Charges to set down and run from (`SPECIAL_EXPLOSIVES`): action sets one.
     Explosives,
+    /// Grenades (`SPECIAL_GRENADE`): action primes one, action again throws it.
+    Grenade,
 }
 
 impl Weapon {
@@ -71,6 +73,7 @@ impl Weapon {
             Weapon::Ak47 => Some(6),
             Weapon::Bat => Some(8),
             Weapon::Explosives => Some(crate::EXPLOSIVES),
+            Weapon::Grenade => Some(crate::game::grenades::IT_GRENADE),
         }
     }
 
@@ -107,6 +110,7 @@ impl Weapon {
             Weapon::Shotgun => "SHOTGUN",
             Weapon::Ak47 => "AK-47",
             Weapon::Explosives => "EXPLOSIVES",
+            Weapon::Grenade => "GRENADE",
         }
     }
 
@@ -120,7 +124,7 @@ impl Weapon {
             Weapon::Shotgun => Some((258, 7, Some(262))),
             Weapon::Bat => Some((259, 7, None)),
             Weapon::Ak47 => Some((260, 7, Some(263))),
-            Weapon::Explosives => None,
+            Weapon::Explosives | Weapon::Grenade => None,
         }
     }
 
@@ -542,6 +546,8 @@ pub struct Person {
     /// A mission has set them peeing (`FLAG_PERSON_PEEING`).
     pub peeing: bool,
     /// Charges carried (the special's `ammo`): four at most.
+    /// Grenades carried (`SPECIAL_GRENADE`'s `ammo`).
+    pub grenades: u8,
     /// Breath for sprinting (`Genus.Person->Stamina`), the player's only: up to
     /// `max_stamina`, which is 128 and the stamina badges (Person.cpp:4319).
     pub stamina: f32,
@@ -637,7 +643,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 3], knocked_out: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
-            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false,
+            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false,
         }
     }
 
@@ -661,6 +667,9 @@ impl Person {
         if w == Weapon::Explosives {
             return self.explosives > 0;
         }
+        if w == Weapon::Grenade {
+            return self.grenades > 0;
+        }
         match w.slot() {
             Some(s) => self.guns & (1 << s) != 0,
             None => w == Weapon::None || self.melee == w,
@@ -671,6 +680,9 @@ impl Person {
     pub fn rounds(&self) -> Option<u32> {
         if self.weapon == Weapon::Explosives {
             return Some(self.explosives as u32);
+        }
+        if self.weapon == Weapon::Grenade {
+            return Some(self.grenades as u32);
         }
         self.weapon.slot().map(|s| if self.player { self.ammo[s] } else { u32::MAX })
     }
@@ -684,12 +696,13 @@ impl Person {
             .filter(|(s, _)| self.guns & (1 << s) != 0)
             .map(|(s, &g)| (g, Some(self.ammo[s])));
         let charges = (self.explosives > 0).then_some((Weapon::Explosives, Some(self.explosives as u32)));
-        melee.into_iter().chain(guns).chain(charges).filter(|&(w, _)| w != self.weapon).collect()
+        let grenades = (self.grenades > 0).then_some((Weapon::Grenade, Some(self.grenades as u32)));
+        melee.into_iter().chain(guns).chain(charges).chain(grenades).filter(|&(w, _)| w != self.weapon).collect()
     }
 
     /// Puts away what's in hand and takes out the next weapon carried (bare hands last).
     pub fn next_weapon(&mut self) {
-        let carried: Vec<Weapon> = [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Explosives]
+        let carried: Vec<Weapon> = [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Explosives, Weapon::Grenade]
             .into_iter()
             .enumerate()
             .filter(|&(k, w)| self.has(w) && (k == 0 || w != Weapon::None))
