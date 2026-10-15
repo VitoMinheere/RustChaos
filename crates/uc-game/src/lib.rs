@@ -406,7 +406,7 @@ pub struct Game {
     mav: uc_world::mav::Mav,
     /// Each person's last route: (from square, to square, furthest square to walk to, first
     /// square along it).
-    ways: HashMap<usize, ((u8, u8), (u8, u8), Option<(u8, u8)>, Option<(u8, u8)>)>,
+    ways: HashMap<usize, game::Route>,
     /// The route search's own chance (its bias against odd moves).
     mav_rng: u32,
     /// The mission's helicopters.

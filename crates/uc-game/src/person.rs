@@ -2463,7 +2463,8 @@ impl Person {
             self.fig.set_speed(rate);
             let before = self.fig.pos;
             // Patrols go where their points are, even off a roof (The Jump's jumper does).
-            if !self.walk(dir * speed * dt, ground, map, self.player || self.goal.is_some()) {
+            // Following a route may mean dropping off an edge (`MAV_ACTION_FALL_OFF`).
+            if !self.walk(dir * speed * dt, ground, map, self.player || self.goal.is_some() || self.via.is_some()) {
                 self.fall(dir * speed);
                 return;
             }
