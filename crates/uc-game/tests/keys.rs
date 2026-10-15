@@ -32,8 +32,8 @@ fn car(g: &Game, way: usize) -> usize {
     g.vehicles.iter().position(|v| v.way == way).unwrap_or_else(|| panic!("no car from point {way}"))
 }
 
-/// Stands the player at car `vi`'s door, presses action and lets a second pass. Returns
-/// whether they got in.
+/// Stands the player at car `vi`'s door, presses action and lets a second pass, and then
+/// however long getting in takes. Returns whether they got in.
 fn try_door(level: &Level, g: &mut Game, vi: usize) -> bool {
     let pi = g.player.unwrap();
     let door = g.vehicles[vi].door();
@@ -44,6 +44,12 @@ fn try_door(level: &Level, g: &mut Game, vi: usize) -> bool {
     assert!(!g.in_conversation() && g.cutscene.is_none(), "a scene would hold her still");
     g.update(DT, &Controls { action: true, ..Default::default() }, level);
     for _ in 0..30 {
+        g.update(DT, &Controls::default(), level);
+    }
+    for _ in 0..150 {
+        if !matches!(g.people[pi].state, State::Enter { .. }) {
+            break;
+        }
         g.update(DT, &Controls::default(), level);
     }
     matches!(g.people[pi].state, State::InCar { vehicle } if vehicle == vi)

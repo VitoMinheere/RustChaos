@@ -563,6 +563,14 @@ pub const SOUNDS: [&str; 548] = [
     r"GeneralMusic\FrontLoopEditMONO.wav",
 ];
 
+/// The name a sound shipped under, where it isn't the table's: two birdsongs lost their
+/// working names' "Shortenough" and three gusts of wind their "second" (`f_WINDsecond2`
+/// ships as `f_WIND2`).
+pub fn shipped_as(name: &str) -> Option<String> {
+    let n = name.replace("Shortenough", "").replace("WINDsecond", "WIND");
+    (n != name).then_some(n)
+}
+
 /// The file for sound `id`, relative to `data\\sfx\\1622`, if it has one. Id 0 is the
 /// table's own `NULL.wav` placeholder and means silence.
 pub fn name(id: usize) -> Option<&'static str> {

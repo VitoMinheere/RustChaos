@@ -67,6 +67,10 @@ pub struct Barrel {
     pub yaw: f32,
     /// How far it has toppled over (0 upright .. pi/2 on its side).
     pub tilt: f32,
+    /// The barrel it stands on (`bb->on`), if it was put down on top of another.
+    pub on: Option<usize>,
+    /// Falling speed, once the barrel under it has gone.
+    pub vy: f32,
 }
 
 impl Barrel {
@@ -374,6 +378,8 @@ pub struct Game {
     ways: HashMap<usize, ((u8, u8), (u8, u8), Option<(u8, u8)>, Option<(u8, u8)>)>,
     /// The route search's own chance (its bias against odd moves).
     mav_rng: u32,
+    /// People getting into cars: (who, which car).
+    entering: Vec<(usize, usize)>,
     creature_by_way: HashMap<usize, usize>,
     pub fireballs: Vec<creature::Fireball>,
     pub sparks: Vec<Spark>,
@@ -396,6 +402,12 @@ pub struct Game {
     pub mists: Mists,
     /// Drops in the air.
     pub drops: dirt::Drops,
+    /// Leaves, cans and snow lying about round the player.
+    pub dirt: dirt::Dirt,
+    /// Seconds to the dirt's next turn.
+    dirt_clock: f32,
+    /// Where each person, then each car, was at the dirt's last turn (NaN for nowhere).
+    dirt_marks: Vec<Vec3>,
     /// Steam from the mission's vents.
     pub steam: steam::Steam,
     /// The beams `tripwire` points watch.
@@ -462,9 +474,9 @@ impl Game {
             }).collect(),
             plat_prims: level.platforms.iter().map(|&(_, ob)| uc_world::level::load_prim(&level.game, level.map.objects[ob].prim)).collect(),
             plat_clock: 0.0,
-            creatures: Vec::new(), mav: uc_world::mav::Mav::new(level), ways: HashMap::new(), mav_rng: 0x3a7, creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
+            creatures: Vec::new(), mav: uc_world::mav::Mav::new(level), ways: HashMap::new(), mav_rng: 0x3a7, entering: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
             aim_creature: None, aim_barrel: None, creature_clock: 0.0, creature_rng: 0xba7,
-            pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), steam: steam::Steam::default(),
+            pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), dirt: Game::new_dirt(level), dirt_clock: 0.0, dirt_marks: Vec::new(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
             electrified: BTreeSet::new(), fence_spark_clock: 0.0, no_floor: false,
             player_name: "",
@@ -494,8 +506,8 @@ impl Game {
             let at = Vec3::new(o.x as f32, o.y as f32, o.z as f32);
             let y = level.ground.surface(&level.map, at.x, at.z, at.y + 32.0);
             let yaw = o.yaw as f32 * std::f32::consts::TAU / 2048.0;
-            g.barrels.push(Barrel { kind: 0, prim: uc_world::level::BARREL_PROP, explodes: true, way: 0, gone: false,
-                                    pos: Vec3::new(at.x, y, at.z), vel: Vec2::ZERO, yaw, tilt: 0.0 });
+            g.add_barrel(Barrel { kind: 0, prim: uc_world::level::BARREL_PROP, explodes: true, way: 0, gone: false,
+                                  pos: Vec3::new(at.x, y, at.z), vel: Vec2::ZERO, yaw, tilt: 0.0, on: None, vy: 0.0 });
         }
         g
     }
@@ -623,7 +635,7 @@ impl Game {
         self.walk_goals();
         self.find_ways(level);
         self.city_life(dt, level);
-        self.board_cars();
+        self.board_cars(level);
         // `PCOM_AI_SUICIDE`, "the easiest AI! A random death" (fallen/Source/pcom.cpp): down
         // as if shot with a pistol the first time it runs. The Fallen's bootlegger is made this
         // way on the roof once Harney has spoken, and the first clue waits on his death.
@@ -696,11 +708,13 @@ impl Game {
         for p in &mut self.people {
             p.advance(dt, &level.ground);
         }
+        self.finish_entering();
         self.sync_grapples();
         self.sync_carrying(level);
         self.separate(level);
         self.count_dead_cops();
         self.tally_crime();
+        self.blow_dirt(dt, level);
 
         if let (Some(p), None) = (self.player, &self.outcome) {
             if self.people[p].knocked_out {
