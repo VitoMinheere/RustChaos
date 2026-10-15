@@ -288,6 +288,8 @@ fn the_fallen_runs_to_a_win() {
         r.play(DT, Controls::default());
         let from = r.g.people[i].fig.pos;
         r.g.people[i].take_hit(from, 10_000, ko::FINISHERS, false, false, uc_game::Weapon::None);
+        // And away: a while after going down, the suits go up (Person.cpp:17536).
+        r.stand(from + vec3(1500.0, 0.0, 0.0));
     }
     r.play(20.0, Controls::default());
 

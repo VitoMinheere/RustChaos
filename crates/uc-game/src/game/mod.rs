@@ -12,6 +12,7 @@ mod actions;
 mod combat;
 mod draw;
 mod snipe;
+mod mib;
 
 pub use snipe::Snipe;
 mod bikes;

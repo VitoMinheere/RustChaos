@@ -452,7 +452,8 @@ impl script::Query for Game {
         Some(script::PersonState {
             // Someone a kill_waypoint took away isn't dead: the original just moves them off
             // the map (Driving Silver swaps its instructor this way).
-            dead: p.is_dead() && !p.removed,
+            // One of the Men in Black who went up in lightning is gone but still dead.
+            dead: p.is_dead() && (!p.removed || p.blown_up),
             down: p.is_down() || p.removed,
             // Being cuffed counts: otherwise "killed, not arrested" fires mid-arrest.
             arrested: p.arrested || matches!(p.state, State::Cuffed),

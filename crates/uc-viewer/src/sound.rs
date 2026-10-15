@@ -36,6 +36,9 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         Sfx::Hit { heavy } => at(audio, numbered("f_PUNCH", 1..=5, ".wav"), if heavy { 1.0 } else { 0.75 }),
         Sfx::Hurt { kind: ptype::DARCI } => at(audio, numbered("darci/hit ", 1..=5, ".WAV"), 0.8),
         Sfx::Hurt { .. } => {}
+        Sfx::MibExplode => at(audio, vec!["MIBexplo1.wav".into()], 1.0),
+        // The Men in Black levitate as they die (`S_MIB_LEVITATE`, Person.cpp:1140).
+        Sfx::KnockedOut { kind: ptype::MIB1 | ptype::MIB2 | ptype::MIB3 } => at(audio, vec!["MIBlevitate1.wav".into()], 1.0),
         Sfx::KnockedOut { kind } => {
             let names = match kind {
                 ptype::DARCI => numbered("darci/die ", 1..=3, ".WAV"),

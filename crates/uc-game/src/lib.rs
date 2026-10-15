@@ -784,6 +784,7 @@ impl Game {
         self.separate(level);
         self.count_dead_cops();
         self.tally_crime();
+        self.men_in_black(level);
         self.blow_dirt(dt, level);
 
         if let (Some(p), None) = (self.player, &self.outcome) {
