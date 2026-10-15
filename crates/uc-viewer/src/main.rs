@@ -269,6 +269,40 @@ struct World {
     pause: Option<Pause>,
 }
 
+/// The gun sights (`PANEL_draw_gun_sight`, DDEngine/Source/panel.cpp:728): four strokes
+/// round the point, 84 to 164 out (times the sight's scale over 256), at `accuracy` (in
+/// 2048ths of a turn) either side of left and right, so they close up into two level strokes
+/// as the aim steadies; faint, from orange towards red as it does (`col = acc << 8 |
+/// (255 - acc) << 16`), 30 wide. Drawn as runs of small squares, the overlay having no lines.
+fn draw_sights(o: &mut Overlay, sights: &[uc_game::Sight], cam: &Camera, size: (u32, u32)) {
+    let (w, h) = (size.0 as f32, size.1 as f32);
+    let vp = cam.view_proj(size);
+    let screen = |p: Vec3| -> Option<Vec2> {
+        let c = vp * p.extend(1.0);
+        (c.w > 0.01).then(|| vec2((c.x / c.w * 0.5 + 0.5) * w, (0.5 - c.y / c.w * 0.5) * h))
+    };
+    let right = (cam.target - cam.pos).cross(Vec3::Y).normalize_or(Vec3::X);
+    for s in sights {
+        let at = s.at / uc_world::UNIT;
+        let (Some(c), Some(e)) = (screen(at), screen(at + right / uc_world::UNIT)) else { continue };
+        let px = (e - c).length(); // pixels a world unit
+        let k = s.scale / 256.0;
+        let (r_in, r_out) = (84.0 * k * px, 164.0 * k * px);
+        let dot = (30.0 * k * px).clamp(2.0, 12.0);
+        let acc = s.accuracy.clamp(0.0, 100.0);
+        let colour = [(255.0 - acc) as u8, acc as u8, 0, 140];
+        let a = acc * std::f32::consts::TAU / 2048.0;
+        for angle in [a, -a, std::f32::consts::PI + a, std::f32::consts::PI - a] {
+            let dir = vec2(angle.cos(), angle.sin());
+            let n = ((r_out - r_in) / dot).ceil().max(1.0) as usize;
+            for j in 0..=n {
+                let p = c + dir * (r_in + (r_out - r_in) * j as f32 / n as f32);
+                o.rect(p.x - dot / 2.0, p.y - dot / 2.0, dot, dot, colour);
+            }
+        }
+    }
+}
+
 /// The chief's `n`th warning about civilian casualties (`X_CIVSDEAD_WARNING_1` to `_4`, the
 /// game's strings 151 to 154: `text\lang_english.txt`'s lines 152 to 155).
 fn civ_warning(game: &Path, n: u8) -> String {
@@ -1526,6 +1560,9 @@ impl App {
         let Some(g) = self.gfx.as_mut() else { return };
         let size = (g.config.width, g.config.height);
         let mut hud = world.hud(size);
+        if world.pause.is_none() {
+            draw_sights(&mut hud, &world.game.gun_sights(), &cam, size);
+        }
         if let Some(p) = &world.pause {
             p.overlay(&mut hud, size);
         }

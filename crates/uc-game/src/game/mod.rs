@@ -13,6 +13,8 @@ mod actions;
 mod combat;
 mod draw;
 mod snipe;
+mod sights;
+pub use sights::Sight;
 mod mib;
 
 pub use snipe::Snipe;

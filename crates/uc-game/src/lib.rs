@@ -18,7 +18,7 @@ pub mod chopper;
 pub mod barrel;
 pub mod city;
 pub mod game;
-pub use game::Snipe;
+pub use game::{Sight, Snipe};
 pub mod creature;
 pub mod dirt;
 pub mod goals;
@@ -364,6 +364,9 @@ pub struct Game {
     /// The city's crime rate, 0..100 (`CRIME_RATE`): the mission's, or 50 if it has none
     /// (elev.cpp:309).
     pub crime_rate: u8,
+    /// The player's aim (`Genus.Person->Gunaim`): what at, and how far off steady, from
+    /// `MAX_GUN_AIM` (3000, three seconds' worth) down to 0.
+    gun_aim: (Option<Aim>, f32),
     /// The player's red marks: innocents they've killed (`Genus.Player->RedMarks`). More than
     /// one at the end of a mission as Darci, and the chief has words (Game.cpp:2783).
     pub red_marks: u8,
@@ -516,6 +519,7 @@ impl Game {
             barrels: Vec::new(), sign: None, target: None, stats: [0; 4], badges: [0; 4], found: BTreeSet::new(),
             taken: BTreeSet::new(), dead_cops: BTreeSet::new(), player_fired: false,
             red_marks: 0,
+            gun_aim: (None, 3000.0),
             crime_rate: if level.mission.crime_rate == 0 { 50 } else { level.mission.crime_rate.min(100) },
             show_crime_rate: level.mission.flags & MISSION_FLAG_SHOW_CRIMERATE != 0, crimes: BTreeSet::new(),
             searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(), bored: 0.0,
@@ -668,6 +672,7 @@ impl Game {
             input = Controls::default();
         }
         input.target = self.target;
+        self.steady_aim(dt);
         input.aim = self.aim_creature.map(|k| self.creatures[k].middle())
             .or_else(|| self.aim_barrel.map(|k| self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0)))
             .or_else(|| self.aim_mine.map(|k| self.mines[k].pos))
