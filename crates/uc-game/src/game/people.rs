@@ -4,6 +4,10 @@ use crate::*;
 
 /// What a person on the AI's legs can do: walk, and climb a fence (which the walker does by
 /// itself on meeting one).
+/// The missions where the sniper rifle lies in front of the player's start: Officer Training,
+/// RTA, The Jump, Seek Sneak and Seize, Assassin and The Fallen.
+pub(crate) const SNIPER_AT_START: [&str; 6] = ["train11", "police1", "police2", "Stealtst1", "Gangorder1", "MIB"];
+
 const WALKER: u8 = uc_world::mav::caps(uc_world::mav::GOTO) | uc_world::mav::caps(uc_world::mav::CLIMB_OVER);
 
 impl Game {
@@ -40,6 +44,14 @@ impl Game {
                 // pcom.cpp:5601).
                 if level.mission.mission_name.eq_ignore_ascii_case("skymiss2") {
                     self.people[i].give(Weapon::Shotgun);
+                }
+                // Not in the original: a few missions have the sniper rifle lying just in
+                // front of where the player starts, to try it out.
+                if SNIPER_AT_START.iter().any(|m| level.mission.mission_name.eq_ignore_ascii_case(m)) {
+                    let f = self.people[i].facing_dir();
+                    let at = pos + Vec3::new(f.x, 0.0, f.y) * 128.0;
+                    let y = level.ground.surface(&level.map, at.x, at.z, pos.y + 64.0);
+                    self.items.push(Item { way: 0, kind: crate::SNIPER, pos: Vec3::new(at.x, y, at.z) });
                 }
             }
         }

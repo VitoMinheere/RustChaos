@@ -61,7 +61,14 @@ fn on_off_and_away() {
     }
     let gone = (g.bikes[k].0.pos() - from).length();
     assert!(gone > 256.0, "went {gone}");
-    assert!((g.people[p].fig.pos - g.bikes[k].0.pos()).length() < 64.0, "fell off it");
+    // On the seat, facing the way it goes: her hips over its middle, her legs out ahead of
+    // them along it.
+    let (to, ahead) = (g.bikes[k].0.pos(), (g.bikes[k].0.pos() - from).normalize());
+    let hips = g.people[p].fig.part_world(0).unwrap().1;
+    assert!(glam::vec2(hips.x - to.x, hips.z - to.z).length() < 24.0, "hips at {hips:?}, the bike at {to:?}");
+    let feet = g.people[p].fig.part_world(3).unwrap().1;
+    let legs = glam::vec2(feet.x - hips.x, feet.z - hips.z).normalize();
+    assert!(legs.dot(glam::vec2(ahead.x, ahead.z).normalize()) > 0.8, "legs {legs:?}, going {ahead:?}");
     // Let it stop, then off.
     for _ in 0..150 {
         g.update(dt, &Controls::default(), &level);

@@ -113,10 +113,21 @@ fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> Clum
     donors.sort();
     let own_world = donors.iter().any(|&(rank, _)| rank < 2);
     let mut clump = Clump::empty();
+    let mut others = Vec::new();
     for (rank, name) in donors {
         if let Some(c) = read(game, &format!("clumps\\{name}.txc")).ok().and_then(|b| Clump::parse(b).ok()) {
             clump.fill_from(&c, |p| rank < 2 || (rank == 2 && !own_world) || !world_page(p));
+            if rank >= 2 {
+                others.push(c);
+            }
         }
+    }
+    // The world pages none of the world's own missions use aren't anywhere in the install
+    // (Officer Training's world 2 lacks nine of them): rather than leave holes they take the
+    // stand-in world's page of the same number, then any other's. Not the right picture, but
+    // something of the right sort in the right place.
+    for c in &others {
+        clump.fill_from(c, |_| true);
     }
     clump
 }

@@ -156,8 +156,14 @@ impl Game {
                     }
                     let (pos, yaw) = (b.pos(), b.yaw);
                     let p = &mut self.people[pi];
+                    // Her stand-in pose (the end of `ANIM_ENTER_CAR`) sits her sideways,
+                    // legs out along her left a little way off: turned a quarter, as when
+                    // getting on, her legs lie along the bike, and her hips go on the seat.
+                    p.fig.angle = (yaw - 512) as f32 * std::f32::consts::TAU / 2048.0;
                     p.fig.pos = pos - Vec3::new(0.0, 40.0, 0.0);
-                    p.fig.angle = yaw as f32 * std::f32::consts::TAU / 2048.0;
+                    if let Some((_, hips)) = p.fig.part_world(0) {
+                        p.fig.pos += Vec3::new(pos.x - hips.x, 0.0, pos.z - hips.z);
+                    }
                 }
                 _ => {
                     if self.people[pi].fig.finished() {

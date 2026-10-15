@@ -109,3 +109,19 @@ fn a_shot_through_the_scope() {
     run(&mut g, &level, DT, Controls { punch: true, ..Default::default() });
     assert_eq!(g.people[t].health, before, "hit off to the side");
 }
+
+/// Not in the original: a few missions have the rifle lying just in front of the player at
+/// the start, to try it out.
+#[test]
+fn lying_by_the_start() {
+    let Some(game) = uc_formats::default_install() else { return };
+    for m in ["train11", "police1", "police2", "Stealtst1", "Gangorder1", "MIB"] {
+        let level = Level::load(&game, m, &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+        let mut g = Game::new(&level, true);
+        g.update(DT, &Controls::default(), &level);
+        let me = g.people[g.player.unwrap()].fig.pos;
+        let rifle = g.items.iter().find(|i| i.kind == SNIPER).unwrap_or_else(|| panic!("{m}: no rifle")).pos;
+        assert!((rifle - me).length() < 200.0, "{m}: the rifle's at {rifle:?}, the player at {me:?}");
+        assert!((rifle.y - me.y).abs() < 64.0, "{m}: the rifle's at another height: {rifle:?}, the player at {me:?}");
+    }
+}

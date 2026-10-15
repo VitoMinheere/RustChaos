@@ -130,8 +130,8 @@ fn officer_training_and_the_missile_silos() {
         assert_eq!(r.g.bikes.len(), bikes, "{mission}'s bikes");
         if mission == "train11" {
             let pistol = r.g.items.iter().find(|i| i.way == 29).expect("no pistol").pos;
-            let rifle = r.g.items.iter().find(|i| i.kind == uc_game::SNIPER).expect("no sniper rifle").pos;
-            assert!((rifle - pistol).length() < 200.0, "the rifle's at {rifle:?}, the pistol at {pistol:?}");
+            let by = r.g.items.iter().any(|i| i.kind == uc_game::SNIPER && (i.pos - pistol).length() < 200.0);
+            assert!(by, "no rifle by the pistol at {pistol:?}");
         }
     }
 }
