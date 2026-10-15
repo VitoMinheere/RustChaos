@@ -95,6 +95,55 @@ impl Game {
 
     /// Keeps the player's target: the enemy picked stays picked while it can be shot,
     /// otherwise the nearest one (preferring those in front). `cycle` moves on to the next.
+    /// Darci's gun on someone new (`fn_person_gun`, Person.cpp:18180, and
+    /// `player_running_aim_gun`): `PCOM_cop_aiming_at_you` (pcom.cpp:14092) for anyone who
+    /// might be a villain (not a cop, Roper, Darci or a hostage). Robots and her own
+    /// bodyguards pay no heed; the guilty go for her; anyone else doing nothing much puts
+    /// their hands up. Twenty seconds on, those with their hands up put them down once
+    /// she's aiming at somebody else or has put the gun away (`PCOM_process_hands_up`).
+    pub(crate) fn aim_at_people(&mut self) {
+        let Some(pi) = self.player else { return };
+        let p = &self.people[pi];
+        let aiming = p.kind == ptype::DARCI && p.weapon.is_gun() && !matches!(p.state, State::InCar { .. });
+        let target = self.target.filter(|_| aiming);
+        if target != self.last_aimed {
+            if let Some(t) = target {
+                self.cop_aiming_at(t, pi);
+            }
+        }
+        self.last_aimed = target;
+        for (i, q) in self.people.iter_mut().enumerate() {
+            if let State::HandsUp { by, time } = q.state {
+                if time > 20.0 && (by != pi || target != Some(i)) {
+                    q.hands_down();
+                }
+            }
+        }
+    }
+
+    fn cop_aiming_at(&mut self, t: usize, cop: usize) {
+        let q = &self.people[t];
+        if matches!(q.kind, ptype::DARCI | ptype::ROPER | ptype::COP | ptype::HOSTAGE) || q.removed || q.is_dead() || q.is_down() {
+            return;
+        }
+        if q.bent & person::BENT_ROBOT != 0 {
+            return;
+        }
+        // Bodyguards ignore the person they're guarding aiming at them.
+        if q.ai == person::AI_BODYGUARD && (q.other == 0 || self.by_way.get(&q.other) == Some(&cop)) {
+            return;
+        }
+        let at = self.people[cop].fig.pos;
+        let q = &mut self.people[t];
+        if q.is_guilty() {
+            if q.scared.is_none() {
+                q.go_for();
+            }
+        } else if q.doing_nothing_important() {
+            q.hands_up(cop, at);
+        }
+    }
+
     pub(crate) fn update_target(&mut self, cycle: bool, level: &Level) {
         let Some(pi) = self.player else { return };
         let p = &self.people[pi];
@@ -116,9 +165,42 @@ impl Game {
         };
         // (who, how far, how far round from straight ahead), nearest first. Creatures can be
         // shot as well as people (`BAT_apply_hit` from `shoot_get_ammo_sound_and_damage`).
+        // Anyone at all, weighted as `calc_target_score_new` does (guns.cpp:413): those out to
+        // get her four times as keenly, gangs, Men In Black and guards twice, cops half as
+        // keenly, civilians 180/256, hostages 170/256, the tarts 210/256; and nobody lying
+        // down with their hands up. A higher score counts here as being that much nearer.
+        // Her own bodyguards aren't to be shot (`people_allowed_to_hit_each_other`). (AI 5 is
+        // `PCOM_AI_COP`.)
+        let darci = matches!(p.kind, ptype::DARCI | ptype::ROPER);
+        let keen = |q: &Person| -> f32 {
+            let mut k = 1.0;
+            if q.aggro() && q.foe == Some(pi) {
+                k *= 4.0;
+            } else if darci {
+                if q.kind == ptype::COP || matches!(q.ai, 5 | person::AI_COP_DRIVER) {
+                    k *= 0.5;
+                }
+                if matches!(q.kind, ptype::THUG_RASTA | ptype::THUG_GREY | ptype::THUG_RED | ptype::MIB1 | ptype::MIB2 | ptype::MIB3)
+                    || matches!(q.ai, person::AI_GANG | person::AI_GUARD | 12) {
+                    k *= 2.0;
+                }
+            } else if q.kind == ptype::COP || matches!(q.ai, 5 | person::AI_COP_DRIVER) {
+                k *= 2.0;
+            }
+            if q.kind == ptype::CIV || q.ai == person::AI_CIV {
+                k *= 180.0 / 256.0;
+            } else if q.kind == ptype::HOSTAGE {
+                k *= 170.0 / 256.0;
+            } else if matches!(q.kind, ptype::SLAG_TART | ptype::SLAG_FATUGLY) {
+                k *= 210.0 / 256.0;
+            }
+            k
+        };
+        let guard_of = |q: &Person| q.ai == person::AI_BODYGUARD && (q.other == 0 || self.by_way.get(&q.other) == Some(&pi));
         let people = self.people.iter().enumerate()
-            .filter(|&(i, q)| i != pi && !q.removed && !q.is_dead() && !q.is_down() && (q.hostile() || q.aggro()))
-            .filter_map(|(i, q)| seen(q.fig.pos, Aim::Person(i)));
+            .filter(|&(i, q)| i != pi && !q.removed && !q.is_dead() && !q.is_down() && !q.player && !guard_of(q)
+                && q.fig.anim() != uc_world::character::anim::HANDS_UP_LIE && !matches!(q.state, State::InCar { .. } | State::Carried { .. }))
+            .filter_map(|(i, q)| seen(q.fig.pos, Aim::Person(i)).map(|(a, d, off)| (a, d / keen(q), off)));
         let creatures = self.creatures.iter().enumerate()
             .filter(|(_, c)| c.targetable())
             .filter_map(|(k, c)| seen(c.fig.pos, Aim::Creature(k)));
