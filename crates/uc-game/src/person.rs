@@ -39,6 +39,8 @@ pub enum Weapon {
     Ak47,
     /// Charges to set down and run from (`SPECIAL_EXPLOSIVES`): action sets one.
     Explosives,
+    /// Grenades (`SPECIAL_GRENADE`): action primes one, action again throws it.
+    Grenade,
 }
 
 impl Weapon {
@@ -71,6 +73,7 @@ impl Weapon {
             Weapon::Ak47 => Some(6),
             Weapon::Bat => Some(8),
             Weapon::Explosives => Some(crate::EXPLOSIVES),
+            Weapon::Grenade => Some(crate::game::grenades::IT_GRENADE),
         }
     }
 
@@ -107,6 +110,7 @@ impl Weapon {
             Weapon::Shotgun => "SHOTGUN",
             Weapon::Ak47 => "AK-47",
             Weapon::Explosives => "EXPLOSIVES",
+            Weapon::Grenade => "GRENADE",
         }
     }
 
@@ -120,7 +124,7 @@ impl Weapon {
             Weapon::Shotgun => Some((258, 7, Some(262))),
             Weapon::Bat => Some((259, 7, None)),
             Weapon::Ak47 => Some((260, 7, Some(263))),
-            Weapon::Explosives => None,
+            Weapon::Explosives | Weapon::Grenade => None,
         }
     }
 
@@ -159,6 +163,8 @@ pub const AI_COP_DRIVER: u8 = 14;
 /// `PCOM_AI_GUARD`, `PCOM_AI_GANG`, `PCOM_AI_SUICIDE` (fallen/Headers/pcom.h).
 pub const AI_GUARD: u8 = 2;
 pub const AI_GANG: u8 = 6;
+/// `PCOM_AI_COP`.
+pub const AI_COP: u8 = 5;
 pub const AI_SUICIDE: u8 = 15;
 /// `PCOM_MOVE_WANDER`.
 pub const MOVE_WANDER: u8 = 4;
@@ -193,6 +199,8 @@ const ARREST_RANGE: f32 = 130.0;
 const AGGRO_RANGE: f32 = 512.0;
 /// The hands of someone hanging from a cable are this far above their feet position.
 const HANG: f32 = 300.0;
+/// `SUB_OBJECT_LEFT_HAND`.
+const LEFT_HAND: usize = 7;
 /// Pistols: shoot from this far, close in from further.
 const SHOOT_RANGE: f32 = 6.0 * 256.0;
 
@@ -450,6 +458,9 @@ pub enum State {
     /// Getting into vehicle `vehicle` (`SUB_STATE_ENTERING_VEHICLE`): lined up at its door,
     /// in once the animation's done.
     Enter { vehicle: usize },
+    /// Hands up to the gun person `by` is aiming (`PCOM_AI_STATE_HANDS_UP`), for `time`
+    /// seconds so far.
+    HandsUp { by: usize, time: f32 },
     /// Sliding down a cable: `t` along it (0..1), moving towards `dir` (+1 or -1).
     /// `ridden`: how far along the cable so far (world units).
     Zip { cable: usize, t: f32, dir: f32, speed: f32, ridden: f32 },
@@ -459,6 +470,11 @@ pub enum State {
     /// Pulling up onto a ledge (or off a ladder). The animation itself lifts the body, so
     /// `pos` moves from `start` to `end` while the drawn hips go from the edge to `to`.
     PullUp { start: Vec3, end: Vec3, to: Vec3 },
+    /// Hanging by the hands from a ledge (`STATE_DANGLING`, `SUB_STATE_DANGLING`): `to` is
+    /// where she'd stand on top after pulling up, `dir` the way she faces (into the wall).
+    /// While going a hand along it (`SUB_STATE_TRAVERSE_LEFT`, `_RIGHT`), `shift` is the
+    /// figure's start and end.
+    Dangle { to: Vec3, dir: Vec2, shift: Option<(Vec3, Vec3)> },
     /// On a ladder: feet at `y0` plus one rung cycle per loop of the animation since `loops0`.
     Climb { ladder: usize, y0: f32, loops0: f32 },
     /// Grappling `victim`. `frame`: the last keyframe of Roper's grapples that did its damage.
@@ -541,6 +557,8 @@ pub struct Scare {
     pub at: Vec3,
     /// Seconds spent running.
     pub time: f32,
+    /// Where they're running to (`PCOM_set_person_move_runaway`), set by the game.
+    pub goal: Option<Vec3>,
 }
 
 pub struct Person {
@@ -574,6 +592,8 @@ pub struct Person {
     /// A mission has set them peeing (`FLAG_PERSON_PEEING`).
     pub peeing: bool,
     /// Charges carried (the special's `ammo`): four at most.
+    /// Grenades carried (`SPECIAL_GRENADE`'s `ammo`).
+    pub grenades: u8,
     /// Breath for sprinting (`Genus.Person->Stamina`), the player's only: up to
     /// `max_stamina`, which is 128 and the stamina badges (Person.cpp:4319).
     pub stamina: f32,
@@ -616,6 +636,9 @@ pub struct Person {
     /// Where to go next when there's nobody to fight (set by the game each frame), and how
     /// fast to get there.
     pub goal: Option<Vec3>,
+    /// Where to head for on the way to whoever they're fighting, when there's no walking
+    /// straight there (set by the game each frame from the navigation map).
+    pub via: Option<Vec3>,
     pub pace: Pace,
     /// Getting out of a car's way: run this way for this many seconds.
     pub dodge: Option<(Vec2, f32)>,
@@ -670,8 +693,8 @@ impl Person {
             pace: Pace::Walk,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 3], knocked_out: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
-            invulnerable: false, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
-            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false,
+            invulnerable: false, foe: None, colour: 0, group: 0, goal: None, via: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
+            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false,
         }
     }
 
@@ -695,6 +718,9 @@ impl Person {
         if w == Weapon::Explosives {
             return self.explosives > 0;
         }
+        if w == Weapon::Grenade {
+            return self.grenades > 0;
+        }
         match w.slot() {
             Some(s) => self.guns & (1 << s) != 0,
             None => w == Weapon::None || self.melee == w,
@@ -705,6 +731,9 @@ impl Person {
     pub fn rounds(&self) -> Option<u32> {
         if self.weapon == Weapon::Explosives {
             return Some(self.explosives as u32);
+        }
+        if self.weapon == Weapon::Grenade {
+            return Some(self.grenades as u32);
         }
         self.weapon.slot().map(|s| if self.player { self.ammo[s] } else { u32::MAX })
     }
@@ -718,12 +747,13 @@ impl Person {
             .filter(|(s, _)| self.guns & (1 << s) != 0)
             .map(|(s, &g)| (g, Some(self.ammo[s])));
         let charges = (self.explosives > 0).then_some((Weapon::Explosives, Some(self.explosives as u32)));
-        melee.into_iter().chain(guns).chain(charges).filter(|&(w, _)| w != self.weapon).collect()
+        let grenades = (self.grenades > 0).then_some((Weapon::Grenade, Some(self.grenades as u32)));
+        melee.into_iter().chain(guns).chain(charges).chain(grenades).filter(|&(w, _)| w != self.weapon).collect()
     }
 
     /// Puts away what's in hand and takes out the next weapon carried (bare hands last).
     pub fn next_weapon(&mut self) {
-        let carried: Vec<Weapon> = [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Explosives]
+        let carried: Vec<Weapon> = [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Explosives, Weapon::Grenade]
             .into_iter()
             .enumerate()
             .filter(|&(k, w)| self.has(w) && (k == 0 || w != Weapon::None))
@@ -774,6 +804,40 @@ impl Person {
         self.guilty
             || matches!(self.kind, ptype::THUG_RASTA | ptype::THUG_RED | ptype::THUG_GREY | ptype::MIB1 | ptype::MIB2 | ptype::MIB3)
             || matches!(self.ai, AI_GUARD | AI_GANG)
+    }
+
+    /// `PCOM_person_doing_nothing_important` (pcom.cpp:1404), as far as this engine's people
+    /// go: on their feet and about their own business, not fighting, running, driving,
+    /// carrying or being carried.
+    pub fn doing_nothing_important(&self) -> bool {
+        matches!(self.state, State::Move) && !self.removed && !self.is_dead() && !self.aggro && self.scared.is_none()
+    }
+
+    /// Hands up to `by`'s gun (`PCOM_set_person_ai_hands_up`, pcom.cpp:4677): turned to face
+    /// them, `ANIM_HANDS_UP`.
+    pub fn hands_up(&mut self, by: usize, at: Vec3) {
+        self.face(at);
+        self.fig.restart(anim::HANDS_UP, Play::Once);
+        self.state = State::HandsUp { by, time: 0.0 };
+    }
+
+    /// Hands down again (`PCOM_set_person_ai_normal`).
+    pub fn hands_down(&mut self) {
+        self.state = State::Move;
+        self.idle(false);
+    }
+
+    /// Goes for `by` (`PCOM_set_person_ai_navtokill`): those who fight anyway notice them at
+    /// once; anyone else guilty takes up the fight as a gang member would.
+    pub fn go_for(&mut self) {
+        if !self.fights() {
+            self.ai = AI_GANG;
+        }
+        if !self.aggro {
+            self.aggro = true;
+            self.cues.push(Sfx::Alert { kind: self.kind });
+            self.attack_timer = 0.8;
+        }
     }
 
     /// Looks for a car and drives it (`PCOM_AI_DRIVER`, and `PCOM_AI_COP_DRIVER` which falls
@@ -908,7 +972,9 @@ impl Person {
                 self.scared = None;
                 self.wander = (None, 0.0);
             } else {
-                c.wish = d.try_normalize().unwrap_or(self.fig.facing());
+                // Along the way the game found to somewhere away from it, or just away.
+                let to = self.via.or(s.goal).map(|v| flat(v, self.fig.pos)).unwrap_or(d);
+                c.wish = to.try_normalize().unwrap_or(self.fig.facing());
                 c.run = true;
                 return c;
             }
@@ -924,6 +990,8 @@ impl Person {
         let d = flat(p.pos, self.fig.pos);
         let dist = d.length();
         let dy = (p.pos.y - self.fig.pos.y).abs();
+        // Which way to go to close in: round whatever is in the way, if there's a way round.
+        let towards = self.via.map_or(d, |v| flat(v, self.fig.pos)).normalize_or_zero();
         // PCOM_AI_FLEE_PLAYER keeps its distance (until hit: then it fights, see take_hit).
         if self.ai == 16 && p.present && !p.down {
             if dist < 6.0 * 256.0 {
@@ -1006,7 +1074,7 @@ impl Person {
                 c.punch = true;
                 self.attack_timer = (2.4 - skill * 0.1).max(0.8) + (rand() % 100) as f32 / 100.0;
             } else if !seen || dist > SHOOT_RANGE * 0.8 {
-                c.wish = d / dist;
+                c.wish = towards;
                 c.run = dist > SHOOT_RANGE;
             }
             return c;
@@ -1017,7 +1085,7 @@ impl Person {
                 && flat(s.pos, self.fig.pos).normalize_or_zero().dot(d.normalize_or_zero()) > 0.8
         });
         if dist > 140.0 && !crowded {
-            c.wish = d / dist;
+            c.wish = towards;
         } else if dist < 80.0 {
             c.wish = -d / dist.max(1.0) * 0.5;
         }
@@ -1098,13 +1166,13 @@ impl Person {
     pub fn scare(&mut self, by: Option<usize>, at: Vec3) {
         // Drivers too: `PCOM_set_person_ai_flee_person` has them leave their car first
         // (`PCOM_EXCAR_FLEE_PERSON`). Cop drivers don't run.
-        if !self.fake || self.player || !matches!(self.ai, AI_CIV | AI_DRIVER) || self.bent & BENT_FIGHT_BACK != 0 || self.removed || self.is_dead() {
+        if self.player || !matches!(self.ai, AI_CIV | AI_DRIVER) || self.bent & BENT_FIGHT_BACK != 0 || self.removed || self.is_dead() {
             return;
         }
         self.annoyed = true;
         match self.scared.as_mut() {
             Some(s) => (s.by, s.at) = (by, at),
-            None => self.scared = Some(Scare { by, at, time: 0.0 }),
+            None => self.scared = Some(Scare { by, at, time: 0.0, goal: None }),
         }
     }
 
@@ -1329,7 +1397,11 @@ impl Person {
     /// Where a person would stand after climbing a ledge in direction `dir`, if there is one
     /// between a step and `reach` above the feet (a raised walkway, a platform rim, a roof).
     fn ledge_ahead(&self, dir: Vec2, reach: f32, ground: &Ground, map: &Map) -> Option<Vec3> {
-        let p = self.fig.pos;
+        Self::ledge_from(self.fig.pos, dir, reach, ground, map)
+    }
+
+    /// [`Person::ledge_ahead`] from feet at `p`.
+    fn ledge_from(p: Vec3, dir: Vec2, reach: f32, ground: &Ground, map: &Map) -> Option<Vec3> {
         let probe = vec2(p.x, p.z) + dir * (RADIUS + 40.0);
         let top = ground.surface(map, probe.x, probe.y, p.y + reach - STEP_HEIGHT);
         if top - p.y <= STEP_HEIGHT || top - p.y > reach {
@@ -1383,6 +1455,70 @@ impl Person {
 
     fn pull_up(&mut self, to: Vec3) {
         self.climb_onto(anim::PULL_UP, to, true);
+    }
+
+    /// Catches the ledge whose top is `to` and hangs from it (`SUB_STATE_GRAB_TO_DANGLE`,
+    /// then `SUB_STATE_DANGLING`): turned to face it, with her left hand on its edge
+    /// (`draw_info->Locked = SUB_OBJECT_LEFT_HAND`, Person.cpp:12980). She's held a body's
+    /// radius off the wall, so the edge is that far ahead of her, at the top.
+    fn grab_dangle(&mut self, to: Vec3, dir: Vec2) {
+        let p = self.fig.pos;
+        let edge = vec3(p.x + dir.x * RADIUS, to.y, p.z + dir.y * RADIUS);
+        self.fig.angle = uc_world::character::angle_of(dir);
+        self.fig.lift = 0.0;
+        self.fig.cancel_rise = false;
+        if !self.fig.restart_now(anim::DANGLE, Play::Loop) {
+            return self.pull_up(to);
+        }
+        let Some((_, hand)) = self.fig.part_world(LEFT_HAND) else { return self.pull_up(to) };
+        self.fig.pos += edge - hand;
+        self.cues.push(Sfx::Grab);
+        self.state = State::Dangle { to, dir, shift: None };
+    }
+
+    /// Hanging from a ledge (`fn_person_dangling`, and `action_dangling`'s keys,
+    /// fallen/Source/interfac.cpp:450): forwards pulls up (`set_person_pulling_up`),
+    /// backwards lets go (`set_person_drop_down`), and left or right goes a hand along it,
+    /// 74 units, if there's still ledge to hold there (`set_person_traverse`,
+    /// `traverse_pos`). Anyone but the player pulls straight up.
+    fn step_dangle(&mut self, to: Vec3, dir: Vec2, shift: Option<(Vec3, Vec3)>, c: &Controls, ground: &Ground, map: &Map) {
+        if let Some((_, end)) = shift {
+            // The animation carries her along itself; at its end, hang on from where it left
+            // her hips (`locked_anim_change(..., ANIM_DANGLE)`, Person.cpp:15004), at the new
+            // ledge's height.
+            if self.fig.finished() {
+                self.fig.restart_locked(anim::DANGLE, Play::Loop);
+                self.fig.pos.y = end.y;
+                self.state = State::Dangle { to, dir, shift: None };
+            }
+            return;
+        }
+        if !self.player {
+            return self.climb_onto(anim::PULL_UP, to, false);
+        }
+        // `angle - 512` is her right (`traverse_pos`).
+        let right = vec2(-dir.y, dir.x);
+        let (ahead, side) = (c.wish.dot(dir), c.wish.dot(right));
+        if ahead > 0.5 {
+            self.climb_onto(anim::PULL_UP, to, false);
+        } else if ahead < -0.5 {
+            // Hips kept where they are (`set_person_drop_down` changes animation locked).
+            self.fig.restart_locked(anim::FALLING, Play::Loop);
+            self.state = State::Fall { vy: 0.0, vel: Vec2::ZERO };
+        } else if side.abs() > 0.5 {
+            const STEP: f32 = 74.0;
+            let along = right * side.signum() * STEP;
+            // Feet below the wall's foot there, where a jump would have reached it from.
+            let foot = vec3(to.x + along.x, to.y - GRAB_REACH * 0.75, to.z + along.y) - vec3(dir.x, 0.0, dir.y) * (RADIUS + 60.0);
+            let next = Self::ledge_from(foot, dir, GRAB_REACH, ground, map).filter(|t| (t.y - to.y).abs() < 24.0);
+            if let Some(next) = next {
+                let p = self.fig.pos;
+                let end = vec3(p.x + along.x, p.y + (next.y - to.y), p.z + along.y);
+                let a = if side > 0.0 { anim::TRAVERSE_RIGHT } else { anim::TRAVERSE_LEFT };
+                self.fig.restart_now(a, Play::Once);
+                self.state = State::Dangle { to: next, dir, shift: Some((p, end)) };
+            }
+        }
     }
 
     fn jump(&mut self, vel: Vec2) {
@@ -1462,6 +1598,17 @@ impl Person {
                 self.fig.play(anim::INJURED_LOOP, Play::Loop);
             }
             State::Carried { .. } | State::Enter { .. } => {}
+            State::HandsUp { by, time } => {
+                // `ANIM_HANDS_UP`, then held there (`ANIM_HANDS_UP_LOOP`), facing the gun.
+                if snaps[by].present {
+                    self.face(snaps[by].pos);
+                }
+                if self.fig.anim() != anim::HANDS_UP_LOOP && (self.fig.anim() != anim::HANDS_UP || self.fig.finished()) {
+                    self.fig.play(anim::HANDS_UP_LOOP, Play::Loop);
+                }
+                self.state = State::HandsUp { by, time: time + dt };
+            }
+            State::Dangle { to, dir, shift } => self.step_dangle(to, dir, shift, c, ground, map),
             State::Carry { victim, phase } => self.step_carry(victim, phase, c, ground, map, dt),
             State::Crouch { phase } => self.step_crouch(phase, c, ground, map, dt),
             State::GetUp => {
@@ -1778,7 +1925,7 @@ impl Person {
                     let p = self.fig.pos;
                     let floor = ground.surface(map, p.x, p.z, p.y);
                     if let Some(to) = self.ledge_ahead(dir, GRAB_REACH, ground, map).filter(|to| to.y - floor > JUMPABLE) {
-                        self.pull_up(to);
+                        self.grab_dangle(to, dir);
                         return;
                     }
                 }

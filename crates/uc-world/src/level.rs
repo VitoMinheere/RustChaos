@@ -357,19 +357,20 @@ fn build_roof_faces(b: &mut Builder, map: &Map, sh: &Shader) {
 /// weedkiller. The Fallen's five clues are a keycard, three files and a video.
 /// Badges (`create_treasure`) aren't `IT_*` items; they're kinds 100-103 here: stamina,
 /// strength, reflexes and constitution, one of whose four models the original picks at random.
-pub const ITEM_PRIMS: [(u8, u8); 25] = [
+pub const ITEM_PRIMS: [(u8, u8); 26] = [
     (1, 36), (2, 143), (3, 142), (4, 127), (5, 166), (6, 120), (8, 205), (9, 141), (10, 255), (11, 253),
     (12, 254), (13, 144), (14, 232), (15, 233), (16, 234), (17, 235), (18, 236), (19, 237), (20, 238),
-    (21, 239), (23, 167),
+    (21, 239), (22, 168), (23, 167),
     (100, 81), (101, 94), (102, 71), (103, 39),
 ];
 
-/// Other prims missions place: traffic cone, barrels, and vehicle bodies and wheels.
+/// Other prims missions place: traffic cone, barrels, vehicle bodies and wheels, and the
+/// helicopter's body and rotors (74, 75).
 /// The prop every map's barrels are (prim 33, `PRIM_OBJ_BIN`, which ob.cpp calls "the
 /// barrel prim").
 pub const BARREL_PROP: u8 = 33;
 
-pub const EXTRA_PRIMS: [u8; 15] = [33, 67, 145, 88, 87, 108, 220, 155, 150, 159, 90, 91, 131, 27, CAN_PRIM];
+pub const EXTRA_PRIMS: [u8; 18] = [33, 67, 145, 188, 88, 87, 108, 220, 155, 150, 159, 90, 91, 131, 27, 74, 75, CAN_PRIM];
 
 /// `TEXTURE_page_leaf`, `_rubbish` and `_snowflake` (`TEXTURE_NUM_STANDARD` + 35, 64 and
 /// 74): `leaf.tga`, `rubbish.tga` and `snowflake.tga`, for the dirt.
