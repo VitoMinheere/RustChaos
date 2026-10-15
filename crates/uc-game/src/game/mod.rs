@@ -5,6 +5,7 @@ mod blast;
 mod creatures;
 mod setpieces;
 mod people;
+pub(crate) use people::Route;
 mod cars;
 mod mission;
 mod scenes;

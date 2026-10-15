@@ -2,13 +2,32 @@
 
 use crate::*;
 
-/// What a person on the AI's legs can do: walk, and climb a fence (which the walker does by
-/// itself on meeting one).
 /// The missions where the sniper rifle lies in front of the player's start: Officer Training,
 /// RTA, The Jump, Seek Sneak and Seize, Assassin and The Fallen.
 pub(crate) const SNIPER_AT_START: [&str; 6] = ["train11", "police1", "police2", "Stealtst1", "Gangorder1", "MIB"];
 
-const WALKER: u8 = uc_world::mav::caps(uc_world::mav::GOTO) | uc_world::mav::caps(uc_world::mav::CLIMB_OVER);
+/// What a person on the AI's legs can do: walk, climb a fence (which the walker does by
+/// itself on meeting one), and drop off an edge (`MAV_ACTION_FALL_OFF`: the original's people
+/// may do all Darci can, `MAV_CAPS_DARCI`, pcom.cpp:1957; jumping, pulling up and ladders
+/// aren't done here yet).
+const WALKER: u8 = uc_world::mav::caps(uc_world::mav::GOTO) | uc_world::mav::caps(uc_world::mav::CLIMB_OVER)
+    | uc_world::mav::caps(uc_world::mav::FALL_OFF);
+
+/// How long a route is kept while its walker stays in the same square, though where they're
+/// going moves (the original plans again only on reaching the route's next square).
+const REPLAN: f32 = 1.0;
+
+/// A person's last route: (from square, to square), the furthest square to walk to and the
+/// first square along it, or the square over an edge to drop into; and when it was made.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Route {
+    from: (u8, u8),
+    to: (u8, u8),
+    dest: Option<(u8, u8)>,
+    first: Option<(u8, u8)>,
+    drop: Option<(u8, u8)>,
+    at: f32,
+}
 
 impl Game {
     pub(crate) fn spawn(&mut self, level: &Level, kind: u8, player: bool, way: usize, pos: Vec3, angle: f32) -> Option<usize> {
@@ -130,15 +149,16 @@ impl Game {
     /// or there's no knowing better), else the middle of the furthest square along the route
     /// that can be walked to, or of the route's first square if a body's width of line from
     /// where they stand to that one catches a wall (the corner of a building). A person's
-    /// route is kept until either end changes square.
+    /// route is kept until they change square, or where they're going does and it's a second
+    /// old. A route that starts with a drop off an edge heads straight for the square over it.
     fn leg(&mut self, i: usize, from: Vec3, to: Vec3, level: &Level) -> Option<Vec3> {
         let sq = |v: Vec3| ((v.x / 256.0).clamp(0.0, 127.0) as u8, (v.z / 256.0).clamp(0.0, 127.0) as u8);
         let (a, b) = (sq(from), sq(to));
         if a == b || self.mav.can_walk(a, b) {
             return None;
         }
-        let (dest, first) = match self.ways.get(&i) {
-            Some(&(ka, kb, dest, first)) if (ka, kb) == (a, b) => (dest, first),
+        let route = match self.ways.get(&i) {
+            Some(&r) if r.from == a && (r.to == b || self.time - r.at < REPLAN) => r,
             _ => {
                 let mut rng = self.mav_rng;
                 let (act, _) = self.mav.route(a, b, WALKER, &mut || rand(&mut rng));
@@ -146,11 +166,20 @@ impl Game {
                 // Over a fence: straight at it, and the walker climbs it.
                 let walk = act.action == uc_world::mav::GOTO && act.dest != a;
                 let (dest, first) = if walk { (Some(act.dest), Some(act.first)) } else { (None, None) };
-                self.ways.insert(i, (a, b, dest, first));
-                (dest, first)
+                let drop = (act.action == uc_world::mav::FALL_OFF).then(|| {
+                    let (dx, dz) = uc_world::mav::DIRS[act.dir as usize & 3];
+                    ((a.0 as i32 + dx).clamp(0, 127) as u8, (a.1 as i32 + dz).clamp(0, 127) as u8)
+                });
+                let r = Route { from: a, to: b, dest, first, drop, at: self.time };
+                self.ways.insert(i, r);
+                r
             }
         };
+        let (dest, first) = (route.dest, route.first);
         let middle = |s: (u8, u8)| Vec3::new(s.0 as f32 * 256.0 + 128.0, from.y, s.1 as f32 * 256.0 + 128.0);
+        if let Some(over) = route.drop {
+            return Some(middle(over));
+        }
         let dest = middle(dest?);
         // A body's width: the line from each side of them as well as the middle.
         let waist = Vec3::new(0.0, uc_world::ground::STEP_HEIGHT - 4.0, 0.0);
