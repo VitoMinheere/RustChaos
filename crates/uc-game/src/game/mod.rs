@@ -12,4 +12,8 @@ mod actions;
 mod combat;
 mod draw;
 mod bikes;
+mod choppers;
+mod barrels;
+pub mod mines;
+pub mod grenades;
 mod litter;

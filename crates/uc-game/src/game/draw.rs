@@ -82,6 +82,19 @@ impl Game {
                 [[0, 0, 0, 170]; 4],
             );
         }
+        // Mines, lying flat where they were laid (modelled 6 below their origin).
+        for m in self.mines.iter().filter(|m| !m.gone) {
+            if let Some(prim) = level.item_prims.get(&game::mines::MINE_PRIM) {
+                uc_world::level::prim_batches(prim, |p| m.pos + p + Vec3::new(0.0, 6.0, 0.0), lighter.as_ref(), &mut out);
+            }
+        }
+        // Grenades in the air, tumbling.
+        for g in &self.grenades {
+            if let Some(prim) = level.item_prims.get(&game::grenades::GRENADE_PRIM) {
+                let (s, c) = g.pitch.sin_cos();
+                uc_world::level::prim_batches(prim, |p| g.pos + Vec3::new(p.x, c * p.y - s * p.z, s * p.y + c * p.z), lighter.as_ref(), &mut out);
+            }
+        }
         // Barrels and cones: modelled with z up, they topple when knocked.
         for b in self.barrels.iter().filter(|b| !b.gone) {
             let Some(prim) = level.item_prims.get(&b.prim()) else { continue };
@@ -199,9 +212,33 @@ impl Game {
         }
         self.trips.batches(&mut out);
         self.sky(&mut out, level, eye);
+        self.draw_choppers(&mut out, level);
         self.draw_dirt(&mut out, level);
         self.draw_bikes(&mut out, level);
+        self.draw_sea(&mut out);
         out
+    }
+
+    /// The sea (`AENG_lower` at a `MAV_SPARE_FLAG_WATER` point, aeng.cpp:7628): each water
+    /// point rises and falls by up to 16 units, `(COS((x << 8) + sea_offset / 2) + SIN((z << 8)
+    /// + sea_offset / 2 + 700)) >> 13`, a wave rolling across the squares as `sea_offset`
+    /// counts the milliseconds.
+    pub fn draw_sea(&self, out: &mut BTreeMap<u32, Batch>) {
+        let offset = (self.time * 1000.0) as i64 / 2;
+        let turn = |a: i64| (a & 2047) as f32 * std::f32::consts::TAU / 2048.0;
+        let wave = |x: usize, z: usize| {
+            let c = turn(((x as i64) << 8) + offset).cos();
+            let s = turn(((z as i64) << 8) + offset + 700).sin();
+            (c + s) * 65536.0 / 8192.0
+        };
+        for sq in &self.sea {
+            let p = [0, 1, 2, 3].map(|i| {
+                let (x, z) = sq.corners[i];
+                let y = sq.height[i] + if sq.wave[i] { wave(x, z) } else { 0.0 };
+                Vec3::new(x as f32, y / uc_world::UNIT, z as f32)
+            });
+            out.entry(sq.page).or_default().quad(p, sq.uv, sq.colour);
+        }
     }
 
     /// The leaves, cans and snow (`AENG_draw_dirt`, aeng.cpp:3040). A leaf is a triangle 20
@@ -282,6 +319,8 @@ impl Game {
         let Some(people) = &level.people else { return Vec::new() };
         // The leaves, rubbish and snowflakes the dirt is drawn with.
         let mut out = vec![uc_world::SKY_PAGE, uc_world::MOON_PAGE, uc_world::level::LEAF_PAGE, uc_world::level::RUBBISH_PAGE, uc_world::level::SNOWFLAKE_PAGE];
+        // The sea's floor, which the level leaves to the game.
+        out.extend(level.sea().iter().map(|s| s.page));
         // The platforms' props, which the level leaves to the game.
         for &(_, ob) in &level.platforms {
             if let Some(prim) = uc_world::level::load_prim(&level.game, level.map.objects[ob].prim) {

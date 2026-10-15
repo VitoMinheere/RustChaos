@@ -168,6 +168,9 @@ pub enum Command {
     Creature { way: usize, kind: u8, pos: Vec3, angle: f32 },
     /// A motorbike (`VT_BIKE`), parked facing `angle`.
     Bike { way: usize, pos: Vec3, angle: f32 },
+    /// A helicopter (`VT_HELICOPTER`), following the person `victim`'s point makes if it's
+    /// to track a target (`VMT_TRACK_TARGET`, elev.cpp).
+    Chopper { way: usize, pos: Vec3, victim: Option<usize> },
     /// Give the warehouse round `pos` ambience `ambience` (`EWAY_DO_WAREFX`: 0 none, 1-4).
     WareFx { pos: Vec3, ambience: u8 },
     /// Start or stop the person created by `way` peeing (`FLAG_PERSON_PEEING`).
@@ -737,6 +740,11 @@ impl Script {
             }
             // `VT_BIKE`: a motorbike, which the shipped game compiles out.
             waypoint::CREATE_VEHICLE if d[0] == 5 => self.commands.push(Command::Bike { way: i, pos, angle }),
+            // `VT_HELICOPTER`: not a car at all.
+            waypoint::CREATE_VEHICLE if d[0] == 4 => {
+                let victim = (d[1] == 3 && d[2] > 0).then_some(d[2] as usize);
+                self.commands.push(Command::Chopper { way: i, pos, victim });
+            }
             waypoint::CREATE_VEHICLE => {
                 let kind = crate::vehicle::from_vt(d[0]);
                 let key = crate::vehicle::Key::from_vk(d[3]);

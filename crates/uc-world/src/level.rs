@@ -203,6 +203,39 @@ impl Level {
         self.clump.texture(page).ok().flatten().map(|t| (t, false))
     }
 
+    /// The floor squares on the sea, which [`Level::build`] leaves out for the game to draw
+    /// with the waves, lit as the rest of the floor is.
+    pub fn sea(&self) -> Vec<SeaSquare> {
+        let lighter = self.lighter();
+        let sh = Shader { lighter: lighter.as_ref() };
+        let map = &self.map;
+        let mut out = Vec::new();
+        for x in 0..MAP_SIZE - 1 {
+            for z in 0..MAP_SIZE - 1 {
+                if !is_sea_square(map, x, z) {
+                    continue;
+                }
+                let sq = map.square(x, z);
+                let corners = [(x, z), (x + 1, z), (x, z + 1), (x + 1, z + 1)];
+                let height = corners.map(|(cx, cz)| map.corner_alt(cx, cz) as f32);
+                let p = [0, 1, 2, 3].map(|i| vec3(corners[i].0 as f32, height[i] / UNIT, corners[i].1 as f32));
+                let mut colour = sh.quad(&p);
+                if sq.has(flags::WATER) {
+                    colour = colour.map(|v| [(v[0] as f32 * 0.6) as u8, (v[1] as f32 * 0.7) as u8, v[2], 255]);
+                }
+                out.push(SeaSquare {
+                    page: sq.page() as u32,
+                    uv: FLOOR_UVS[sq.rotation() as usize],
+                    corners,
+                    height,
+                    wave: corners.map(|(cx, cz)| sea_point(map, cx, cz)),
+                    colour,
+                });
+            }
+        }
+        out
+    }
+
     /// Builds all static geometry, lit with the level's baked lighting.
     pub fn build(&self) -> WorldGeometry {
         let lighter = self.lighter();
@@ -266,6 +299,39 @@ impl Shader<'_> {
     }
 }
 
+/// The floor texture that's water (`MAV_SPARE_FLAG_WATER`, set in `MAV_precalculate` where a
+/// square's page is 454, fallen/Source/mav.cpp:1430). The other two pages it checks for,
+/// 99456 and 99457, can't fit in a square's ten bits.
+pub const WATER_PAGE: u16 = 454;
+
+/// A floor square with a corner on the water: drawn by the game a frame at a time, its water
+/// corners rising and falling with the sea (`AENG_lower` for a `MAV_SPARE_FLAG_WATER` point,
+/// aeng.cpp:7628).
+#[derive(Debug, Clone)]
+pub struct SeaSquare {
+    pub page: u32,
+    pub uv: [[f32; 2]; 4],
+    /// The corners, in map squares, and their height (world units) before the waves.
+    pub corners: [(usize, usize); 4],
+    pub height: [f32; 4],
+    /// Which corners are on the water and move.
+    pub wave: [bool; 4],
+    pub colour: [[u8; 4]; 4],
+}
+
+/// The point (x, z) moves with the sea: its square is water.
+fn sea_point(map: &Map, x: usize, z: usize) -> bool {
+    x < MAP_SIZE && z < MAP_SIZE && map.square(x, z).page() == WATER_PAGE
+}
+
+/// The squares [`build_floor`] leaves to the game because a corner is on the sea: ground
+/// squares (not rooftops, not road) with a water point at any corner.
+fn is_sea_square(map: &Map, x: usize, z: usize) -> bool {
+    let sq = map.square(x, z);
+    !sq.has(flags::ROOF_EXISTS) && !sq.has(flags::SINK_SQUARE)
+        && [(x, z), (x + 1, z), (x, z + 1), (x + 1, z + 1)].iter().any(|&(cx, cz)| sea_point(map, cx, cz))
+}
+
 fn scale(c: [[u8; 4]; 4], k: f32) -> [[u8; 4]; 4] {
     c.map(|v| [(v[0] as f32 * k) as u8, (v[1] as f32 * k) as u8, (v[2] as f32 * k) as u8, v[3]])
 }
@@ -292,6 +358,10 @@ fn build_floor(b: &mut Builder, map: &Map, sh: &Shader, skip_unseen: impl Fn(u32
             }
             // Ground under closed buildings is never visible and has no texture in the clump.
             if sq.has(flags::HIDDEN) && skip_unseen(page) {
+                continue;
+            }
+            // The sea moves: the game draws it ([`Level::sea`]).
+            if is_sea_square(map, x, z) {
                 continue;
             }
             let sunk = sq.has(flags::SINK_SQUARE);
@@ -357,19 +427,20 @@ fn build_roof_faces(b: &mut Builder, map: &Map, sh: &Shader) {
 /// weedkiller. The Fallen's five clues are a keycard, three files and a video.
 /// Badges (`create_treasure`) aren't `IT_*` items; they're kinds 100-103 here: stamina,
 /// strength, reflexes and constitution, one of whose four models the original picks at random.
-pub const ITEM_PRIMS: [(u8, u8); 25] = [
+pub const ITEM_PRIMS: [(u8, u8); 26] = [
     (1, 36), (2, 143), (3, 142), (4, 127), (5, 166), (6, 120), (8, 205), (9, 141), (10, 255), (11, 253),
     (12, 254), (13, 144), (14, 232), (15, 233), (16, 234), (17, 235), (18, 236), (19, 237), (20, 238),
-    (21, 239), (23, 167),
+    (21, 239), (22, 168), (23, 167),
     (100, 81), (101, 94), (102, 71), (103, 39),
 ];
 
-/// Other prims missions place: traffic cone, barrels, and vehicle bodies and wheels.
+/// Other prims missions place: traffic cone, barrels, vehicle bodies and wheels, and the
+/// helicopter's body and rotors (74, 75).
 /// The prop every map's barrels are (prim 33, `PRIM_OBJ_BIN`, which ob.cpp calls "the
 /// barrel prim").
 pub const BARREL_PROP: u8 = 33;
 
-pub const EXTRA_PRIMS: [u8; 15] = [33, 67, 145, 88, 87, 108, 220, 155, 150, 159, 90, 91, 131, 27, CAN_PRIM];
+pub const EXTRA_PRIMS: [u8; 18] = [33, 67, 145, 188, 88, 87, 108, 220, 155, 150, 159, 90, 91, 131, 27, 74, 75, CAN_PRIM];
 
 /// `TEXTURE_page_leaf`, `_rubbish` and `_snowflake` (`TEXTURE_NUM_STANDARD` + 35, 64 and
 /// 74): `leaf.tga`, `rubbish.tga` and `snowflake.tga`, for the dirt.
