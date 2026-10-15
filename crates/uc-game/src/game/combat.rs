@@ -178,6 +178,18 @@ impl Game {
                         self.people[attacker].cues.push(Sfx::Taunt { kind });
                     }
                 }
+                Event::OutCold { attacker, victim } => {
+                    let from = self.people[attacker].fig.pos;
+                    let v = &mut self.people[victim];
+                    if matches!(v.state, State::Held { .. }) {
+                        v.state = State::Move;
+                    }
+                    v.take_hit(from, 0, person::ko::GRAPPLE, false, false, Weapon::None);
+                    if v.is_down() {
+                        v.out_cold = true;
+                        v.cues.push(Sfx::BatHit);
+                    }
+                }
                 Event::Squeeze { victim, headbutt } => {
                     // `40 - GET_SKILL(p_target) >> 3` plus one a strangling frame, which C
                     // reads as (40 - skill) >> 3; 40 - skill for the headbutt, with a thud.
@@ -260,7 +272,7 @@ impl Game {
             let v = &mut self.people[victim];
             if matches!(v.state, State::Held { .. }) {
                 v.fig.pos = pos + Vec3::new(f.x, 0.0, f.y) * grab.reach();
-                v.fig.angle = angle + std::f32::consts::PI;
+                v.fig.angle = angle + if grab.face_to_face() { std::f32::consts::PI } else { 0.0 };
             }
         }
     }
