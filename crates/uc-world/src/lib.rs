@@ -6,6 +6,7 @@ pub mod character;
 pub mod geometry;
 pub mod ground;
 pub mod level;
+pub mod mav;
 
 pub use character::{Figure, Model, People, Play};
 pub use ground::Ground;

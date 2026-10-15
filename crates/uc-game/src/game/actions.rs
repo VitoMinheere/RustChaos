@@ -27,6 +27,10 @@ impl Game {
                 // Explosives in hand: put one down at her feet with its fuse burning
                 // (`SPECIAL_set_explosives`). The last one leaves her hands empty.
                 let p = &mut self.people[pi];
+                if p.weapon == Weapon::Grenade && p.grenades > 0 {
+                    self.use_grenade(pi);
+                    return true;
+                }
                 if p.weapon == Weapon::Explosives && p.explosives > 0 {
                     p.explosives -= 1;
                     if p.explosives == 0 {
@@ -245,6 +249,12 @@ impl Game {
             13..=21 => true,
             // Explosives are carried, four at most, and left lying once she has four
             // (`should_person_get_item`).
+            // Grenades come three at a time, and are picked up while she has fewer than eight
+            // (`should_person_get_item`, `person_get_item`).
+            game::grenades::IT_GRENADE if p.grenades < 8 => {
+                p.grenades += 3;
+                true
+            }
             EXPLOSIVES if p.explosives < 4 => {
                 p.explosives += 1;
                 true
