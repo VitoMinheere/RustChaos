@@ -106,9 +106,14 @@ fn rat_catch_script_runs_to_a_win() {
     assert!(r.said("McIntyre"), "Spiv never named the job: {:?}", r.seen);
     let son = r.who(122);
 
-    // Walking up to the son starts the argument, and he bolts.
+    // Walking up to the son starts the argument, and he bolts. The cops about, who find
+    // their way to Mako now, can shoot him meanwhile, which breaks the argument off: keep
+    // them from it.
+    let me = r.g.player.unwrap();
+    r.g.people[me].protected = true;
     r.look_at(son, 200.0);
     r.play(50.0, Controls::default());
+    r.g.people[me].protected = false;
     assert!(r.said("have to kill me first"), "the son never spoke up: {:?}", r.seen);
     assert_eq!(r.g.people[son].ai, 16, "he should take to his heels (PCOM_AI_FLEE_PLAYER)");
 
