@@ -179,6 +179,11 @@ impl Vehicle {
         self.health <= 0
     }
 
+    /// `VEH_reduce_health` (fallen/Source/vehicle.cpp:4780): half the damage comes off.
+    pub fn reduce_health(&mut self, damage: i32) {
+        self.health -= damage >> 1;
+    }
+
     pub fn forward(&self) -> Vec2 {
         vec2(self.yaw.sin(), self.yaw.cos())
     }
