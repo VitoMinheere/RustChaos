@@ -166,7 +166,16 @@ impl Level {
                     darci.graft(r, from, to);
                 }
             }
-            Some(People { darci: Arc::new(darci), thug: chunk("rthug.all")?, trainer, roper })
+            let thug = chunk("rthug.all")?;
+            // And the civilians' and Roper's others (Anim.cpp:1373).
+            let mut files: HashMap<&str, Option<Arc<AnimChunk>>> = HashMap::new();
+            files.insert("rthug.all", Some(thug.clone()));
+            for &(file, from, to) in &crate::character::EXTRA_ANIMS {
+                if let Some(f) = files.entry(file).or_insert_with(|| chunk(file).ok()) {
+                    darci.graft(f, from, to);
+                }
+            }
+            Some(People { darci: Arc::new(darci), thug, trainer, roper })
         } else {
             None
         };
@@ -360,7 +369,16 @@ pub const ITEM_PRIMS: [(u8, u8); 25] = [
 /// barrel prim").
 pub const BARREL_PROP: u8 = 33;
 
-pub const EXTRA_PRIMS: [u8; 14] = [33, 67, 145, 88, 87, 108, 220, 155, 150, 159, 90, 91, 131, 27];
+pub const EXTRA_PRIMS: [u8; 15] = [33, 67, 145, 88, 87, 108, 220, 155, 150, 159, 90, 91, 131, 27, CAN_PRIM];
+
+/// `TEXTURE_page_leaf`, `_rubbish` and `_snowflake` (`TEXTURE_NUM_STANDARD` + 35, 64 and
+/// 74): `leaf.tga`, `rubbish.tga` and `snowflake.tga`, for the dirt.
+pub const LEAF_PAGE: u32 = 22 * 64 + 35;
+pub const RUBBISH_PAGE: u32 = 22 * 64 + 64;
+pub const SNOWFLAKE_PAGE: u32 = 22 * 64 + 74;
+
+/// `PRIM_OBJ_CAN`: the cans lying in the street.
+pub const CAN_PRIM: u8 = 76;
 
 /// The prim for item type `kind`.
 pub fn item_prim(kind: u8) -> Option<u8> {
