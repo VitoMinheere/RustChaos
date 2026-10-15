@@ -139,7 +139,7 @@ fn a_mine_flashes() {
     let (mut lit, mut dark) = (0, 0);
     for _ in 0..60 {
         run(&mut g, &level, DT, Controls::default());
-        let glow = g.batches(&level, eye).get(&uc_world::GLOW).map_or(false, |b| {
+        let glow = g.batches(&level, eye).get(&uc_world::GLOW).is_some_and(|b| {
             b.vertices.iter().any(|v| (Vec3::from(v.pos) * uc_world::UNIT - (at + vec3(0.0, 15.0, 0.0))).length() < 60.0)
         });
         if glow { lit += 1 } else { dark += 1 }

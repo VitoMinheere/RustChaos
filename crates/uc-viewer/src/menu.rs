@@ -27,8 +27,58 @@ pub struct Entry {
     pub goals: Goals,
 }
 
+/// The front end's screens (fallen/Source/frontend.cpp): the title (`FE_TITLESCREEN`), the
+/// main menu (`FE_MAINMENU`) and the missions (the original's map screen, `FE_MAPSCREEN`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Screen {
+    Title,
+    Main,
+    Missions,
+}
+
+/// The main menu's items (`raw_menu_data`, frontend.cpp:376): the ones there's something
+/// behind here.
+pub const MAIN: [&str; 2] = ["START", "EXIT"];
+
+/// The menus' look, by how far through the game (`menu_theme`, set in
+/// `FRONTEND_MissionHierarchy`, frontend.cpp:3337): leaves for the first eight missions done,
+/// then rain, snow, and blood from 24 on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Theme {
+    Leaves,
+    Rain,
+    Snow,
+    Blood,
+}
+
+impl Theme {
+    pub fn of(done: usize) -> Theme {
+        match done {
+            0..=7 => Theme::Leaves,
+            8..=15 => Theme::Rain,
+            16..=23 => Theme::Snow,
+            _ => Theme::Blood,
+        }
+    }
+
+    fn word(self) -> &'static str {
+        match self {
+            Theme::Leaves => "leaves",
+            Theme::Rain => "rain",
+            Theme::Snow => "snow",
+            Theme::Blood => "blood",
+        }
+    }
+}
+
 pub struct Menu {
     pub entries: Vec<Entry>,
+    pub screen: Screen,
+    /// The main menu's choice.
+    pub main: usize,
+    pub theme: Theme,
+    /// When the menu came up: the falling leaves (or rain, snow, blood) move with it.
+    since: std::time::Instant,
     pub selected: usize,
     /// A mission chosen, to load on the next frame (after "Loading" is on screen).
     pub loading: Option<usize>,
@@ -49,7 +99,71 @@ impl Menu {
                 .unwrap_or_default();
             entries.push(Entry { mission, title, briefing, playable, goals });
         }
-        Menu { entries, selected: 0, loading: None, progress: Progress::load() }
+        let progress = Progress::load();
+        let theme = Theme::of(entries.iter().filter(|e| progress.completed(&e.mission)).count());
+        Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress }
+    }
+
+    /// The image behind the current screen, from the install's `data\` (`menu_back_names`,
+    /// `menu_map_names`, frontend.cpp:600): the title for the title and main menu, the map
+    /// for the missions.
+    pub fn image(&self) -> String {
+        let w = self.theme.word();
+        match self.screen {
+            Screen::Title | Screen::Main => format!("data\\TITLE {}1.TGA", w.to_ascii_uppercase()),
+            Screen::Missions => format!("data\\map {w} darci.tga"),
+        }
+    }
+
+    /// The falling kibble (`FRONTEND_kibble_init_one`, frontend.cpp:2289): leaves, rain, snow
+    /// or blood drifting down over the menus, by the theme.
+    fn kibble(&self, o: &mut Overlay, w: f32, h: f32, s: f32) {
+        let t = self.since.elapsed().as_secs_f32();
+        let (n, speed, size, colour): (usize, f32, (f32, f32), [u8; 4]) = match self.theme {
+            Theme::Leaves => (40, 40.0, (4.0, 3.0), [190, 120, 40, 220]),
+            Theme::Rain => (120, 420.0, (1.0, 9.0), [170, 190, 215, 150]),
+            Theme::Snow => (90, 30.0, (2.0, 2.0), [240, 240, 250, 230]),
+            Theme::Blood => (50, 120.0, (2.0, 4.0), [150, 10, 10, 230]),
+        };
+        let mut seed = 0x1234_5678u32;
+        let mut r = || {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 8) as f32 / (1u32 << 24) as f32
+        };
+        for _ in 0..n {
+            let (x0, y0, v, sway) = (r(), r(), 0.6 + r() * 0.8, r() * std::f32::consts::TAU);
+            let y = (y0 * h + t * speed * v * s / 2.0) % (h + 20.0) - 10.0;
+            let drift = if self.theme == Theme::Rain { t * 30.0 * s } else { (t * 1.3 + sway).sin() * 14.0 * s };
+            let x = (x0 * w + drift).rem_euclid(w);
+            o.rect(x, y, size.0 * s, size.1 * s, colour);
+        }
+    }
+
+    /// The title, or the main menu, over its image.
+    fn front(&self, o: &mut Overlay, w: f32, h: f32, s: f32) {
+        o.backdrop(0.0, 0.0, w, h, [255, 255, 255, 255]);
+        self.kibble(o, w, h, s);
+        let gold = [255, 210, 70, 255];
+        let white = [235, 235, 225, 255];
+        let big = s * 4.0;
+        let title = "URBAN CHAOS";
+        o.text(w / 2.0 - Overlay::text_width(title, big) / 2.0, h * 0.18, big, gold, title);
+        if self.screen == Screen::Title {
+            let any = "PRESS ANY KEY";
+            if (self.since.elapsed().as_secs_f32() * 2.0) as u32 % 2 == 0 {
+                o.text(w / 2.0 - Overlay::text_width(any, s * 2.0) / 2.0, h * 0.8, s * 2.0, white, any);
+            }
+            return;
+        }
+        let mut y = h * 0.55;
+        for (k, item) in MAIN.iter().enumerate() {
+            let tw = Overlay::text_width(item, s * 2.0);
+            if k == self.main {
+                o.rect(w / 2.0 - tw / 2.0 - 8.0 * s, y - 3.0 * s, tw + 16.0 * s, 20.0 * s, [200, 150, 40, 200]);
+            }
+            o.text(w / 2.0 - tw / 2.0, y, s * 2.0, white, item);
+            y += 26.0 * s;
+        }
     }
 
     /// The entry after mission `name` (for "next mission").
@@ -90,14 +204,19 @@ impl Menu {
         let mut o = Overlay::new();
         let (w, h) = (size.0 as f32, size.1 as f32);
         let s = (h / 360.0).round().max(1.0);
-        // The title screen, darkened on the left behind the list.
+        if self.screen != Screen::Missions {
+            self.front(&mut o, w, h, s);
+            return o;
+        }
+        // The map, darkened on the left behind the list, with the kibble falling.
         o.backdrop(0.0, 0.0, w, h, [255, 255, 255, 255]);
+        self.kibble(&mut o, w, h, s);
         o.rect(0.0, 0.0, w * 0.5, h, [0, 0, 0, 170]);
         let white = [235, 235, 225, 255];
         let gold = [255, 210, 70, 255];
         let x = 20.0 * s;
         o.text(x, 16.0 * s, s * 3.0, gold, "URBAN CHAOS");
-        o.text(x, 44.0 * s, s, [200, 200, 190, 220], "Up/Down choose   Enter play   Esc quit");
+        o.text(x, 44.0 * s, s, [200, 200, 190, 220], "Up/Down choose   Enter play   Esc back");
         // How far through the missions.
         let done = self.entries.iter().filter(|e| self.progress.completed(&e.mission)).count();
         let [sta, str, rfx, con] = self.progress.stats();
@@ -226,9 +345,10 @@ pub fn missions(game: &Path) -> Vec<(String, String, String)> {
     out
 }
 
-/// One of the game's title screens (24/32-bit uncompressed TGA), for the menu's background.
-pub fn backdrop(game: &Path) -> Option<Texture> {
-    let b = std::fs::read(uc_formats::resolve(game, "data\\TITLE LEAVES1.TGA")?).ok()?;
+/// One of the game's front-end images (24/32-bit uncompressed TGA, `file` under the
+/// install), for the menu's background.
+pub fn backdrop(game: &Path, file: &str) -> Option<Texture> {
+    let b = std::fs::read(uc_formats::resolve(game, file)?).ok()?;
     if b.len() < 18 || b[2] != 2 {
         return None;
     }
