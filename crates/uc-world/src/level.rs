@@ -370,7 +370,7 @@ pub const ITEM_PRIMS: [(u8, u8); 26] = [
 /// barrel prim").
 pub const BARREL_PROP: u8 = 33;
 
-pub const EXTRA_PRIMS: [u8; 17] = [33, 67, 145, 88, 87, 108, 220, 155, 150, 159, 90, 91, 131, 27, 74, 75, CAN_PRIM];
+pub const EXTRA_PRIMS: [u8; 18] = [33, 67, 145, 188, 88, 87, 108, 220, 155, 150, 159, 90, 91, 131, 27, 74, 75, CAN_PRIM];
 
 /// `TEXTURE_page_leaf`, `_rubbish` and `_snowflake` (`TEXTURE_NUM_STANDARD` + 35, 64 and
 /// 74): `leaf.tga`, `rubbish.tga` and `snowflake.tga`, for the dirt.
