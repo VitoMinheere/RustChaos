@@ -14,7 +14,7 @@
 //! kept together and people are pushed apart.
 
 pub mod city;
-mod game;
+pub mod game;
 pub mod creature;
 pub mod dirt;
 pub mod goals;
@@ -41,6 +41,7 @@ pub use person::{Controls, Person, Sfx, State, Weapon};
 pub use pyro::Pyro;
 pub use script::Shot;
 pub use vehicle::{Drive, Vehicle};
+pub use game::grenades::Grenade;
 
 /// `facet_rand`'s LCG (fallen/Source/facet.cpp): the one source of chance in the game, so a
 /// run plays out the same way twice.
@@ -258,6 +259,7 @@ enum Aim {
     Person(usize),
     Creature(usize),
     Barrel(usize),
+    Vehicle(usize),
 }
 
 /// A bolt of lightning from a creature to someone (`SPARK_create`): from, to, seconds left.
@@ -358,6 +360,10 @@ pub struct Game {
     player_fired: bool,
     /// Props damaged (`OB_FLAG_DAMAGED`), as indices into the map's objects.
     pub damaged: BTreeSet<usize>,
+    /// Grenades thrown and not yet gone off.
+    pub grenades: Vec<Grenade>,
+    /// The player's grenade, primed and still in hand: seconds to going off.
+    pub primed: Option<f32>,
     /// Explosives set down and waiting to go off.
     pub charges: Vec<Charge>,
     /// The mission's moving platforms, made or still waiting to be.
@@ -387,6 +393,10 @@ pub struct Game {
     pub aim_creature: Option<usize>,
     /// The barrel the player's gun is pointed at (`find_target_new` takes barrels too).
     pub aim_barrel: Option<usize>,
+    /// The car the player's gun is pointed at (`find_target_new` takes vehicles too).
+    pub aim_vehicle: Option<usize>,
+    /// Cars already blown up, so each goes up once.
+    blown: BTreeSet<usize>,
     /// Seconds into the creatures' next tick.
     creature_clock: f32,
     creature_rng: u32,
@@ -465,7 +475,7 @@ impl Game {
             taken: BTreeSet::new(), dead_cops: BTreeSet::new(), player_fired: false,
             crime_rate: if level.mission.crime_rate == 0 { 50 } else { level.mission.crime_rate.min(100) },
             show_crime_rate: level.mission.flags & MISSION_FLAG_SHOW_CRIMERATE != 0, crimes: BTreeSet::new(),
-            searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(),
+            searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(), grenades: Vec::new(), primed: None,
             wares: ware::Wares::new(&level.map), indoors: None,
             platforms: level.platforms.iter().map(|&(way, ob)| {
                 let o = &level.map.objects[ob];
@@ -475,7 +485,7 @@ impl Game {
             plat_prims: level.platforms.iter().map(|&(_, ob)| uc_world::level::load_prim(&level.game, level.map.objects[ob].prim)).collect(),
             plat_clock: 0.0,
             creatures: Vec::new(), mav: uc_world::mav::Mav::new(level), ways: HashMap::new(), mav_rng: 0x3a7, entering: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
-            aim_creature: None, aim_barrel: None, creature_clock: 0.0, creature_rng: 0xba7,
+            aim_creature: None, aim_barrel: None, aim_vehicle: None, blown: BTreeSet::new(), creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), dirt: Game::new_dirt(level), dirt_clock: 0.0, dirt_marks: Vec::new(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
             electrified: BTreeSet::new(), fence_spark_clock: 0.0, no_floor: false,
@@ -575,6 +585,10 @@ impl Game {
         }
         self.vent_steam(dt, level);
         self.trip_wires(dt);
+        self.wreck_cars();
+        if self.outcome.is_none() {
+            self.run_grenades(dt, level);
+        }
         self.electric_fences(dt, level);
         self.no_floor_falls();
         self.go_indoors(level);
@@ -602,7 +616,8 @@ impl Game {
         let mut input = *input;
         input.target = self.target;
         input.aim = self.aim_creature.map(|k| self.creatures[k].middle())
-            .or_else(|| self.aim_barrel.map(|k| self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0)));
+            .or_else(|| self.aim_barrel.map(|k| self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0)))
+            .or_else(|| self.aim_vehicle.map(|k| self.vehicles[k].pos + Vec3::new(0.0, 64.0, 0.0)));
         if self.outcome.is_none() && !held && input.action && self.use_something(level) {
             input.action = false;
         }
