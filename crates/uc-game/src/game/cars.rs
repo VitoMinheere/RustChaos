@@ -344,6 +344,29 @@ impl Game {
             _ => None,
         }
     }
+
+    /// A car whose health runs out blows up (`VEH_process`, vehicle.cpp:2963): a firebomb and
+    /// a bang, and whoever is driving is thrown out and knocked over. Its flame "wave"
+    /// (`PYRO_FLAGS_WAVE`) is only drawn, so there's no shockwave and no chain of cars.
+    pub(crate) fn wreck_cars(&mut self) {
+        for v in 0..self.vehicles.len() {
+            if !self.vehicles[v].wrecked() || !self.blown.insert(v) {
+                continue;
+            }
+            let at = self.vehicles[v].pos;
+            self.pyro.burst(at + Vec3::new(0.0, 48.0, 0.0), pyro::FIREBOMB, 256.0);
+            self.sounds.push((Sfx::Explosion, at));
+            if self.aim_vehicle == Some(v) {
+                self.aim_vehicle = None;
+            }
+            if let Some(d) = self.vehicles[v].driver.take() {
+                let p = &mut self.people[d];
+                p.state = State::Move;
+                p.fig.pos = at;
+                p.take_hit(at + Vec3::new(40.0, 0.0, 0.0), 0, person::ko::KNOCKDOWN, false, false, Weapon::None);
+            }
+        }
+    }
 }
 
 /// The breakable prop whose collision outline the round end of a car at `front` touches.
