@@ -40,10 +40,7 @@ impl Game {
                     && v.covers(Vec2::new(pos.x, pos.z), 140.0) && (v.pos.y - pos.y).abs() < 150.0;
                 let has_key = self.people[pi].has_key;
                 if let Some(vi) = self.vehicles.iter().position(|v| near(v) && v.opens_for(has_key)) {
-                    self.vehicles[vi].driver = Some(pi);
-                    let p = &mut self.people[pi];
-                    p.state = State::InCar { vehicle: vi };
-                    p.cues.push(Sfx::CarDoor);
+                    self.enter_car(pi, vi, level);
                     return true;
                 }
                 // Only locked ones: said below, if there's nothing else to do here.
