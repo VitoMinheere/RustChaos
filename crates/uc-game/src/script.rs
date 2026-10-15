@@ -166,6 +166,8 @@ pub enum Command {
     Item { way: usize, kind: u8, pos: Vec3, stashed: bool },
     /// A creature of `kind` (`EWAY_SUBTYPE_ANIMAL_*`: 2 gargoyle, 3 Balrog, 4 Bane).
     Creature { way: usize, kind: u8, pos: Vec3, angle: f32 },
+    /// A motorbike (`VT_BIKE`), parked facing `angle`.
+    Bike { way: usize, pos: Vec3, angle: f32 },
     /// Give the warehouse round `pos` ambience `ambience` (`EWAY_DO_WAREFX`: 0 none, 1-4).
     WareFx { pos: Vec3, ambience: u8 },
     /// Start or stop the person created by `way` peeing (`FLAG_PERSON_PEEING`).
@@ -733,6 +735,8 @@ impl Script {
                 let kind = crate::BADGE + crate::goals::badge_stat(i) as u8;
                 self.commands.push(Command::Item { way: i, kind, pos, stashed: false });
             }
+            // `VT_BIKE`: a motorbike, which the shipped game compiles out.
+            waypoint::CREATE_VEHICLE if d[0] == 5 => self.commands.push(Command::Bike { way: i, pos, angle }),
             waypoint::CREATE_VEHICLE => {
                 let kind = crate::vehicle::from_vt(d[0]);
                 let key = crate::vehicle::Key::from_vk(d[3]);

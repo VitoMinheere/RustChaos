@@ -98,6 +98,7 @@ impl Game {
                         None => self.items.push(item),
                     }
                 }
+                Command::Bike { way, pos, angle } => self.add_bike(level, way, pos, angle),
                 Command::Creature { way, kind, pos, angle } => {
                     let Some(chunk) = creature_chunk(level, kind) else {
                         eprintln!("mission: no anim prim for creature {kind}");

@@ -11,4 +11,5 @@ mod scenes;
 mod actions;
 mod combat;
 mod draw;
+mod bikes;
 mod litter;
