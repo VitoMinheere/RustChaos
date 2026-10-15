@@ -390,6 +390,8 @@ pub struct Game {
     barrel_marks: Vec<Vec3>,
     /// People getting into cars: (who, which car).
     entering: Vec<(usize, usize)>,
+    /// Who Darci was last aiming at, to notice when that changes.
+    last_aimed: Option<usize>,
     creature_by_way: HashMap<usize, usize>,
     pub fireballs: Vec<creature::Fireball>,
     pub sparks: Vec<Spark>,
@@ -493,7 +495,7 @@ impl Game {
             }).collect(),
             plat_prims: level.platforms.iter().map(|&(_, ob)| uc_world::level::load_prim(&level.game, level.map.objects[ob].prim)).collect(),
             plat_clock: 0.0,
-            creatures: Vec::new(), barrel_rng: 0xba44, barrel_clock: 0.0, barrel_marks: Vec::new(), entering: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
+            creatures: Vec::new(), barrel_rng: 0xba44, barrel_clock: 0.0, barrel_marks: Vec::new(), entering: Vec::new(), last_aimed: None, creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
             aim_creature: None, aim_barrel: None, aim_mine: None, mines: Vec::new(), aim_vehicle: None, blown: BTreeSet::new(), creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), dirt: Game::new_dirt(level), dirt_clock: 0.0, dirt_marks: Vec::new(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
@@ -582,6 +584,7 @@ impl Game {
         self.used = input.action;
         if self.outcome.is_none() {
             self.update_target(input.cycle_target, level);
+            self.aim_at_people();
         }
         if self.outcome.is_none() {
             self.run_script(dt, level);
