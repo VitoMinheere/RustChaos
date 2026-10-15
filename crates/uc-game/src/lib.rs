@@ -434,6 +434,8 @@ pub struct Game {
     pub mists: Mists,
     /// Drops in the air.
     pub drops: dirt::Drops,
+    /// The floor squares on the sea, drawn with the waves.
+    sea: Vec<uc_world::level::SeaSquare>,
     /// Leaves, cans and snow lying about round the player.
     pub dirt: dirt::Dirt,
     /// Seconds to the dirt's next turn.
@@ -509,7 +511,7 @@ impl Game {
             plat_clock: 0.0,
             creatures: Vec::new(), mav: uc_world::mav::Mav::new(level), ways: HashMap::new(), mav_rng: 0x3a7, choppers: Vec::new(), chopper_clock: 0.0, barrel_rng: 0xba44, barrel_clock: 0.0, barrel_marks: Vec::new(), entering: Vec::new(), last_aimed: None, creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
             aim_creature: None, aim_barrel: None, aim_mine: None, mines: Vec::new(), aim_vehicle: None, blown: BTreeSet::new(), creature_clock: 0.0, creature_rng: 0xba7,
-            pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), dirt: Game::new_dirt(level), dirt_clock: 0.0, dirt_marks: Vec::new(), steam: steam::Steam::default(),
+            pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), sea: level.sea(), dirt: Game::new_dirt(level), dirt_clock: 0.0, dirt_marks: Vec::new(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
             electrified: BTreeSet::new(), fence_spark_clock: 0.0, no_floor: false,
             player_name: "",
