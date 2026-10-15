@@ -818,6 +818,7 @@ impl Sound {
         self.audio.ambience(None, 0.0);
         self.audio.bed(None, 0.0);
         self.audio.engine(None);
+        self.audio.rotor(None);
     }
 
     /// Plays this frame's game sounds and keeps the music in step with the action.
@@ -875,6 +876,12 @@ impl Sound {
         // The engine of the car Darci drives.
         let revs = world.game.player_vehicle().map(|v| (v.speed.abs() / 3000.0).min(1.0));
         self.audio.engine(revs);
+        // The nearest helicopter's rotors, fading out 24 squares off.
+        let rotor = world.game.chopper_noise(listener.pos).map(|at| {
+            let fade = (1.0 - at.distance(listener.pos) / (24.0 * 256.0)).clamp(0.0, 1.0);
+            0.6 * fade * fade
+        });
+        self.audio.rotor(rotor);
         self.audio.update(dt);
     }
 }
