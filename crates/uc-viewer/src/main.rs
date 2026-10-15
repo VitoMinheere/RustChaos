@@ -1072,6 +1072,8 @@ struct App {
     input: Input,
     last: Instant,
     title_timer: f32,
+    /// The image behind the menu now (to change it when the screen does).
+    backdrop: String,
     frames: u32,
     shots: u32,
 }
@@ -1104,9 +1106,7 @@ impl App {
         config.present_mode = wgpu::PresentMode::AutoVsync;
         surface.configure(&device, &config);
         let mut renderer = Renderer::new(device, queue, config.format, !self.args.linear);
-        if let Some(t) = menu::backdrop(&self.args.game) {
-            renderer.set_backdrop(&t);
-        }
+        self.backdrop = String::new();
         if let Some(w) = &self.world {
             w.upload(&mut renderer);
         }
@@ -1399,8 +1399,10 @@ impl App {
 
     fn open_menu(&mut self) {
         let mut m = menu::Menu::new(&self.args.game);
+        // Back from a mission: straight to the missions, past the title.
         if let Some(w) = &self.world {
             m.select(&w.level.name);
+            m.screen = menu::Screen::Missions;
         }
         self.world = None;
         self.menu = Some(m);
@@ -1421,26 +1423,66 @@ impl App {
             self.input.pressed.clear();
             return;
         }
-        if inp.hit(KeyCode::Escape) {
-            el.exit();
-            return;
-        }
-        if inp.hit(KeyCode::ArrowUp) || inp.hit(KeyCode::KeyW) || inp.pad.hit(Button::DPadUp) {
-            m.up();
-        }
-        if inp.hit(KeyCode::ArrowDown) || inp.hit(KeyCode::KeyS) || inp.pad.hit(Button::DPadDown) {
-            m.down();
-        }
+        let up = inp.hit(KeyCode::ArrowUp) || inp.hit(KeyCode::KeyW) || inp.pad.hit(Button::DPadUp);
+        let down = inp.hit(KeyCode::ArrowDown) || inp.hit(KeyCode::KeyS) || inp.pad.hit(Button::DPadDown);
         let go = inp.hit(KeyCode::Enter) || inp.hit(KeyCode::NumpadEnter) || inp.hit(KeyCode::Space)
             || inp.pad.hit(Button::South) || inp.pad.hit(Button::Start);
-        if go && !m.entries.is_empty() {
-            m.loading = Some(m.selected);
+        let back = inp.hit(KeyCode::Escape) || inp.pad.hit(Button::East);
+        match m.screen {
+            // Any key from the title.
+            menu::Screen::Title => {
+                if !inp.pressed.is_empty() || !inp.pad.pressed.is_empty() {
+                    m.screen = menu::Screen::Main;
+                }
+            }
+            menu::Screen::Main => {
+                if back {
+                    m.screen = menu::Screen::Title;
+                }
+                if up {
+                    m.main = (m.main + menu::MAIN.len() - 1) % menu::MAIN.len();
+                }
+                if down {
+                    m.main = (m.main + 1) % menu::MAIN.len();
+                }
+                if go {
+                    match menu::MAIN[m.main] {
+                        "START" => m.screen = menu::Screen::Missions,
+                        _ => {
+                            el.exit();
+                            return;
+                        }
+                    }
+                }
+            }
+            menu::Screen::Missions => {
+                if back {
+                    m.screen = menu::Screen::Main;
+                }
+                if up {
+                    m.up();
+                }
+                if down {
+                    m.down();
+                }
+                if go && !m.entries.is_empty() {
+                    m.loading = Some(m.selected);
+                }
+            }
         }
         self.input.pressed.clear();
         self.input.lmb_pressed = false;
         self.input.mouse = Vec2::ZERO;
         self.input.wheel = 0.0;
         let Some(g) = self.gfx.as_mut() else { return };
+        // The screen's image, when it changes.
+        let image = m.image();
+        if image != self.backdrop {
+            if let Some(t) = menu::backdrop(&self.args.game, &image) {
+                g.renderer.set_backdrop(&t);
+            }
+            self.backdrop = image;
+        }
         let size = (g.config.width, g.config.height);
         let overlay = m.overlay(size);
         let frame = match g.surface.get_current_texture() {
@@ -1744,10 +1786,12 @@ fn run() -> Result<(), String> {
     // `--screenshot` without `--mission`: the menu.
     if let (Some(path), false, None) = (&screenshot, args.mission_given, &dump) {
         let mut r = Renderer::headless(true)?;
-        if let Some(t) = menu::backdrop(&args.game) {
+        let mut m = menu::Menu::new(&args.game);
+        m.screen = menu::Screen::Missions;
+        if let Some(t) = menu::backdrop(&args.game, &m.image()) {
             r.set_backdrop(&t);
         }
-        let img = r.render_2d_to_image(args.size, &menu::Menu::new(&args.game).overlay(args.size));
+        let img = r.render_2d_to_image(args.size, &m.overlay(args.size));
         save_png(path, args.size, &img)?;
         println!("saved {}", path.display());
         return Ok(());
@@ -1773,7 +1817,7 @@ fn run() -> Result<(), String> {
         (None, Some(menu::Menu::new(&args.game)))
     };
     let mut app = App {
-        world, menu, args, gfx: None, sound, pads, input: Input::default(), last: Instant::now(), title_timer: 0.0,
+        world, menu, args, gfx: None, sound, pads, input: Input::default(), last: Instant::now(), title_timer: 0.0, backdrop: String::new(),
         frames: 0, shots: 0,
     };
     el.run_app(&mut app).map_err(|e| e.to_string())
