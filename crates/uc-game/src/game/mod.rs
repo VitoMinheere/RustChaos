@@ -11,4 +11,5 @@ mod scenes;
 mod actions;
 mod combat;
 mod draw;
+pub mod grenades;
 mod litter;

@@ -14,7 +14,7 @@
 //! kept together and people are pushed apart.
 
 pub mod city;
-mod game;
+pub mod game;
 pub mod creature;
 pub mod dirt;
 pub mod goals;
@@ -41,6 +41,7 @@ pub use person::{Controls, Person, Sfx, State, Weapon};
 pub use pyro::Pyro;
 pub use script::Shot;
 pub use vehicle::{Drive, Vehicle};
+pub use game::grenades::Grenade;
 
 /// `facet_rand`'s LCG (fallen/Source/facet.cpp): the one source of chance in the game, so a
 /// run plays out the same way twice.
@@ -361,6 +362,10 @@ pub struct Game {
     /// How long nothing has happened (`timer_bored`, Person.cpp:3762): seconds since the
     /// player last fought, shot at someone or watched a scene.
     pub bored: f32,
+    /// Grenades thrown and not yet gone off.
+    pub grenades: Vec<Grenade>,
+    /// The player's grenade, primed and still in hand: seconds to going off.
+    pub primed: Option<f32>,
     /// Explosives set down and waiting to go off.
     pub charges: Vec<Charge>,
     /// The mission's moving platforms, made or still waiting to be.
@@ -462,6 +467,7 @@ impl Game {
             crime_rate: if level.mission.crime_rate == 0 { 50 } else { level.mission.crime_rate.min(100) },
             show_crime_rate: level.mission.flags & MISSION_FLAG_SHOW_CRIMERATE != 0, crimes: BTreeSet::new(),
             searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(), bored: 0.0,
+            grenades: Vec::new(), primed: None,
             wares: ware::Wares::new(&level.map), indoors: None,
             platforms: level.platforms.iter().map(|&(way, ob)| {
                 let o = &level.map.objects[ob];
@@ -571,6 +577,9 @@ impl Game {
         }
         self.vent_steam(dt, level);
         self.trip_wires(dt);
+        if self.outcome.is_none() {
+            self.run_grenades(dt, level);
+        }
         self.electric_fences(dt, level);
         self.no_floor_falls();
         self.go_indoors(level);
