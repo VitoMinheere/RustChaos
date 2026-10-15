@@ -264,51 +264,18 @@ impl Game {
                 p.fig.pos.x = to.x;
                 p.fig.pos.z = to.y;
             }
-            // Cones and barrels get knocked about.
-            for b in self.barrels.iter_mut().filter(|b| !b.gone) {
-                let at = Vec2::new(b.pos.x, b.pos.z);
-                if v.speed.abs() > 60.0 && v.covers(at, 30.0) && b.vel.length() < v.speed.abs() * 0.5 {
-                    let side = (at - Vec2::new(v.pos.x, v.pos.z)).normalize_or_zero();
-                    b.vel = fwd * v.speed * 0.9 + side * v.speed.abs() * 0.3;
-                    self.sounds.push((Sfx::Cone, b.pos));
+            // Cones and barrels get knocked about (`BARREL_hit_with_prim` with the car's
+            // body; here as two spheres, at its nose and its tail).
+            if v.speed.abs() > 60.0 {
+                let ends = [v.place(Vec3::new(0.0, 60.0, 100.0)), v.place(Vec3::new(0.0, 60.0, -100.0))];
+                let mut seed = self.barrel_rng;
+                for at in ends {
+                    for k in barrel::hit_with_sphere(&mut self.barrels, at, 0x60 as f32, &mut || rand(&mut seed)) {
+                        let at = self.barrels[k].pos;
+                        self.sounds.push((Sfx::Cone, at));
+                    }
                 }
-            }
-        }
-        // A stacked barrel stays put until the one under it moves or goes
-        // (`BARREL_process_normal`), and then falls.
-        for k in 0..self.barrels.len() {
-            if let Some(j) = self.barrels[k].on {
-                let under = &self.barrels[j];
-                if under.gone || under.on.is_none() && (under.vel.length_squared() >= 1.0 || under.vy != 0.0) || self.barrels[k].vel.length_squared() >= 1.0 {
-                    self.barrels[k].on = None;
-                }
-            }
-        }
-        for b in &mut self.barrels {
-            if b.on.is_some() || b.gone {
-                continue;
-            }
-            let at = Vec2::new(b.pos.x, b.pos.z);
-            let floor = level.ground.surface(&level.map, at.x, at.y, b.pos.y + 32.0);
-            if b.pos.y > floor + 0.5 || b.vy != 0.0 {
-                // `BARREL_GRAVITY`: 0x80 of a 256th a tick, every tick.
-                b.vy -= 0x80 as f32 / 256.0 * 20.0 * 20.0 * dt;
-                b.pos.y += b.vy * dt;
-                if b.pos.y <= floor {
-                    b.pos.y = floor;
-                    b.vy = 0.0;
-                }
-            }
-            if b.vel.length_squared() < 1.0 {
-                continue;
-            }
-            let to = level.ground.slide(at, b.pos.y, b.vel * dt, 30.0);
-            let floor = level.ground.surface(&level.map, to.x, to.y, b.pos.y + 32.0);
-            b.pos = Vec3::new(to.x, if b.vy != 0.0 { b.pos.y.max(floor) } else { floor }, to.y);
-            b.vel *= (-2.5 * dt).exp();
-            b.yaw += b.vel.length() * dt / 60.0;
-            if b.kind == 1 {
-                b.tilt = (b.tilt + 8.0 * dt).min(std::f32::consts::FRAC_PI_2);
+                self.barrel_rng = seed;
             }
         }
     }
