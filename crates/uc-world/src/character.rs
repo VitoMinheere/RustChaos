@@ -601,6 +601,12 @@ impl Figure {
         self.animator.done
     }
 
+    /// The keyframe the animation is on, counting from 0 (`Draw.Tweened->FrameIndex`); None
+    /// while blending in from the one before.
+    pub fn frame(&self) -> Option<usize> {
+        self.animator.index
+    }
+
     /// How far through the current animation (0..1).
     pub fn progress(&self) -> f32 {
         self.animator.progress()
