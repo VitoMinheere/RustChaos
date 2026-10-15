@@ -17,6 +17,7 @@ impl Game {
                     // The player's strength badges add to every blow, and her reflexes to every
                     // shot (`damage += Strength` / `Skill`, combat.cpp:2070).
                     if Some(attacker) == self.player {
+                        self.bored = 0.0;
                         damage += self.stats[1] as i32;
                     }
                     let from = self.people[attacker].fig.pos;
@@ -93,6 +94,10 @@ impl Game {
                     }
                 }
                 Event::Shot { attacker, victim: Some(victim), weapon } => {
+                    // Firing at a target (Person.cpp:6219).
+                    if Some(attacker) == self.player {
+                        self.bored = 0.0;
+                    }
                     let (a, v) = (&self.people[attacker], &self.people[victim]);
                     let eye = Vec3::new(0.0, 140.0, 0.0);
                     if !level.ground.line_of_sight(a.fig.pos + eye, v.fig.pos + eye) {
