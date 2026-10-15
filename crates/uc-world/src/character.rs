@@ -110,6 +110,24 @@ pub mod anim {
     pub const START_WALK_CARRY_V: usize = 433;
     pub const WALK_CARRY_V: usize = 434;
     pub const WALK_STOP_CARRY_V: usize = 435;
+    /// `ANIM_ENTER_CAR`: getting in at the driver's door.
+    pub const ENTER_CAR: usize = 89;
+    /// The rest of the `ANIM_END` + n slots, taken from the civilians' and Roper's files.
+    pub const WANKER: usize = 403;
+    /// `ANIM_ENTER_TAXI`: getting in at the passenger's door.
+    pub const ENTER_TAXI: usize = 407;
+    pub const DANCE_BOOGIE: usize = 416;
+    pub const DANCE_WOOGIE: usize = 417;
+    pub const DANCE_HEADBANG: usize = 418;
+    /// Empty in the original: see [`super::EXTRA_ANIMS`].
+    pub const WARM_HANDS: usize = 419;
+    pub const HANDS_UP: usize = 420;
+    pub const STRANGLE: usize = 421;
+    pub const STRANGLE_VICTIM: usize = 422;
+    pub const HEADBUTT: usize = 423;
+    pub const HEADBUTT_VICTIM: usize = 424;
+    pub const HANDS_UP_LOOP: usize = 426;
+    pub const HANDS_UP_LIE: usize = 436;
 }
 
 /// Roper's file's carrying animations (`NROPER_*`, fallen/Source/Anim.cpp:137) and the
@@ -127,6 +145,29 @@ pub const CARRY_ANIMS: [(usize, usize); 12] = [
     (43, anim::PUTDOWN_CARRY_V),
     (44, anim::STAND_CARRY),
     (45, anim::STAND_CARRY_V),
+];
+
+/// The civilians' animations everyone's set takes in (Anim.cpp:1373): (file, from, to). The
+/// civilians' set is `rthug.all` (`load_anim_system(&game_chunk[ANIM_TYPE_CIV], "rthug.all",
+/// 2)`, Anim.cpp:957, after `bossprtg.all`), with `newciv.all`'s appended from
+/// `CIV_M_START` (100), so its hands-up animations are `newciv.all`'s 16 to 18. Roper's
+/// second file gives the strangle and headbutt and their victims' halves.
+///
+/// `ANIM_WARM_HANDS` is left out: it's `CIV_ANIM_WARM_HANDS` (53), which `rthug.all` doesn't
+/// have, so the original's slot is empty too.
+pub const EXTRA_ANIMS: [(&str, usize, usize); 12] = [
+    ("rthug.all", 13, anim::WANKER),
+    ("rthug.all", 27, anim::ENTER_TAXI),
+    ("rthug.all", 52, anim::DANCE_BOOGIE),
+    ("rthug.all", 58, anim::DANCE_WOOGIE),
+    ("rthug.all", 55, anim::DANCE_HEADBANG),
+    ("newciv.all", 16, anim::HANDS_UP),
+    ("newciv.all", 17, anim::HANDS_UP_LOOP),
+    ("newciv.all", 18, anim::HANDS_UP_LIE),
+    ("roper2.all", 268, anim::STRANGLE),
+    ("roper2.all", 269, anim::STRANGLE_VICTIM),
+    ("roper2.all", 270, anim::HEADBUTT),
+    ("roper2.all", 271, anim::HEADBUTT_VICTIM),
 ];
 
 /// One game tick is NORMAL_TICK_TOCK = 1000/15 ms; the tween advances TweenStep*2 per tick.
