@@ -91,6 +91,7 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         Sfx::Stab => at(audio, numbered("Stab", 1..=3, ".wav"), 0.9),
         Sfx::BatHit => at(audio, vec!["BatHit1.wav".into(), "DarciBatHit1.wav".into(), "DarciBatHit2.wav".into()], 1.0),
         Sfx::Shot(uc_game::Weapon::Shotgun) => at(audio, vec!["f_sSHOT1.wav".into()], 1.0),
+        Sfx::Shot(uc_game::Weapon::Sniper) => at(audio, vec!["General/AK1.wav".into()], 1.0),
         Sfx::Shot(uc_game::Weapon::Ak47) => at(audio, vec!["General/AK1.wav".into()], 0.9),
         Sfx::Shot(_) => at(audio, numbered("f_pSHOT", 1..=2, ".wav"), 1.0),
         Sfx::Click => at(audio, vec!["General/Click2.wav".into()], 0.8),

@@ -357,11 +357,13 @@ fn build_roof_faces(b: &mut Builder, map: &Map, sh: &Shader) {
 /// weedkiller. The Fallen's five clues are a keycard, three files and a video.
 /// Badges (`create_treasure`) aren't `IT_*` items; they're kinds 100-103 here: stamina,
 /// strength, reflexes and constitution, one of whose four models the original picks at random.
-pub const ITEM_PRIMS: [(u8, u8); 25] = [
+pub const ITEM_PRIMS: [(u8, u8); 26] = [
     (1, 36), (2, 143), (3, 142), (4, 127), (5, 166), (6, 120), (8, 205), (9, 141), (10, 255), (11, 253),
     (12, 254), (13, 144), (14, 232), (15, 233), (16, 234), (17, 235), (18, 236), (19, 237), (20, 238),
     (21, 239), (23, 167),
     (100, 81), (101, 94), (102, 71), (103, 39),
+    // The sniper rifle, lying about as the AK-47 does (and drawn longer).
+    (200, 120),
 ];
 
 /// Other prims missions place: traffic cone, barrels, and vehicle bodies and wheels.

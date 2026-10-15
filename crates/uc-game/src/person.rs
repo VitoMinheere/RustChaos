@@ -39,10 +39,14 @@ pub enum Weapon {
     Ak47,
     /// Charges to set down and run from (`SPECIAL_EXPLOSIVES`): action sets one.
     Explosives,
+    /// The sniper rifle: not in the shipped game, whose sniper mode (snipe.cpp) nothing can
+    /// turn on. Here it's a gun of its own, picked up like the others, whose scope is the
+    /// original's sniper mode.
+    Sniper,
 }
 
 impl Weapon {
-    pub const GUNS: [Weapon; 3] = [Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47];
+    pub const GUNS: [Weapon; 4] = [Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Sniper];
 
     /// From an enemy's `HAS_*` flags (fallen/Headers/Mission.h).
     pub fn from_has(has: u8) -> Weapon {
@@ -71,12 +75,13 @@ impl Weapon {
             Weapon::Ak47 => Some(6),
             Weapon::Bat => Some(8),
             Weapon::Explosives => Some(crate::EXPLOSIVES),
+            Weapon::Sniper => Some(crate::SNIPER),
         }
     }
 
     /// The weapon item `IT_*` `kind` is.
     pub fn from_item(kind: u8) -> Option<Weapon> {
-        [Weapon::Pistol, Weapon::Shotgun, Weapon::Knife, Weapon::Ak47, Weapon::Bat].into_iter().find(|w| w.item() == Some(kind))
+        [Weapon::Pistol, Weapon::Shotgun, Weapon::Knife, Weapon::Ak47, Weapon::Bat, Weapon::Sniper].into_iter().find(|w| w.item() == Some(kind))
     }
 
     pub fn is_gun(self) -> bool {
@@ -94,6 +99,7 @@ impl Weapon {
             Weapon::Pistol => 15,
             Weapon::Shotgun => 8,
             Weapon::Ak47 => 30,
+            Weapon::Sniper => 10,
             _ => 0,
         }
     }
@@ -107,6 +113,7 @@ impl Weapon {
             Weapon::Shotgun => "SHOTGUN",
             Weapon::Ak47 => "AK-47",
             Weapon::Explosives => "EXPLOSIVES",
+            Weapon::Sniper => "SNIPER RIFLE",
         }
     }
 
@@ -120,6 +127,8 @@ impl Weapon {
             Weapon::Shotgun => Some((258, 7, Some(262))),
             Weapon::Bat => Some((259, 7, None)),
             Weapon::Ak47 => Some((260, 7, Some(263))),
+            // The AK-47's, drawn longer.
+            Weapon::Sniper => Some((260, 7, Some(263))),
             Weapon::Explosives => None,
         }
     }
@@ -127,14 +136,14 @@ impl Weapon {
     /// Standing with the gun up (two-handed guns all use the shotgun's, `set_person_aim`).
     fn aim_anim(self) -> usize {
         match self {
-            Weapon::Shotgun | Weapon::Ak47 => anim::SHOTGUN_AIM,
+            Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper => anim::SHOTGUN_AIM,
             _ => anim::PISTOL_AIM,
         }
     }
 
     fn fire_anim(self) -> usize {
         match self {
-            Weapon::Shotgun => anim::SHOTGUN_FIRE,
+            Weapon::Shotgun | Weapon::Sniper => anim::SHOTGUN_FIRE,
             Weapon::Ak47 => anim::AK_FIRE,
             _ => anim::PISTOL_SHOOT,
         }
@@ -303,6 +312,8 @@ pub struct Controls {
     pub aim: Option<Vec3>,
     /// Driving, when in a car.
     pub drive: crate::vehicle::Drive,
+    /// Pressed: the sniper rifle's scope, in or out.
+    pub scope: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -536,7 +547,7 @@ pub struct Person {
     pub melee: Weapon,
     /// Guns carried (bit per `Weapon::GUNS` slot), and rounds for each.
     pub guns: u8,
-    pub ammo: [u32; 3],
+    pub ammo: [u32; 4],
     /// Out for good (health gone): won't get up.
     pub knocked_out: bool,
     /// A mission has set them peeing (`FLAG_PERSON_PEEING`).
@@ -634,7 +645,7 @@ impl Person {
         Person {
             fig, way, player, kind, ai: 0, bent: 0, ko_moves: 0, health, max_health: health, state: State::Move,
             pace: Pace::Walk,
-            arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 3], knocked_out: false, down_timer: 0.0,
+            arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 4], knocked_out: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false,
@@ -689,7 +700,7 @@ impl Person {
 
     /// Puts away what's in hand and takes out the next weapon carried (bare hands last).
     pub fn next_weapon(&mut self) {
-        let carried: Vec<Weapon> = [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Explosives]
+        let carried: Vec<Weapon> = [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Sniper, Weapon::Explosives]
             .into_iter()
             .enumerate()
             .filter(|&(k, w)| self.has(w) && (k == 0 || w != Weapon::None))
@@ -1125,7 +1136,7 @@ impl Person {
             0 | 1 | 2 if !c.sprint => {
                 let a = match self.weapon {
                     _ if !self.gun_out() => anim::CROUTCH_GETUP,
-                    Weapon::Shotgun | Weapon::Ak47 => anim::UNCROUTCH_AK,
+                    Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper => anim::UNCROUTCH_AK,
                     _ => anim::UNCROUTCH_PISTOL,
                 };
                 if self.fig.restart(a, Play::Once) || self.fig.restart(anim::CROUTCH_GETUP, Play::Once) {
@@ -1895,7 +1906,7 @@ impl Person {
         if c.action && self.player && !moving {
             let a = match self.weapon {
                 _ if !self.gun_out() => anim::CROUTCH_DOWN,
-                Weapon::Shotgun | Weapon::Ak47 => anim::SHOTGUN_DUCK,
+                Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper => anim::SHOTGUN_DUCK,
                 _ => anim::PISTOL_DUCK,
             };
             if self.fig.restart(a, Play::Once) || self.fig.restart(anim::CROUTCH_DOWN, Play::Once) {
@@ -1996,7 +2007,7 @@ impl Person {
             // Running with a gun: the jog that keeps it up.
             let jog = match self.weapon {
                 Weapon::Pistol => Some(anim::PISTOL_JOG),
-                Weapon::Shotgun | Weapon::Ak47 => Some(anim::AK_JOG),
+                Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper => Some(anim::AK_JOG),
                 _ => None,
             };
             if !(c.run && !c.sprint && jog.is_some_and(|j| self.fig.play(j, Play::Loop))) {

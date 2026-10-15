@@ -15,6 +15,7 @@
 
 pub mod city;
 mod game;
+pub use game::Snipe;
 pub mod creature;
 pub mod dirt;
 pub mod goals;
@@ -237,6 +238,13 @@ pub const STAT_NAMES: [&str; 4] = ["Stamina", "Strength", "Reflexes", "Constitut
 /// `IT_EXPLOSIVES`.
 pub const EXPLOSIVES: u8 = 23;
 
+/// The sniper rifle as an item: not one of the original's `IT_*`, so a number none of them
+/// use.
+pub const SNIPER: u8 = 200;
+
+/// A sniper rifle shot (`SNIPE_shoot`: `HIT_TYPE_GUN_SHOT_M` for 260).
+pub const SNIPER_DAMAGE: i32 = 260;
+
 /// `PRIM_DAMAGE_DAMAGABLE`, `PRIM_DAMAGE_EXPLODES` and `PRIM_FLAG_LAMPOST`
 /// (fallen/Editor/Headers/Prim.h).
 const DAMAGABLE: u8 = 1;
@@ -371,6 +379,8 @@ pub struct Game {
     indoors: Option<(usize, u8)>,
     /// The mission's creatures (`CLASS_BAT`).
     pub creatures: Vec<creature::Creature>,
+    /// Looking through the sniper rifle's scope (`SNIPE_on`).
+    snipe: Option<game::Snipe>,
     /// People getting into cars: (who, which car).
     entering: Vec<(usize, usize)>,
     creature_by_way: HashMap<usize, usize>,
@@ -467,7 +477,7 @@ impl Game {
             }).collect(),
             plat_prims: level.platforms.iter().map(|&(_, ob)| uc_world::level::load_prim(&level.game, level.map.objects[ob].prim)).collect(),
             plat_clock: 0.0,
-            creatures: Vec::new(), entering: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
+            creatures: Vec::new(), snipe: None, entering: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
             aim_creature: None, aim_barrel: None, creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), dirt: Game::new_dirt(level), dirt_clock: 0.0, dirt_marks: Vec::new(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
@@ -593,6 +603,10 @@ impl Game {
         }
         // Getting in and out of cars and talking to people take the action key first.
         let mut input = *input;
+        // Through the scope she stands still, and the keys are the scope's.
+        if self.scope(dt, &input) {
+            input = Controls::default();
+        }
         input.target = self.target;
         input.aim = self.aim_creature.map(|k| self.creatures[k].middle())
             .or_else(|| self.aim_barrel.map(|k| self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0)));

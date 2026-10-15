@@ -54,7 +54,8 @@ uc-viewer [--game DIR] [--mission NAME] [--explore] [--overrides DIR] [--linear]
 Darci: WASD move (relative to the camera), Shift run, J or left mouse punch, K kick, Q block,
   E action (arrest, climb; hold while running to sprint), mouse turns the camera, wheel zoom.
   G next weapon. With a gun: punch fires (hold for the AK-47) at the bracketed target,
-  T targets the next enemy. Walk over weapons and ammo to pick them up.
+  T targets the next enemy. Walk over weapons and ammo to pick them up. With the sniper rifle,
+  Z looks through its scope: WASD turn it, punch fires, Z again to put it down.
   Kick while running: sliding tackle. Punch while walking into someone: grab, then punch
   or kick. Back/side + kick in a fight: back or side kick. Three punches or kicks in time: combo.
 Gamepad: left stick move (push fully to run), right stick camera, A/Cross jump,
@@ -134,6 +135,7 @@ fn parse_args() -> Result<Args, String> {
                     "bat" => uc_game::Weapon::Bat,
                     "pistol" => uc_game::Weapon::Pistol,
                     "shotgun" => uc_game::Weapon::Shotgun,
+                    "sniper" => uc_game::Weapon::Sniper,
                     "ak" | "ak47" => uc_game::Weapon::Ak47,
                     w => return Err(format!("--weapon: unknown weapon {w} (knife, bat, pistol, shotgun, ak)")),
                 }
@@ -338,6 +340,13 @@ impl World {
         if let Some((pos, target)) = self.game.camera() {
             return Camera { pos: pos / uc_world::UNIT, target: target / uc_world::UNIT, fov_y: 60f32.to_radians(), ortho: None };
         }
+        // Through the scope: from her head, zoomed in as far as the lens has come.
+        if let Some(s) = self.game.sniping() {
+            let (dir, zoom) = s.view();
+            let eye = s.eye / uc_world::UNIT;
+            let fov_y = 2.0 * ((30f32.to_radians()).tan() / zoom).atan();
+            return Camera { pos: eye, target: eye + dir, fov_y, ortho: None };
+        }
         match (self.eye(), self.third_person) {
             (Some(eye), true) => {
                 // Further back when driving.
@@ -411,6 +420,18 @@ impl World {
         let s = (h / 360.0).round().max(1.0);
         let white = [235, 235, 225, 255];
 
+        // The scope: dark round the edges, and cross hairs.
+        if self.game.sniping().is_some() {
+            let (cx, cy, r) = (w / 2.0, h / 2.0, h * 0.42);
+            let dark = [0, 0, 0, 255];
+            o.rect(0.0, 0.0, cx - r, h, dark);
+            o.rect(cx + r, 0.0, w - cx - r, h, dark);
+            o.rect(cx - r, 0.0, 2.0 * r, cy - r, dark);
+            o.rect(cx - r, cy + r, 2.0 * r, h - cy - r, dark);
+            let line = [20, 20, 20, 220];
+            o.rect(cx - r, cy - s * 0.5, 2.0 * r, s, line);
+            o.rect(cx - s * 0.5, cy - r, s, 2.0 * r, line);
+        }
         if let Some(p) = self.game.player() {
             // Health bar.
             let frac = (p.health.max(0) as f32 / p.max_health as f32).clamp(0.0, 1.0);
@@ -698,7 +719,7 @@ impl World {
         // The controls, for the first 20 seconds (H toggles them).
         if self.help && !self.checklist && self.game.cutscene.is_none() && (self.game.time < 20.0 || self.help_forced) {
             let help = ["WASD move   Shift run   Space jump   E action (hold: sprint, or crouch and crawl)", "J / left mouse punch   K kick   Q block   M mouse look on/off",
-                        "G next weapon   T next target   Tab checklist   R restart   V free camera   H hide help"];
+                        "G next weapon   T next target   Z scope (sniper rifle)   Tab checklist   R restart   V free camera   H hide help"];
             for (k, line) in help.iter().enumerate() {
                 o.text(12.0 * s, 44.0 * s + k as f32 * 10.0 * s, s, [200, 200, 190, 200], line);
             }
@@ -1055,8 +1076,22 @@ impl App {
                 fire: inp.held(KeyCode::KeyJ) || inp.lmb || pad.held(Button::West),
                 switch: inp.hit(KeyCode::KeyG) || pad.hit(Button::RightTrigger),
                 cycle_target: inp.hit(KeyCode::KeyT) || pad.hit(Button::RightThumb),
+                scope: inp.hit(KeyCode::KeyZ) || pad.hit(Button::LeftThumb),
                 ..Default::default()
             };
+            // Through the sniper rifle's scope: WASD (or the stick) turn it, punch fires, Z
+            // again to come out of it.
+            if w.game.sniping().is_some() {
+                let key = |k| if inp.held(k) { 1.0 } else { 0.0 };
+                let up = key(KeyCode::KeyW) - key(KeyCode::KeyS) + pad.mv.y;
+                let turn = key(KeyCode::KeyD) - key(KeyCode::KeyA) + pad.mv.x;
+                controls = Controls {
+                    scope: controls.scope,
+                    punch: controls.punch,
+                    drive: uc_game::Drive { throttle: up.clamp(-1.0, 1.0), steer: turn.clamp(-1.0, 1.0), handbrake: false },
+                    ..Default::default()
+                };
+            }
             // Driving: W/S or the triggers (or stick) for speed, A/D or the stick to steer,
             // Space or A for the handbrake. The camera swings round behind the car.
             if let Some(car) = w.game.player_vehicle() {

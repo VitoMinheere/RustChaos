@@ -11,4 +11,7 @@ mod scenes;
 mod actions;
 mod combat;
 mod draw;
+mod snipe;
+
+pub use snipe::Snipe;
 mod litter;
