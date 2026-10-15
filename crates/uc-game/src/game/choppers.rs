@@ -55,6 +55,15 @@ impl Game {
                     c.beam = c.aim_light(aim);
                 }
             }
+            // Low over the ground the rotor wash blows the dirt about (`DIRT_gust` twice a
+            // tick, chopper.cpp:545).
+            for c in &choppers {
+                let world = World { game: self, level };
+                let wash = c.wash(&world);
+                for ((x1, z1), (x2, z2)) in wash {
+                    self.dirt.gust(x1, z1, x2, z2);
+                }
+            }
             self.choppers = choppers;
         }
     }

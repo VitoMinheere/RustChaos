@@ -7,6 +7,7 @@
 
 pub mod sounds;
 pub mod wav;
+pub mod weather;
 
 use glam::Vec3;
 use rodio::{ChannelCount, SampleRate, Source};
@@ -142,6 +143,8 @@ pub struct Audio {
     cache: HashMap<String, Option<Arc<Clip>>>,
     music: Vec<Track>,
     ambience: Option<Arc<Control>>,
+    /// The world's own loop under the ambience (the jungle's).
+    bed: Option<Arc<Control>>,
     engine: Option<Arc<Control>>,
     /// A helicopter's rotors (`S_HELI`), looped while one's in the air.
     rotor: Option<Arc<Control>>,
@@ -174,7 +177,7 @@ impl Audio {
         let mut sink = rodio::DeviceSinkBuilder::open_default_sink().map_err(|e| format!("no audio device: {e}"))?;
         sink.log_on_drop(false);
         Ok(Audio {
-            sink, game: game.to_path_buf(), cache: HashMap::new(), music: Vec::new(), ambience: None, engine: None, rotor: None, rng: 12345,
+            sink, game: game.to_path_buf(), cache: HashMap::new(), music: Vec::new(), ambience: None, bed: None, engine: None, rotor: None, rng: 12345,
             speaking: None, waiting: VecDeque::new(), effect: None,
             sfx_volume: 0.8, music_volume: 0.55,
         })
@@ -195,6 +198,7 @@ impl Audio {
 
     fn sfx(&mut self, name: &str) -> Option<Arc<Clip>> {
         self.load(&format!("data\\sfx\\1622\\{name}"))
+            .or_else(|| sounds::shipped_as(name).and_then(|n| self.load(&format!("data\\sfx\\1622\\{n}"))))
     }
 
     fn start(&self, clip: Arc<Clip>, left: f32, right: f32, gain: f32, looped: bool) -> Arc<Control> {
@@ -328,6 +332,17 @@ impl Audio {
         }
         if let Some(c) = name.and_then(|n| self.sfx(n)) {
             self.ambience = Some(self.start(c, 1.0, 1.0, volume * self.sfx_volume, true));
+        }
+    }
+
+    /// Loops `name` under the ambience, or stops it: the world's own loop
+    /// (`SND_BeginAmbient`'s `S_TROPICAL`), which keeps going whatever the weather does.
+    pub fn bed(&mut self, name: Option<&str>, volume: f32) {
+        if let Some(a) = self.bed.take() {
+            a.stop.store(true, Ordering::Relaxed);
+        }
+        if let Some(c) = name.and_then(|n| self.sfx(n)) {
+            self.bed = Some(self.start(c, 1.0, 1.0, volume * self.sfx_volume, true));
         }
     }
 
