@@ -131,7 +131,7 @@ impl Menu {
             (seed >> 8) as f32 / (1u32 << 24) as f32
         };
         for _ in 0..n {
-            let (x0, y0, v, sway) = (r(), r(), 0.6 + r() * 0.8, r() * 6.28);
+            let (x0, y0, v, sway) = (r(), r(), 0.6 + r() * 0.8, r() * std::f32::consts::TAU);
             let y = (y0 * h + t * speed * v * s / 2.0) % (h + 20.0) - 10.0;
             let drift = if self.theme == Theme::Rain { t * 30.0 * s } else { (t * 1.3 + sway).sin() * 14.0 * s };
             let x = (x0 * w + drift).rem_euclid(w);
