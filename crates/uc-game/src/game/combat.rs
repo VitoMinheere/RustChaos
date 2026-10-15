@@ -74,6 +74,25 @@ impl Game {
                         self.set_off_mine(k, level);
                     }
                 }
+                Event::Shot { attacker, victim: None, weapon } if Some(attacker) == self.player && self.aim_vehicle.is_some() => {
+                    let k = self.aim_vehicle.unwrap();
+                    let (from, at) = (self.people[attacker].fig.pos, self.vehicles[k].pos + Vec3::new(0.0, 64.0, 0.0));
+                    let eye = Vec3::new(0.0, 140.0, 0.0);
+                    if !level.ground.line_of_sight(from + eye, at) {
+                        continue;
+                    }
+                    let dist = (at - from).length();
+                    let chance = (0.95 - dist / (40.0 * 256.0)).clamp(0.4, 0.95);
+                    let damage = match weapon {
+                        Weapon::Pistol => 70,
+                        Weapon::Ak47 => 100,
+                        Weapon::Shotgun => (250.0 * (1.0 - dist / (8.0 * 256.0))).max(30.0) as i32,
+                        _ => 0,
+                    };
+                    if (self.rand() % 1000) as f32 / 1000.0 < chance {
+                        self.vehicles[k].reduce_health(damage);
+                    }
+                }
                 Event::Shot { attacker, victim: None, .. } if Some(attacker) == self.player && self.aim_barrel.is_some() => {
                     let k = self.aim_barrel.unwrap();
                     let (from, at) = (self.people[attacker].fig.pos, self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0));
