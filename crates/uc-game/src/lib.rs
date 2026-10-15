@@ -41,6 +41,7 @@ pub use person::{Controls, Person, Sfx, State, Weapon};
 pub use pyro::Pyro;
 pub use script::Shot;
 pub use vehicle::{Drive, Vehicle};
+pub use game::mines::Mine;
 pub use game::grenades::Grenade;
 
 /// `facet_rand`'s LCG (fallen/Source/facet.cpp): the one source of chance in the game, so a
@@ -259,6 +260,7 @@ enum Aim {
     Person(usize),
     Creature(usize),
     Barrel(usize),
+    Mine(usize),
     Vehicle(usize),
 }
 
@@ -389,6 +391,10 @@ pub struct Game {
     pub aim_creature: Option<usize>,
     /// The barrel the player's gun is pointed at (`find_target_new` takes barrels too).
     pub aim_barrel: Option<usize>,
+    /// The mine the player's gun is pointed at (`find_target_new` takes mines too).
+    pub aim_mine: Option<usize>,
+    /// Mines laid by the mission (`IT_MINE`).
+    pub mines: Vec<Mine>,
     /// The car the player's gun is pointed at (`find_target_new` takes vehicles too).
     pub aim_vehicle: Option<usize>,
     /// Cars already blown up, so each goes up once.
@@ -482,7 +488,7 @@ impl Game {
             plat_prims: level.platforms.iter().map(|&(_, ob)| uc_world::level::load_prim(&level.game, level.map.objects[ob].prim)).collect(),
             plat_clock: 0.0,
             creatures: Vec::new(), entering: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
-            aim_creature: None, aim_barrel: None, aim_vehicle: None, blown: BTreeSet::new(), creature_clock: 0.0, creature_rng: 0xba7,
+            aim_creature: None, aim_barrel: None, aim_mine: None, mines: Vec::new(), aim_vehicle: None, blown: BTreeSet::new(), creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), dirt: Game::new_dirt(level), dirt_clock: 0.0, dirt_marks: Vec::new(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
             electrified: BTreeSet::new(), fence_spark_clock: 0.0, no_floor: false,
@@ -584,6 +590,7 @@ impl Game {
         self.trip_wires(dt);
         self.wreck_cars();
         if self.outcome.is_none() {
+            self.run_mines(dt, level);
             self.run_grenades(dt, level);
         }
         self.electric_fences(dt, level);
@@ -614,6 +621,7 @@ impl Game {
         input.target = self.target;
         input.aim = self.aim_creature.map(|k| self.creatures[k].middle())
             .or_else(|| self.aim_barrel.map(|k| self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0)))
+            .or_else(|| self.aim_mine.map(|k| self.mines[k].pos))
             .or_else(|| self.aim_vehicle.map(|k| self.vehicles[k].pos + Vec3::new(0.0, 64.0, 0.0)));
         if self.outcome.is_none() && !held && input.action && self.use_something(level) {
             input.action = false;
