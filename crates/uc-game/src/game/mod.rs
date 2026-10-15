@@ -11,6 +11,7 @@ mod scenes;
 mod actions;
 mod combat;
 mod draw;
+mod bikes;
 mod choppers;
 mod barrels;
 pub mod mines;

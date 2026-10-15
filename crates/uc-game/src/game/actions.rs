@@ -7,7 +7,7 @@ impl Game {
     /// person next to her. Returns whether something used the key.
     pub(crate) fn use_something(&mut self, level: &Level) -> bool {
         let Some(pi) = self.player else { return false };
-        match self.people[pi].state {
+        match self.people[pi].state.clone() {
             State::InCar { vehicle } => {
                 let v = &mut self.vehicles[vehicle];
                 if v.speed.abs() > 250.0 {
@@ -22,6 +22,13 @@ impl Game {
                 p.cues.push(Sfx::CarDoor);
                 true
             }
+            // Off the bike (`set_person_dismount_bike`), once it's stopped.
+            State::Bike { bike, phase: 1 } => {
+                self.dismount(pi, bike);
+                true
+            }
+            State::Bike { .. } => true,
+            State::Move if self.mount_near(pi) => true,
             State::Move => {
                 let pos = self.people[pi].fig.pos;
                 // Explosives in hand: put one down at her feet with its fuse burning

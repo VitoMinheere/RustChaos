@@ -458,6 +458,9 @@ pub enum State {
     /// Getting into vehicle `vehicle` (`SUB_STATE_ENTERING_VEHICLE`): lined up at its door,
     /// in once the animation's done.
     Enter { vehicle: usize },
+    /// On motorbike `bike` (`FLAG_PERSON_BIKING`): phase 0 getting on
+    /// (`SUB_STATE_MOUNTING_BIKE`), 1 riding, 2 getting off.
+    Bike { bike: usize, phase: u8 },
     /// Hands up to the gun person `by` is aiming (`PCOM_AI_STATE_HANDS_UP`), for `time`
     /// seconds so far.
     HandsUp { by: usize, time: f32 },
@@ -1597,7 +1600,7 @@ impl Person {
             State::Injured => {
                 self.fig.play(anim::INJURED_LOOP, Play::Loop);
             }
-            State::Carried { .. } | State::Enter { .. } => {}
+            State::Carried { .. } | State::Enter { .. } | State::Bike { .. } => {}
             State::HandsUp { by, time } => {
                 // `ANIM_HANDS_UP`, then held there (`ANIM_HANDS_UP_LOOP`), facing the gun.
                 if snaps[by].present {
