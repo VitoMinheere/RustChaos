@@ -60,6 +60,120 @@ impl Game {
                 f.angle = b.yaw as f32 * std::f32::consts::TAU / 2048.0;
                 f.advance(dt);
             }
+            // The bike's own getting on and off, played out (`advance_keyframe`).
+            let done = fig.as_ref().is_none_or(|f| f.finished());
+            match b.mode {
+                bike::Mode::Mounting if done => b.mode = bike::Mode::Driving,
+                bike::Mode::Dismounting if done => {
+                    b.mode = bike::Mode::Parked;
+                    b.driver = None;
+                    if let Some(f) = fig {
+                        f.restart_now(1, uc_world::character::Play::Loop);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// The bike the player is on, if any.
+    pub fn riding(&self) -> Option<&Bike> {
+        match self.player().map(|p| &p.state) {
+            Some(State::Bike { bike, .. }) => self.bikes.get(*bike).map(|(b, _)| b),
+            _ => None,
+        }
+    }
+
+    /// `BIKE_person_can_mount` and `set_person_mount_bike`: a parked bike within a square,
+    /// got on from its side (`position_person_for_mounting_bike`: 60 to its left and 30
+    /// along, facing across it), the bike playing its own getting-on (`anim_chunk[9]`'s 2).
+    /// Darci's set has no `ANIM_BIKE_MOUNT`; she sits down as she does into a car.
+    pub(crate) fn mount_near(&mut self, pi: usize) -> bool {
+        let at = self.people[pi].fig.pos;
+        let Some(k) = self.bikes.iter().position(|(b, _)| {
+            b.mode == bike::Mode::Parked && b.driver.is_none() && (b.pos() - at).length() < 256.0
+        }) else { return false };
+        let (b, fig) = &mut self.bikes[k];
+        b.mode = bike::Mode::Mounting;
+        b.driver = Some(pi);
+        if let Some(f) = fig {
+            if !f.restart_now(2, uc_world::character::Play::Once) {
+                b.mode = bike::Mode::Driving;
+            }
+        }
+        let heading = (b.yaw + 1024) as f32 * std::f32::consts::TAU / 2048.0;
+        let (vx, vz) = (heading.sin(), heading.cos());
+        let mid = b.pos();
+        let p = &mut self.people[pi];
+        p.fig.pos = Vec3::new(mid.x + vz * 60.0 + vx * 30.0, p.fig.pos.y, mid.z - vx * 60.0 + vz * 30.0);
+        p.fig.angle = (b.yaw - 512) as f32 * std::f32::consts::TAU / 2048.0;
+        p.fig.restart_now(uc_world::character::anim::ENTER_CAR, uc_world::character::Play::Once);
+        p.state = State::Bike { bike: k, phase: 0 };
+        true
+    }
+
+    /// `set_person_dismount_bike`: the bike plays its getting-off (`anim_chunk[9]`'s 5) and
+    /// she `ANIM_BIKE_DISMOUNT`.
+    pub(crate) fn dismount(&mut self, pi: usize, k: usize) {
+        let (b, fig) = &mut self.bikes[k];
+        if b.speed() > 2 {
+            return;
+        }
+        b.mode = bike::Mode::Dismounting;
+        b.accel = 0;
+        if let Some(f) = fig {
+            if !f.restart_now(5, uc_world::character::Play::Once) {
+                b.mode = bike::Mode::Parked;
+            }
+        }
+        let p = &mut self.people[pi];
+        p.fig.restart_now(uc_world::character::anim::BIKE_DISMOUNT, uc_world::character::Play::Once);
+        p.state = State::Bike { bike: k, phase: 2 };
+    }
+
+    /// The rider's side of it each frame: on once the bike's done getting on
+    /// (`SUB_STATE_MOUNTING_BIKE` to `_RIDING_BIKE`), the controls while riding
+    /// (`BIKE_control_set`: forward the throttle, back the brake, left and right to steer,
+    /// jump for a wheelie), kept on the bike, and off once getting off is done.
+    pub(crate) fn ride(&mut self, input: &Controls, level: &Level) {
+        for pi in 0..self.people.len() {
+            let State::Bike { bike: k, phase } = self.people[pi].state else { continue };
+            let Some((b, fig)) = self.bikes.get_mut(k) else { continue };
+            match phase {
+                0 => {
+                    let _ = fig;
+                    if b.mode == bike::Mode::Driving {
+                        self.people[pi].state = State::Bike { bike: k, phase: 1 };
+                    }
+                }
+                1 => {
+                    if self.people[pi].player {
+                        let d = input.drive;
+                        let accel = if d.throttle > 0.3 { 1 } else { 0 };
+                        // The original's left is +1.
+                        let steer = if d.steer > 0.3 { -1 } else if d.steer < -0.3 { 1 } else { 0 };
+                        b.control(accel, steer, d.throttle < -0.3, d.handbrake);
+                    }
+                    let (pos, yaw) = (b.pos(), b.yaw);
+                    let p = &mut self.people[pi];
+                    p.fig.pos = pos - Vec3::new(0.0, 40.0, 0.0);
+                    p.fig.angle = yaw as f32 * std::f32::consts::TAU / 2048.0;
+                }
+                _ => {
+                    if self.people[pi].fig.finished() {
+                        // Stood beside it, on the ground.
+                        let heading = (b.yaw + 1024) as f32 * std::f32::consts::TAU / 2048.0;
+                        let (vx, vz) = (heading.sin(), heading.cos());
+                        let mid = b.pos();
+                        let (x, z) = (mid.x + vz * 60.0 + vx * 30.0, mid.z - vx * 60.0 + vz * 30.0);
+                        let y = level.ground.surface(&level.map, x, z, mid.y + 64.0);
+                        let p = &mut self.people[pi];
+                        p.state = State::Move;
+                        p.fig.pos = Vec3::new(x, y, z);
+                        p.fig.restart_now(uc_world::character::anim::BREATHE, uc_world::character::Play::Loop);
+                    }
+                }
+            }
         }
     }
 

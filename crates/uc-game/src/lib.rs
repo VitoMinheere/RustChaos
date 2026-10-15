@@ -610,6 +610,7 @@ impl Game {
             input.drive = Drive::default();
         }
         self.drive(dt, &input, level);
+        self.ride(&input, level);
         // Action held: the viewer passes it on as `sprint`.
         self.searching(dt, input.sprint);
 

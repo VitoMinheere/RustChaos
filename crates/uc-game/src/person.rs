@@ -424,6 +424,9 @@ pub enum State {
     /// Getting into vehicle `vehicle` (`SUB_STATE_ENTERING_VEHICLE`): lined up at its door,
     /// in once the animation's done.
     Enter { vehicle: usize },
+    /// On motorbike `bike` (`FLAG_PERSON_BIKING`): phase 0 getting on
+    /// (`SUB_STATE_MOUNTING_BIKE`), 1 riding, 2 getting off.
+    Bike { bike: usize, phase: u8 },
     /// Sliding down a cable: `t` along it (0..1), moving towards `dir` (+1 or -1).
     /// `ridden`: how far along the cable so far (world units).
     Zip { cable: usize, t: f32, dir: f32, speed: f32, ridden: f32 },
@@ -1386,7 +1389,7 @@ impl Person {
             State::Injured => {
                 self.fig.play(anim::INJURED_LOOP, Play::Loop);
             }
-            State::Carried { .. } | State::Enter { .. } => {}
+            State::Carried { .. } | State::Enter { .. } | State::Bike { .. } => {}
             State::Carry { victim, phase } => self.step_carry(victim, phase, c, ground, map, dt),
             State::Crouch { phase } => self.step_crouch(phase, c, ground, map, dt),
             State::GetUp => {

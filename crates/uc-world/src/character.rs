@@ -110,6 +110,9 @@ pub mod anim {
     pub const START_WALK_CARRY_V: usize = 433;
     pub const WALK_CARRY_V: usize = 434;
     pub const WALK_STOP_CARRY_V: usize = 435;
+    /// `ANIM_BIKE_DISMOUNT`: off a motorbike. The rest of the bike set (`ANIM_BIKE_MOUNT`,
+    /// `_RIDE`, `_LEAN*`) isn't in the shipped `darci1.all`.
+    pub const BIKE_DISMOUNT: usize = 360;
     /// `ANIM_ENTER_CAR`: getting in at the driver's door.
     pub const ENTER_CAR: usize = 89;
     /// The rest of the `ANIM_END` + n slots, taken from the civilians' and Roper's files.
