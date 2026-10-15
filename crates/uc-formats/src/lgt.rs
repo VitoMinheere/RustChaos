@@ -79,7 +79,18 @@ impl Lighting {
 pub struct Lighter<'a> {
     lighting: &'a Lighting,
     lamps: Vec<[f32; 3]>,
+    /// For each [`CELL`]-sized square of the map, the lights that can reach into it: indices
+    /// into `lighting.lights`, then `lights.len()` plus an index into `lamps`, in that order
+    /// (the order [`Lighter::light`] adds them up in). A light reaches no further than its
+    /// radius along x or z (`QDIST3` is never less than the largest of them), so a point only
+    /// needs its own square's.
+    cells: Vec<Vec<u16>>,
 }
+
+/// The side of a [`Lighter`] cell in world units: four map squares.
+const CELL: f32 = 1024.0;
+/// Cells along each side of the map (128 squares of 256).
+const CELLS: usize = 32;
 
 impl<'a> Lighter<'a> {
     /// `objects` are used for lamppost lights when the file enables them
@@ -93,7 +104,25 @@ impl<'a> Lighter<'a> {
                 lamps.push([o.x as f32 - a.sin() * 128.0, o.y as f32 + 256.0, o.z as f32 - a.cos() * 128.0]);
             }
         }
-        Lighter { lighting, lamps }
+        let mut cells = vec![Vec::new(); CELLS * CELLS];
+        let lamp_r = lighting.lampost_radius as f32 * 4.0;
+        let reach = lighting.lights.iter().map(|l| (l.pos.map(|v| v as f32), l.range as f32 * 4.0))
+            .chain(lamps.iter().map(|&p| (p, lamp_r)));
+        for (k, (pos, r)) in reach.enumerate() {
+            if r <= 0.0 {
+                continue;
+            }
+            let span = |v: f32| (((v - r) / CELL).floor().max(0.0) as usize, (((v + r) / CELL).floor().max(0.0) as usize).min(CELLS - 1));
+            let ((x0, x1), (z0, z1)) = (span(pos[0]), span(pos[2]));
+            for z in z0..=z1.max(z0) {
+                for x in x0..=x1.max(x0) {
+                    if x < CELLS && z < CELLS {
+                        cells[z * CELLS + x].push(k as u16);
+                    }
+                }
+            }
+        }
+        Lighter { lighting, lamps, cells }
     }
 
     pub fn sky(&self) -> [u8; 3] {
@@ -118,14 +147,18 @@ impl<'a> Lighter<'a> {
                 }
             }
         };
-        for l in &self.lighting.lights {
-            let pos = l.pos.map(|v| v as f32);
-            add(pos, l.range as f32 * 4.0, l.rgb.map(|v| (v as i32 >> 1) as f32));
-        }
         let lamp_rgb = self.lighting.lampost_rgb.map(|v| v as f32);
         let lamp_r = self.lighting.lampost_radius as f32 * 4.0;
-        for &pos in &self.lamps {
-            add(pos, lamp_r, lamp_rgb);
+        let cell = |v: f32| ((v / CELL).floor().max(0.0) as usize).min(CELLS - 1);
+        let n = self.lighting.lights.len();
+        for &k in &self.cells[cell(p[2]) * CELLS + cell(p[0])] {
+            let k = k as usize;
+            if k < n {
+                let l = &self.lighting.lights[k];
+                add(l.pos.map(|v| v as f32), l.range as f32 * 4.0, l.rgb.map(|v| (v as i32 >> 1) as f32));
+            } else {
+                add(self.lamps[k - n], lamp_r, lamp_rgb);
+            }
         }
         // NIGHT_get_d3d_colour: * (256 / NIGHT_MAX_BRIGHT), clamped to a byte.
         c.map(|v| (v * 4.0).clamp(0.0, 255.0) / 255.0)
