@@ -166,6 +166,9 @@ pub enum Command {
     Item { way: usize, kind: u8, pos: Vec3, stashed: bool },
     /// A creature of `kind` (`EWAY_SUBTYPE_ANIMAL_*`: 2 gargoyle, 3 Balrog, 4 Bane).
     Creature { way: usize, kind: u8, pos: Vec3, angle: f32 },
+    /// A helicopter (`VT_HELICOPTER`), following the person `victim`'s point makes if it's
+    /// to track a target (`VMT_TRACK_TARGET`, elev.cpp).
+    Chopper { way: usize, pos: Vec3, victim: Option<usize> },
     /// Give the warehouse round `pos` ambience `ambience` (`EWAY_DO_WAREFX`: 0 none, 1-4).
     WareFx { pos: Vec3, ambience: u8 },
     /// Start or stop the person created by `way` peeing (`FLAG_PERSON_PEEING`).
@@ -732,6 +735,11 @@ impl Script {
             waypoint::CREATE_TREASURE => {
                 let kind = crate::BADGE + crate::goals::badge_stat(i) as u8;
                 self.commands.push(Command::Item { way: i, kind, pos, stashed: false });
+            }
+            // `VT_HELICOPTER`: not a car at all.
+            waypoint::CREATE_VEHICLE if d[0] == 4 => {
+                let victim = (d[1] == 3 && d[2] > 0).then_some(d[2] as usize);
+                self.commands.push(Command::Chopper { way: i, pos, victim });
             }
             waypoint::CREATE_VEHICLE => {
                 let kind = crate::vehicle::from_vt(d[0]);

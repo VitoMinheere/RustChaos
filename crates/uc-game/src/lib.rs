@@ -13,6 +13,7 @@
 //! Finally the events they produced (hits, grabs, arrests) are applied, grappled pairs are
 //! kept together and people are pushed apart.
 
+pub mod chopper;
 pub mod barrel;
 pub mod city;
 pub mod game;
@@ -390,6 +391,10 @@ pub struct Game {
     ways: HashMap<usize, ((u8, u8), (u8, u8), Option<(u8, u8)>, Option<(u8, u8)>)>,
     /// The route search's own chance (its bias against odd moves).
     mav_rng: u32,
+    /// The mission's helicopters.
+    pub choppers: Vec<chopper::Chopper>,
+    /// Seconds into the helicopters' next tick.
+    chopper_clock: f32,
     /// The barrels' own chance, and seconds into their next turn, and where everyone was
     /// at it (to knock barrels with as they walk).
     barrel_rng: u32,
@@ -397,6 +402,8 @@ pub struct Game {
     barrel_marks: Vec<Vec3>,
     /// People getting into cars: (who, which car).
     entering: Vec<(usize, usize)>,
+    /// Who Darci was last aiming at, to notice when that changes.
+    last_aimed: Option<usize>,
     creature_by_way: HashMap<usize, usize>,
     pub fireballs: Vec<creature::Fireball>,
     pub sparks: Vec<Spark>,
@@ -500,7 +507,7 @@ impl Game {
             }).collect(),
             plat_prims: level.platforms.iter().map(|&(_, ob)| uc_world::level::load_prim(&level.game, level.map.objects[ob].prim)).collect(),
             plat_clock: 0.0,
-            creatures: Vec::new(), mav: uc_world::mav::Mav::new(level), ways: HashMap::new(), mav_rng: 0x3a7, barrel_rng: 0xba44, barrel_clock: 0.0, barrel_marks: Vec::new(), entering: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
+            creatures: Vec::new(), mav: uc_world::mav::Mav::new(level), ways: HashMap::new(), mav_rng: 0x3a7, choppers: Vec::new(), chopper_clock: 0.0, barrel_rng: 0xba44, barrel_clock: 0.0, barrel_marks: Vec::new(), entering: Vec::new(), last_aimed: None, creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
             aim_creature: None, aim_barrel: None, aim_mine: None, mines: Vec::new(), aim_vehicle: None, blown: BTreeSet::new(), creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), dirt: Game::new_dirt(level), dirt_clock: 0.0, dirt_marks: Vec::new(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
@@ -589,6 +596,7 @@ impl Game {
         self.used = input.action;
         if self.outcome.is_none() {
             self.update_target(input.cycle_target, level);
+            self.aim_at_people();
         }
         if self.outcome.is_none() {
             self.run_script(dt, level);
@@ -611,6 +619,7 @@ impl Game {
         self.go_indoors(level);
         self.move_platforms(dt, level);
         self.run_creatures(dt, level, self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player));
+        self.fly_choppers(dt, level);
         self.roll_barrels(dt, level);
         // From just under the pelvis, for as long as they're on their feet (the original asks
         // only that they're peeing, but its pelvis is never anywhere sensible once they're down).
