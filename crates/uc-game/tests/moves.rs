@@ -90,6 +90,54 @@ fn high_ledges_are_grabbed_and_climbed() {
     assert!((standing_height(&p) - 96.0).abs() < 30.0);
 }
 
+/// Jumping at the same crate and letting go of the keys: she hangs from its edge (`STATE_DANGLING`)
+/// until told otherwise. Back lets go and she drops to the ground; forward pulls her up; left
+/// or right takes her a hand along the edge.
+#[test]
+fn hanging_from_a_ledge() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let level = Level::load(&game, "assault1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let c = vec2(54.0, 64.2) * 256.0;
+    let walk = Controls { wish: vec2(1.0, 0.0), ..Default::default() };
+    let grab = |level: &Level| {
+        let mut p = darci(level, vec3(c.x - 230.0, 0.0, c.y), vec2(1.0, 0.0));
+        run(&mut p, level, walk, 0.3, 60.0, |_| false);
+        until(&mut p, level, Controls { jump: true, ..walk }, 0.2, 60.0, |p| matches!(p.state, State::Fall { .. }));
+        // Pushing on until the hands catch, then nothing held.
+        until(&mut p, level, walk, 3.0, 90.0, |p| matches!(p.state, State::Dangle { .. }));
+        p
+    };
+    let mut p = grab(&level);
+    // Hanging: still, hands at the top (the hips well below it).
+    run(&mut p, &level, Controls::default(), 2.0, 20.0, |_| false);
+    assert!(matches!(p.state, State::Dangle { shift: None, .. }), "{:?}", p.state);
+    let h = hips(&p);
+    assert!(h.y < 256.0 - 50.0 && h.y > 0.0, "hips at {}", h.y);
+    // Back: let go, and down onto the ground. From this crate her feet hang at the ground, so
+    // she lands at once, from the stretched hang to a crouch (`ANIM_LAND_VERT`, foot-locked).
+    until(&mut p, &level, Controls { wish: vec2(-1.0, 0.0), ..Default::default() }, 0.2, 40.0, |p| matches!(p.state, State::Fall { .. }));
+    until(&mut p, &level, Controls::default(), 3.0, 90.0, |p| matches!(p.state, State::Move));
+    let floor = level.ground.surface(&level.map, p.fig.pos.x, p.fig.pos.z, 0.0);
+    assert_eq!(p.fig.pos.y, floor, "not back on the ground");
+    assert!(p.fig.pos.y < 64.0 && p.fig.pos.x < c.x - 128.0, "on the crate: {:?}", p.fig.pos);
+
+    // Forward: up onto it.
+    let mut p = grab(&level);
+    run(&mut p, &level, Controls::default(), 0.5, 20.0, |_| false);
+    until(&mut p, &level, walk, 0.2, 90.0, |p| matches!(p.state, State::PullUp { .. }));
+    until(&mut p, &level, Controls::default(), 5.0, 90.0, |p| matches!(p.state, State::Move));
+    assert_eq!(p.fig.pos.y, 256.0);
+
+    // Sideways: a hand along the edge, still hanging.
+    let mut p = grab(&level);
+    run(&mut p, &level, Controls::default(), 0.5, 20.0, |_| false);
+    let before = p.fig.pos;
+    until(&mut p, &level, Controls { wish: vec2(0.0, 1.0), ..Default::default() }, 0.2, 40.0, |p| matches!(p.state, State::Dangle { shift: Some(_), .. }));
+    until(&mut p, &level, Controls::default(), 3.0, 40.0, |p| matches!(p.state, State::Dangle { shift: None, .. }));
+    let moved = p.fig.pos - before;
+    assert!((moved.z.abs() - 74.0).abs() < 20.0 && moved.x.abs() < 10.0, "moved {moved:?}");
+}
+
 #[test]
 fn stairs_have_steps() {
     let Some(game) = uc_formats::default_install() else { return };
