@@ -15,6 +15,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
+use uc_audio::weather::{Place, Weather, World as Wtype};
 use uc_audio::{Audio, Listener};
 use uc_game::{Controls, Game, Mood, Outcome};
 use uc_render::{wgpu, Camera, Overlay, Renderer, Settings};
@@ -765,10 +766,9 @@ struct Gfx {
     renderer: Renderer,
 }
 
-/// The weather's loop out of doors: the rain on a night mission, else the city
-/// (`process_weather`'s `S_RAIN_START` or `S_AMBIENCE_END`).
-fn weather(world: &World) -> &'static str {
-    if Game::raining(&world.level) { "f_RAIN.wav" } else { "f_CTYAMB.wav" }
+/// A sound id's file name, for the weather's cues.
+fn sound_name(id: usize) -> Option<&'static str> {
+    uc_audio::sounds::name(id)
 }
 
 /// Sound and music state.
@@ -781,9 +781,10 @@ struct Sound {
     mood: Mood,
     /// The player is in a warehouse, with this ambience.
     indoors: Option<u8>,
-    /// Game turns to the next clap of thunder while it rains (`thunder_time`).
-    thunder: f32,
-    rng: u32,
+    /// The world's loops and far-off sounds out of doors.
+    weather: Weather,
+    /// Game turns owed to the weather (20 a second).
+    turns: f32,
 }
 
 impl Sound {
@@ -798,7 +799,7 @@ impl Sound {
                 return None;
             }
         };
-        Some(Sound { audio, music_world: 1, fights: 0, mood: Mood::Calm, indoors: None, thunder: 0.0, rng: 0x7b0 })
+        Some(Sound { audio, music_world: 1, fights: 0, mood: Mood::Calm, indoors: None, weather: Weather::new(Wtype::BusyCity, false), turns: 0.0 })
     }
 
     /// A mission starts: its music world and the city's ambience.
@@ -808,8 +809,10 @@ impl Sound {
         self.indoors = None;
         self.audio.hush();
         self.audio.music(None);
-        self.audio.ambience(Some(weather(world)), 0.35);
-        self.thunder = 0.0;
+        self.weather = Weather::new(Wtype::of(world.level.map.texture_set), Game::raining(&world.level));
+        self.turns = 0.0;
+        self.audio.ambience(self.weather.looped().and_then(sound_name), 0.35);
+        self.audio.bed(self.weather.world.bed().and_then(sound_name), 0.35);
     }
 
     /// Back to the menu: quiet.
@@ -817,6 +820,7 @@ impl Sound {
         self.audio.hush();
         self.audio.music(None);
         self.audio.ambience(None, 0.0);
+        self.audio.bed(None, 0.0);
         self.audio.engine(None);
     }
 
@@ -831,29 +835,31 @@ impl Sound {
         let indoors = world.game.indoors();
         let moved = indoors != self.indoors;
         if moved {
-            // Inside a warehouse the city's ambience stops (`process_weather`).
+            // Inside a warehouse the world's sounds stop (`process_weather`).
             self.indoors = indoors;
-            self.audio.ambience(if indoors.is_none() { Some(weather(world)) } else { None }, 0.35);
+            let out = indoors.is_none();
+            self.audio.ambience(self.weather.looped().filter(|_| out).and_then(sound_name), 0.35);
+            self.audio.bed(self.weather.world.bed().filter(|_| out).and_then(sound_name), 0.35);
         }
         if indoors.is_none() {
             // Quieter the higher the camera is over the ground (`rain_gain`, 255 at the
             // ground and nothing 16 squares up), for the city's ambience as for the rain's.
             let at = cam.pos * uc_world::UNIT;
             let above = at.y - world.level.map.ground_height(at.x, at.z);
-            self.audio.ambience_volume(0.35 * (1.0 - above / 4096.0).clamp(0.0, 1.0));
-        }
-        if Game::raining(&world.level) {
-            // Thunder now and then, from somewhere up in the sky round Darci: every 300 to
-            // 2347 turns at 20 a second (`process_weather`, `PlayAmbient3D` with `InAir`).
-            self.thunder -= dt * 20.0;
-            if self.thunder < 0.0 {
-                let mut r = || uc_game::rand(&mut self.rng);
-                self.thunder = 300.0 + ((r() & 0xffff) >> 5) as f32;
-                let wave = ["f_THNDR1.wav", "f_THNDR2.wav", "f_LGTNG1.wav", "f_LGTNG2.wav"][r() as usize % 4];
-                let a = (r() & 2047) as f32 * std::f32::consts::TAU / 2048.0;
-                let me = world.game.player().map_or(listener.pos, |p| p.fig.pos);
-                let at = me + Vec3::new(a.cos() * 4096.0, (512 + (r() & 1023)) as f32, a.sin() * 4096.0);
-                self.audio.play_toward(wave, 1.0, at, &listener);
+            self.audio.ambience_volume(0.35 * Weather::loop_gain(above));
+            // The world's far-off sounds, a game turn at a time (`new_outdoors_effects`).
+            let height = at.y;
+            let me = world.game.player().map_or(listener.pos, |p| p.fig.pos);
+            self.turns = (self.turns + dt * 20.0).min(4.0);
+            while self.turns >= 1.0 {
+                self.turns -= 1.0;
+                for cue in self.weather.turn(me, height) {
+                    let Some(name) = sound_name(cue.id) else { continue };
+                    match cue.place {
+                        Place::Ambient => self.audio.play(name, cue.gain * 0.6),
+                        Place::At(at) => self.audio.play_toward(name, cue.gain * 0.6, at, &listener),
+                    }
+                }
             }
         }
         if mood != self.mood || moved {
