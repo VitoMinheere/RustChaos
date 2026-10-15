@@ -360,6 +360,9 @@ pub struct Game {
     player_fired: bool,
     /// Props damaged (`OB_FLAG_DAMAGED`), as indices into the map's objects.
     pub damaged: BTreeSet<usize>,
+    /// How long nothing has happened (`timer_bored`, Person.cpp:3762): seconds since the
+    /// player last fought, shot at someone or watched a scene.
+    pub bored: f32,
     /// Grenades thrown and not yet gone off.
     pub grenades: Vec<Grenade>,
     /// The player's grenade, primed and still in hand: seconds to going off.
@@ -468,7 +471,8 @@ impl Game {
             taken: BTreeSet::new(), dead_cops: BTreeSet::new(), player_fired: false,
             crime_rate: if level.mission.crime_rate == 0 { 50 } else { level.mission.crime_rate.min(100) },
             show_crime_rate: level.mission.flags & MISSION_FLAG_SHOW_CRIMERATE != 0, crimes: BTreeSet::new(),
-            searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(), grenades: Vec::new(), primed: None,
+            searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(), bored: 0.0,
+            grenades: Vec::new(), primed: None,
             wares: ware::Wares::new(&level.map), indoors: None,
             platforms: level.platforms.iter().map(|&(way, ob)| {
                 let o = &level.map.objects[ob];
@@ -736,6 +740,12 @@ impl Game {
             // Really sprinting: out of breath she's only running, whatever is held.
             let sprinting = pl.sprinting;
             self.fight_timer = if fighting { 6.0 } else { (self.fight_timer - dt).max(0.0) };
+            // A fight, a fly-by or a conversation resets it; otherwise it counts up.
+            if fighting || self.cutscene.is_some() || self.in_conversation() {
+                self.bored = 0.0;
+            } else {
+                self.bored += dt;
+            }
             self.sprinting = sprinting;
         }
     }
