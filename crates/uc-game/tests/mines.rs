@@ -127,3 +127,22 @@ fn a_wheel_sets_a_mine_off() {
     run(&mut g, &level, 0.2, Controls::default());
     assert!(g.mines[k].gone, "the wheel went over it");
 }
+
+/// Each mine's red light (`DRAWXTRA_Special`): a glow just above it that comes and goes as it
+/// turns towards the camera and away.
+#[test]
+fn a_mine_flashes() {
+    let Some((level, mut g)) = start() else { return };
+    let k = lone_mine(&g);
+    let at = g.mines[k].pos;
+    let eye = at + vec3(600.0, 300.0, 0.0);
+    let (mut lit, mut dark) = (0, 0);
+    for _ in 0..60 {
+        run(&mut g, &level, DT, Controls::default());
+        let glow = g.batches(&level, eye).get(&uc_world::GLOW).map_or(false, |b| {
+            b.vertices.iter().any(|v| (Vec3::from(v.pos) * uc_world::UNIT - (at + vec3(0.0, 15.0, 0.0))).length() < 60.0)
+        });
+        if glow { lit += 1 } else { dark += 1 }
+    }
+    assert!(lit > 0 && dark > 0, "lit {lit} frames, dark {dark}: no flashing");
+}

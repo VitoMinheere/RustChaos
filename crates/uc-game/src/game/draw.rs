@@ -140,6 +140,35 @@ impl Game {
                 [colour; 4],
             );
         };
+        // The mines' red lights (`DRAWXTRA_Special`, drawxtra.cpp:3018, and `BLOOM_draw`): a
+        // light 15 above each, turning round at a rate of its own (3 to 10 sixteenths of a
+        // 2048 turn a tick), that glows only while it points the camera's way, the brighter
+        // the more straight on, so each flashes as it sweeps past. Once set off it's 25 up
+        // and spins faster.
+        let turn = (self.time * 20.0) as i64;
+        for (k, m) in self.mines.iter().enumerate().filter(|(_, m)| !m.gone) {
+            let (c0, up) = match m.fuse {
+                Some(_) => ((turn << 5) & 2047, 25.0),
+                None => ((((turn * (3 + (k as i64 & 7))) + k as i64 * 9) << 4) & 2047, 15.0),
+            };
+            let a = c0 as f32 * std::f32::consts::TAU / 2048.0;
+            let at = m.pos + Vec3::new(0.0, up, 0.0);
+            let towards = Vec3::new(a.sin(), 0.0, a.cos()).dot((at - eye).normalize_or(Vec3::Z));
+            if towards < 0.0 {
+                billboard(&mut out, uc_world::GLOW, at, 40.0, [255, 30, 20, (-towards * 255.0) as u8]);
+            }
+        }
+        // A set charge's light the same way, green (`SPECIAL_EXPLOSIVES`, `0x007F5D`), turning
+        // with its timer (`timer << 3`; the timer counts down 0x10 a tick).
+        for c in &self.charges {
+            let timer = (c.fuse * 20.0 * 16.0) as i64;
+            let a = ((timer << 3) & 2047) as f32 * std::f32::consts::TAU / 2048.0;
+            let at = c.pos + Vec3::new(0.0, 25.0, 0.0);
+            let towards = Vec3::new(a.sin(), 0.0, a.cos()).dot((at - eye).normalize_or(Vec3::Z));
+            if towards < 0.0 {
+                billboard(&mut out, uc_world::GLOW, at, 40.0, [0, 255, 186, (-towards * 255.0) as u8]);
+            }
+        }
         for f in &self.fireballs {
             billboard(&mut out, uc_world::GLOW, f.pos, 70.0, [255, 200, 110, 255]);
             billboard(&mut out, uc_world::GLOW, f.pos - f.vel * 2.0, 50.0, [255, 120, 40, 160]);
