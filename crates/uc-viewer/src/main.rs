@@ -1105,6 +1105,18 @@ impl App {
             }
             // Driving: W/S or the triggers (or stick) for speed, A/D or the stick to steer,
             // Space or A for the handbrake. The camera swings round behind the car.
+            // On a motorbike: the same keys (Space for a wheelie), and action to get off.
+            if w.game.riding().is_some() {
+                let key = |k| if inp.held(k) { 1.0 } else { 0.0 };
+                let throttle = key(KeyCode::KeyW) - key(KeyCode::KeyS) + pad.mv.y;
+                let steer = key(KeyCode::KeyD) - key(KeyCode::KeyA) + pad.mv.x;
+                let wheelie = inp.held(KeyCode::Space) || pad.held(Button::South);
+                controls = Controls {
+                    action: controls.action,
+                    drive: uc_game::Drive { throttle: throttle.clamp(-1.0, 1.0), steer: steer.clamp(-1.0, 1.0), handbrake: wheelie },
+                    ..Default::default()
+                };
+            }
             if let Some(car) = w.game.player_vehicle() {
                 let key = |k| if inp.held(k) { 1.0 } else { 0.0 };
                 let throttle = key(KeyCode::KeyW) - key(KeyCode::KeyS)

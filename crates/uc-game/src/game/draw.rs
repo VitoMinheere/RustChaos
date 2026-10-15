@@ -220,6 +220,7 @@ impl Game {
         self.sky(&mut out, level, eye);
         self.draw_choppers(&mut out, level);
         self.draw_dirt(&mut out, level);
+        self.draw_bikes(&mut out, level);
         self.draw_sea(&mut out);
         out
     }
@@ -337,6 +338,12 @@ impl Game {
             .filter(|e| e.used != 0 && e.kind == uc_formats::ucm::waypoint::CREATE_CREATURE)
             .map(|e| e.data[0] as u8)
             .collect();
+        // The bike, if the mission has one.
+        if level.mission.event_points.iter().any(|e| e.used != 0 && e.kind == uc_formats::ucm::waypoint::CREATE_VEHICLE && e.data[0] == 5) {
+            if let Some(f) = super::bikes::bike_chunk(level).and_then(|c| Figure::anim_prim(c, Vec3::ZERO, 0.0, 1)) {
+                out.extend(f.pages());
+            }
+        }
         for kind in kinds {
             if let Some(f) = creature_chunk(level, kind).and_then(|c| Figure::anim_prim(c, Vec3::ZERO, 0.0, 1)) {
                 out.extend(f.pages());

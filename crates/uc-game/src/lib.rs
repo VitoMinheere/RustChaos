@@ -13,6 +13,7 @@
 //! Finally the events they produced (hits, grabs, arrests) are applied, grappled pairs are
 //! kept together and people are pushed apart.
 
+pub mod bike;
 pub mod chopper;
 pub mod barrel;
 pub mod city;
@@ -394,6 +395,10 @@ pub struct Game {
     pub creatures: Vec<creature::Creature>,
     /// Looking through the sniper rifle's scope (`SNIPE_on`).
     snipe: Option<game::Snipe>,
+    /// The mission's motorbikes, each with its figure.
+    pub bikes: Vec<(bike::Bike, Option<Figure>)>,
+    /// Seconds into the bikes' next turn.
+    bike_clock: f32,
     /// The navigation map (`MAV_precalculate`).
     mav: uc_world::mav::Mav,
     /// Each person's last route: (from square, to square, furthest square to walk to, first
@@ -519,7 +524,7 @@ impl Game {
             }).collect(),
             plat_prims: level.platforms.iter().map(|&(_, ob)| uc_world::level::load_prim(&level.game, level.map.objects[ob].prim)).collect(),
             plat_clock: 0.0,
-            creatures: Vec::new(), snipe: None, mav: uc_world::mav::Mav::new(level), ways: HashMap::new(), mav_rng: 0x3a7, choppers: Vec::new(), chopper_clock: 0.0, barrel_rng: 0xba44, barrel_clock: 0.0, barrel_marks: Vec::new(), entering: Vec::new(), last_aimed: None, creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
+            creatures: Vec::new(), snipe: None, bikes: Vec::new(), bike_clock: 0.0, mav: uc_world::mav::Mav::new(level), ways: HashMap::new(), mav_rng: 0x3a7, choppers: Vec::new(), chopper_clock: 0.0, barrel_rng: 0xba44, barrel_clock: 0.0, barrel_marks: Vec::new(), entering: Vec::new(), last_aimed: None, creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
             aim_creature: None, aim_barrel: None, aim_mine: None, mines: Vec::new(), aim_vehicle: None, blown: BTreeSet::new(), creature_clock: 0.0, creature_rng: 0xba7,
             pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), sea: level.sea(), dirt: Game::new_dirt(level), dirt_clock: 0.0, dirt_marks: Vec::new(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
@@ -631,6 +636,7 @@ impl Game {
         self.go_indoors(level);
         self.move_platforms(dt, level);
         self.run_creatures(dt, level, self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player));
+        self.run_bikes(dt, level);
         self.fly_choppers(dt, level);
         self.roll_barrels(dt, level);
         // From just under the pelvis, for as long as they're on their feet (the original asks
@@ -670,6 +676,7 @@ impl Game {
             input.drive = Drive::default();
         }
         self.drive(dt, &input, level);
+        self.ride(&input, level);
         // Action held: the viewer passes it on as `sprint`.
         self.searching(dt, input.sprint);
 
