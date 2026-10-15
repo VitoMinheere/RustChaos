@@ -21,6 +21,10 @@ impl Game {
                         damage += self.stats[1] as i32;
                     }
                     let from = self.people[attacker].fig.pos;
+                    // Blows never land on the Men in Black: they jump clear.
+                    if !weapon.is_gun() && self.people[victim].dodge() {
+                        continue;
+                    }
                     if let State::Held { .. } = self.people[victim].state {
                         // Only the grappler's finishing move lands on a held victim.
                         if ko != person::ko::GRAPPLE {

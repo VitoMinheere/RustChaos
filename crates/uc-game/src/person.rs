@@ -219,6 +219,8 @@ const SHOOT_RANGE: f32 = 6.0 * 256.0;
 pub enum Sfx {
     /// An attack swings.
     Swing,
+    /// One of the Men in Black going up (`S_MIB_EXPLODE`).
+    MibExplode,
     /// A blow lands.
     Hit { heavy: bool },
     /// Someone (of `PERSON_*` type `kind`) is hurt but stays up.
@@ -643,7 +645,7 @@ pub struct Person {
     pub explosives: u8,
     /// Carrying a key (`SPECIAL_KEY`): cars locked with a coloured key open for them.
     pub has_key: bool,
-    down_timer: f32,
+    pub(crate) down_timer: f32,
     block_timer: f32,
     /// Seconds before a cable can be grabbed again after letting go.
     zip_cooldown: f32,
@@ -698,6 +700,8 @@ pub struct Person {
     /// Who last hurt them (a blow, a shot, a blast they're blamed for, a car they drove), to
     /// know whose doing a death was.
     pub hurt_by: Option<usize>,
+    /// Gone up in lightning (one of the Men in Black): removed, but dead all the same.
+    pub blown_up: bool,
     /// Heard something there, and looking that way for this many seconds more
     /// (`PCOM_AI_STATE_INVESTIGATING`).
     pub heard: Option<(Vec3, f32)>,
@@ -738,7 +742,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, via: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
-            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, heard: None,
+            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, heard: None,
         }
     }
 
@@ -1031,6 +1035,40 @@ impl Person {
     /// AI: decide this frame's controls, against its `foe` (see `Person::foe`).
     pub fn think(&mut self, me: usize, snaps: &[Snap], ground: &Ground, dt: f32,
                  rand: &mut impl FnMut() -> u32) -> Controls {
+        let mut c = self.decide(me, snaps, ground, dt, rand);
+        // "MIB are too cool to run anywhere" (Person.cpp:19913).
+        if self.is_mib() {
+            (c.run, c.sprint) = (false, false);
+        }
+        c
+    }
+
+    /// One of the Men in Black (`PersonIsMIB`, Person.cpp:498).
+    pub fn is_mib(&self) -> bool {
+        use uc_world::character::person as ptype;
+        matches!(self.kind, ptype::MIB1 | ptype::MIB2 | ptype::MIB3)
+    }
+
+    /// One of the Men in Black dodging a blow (Person.cpp:1970): "Men In Black jump to avoid
+    /// the attack like ninjas!" On their feet, they jump straight up and it misses; returns
+    /// whether they did.
+    pub fn dodge(&mut self) -> bool {
+        if !self.is_mib() {
+            return false;
+        }
+        match self.state {
+            // Already in the air: it passes beneath.
+            State::Fall { .. } | State::Land { .. } => true,
+            State::Move | State::Attack { .. } | State::Shoot { .. } | State::Block => {
+                self.jump(Vec2::ZERO);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn decide(&mut self, me: usize, snaps: &[Snap], ground: &Ground, dt: f32,
+              rand: &mut impl FnMut() -> u32) -> Controls {
         let player = self.foe;
         let mut c = Controls { target: player, ..Default::default() };
         // A car coming: run out of its way (`PCOM_find_runover_thing`).
