@@ -48,6 +48,7 @@ impl Game {
                     let damage = match weapon {
                         Weapon::Pistol => 70,
                         Weapon::Ak47 => 100,
+                        Weapon::Sniper => SNIPER_DAMAGE,
                         Weapon::Shotgun => (250.0 * (1.0 - dist / (8.0 * 256.0))).max(30.0) as i32,
                         _ => 0,
                     };
@@ -131,6 +132,8 @@ impl Game {
                         Weapon::Pistol => 70,
                         Weapon::Ak47 if a.player => 100,
                         Weapon::Ak47 => 40,
+                        // `SNIPE_shoot`: `HIT_TYPE_GUN_SHOT_M` for 260.
+                        Weapon::Sniper => SNIPER_DAMAGE,
                         Weapon::Shotgun => (250.0 * (1.0 - dist / (8.0 * 256.0))).max(30.0) as i32,
                         _ => 0,
                     };

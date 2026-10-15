@@ -27,7 +27,9 @@ impl Game {
     pub fn batches(&self, level: &Level, eye: Vec3) -> BTreeMap<u32, Batch> {
         let lighter = level.lighter();
         let mut out = BTreeMap::new();
-        for p in self.people.iter().filter(|p| !p.removed && !matches!(p.state, State::InCar { .. })) {
+        // Looking through the scope from her head, she isn't drawn.
+        let scoped = self.snipe.is_some();
+        for p in self.people.iter().filter(|p| !p.removed && !matches!(p.state, State::InCar { .. }) && !(scoped && p.player)) {
             p.fig.append_batches(&mut out, lighter.as_ref());
             shadow(&mut out, p, level);
             // The weapon in hand, and a muzzle flash just after a shot.
@@ -36,7 +38,8 @@ impl Game {
                     let flash = flash.filter(|_| p.flash > 0.0);
                     for id in std::iter::once(held).chain(flash) {
                         if let Some(prim) = level.weapon_prims.get(&id) {
-                            uc_world::level::prim_batches(prim, |v| at + rot * v, lighter.as_ref(), &mut out);
+                            let long = p.weapon == Weapon::Sniper;
+                            uc_world::level::prim_batches(prim, |v| at + rot * if long { stretch(prim, v) } else { v }, lighter.as_ref(), &mut out);
                         }
                     }
                 }
@@ -116,8 +119,11 @@ impl Game {
             let (s, c) = if it.kind == 9 { (0.0, 1.0) } else { spin.sin_cos() };
             // Floating a little above the ground (some are modelled well above their origin).
             let lift = if it.kind == 9 { 0.0 } else { 24.0 - uc_world::level::prim_bounds(prim).0.y.max(0.0) };
-            uc_world::level::prim_batches(prim, |v| it.pos + Vec3::new(c * v.x + s * v.z, v.y + lift, -s * v.x + c * v.z),
-                                          lighter.as_ref(), &mut out);
+            let long = it.kind == SNIPER;
+            uc_world::level::prim_batches(prim, |v| {
+                let v = if long { stretch(prim, v) } else { v };
+                it.pos + Vec3::new(c * v.x + s * v.z, v.y + lift, -s * v.x + c * v.z)
+            }, lighter.as_ref(), &mut out);
         }
         // Creatures, their fireballs and their lightning.
         for c in self.creatures.iter().filter(|c| c.fig.pos.y > -1.0e4) {
@@ -482,4 +488,18 @@ impl Game {
             white,
         );
     }
+}
+
+/// The sniper rifle's look: the AK-47's model half as long again, the barrel end (the
+/// longer side of its longest axis) drawn out from the grip.
+fn stretch(prim: &uc_formats::prm::Prim, v: Vec3) -> Vec3 {
+    let (lo, hi) = uc_world::level::prim_bounds(prim);
+    let size = hi - lo;
+    let axis = if size.x >= size.y && size.x >= size.z { 0 } else if size.y >= size.z { 1 } else { 2 };
+    let forward = if hi[axis].abs() >= lo[axis].abs() { 1.0 } else { -1.0 };
+    let mut v = v;
+    if v[axis] * forward > 0.0 {
+        v[axis] *= 1.5;
+    }
+    v
 }

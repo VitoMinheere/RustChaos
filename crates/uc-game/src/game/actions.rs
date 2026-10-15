@@ -321,7 +321,7 @@ impl Game {
                 true
             }
             // A gun: carried (with its rounds), and drawn if the hands are empty.
-            2 | 4 | 6 => {
+            2 | 4 | 6 | SNIPER => {
                 let w = Weapon::from_item(kind).unwrap();
                 p.give(w);
                 if p.weapon == Weapon::None {
