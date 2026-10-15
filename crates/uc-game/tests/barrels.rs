@@ -122,7 +122,7 @@ fn cones_and_bins_dont_explode() {
         assert!(!r.g.barrels[k].explodes);
         r.g.shoot_barrel(k, p, &r.level);
         assert!(!r.g.barrels[k].gone, "point {way} blew up");
-        assert!(r.g.barrels[k].vel.length() > 0.0, "point {way} wasn't knocked");
+        assert!(r.g.barrels[k].spheres.is_some(), "point {way} wasn't knocked");
     }
 }
 
@@ -150,11 +150,13 @@ fn stacked_barrels_fall_when_the_one_under_goes() {
     // Stays put while the one under it does.
     r.run(1.0, Controls::default());
     assert_eq!(r.g.barrels[top].on, Some(under));
-    // Gone from under it: down it comes, onto the ground.
+    // Gone from under it: down it comes, onto the ground, and settles (standing or on its
+    // side).
     let floor = r.g.barrels[under].pos.y;
     r.g.barrels[under].gone = true;
-    r.run(2.0, Controls::default());
+    r.run(6.0, Controls::default());
     let b = &r.g.barrels[top];
-    assert!(b.on.is_none() && b.vy == 0.0);
-    assert!((b.pos.y - floor).abs() < 1.0, "came to rest at {} (ground {floor})", b.pos.y);
+    assert!(b.on.is_none() && b.spheres.is_none(), "still moving");
+    let mid = b.middle().y - floor;
+    assert!(mid > 10.0 && mid < 60.0, "came to rest with its middle {mid} over the ground");
 }

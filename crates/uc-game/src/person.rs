@@ -163,6 +163,8 @@ pub const AI_COP_DRIVER: u8 = 14;
 /// `PCOM_AI_GUARD`, `PCOM_AI_GANG`, `PCOM_AI_SUICIDE` (fallen/Headers/pcom.h).
 pub const AI_GUARD: u8 = 2;
 pub const AI_GANG: u8 = 6;
+/// `PCOM_AI_COP`.
+pub const AI_COP: u8 = 5;
 pub const AI_SUICIDE: u8 = 15;
 /// `PCOM_MOVE_WANDER`.
 pub const MOVE_WANDER: u8 = 4;
