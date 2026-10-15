@@ -92,6 +92,14 @@ impl Run {
         let door = self.g.vehicles[v].door();
         self.stand(vec3(door.x, self.g.vehicles[v].pos.y, door.y));
         self.tap_action();
+        // Getting in takes as long as the animation (`ANIM_ENTER_CAR`).
+        let i = self.g.player.unwrap();
+        for _ in 0..150 {
+            if !matches!(self.g.people[i].state, uc_game::State::Enter { .. }) {
+                break;
+            }
+            self.play(DT, Controls::default());
+        }
         self.g.player_vehicle().is_some()
     }
 

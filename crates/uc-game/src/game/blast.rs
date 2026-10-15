@@ -11,6 +11,24 @@ impl Game {
     /// doing, and knocks the barrels round it away. A cone or a bin is only knocked about.
     /// Only a shot does this: a blast, a charge's included, leaves barrels alone
     /// (`create_shockwave` doesn't look for them).
+    /// Puts down a barrel (`BARREL_alloc`, barrel.cpp:1299): on top of the highest other
+    /// barrel within `BARREL_STACK_RADIUS` (45) of it, `BARREL_HEIGHT` (93) up, if that's
+    /// higher than the ground. Cones don't stack.
+    pub(crate) fn add_barrel(&mut self, mut b: Barrel) {
+        if b.kind != 1 {
+            let at = Vec2::new(b.pos.x, b.pos.z);
+            let top = self.barrels.iter().enumerate()
+                .filter(|(_, o)| !o.gone && o.kind != 1 && Vec2::new(o.pos.x, o.pos.z).distance(at) < 45.0)
+                .map(|(j, o)| (j, o.pos.y + 93.0))
+                .max_by(|a, b| a.1.total_cmp(&b.1));
+            if let Some((j, y)) = top.filter(|&(_, y)| y > b.pos.y) {
+                b.pos.y = y;
+                b.on = Some(j);
+            }
+        }
+        self.barrels.push(b);
+    }
+
     pub fn shoot_barrel(&mut self, k: usize, by: usize, level: &Level) {
         let b = &self.barrels[k];
         if b.gone {

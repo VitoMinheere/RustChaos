@@ -206,13 +206,88 @@ impl Game {
         }
         self.trips.batches(&mut out);
         self.sky(&mut out, level, eye);
+        self.draw_dirt(&mut out, level);
         out
+    }
+
+    /// The leaves, cans and snow (`AENG_draw_dirt`, aeng.cpp:3040). A leaf is a triangle 20
+    /// to 35 units across, 8 up off the ground, cut from `leaf.tga` and tinted one of four
+    /// browns and greens, darker at one corner; tumbling, it's turned by its pitch and roll.
+    /// Every sixteenth isn't a leaf but a bit of rubbish, a square from `rubbish.tga` (one of
+    /// them money), except on the estate. In the snow it's all snowflakes in pale greys.
+    fn draw_dirt(&self, out: &mut BTreeMap<u32, Batch>, level: &Level) {
+        // `LEAF_UP`.
+        const UP: f32 = 8.0;
+        let snow = dirt::Ground::of(level.map.texture_set) == dirt::Ground::Snow;
+        let lighter = level.lighter();
+        let ambient = lighter.as_ref().map_or([255; 3], |l| l.light([0.0; 3], [0.0, 1.0, 0.0]).map(|c| (c * 255.0) as u8));
+        // `leaf_colour_choice_rgb`.
+        const LEAVES: [[u8; 3]; 4] = [[0x33, 0x2d, 0x1d], [0x24, 0x32, 0x24], [0x12, 0x33, 0x20], [0x33, 0x2f, 0x07]];
+        // `AENG_dirt_uvlookup`: sixteen points round the texture's middle.
+        let uv = |k: usize, radius: f32| {
+            let a = (k % 16) as f32 * std::f32::consts::TAU / 16.0;
+            [0.5 + a.sin() * radius, 0.5 + a.cos() * radius]
+        };
+        for (i, d) in self.dirt.pieces.iter().enumerate() {
+            let Some(d) = d else { continue };
+            let at = Vec3::new(d.x as f32, d.y as f32 + UP, d.z as f32);
+            // The rotation `AENG_draw_dirt` builds from pitch and roll (no yaw).
+            let (sp, cp) = (d.pitch as f32 * std::f32::consts::PI / 1024.0).sin_cos();
+            let (sr, cr) = (d.roll as f32 * std::f32::consts::PI / 1024.0).sin_cos();
+            let across = Vec3::new(cr, -cp * sr, sp * sr);
+            let along = Vec3::new(0.0, sp, cp);
+            match d.kind {
+                dirt::Kind::Can => {
+                    if let Some(prim) = level.item_prims.get(&uc_world::level::CAN_PRIM) {
+                        let rot = glam::Quat::from_rotation_y((d.yaw as f32) * std::f32::consts::TAU / 2048.0)
+                            * glam::Quat::from_rotation_x(d.pitch as f32 * std::f32::consts::TAU / 2048.0);
+                        let base = Vec3::new(d.x as f32, d.y as f32, d.z as f32);
+                        uc_world::level::prim_batches(prim, |v| base + rot * v, lighter.as_ref(), out);
+                    }
+                }
+                _ if i & 0xf == 0 && !self.estate && !snow => {
+                    // Rubbish: 48 units square, lit by the night's ambient light.
+                    let (u, v) = if i == 64 { (0.0, 0.5) } else if i & 32 != 0 { (0.0, 0.0) } else { (0.5, 0.0) };
+                    let mut c = [ambient[0], ambient[1], ambient[2], 255];
+                    if i != 64 && i & 32 == 0 && i & 64 != 0 {
+                        // `&= 0xffffff00`: no blue.
+                        c[2] = 0;
+                    }
+                    let (a, b) = (across * 24.0, along * 24.0);
+                    out.entry(uc_world::level::RUBBISH_PAGE).or_default().quad(
+                        [(at + b + a) / uc_world::UNIT, (at + b - a) / uc_world::UNIT, (at - b + a) / uc_world::UNIT, (at - b - a) / uc_world::UNIT],
+                        [[u, v], [u + 0.5, v], [u, v + 0.5], [u + 0.5, v + 0.5]],
+                        [c; 4],
+                    );
+                }
+                _ => {
+                    // `LEAF_SIZE`.
+                    let size = 20.0 + (i & 15) as f32;
+                    let (a, b) = (across * size, along * size);
+                    let p = [at + b, at - b + a, at - b - a];
+                    let (page, c, radius) = if snow {
+                        let g = (((i & 0x0f) << 2) + 0xc0) as u8;
+                        (uc_world::level::SNOWFLAKE_PAGE, [[g, g, g, 255]; 3], 1.0)
+                    } else {
+                        let [r, g, b] = LEAVES[i & 3];
+                        let tint = |k: u8| [r * k, g * k, b * k, 255];
+                        (uc_world::level::LEAF_PAGE, [tint(3), tint(4), tint(5)], 0.5)
+                    };
+                    out.entry(page).or_default().tri(
+                        p.map(|v| v / uc_world::UNIT),
+                        [uv(i, radius), uv(i + 16 / 3, radius), uv(i + 32 / 3, radius)],
+                        c,
+                    );
+                }
+            }
+        }
     }
 
     /// Texture pages any person in this level might use.
     pub fn pages(level: &Level) -> Vec<u32> {
         let Some(people) = &level.people else { return Vec::new() };
-        let mut out = vec![uc_world::SKY_PAGE, uc_world::MOON_PAGE];
+        // The leaves, rubbish and snowflakes the dirt is drawn with.
+        let mut out = vec![uc_world::SKY_PAGE, uc_world::MOON_PAGE, uc_world::level::LEAF_PAGE, uc_world::level::RUBBISH_PAGE, uc_world::level::SNOWFLAKE_PAGE];
         // The platforms' props, which the level leaves to the game.
         for &(_, ob) in &level.platforms {
             if let Some(prim) = uc_world::level::load_prim(&level.game, level.map.objects[ob].prim) {
