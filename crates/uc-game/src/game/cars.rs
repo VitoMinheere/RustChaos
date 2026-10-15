@@ -205,9 +205,21 @@ impl Game {
             let v = &mut self.vehicles[vi];
             let d = if v.driver.is_some() && v.driver == player { input.drive } else { npc.map_or(Drive::default(), |(_, d)| d) };
             let sliding = v.slip.abs() > 300.0;
+            let mut smashed = None;
             if let Some(speed) = v.update(d, dt, &level.ground, &level.map) {
-                if speed > 300.0 {
+                // `DoDamage` (vehicle.cpp:2094), in its units of 1/256 a tick at 20 ticks a
+                // second: faster than 20000 smashes the prop it hit, as `OB_damage` does
+                // (so breakable ones break, explosive ones go up, `prim_damaged` sees it),
+                // and faster than 10000 only makes the noise.
+                const SMASH: f32 = 20000.0 / 256.0 * 20.0;
+                const NOISE: f32 = 10000.0 / 256.0 * 20.0;
+                let front = v.front(speed);
+                if speed > NOISE {
                     self.sounds.push((Sfx::Crash, v.pos));
+                }
+                if speed > SMASH {
+                    let hit = touching_prop(level, front, v.pos.y);
+                    smashed = hit;
                 }
                 // Ran into something: back off and come round (`PCOM_MOVE_SUBSTATE_3PTURN`).
                 if let Some(dr) = npc.and_then(|(pi, _)| self.drivers.get_mut(&pi)) {
@@ -218,6 +230,18 @@ impl Game {
             }
             if !sliding && v.slip.abs() > 300.0 {
                 self.sounds.push((Sfx::Skid, v.pos));
+            }
+            // Brushing past one at speed counts too: the original damages whatever prop its
+            // corners touch (`VEH_collide`), whether or not the car is stopped.
+            if smashed.is_none() && self.vehicles[vi].speed.abs() > 20000.0 / 256.0 * 20.0 {
+                let car = &self.vehicles[vi];
+                smashed = touching_prop(level, car.front(car.speed), car.pos.y).filter(|i| !self.damaged.contains(i));
+                if smashed.is_some() {
+                    self.sounds.push((Sfx::Crash, car.pos));
+                }
+            }
+            if let Some(i) = smashed {
+                self.damage_prop(level, i);
             }
             let v = self.vehicles[vi].clone();
             // (Not someone still getting in: they're at the door.)
@@ -264,51 +288,18 @@ impl Game {
                 p.fig.pos.x = to.x;
                 p.fig.pos.z = to.y;
             }
-            // Cones and barrels get knocked about.
-            for b in self.barrels.iter_mut().filter(|b| !b.gone) {
-                let at = Vec2::new(b.pos.x, b.pos.z);
-                if v.speed.abs() > 60.0 && v.covers(at, 30.0) && b.vel.length() < v.speed.abs() * 0.5 {
-                    let side = (at - Vec2::new(v.pos.x, v.pos.z)).normalize_or_zero();
-                    b.vel = fwd * v.speed * 0.9 + side * v.speed.abs() * 0.3;
-                    self.sounds.push((Sfx::Cone, b.pos));
+            // Cones and barrels get knocked about (`BARREL_hit_with_prim` with the car's
+            // body; here as two spheres, at its nose and its tail).
+            if v.speed.abs() > 60.0 {
+                let ends = [v.place(Vec3::new(0.0, 60.0, 100.0)), v.place(Vec3::new(0.0, 60.0, -100.0))];
+                let mut seed = self.barrel_rng;
+                for at in ends {
+                    for k in barrel::hit_with_sphere(&mut self.barrels, at, 0x60 as f32, &mut || rand(&mut seed)) {
+                        let at = self.barrels[k].pos;
+                        self.sounds.push((Sfx::Cone, at));
+                    }
                 }
-            }
-        }
-        // A stacked barrel stays put until the one under it moves or goes
-        // (`BARREL_process_normal`), and then falls.
-        for k in 0..self.barrels.len() {
-            if let Some(j) = self.barrels[k].on {
-                let under = &self.barrels[j];
-                if under.gone || under.on.is_none() && (under.vel.length_squared() >= 1.0 || under.vy != 0.0) || self.barrels[k].vel.length_squared() >= 1.0 {
-                    self.barrels[k].on = None;
-                }
-            }
-        }
-        for b in &mut self.barrels {
-            if b.on.is_some() || b.gone {
-                continue;
-            }
-            let at = Vec2::new(b.pos.x, b.pos.z);
-            let floor = level.ground.surface(&level.map, at.x, at.y, b.pos.y + 32.0);
-            if b.pos.y > floor + 0.5 || b.vy != 0.0 {
-                // `BARREL_GRAVITY`: 0x80 of a 256th a tick, every tick.
-                b.vy -= 0x80 as f32 / 256.0 * 20.0 * 20.0 * dt;
-                b.pos.y += b.vy * dt;
-                if b.pos.y <= floor {
-                    b.pos.y = floor;
-                    b.vy = 0.0;
-                }
-            }
-            if b.vel.length_squared() < 1.0 {
-                continue;
-            }
-            let to = level.ground.slide(at, b.pos.y, b.vel * dt, 30.0);
-            let floor = level.ground.surface(&level.map, to.x, to.y, b.pos.y + 32.0);
-            b.pos = Vec3::new(to.x, if b.vy != 0.0 { b.pos.y.max(floor) } else { floor }, to.y);
-            b.vel *= (-2.5 * dt).exp();
-            b.yaw += b.vel.length() * dt / 60.0;
-            if b.kind == 1 {
-                b.tilt = (b.tilt + 8.0 * dt).min(std::f32::consts::FRAC_PI_2);
+                self.barrel_rng = seed;
             }
         }
     }
@@ -320,4 +311,46 @@ impl Game {
             _ => None,
         }
     }
+
+    /// A car whose health runs out blows up (`VEH_process`, vehicle.cpp:2963): a firebomb and
+    /// a bang, and whoever is driving is thrown out and knocked over. Its flame "wave"
+    /// (`PYRO_FLAGS_WAVE`) is only drawn, so there's no shockwave and no chain of cars.
+    pub(crate) fn wreck_cars(&mut self) {
+        for v in 0..self.vehicles.len() {
+            if !self.vehicles[v].wrecked() || !self.blown.insert(v) {
+                continue;
+            }
+            let at = self.vehicles[v].pos;
+            self.pyro.burst(at + Vec3::new(0.0, 48.0, 0.0), pyro::FIREBOMB, 256.0);
+            self.sounds.push((Sfx::Explosion, at));
+            if self.aim_vehicle == Some(v) {
+                self.aim_vehicle = None;
+            }
+            if let Some(d) = self.vehicles[v].driver.take() {
+                let p = &mut self.people[d];
+                p.state = State::Move;
+                p.fig.pos = at;
+                p.take_hit(at + Vec3::new(40.0, 0.0, 0.0), 0, person::ko::KNOCKDOWN, false, false, Weapon::None);
+            }
+        }
+    }
+}
+
+/// The breakable prop whose collision outline the round end of a car at `front` touches.
+fn touching_prop(level: &Level, front: Vec2, y: f32) -> Option<usize> {
+    let g = &level.ground;
+    g.prop_walls.iter()
+        .filter(|(i, _)| g.prop_damage.get(*i).is_some_and(|d| d.0 & DAMAGABLE != 0))
+        .filter(|(_, r)| g.walls[r.start].y0 < y + 128.0 && g.walls[r.start].y1 > y)
+        .map(|(i, r)| {
+            let d = g.walls[r.clone()].iter().map(|w| {
+                let (a, b) = (Vec2::from(w.a), Vec2::from(w.b));
+                let t = ((front - a).dot(b - a) / (b - a).length_squared().max(1.0)).clamp(0.0, 1.0);
+                (a + (b - a) * t - front).length()
+            }).fold(f32::MAX, f32::min);
+            (*i, d)
+        })
+        .filter(|&(_, d)| d < vehicle::REACH)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(i, _)| i)
 }

@@ -61,6 +61,7 @@ impl Game {
                     if let Some(v) = self.veh_by_way.remove(&way) {
                         let at = self.vehicles[v].pos;
                         self.vehicles[v].health = 0;
+                        self.blown.insert(v);
                         if let Some(d) = self.vehicles[v].driver.take() {
                             self.people[d].state = State::Move;
                             self.people[d].fig.pos = at;
@@ -83,6 +84,10 @@ impl Game {
                     for it in self.items.iter_mut().chain(hidden).filter(|it| it.way == way) {
                         it.pos = Vec3::new(pos.x, y, pos.z);
                     }
+                }
+                Command::Item { way, kind, pos, .. } if kind == game::mines::IT_MINE => {
+                    let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
+                    self.mines.push(Mine { way, pos: Vec3::new(pos.x, y, pos.z), fuse: None, gone: false });
                 }
                 Command::Item { way, kind, pos, stashed } => {
                     let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
@@ -186,6 +191,10 @@ impl Game {
                     self.vehicles.push(Vehicle::new(way, kind, Vec3::new(pos.x, y, pos.z), angle, key));
                     self.veh_by_way.insert(way, self.vehicles.len() - 1);
                 }
+                Command::Chopper { way, pos, victim } => {
+                    let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
+                    self.choppers.push(chopper::Chopper::new(way, Vec3::new(pos.x, y, pos.z), victim));
+                }
                 Command::Stall { way } => {
                     if let Some(&v) = self.veh_by_way.get(&way) {
                         self.vehicles[v].stalled = true;
@@ -211,7 +220,7 @@ impl Game {
                     let yaw = (self.rand() % 628) as f32 / 100.0;
                     let semtex = level.name.eq_ignore_ascii_case("semtex");
                     let (prim, explodes) = Barrel::of_kind(kind, semtex);
-                    self.add_barrel(Barrel { kind, prim, explodes, way, gone: false, pos: Vec3::new(pos.x, y, pos.z), vel: Vec2::ZERO, yaw, tilt: 0.0, on: None, vy: 0.0 });
+                    self.add_barrel(Barrel { kind, prim, explodes, way, gone: false, pos: Vec3::new(pos.x, y, pos.z), yaw, tilt: 0.0, on: None, spheres: None });
                 }
                 Command::Sign { which, flip } => {
                     let text = match (which, flip) {

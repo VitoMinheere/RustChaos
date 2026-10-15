@@ -82,6 +82,19 @@ impl Game {
                 [[0, 0, 0, 170]; 4],
             );
         }
+        // Mines, lying flat where they were laid (modelled 6 below their origin).
+        for m in self.mines.iter().filter(|m| !m.gone) {
+            if let Some(prim) = level.item_prims.get(&game::mines::MINE_PRIM) {
+                uc_world::level::prim_batches(prim, |p| m.pos + p + Vec3::new(0.0, 6.0, 0.0), lighter.as_ref(), &mut out);
+            }
+        }
+        // Grenades in the air, tumbling.
+        for g in &self.grenades {
+            if let Some(prim) = level.item_prims.get(&game::grenades::GRENADE_PRIM) {
+                let (s, c) = g.pitch.sin_cos();
+                uc_world::level::prim_batches(prim, |p| g.pos + Vec3::new(p.x, c * p.y - s * p.z, s * p.y + c * p.z), lighter.as_ref(), &mut out);
+            }
+        }
         // Barrels and cones: modelled with z up, they topple when knocked.
         for b in self.barrels.iter().filter(|b| !b.gone) {
             let Some(prim) = level.item_prims.get(&b.prim()) else { continue };
@@ -199,6 +212,7 @@ impl Game {
         }
         self.trips.batches(&mut out);
         self.sky(&mut out, level, eye);
+        self.draw_choppers(&mut out, level);
         self.draw_dirt(&mut out, level);
         self.draw_sea(&mut out);
         out

@@ -85,6 +85,9 @@ const DRAG: f32 = 0.35;
 /// Distance from the middle to the nose and tail circles, and their radius.
 const HALF_LENGTH: f32 = 140.0;
 const RADIUS: f32 = 110.0;
+/// How far from the leading end a prop's outline can be and still be touching: the radius of
+/// the car's round end, and a little.
+pub const REACH: f32 = RADIUS + 16.0;
 /// A crash at more than this speed (world units per second) damages the car.
 const CRASH_SPEED: f32 = 900.0;
 
@@ -166,8 +169,19 @@ impl Vehicle {
         if speed >= 0.0 { (speed / TOP_SPEED).min(1.0) } else { (speed / REVERSE_SPEED).max(-1.0) }
     }
 
+    /// The end of the car leading at `speed` (the nose going forwards, the tail in reverse).
+    pub fn front(&self, speed: f32) -> Vec2 {
+        let ahead = if self.speed >= 0.0 || speed < 0.0 { 1.0 } else { -1.0 };
+        vec2(self.pos.x, self.pos.z) + self.forward() * HALF_LENGTH * ahead
+    }
+
     pub fn wrecked(&self) -> bool {
         self.health <= 0
+    }
+
+    /// `VEH_reduce_health` (fallen/Source/vehicle.cpp:4780): half the damage comes off.
+    pub fn reduce_health(&mut self, damage: i32) {
+        self.health -= damage >> 1;
     }
 
     pub fn forward(&self) -> Vec2 {
