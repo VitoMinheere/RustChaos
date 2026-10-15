@@ -274,13 +274,37 @@ impl Game {
                 }
             }
         }
+        // A stacked barrel stays put until the one under it moves or goes
+        // (`BARREL_process_normal`), and then falls.
+        for k in 0..self.barrels.len() {
+            if let Some(j) = self.barrels[k].on {
+                let under = &self.barrels[j];
+                if under.gone || under.on.is_none() && (under.vel.length_squared() >= 1.0 || under.vy != 0.0) || self.barrels[k].vel.length_squared() >= 1.0 {
+                    self.barrels[k].on = None;
+                }
+            }
+        }
         for b in &mut self.barrels {
-            if b.vel.length_squared() < 1.0 {
+            if b.on.is_some() || b.gone {
                 continue;
             }
             let at = Vec2::new(b.pos.x, b.pos.z);
+            let floor = level.ground.surface(&level.map, at.x, at.y, b.pos.y + 32.0);
+            if b.pos.y > floor + 0.5 || b.vy != 0.0 {
+                // `BARREL_GRAVITY`: 0x80 of a 256th a tick, every tick.
+                b.vy -= 0x80 as f32 / 256.0 * 20.0 * 20.0 * dt;
+                b.pos.y += b.vy * dt;
+                if b.pos.y <= floor {
+                    b.pos.y = floor;
+                    b.vy = 0.0;
+                }
+            }
+            if b.vel.length_squared() < 1.0 {
+                continue;
+            }
             let to = level.ground.slide(at, b.pos.y, b.vel * dt, 30.0);
-            b.pos = Vec3::new(to.x, level.ground.surface(&level.map, to.x, to.y, b.pos.y + 32.0), to.y);
+            let floor = level.ground.surface(&level.map, to.x, to.y, b.pos.y + 32.0);
+            b.pos = Vec3::new(to.x, if b.vy != 0.0 { b.pos.y.max(floor) } else { floor }, to.y);
             b.vel *= (-2.5 * dt).exp();
             b.yaw += b.vel.length() * dt / 60.0;
             if b.kind == 1 {
