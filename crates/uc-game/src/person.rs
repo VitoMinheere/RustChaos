@@ -602,6 +602,9 @@ pub struct Person {
     /// Where to go next when there's nobody to fight (set by the game each frame), and how
     /// fast to get there.
     pub goal: Option<Vec3>,
+    /// Where to head for on the way to whoever they're fighting, when there's no walking
+    /// straight there (set by the game each frame from the navigation map).
+    pub via: Option<Vec3>,
     pub pace: Pace,
     /// Getting out of a car's way: run this way for this many seconds.
     pub dodge: Option<(Vec2, f32)>,
@@ -654,7 +657,7 @@ impl Person {
             pace: Pace::Walk,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 3], knocked_out: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
-            invulnerable: false, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
+            invulnerable: false, foe: None, colour: 0, group: 0, goal: None, via: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false,
         }
     }
@@ -944,6 +947,8 @@ impl Person {
         let d = flat(p.pos, self.fig.pos);
         let dist = d.length();
         let dy = (p.pos.y - self.fig.pos.y).abs();
+        // Which way to go to close in: round whatever is in the way, if there's a way round.
+        let towards = self.via.map_or(d, |v| flat(v, self.fig.pos)).normalize_or_zero();
         // PCOM_AI_FLEE_PLAYER keeps its distance (until hit: then it fights, see take_hit).
         if self.ai == 16 && p.present && !p.down {
             if dist < 6.0 * 256.0 {
@@ -990,7 +995,7 @@ impl Person {
                 c.punch = true;
                 self.attack_timer = (2.4 - skill * 0.1).max(0.8) + (rand() % 100) as f32 / 100.0;
             } else if !seen || dist > SHOOT_RANGE * 0.8 {
-                c.wish = d / dist;
+                c.wish = towards;
                 c.run = dist > SHOOT_RANGE;
             }
             return c;
@@ -1001,7 +1006,7 @@ impl Person {
                 && flat(s.pos, self.fig.pos).normalize_or_zero().dot(d.normalize_or_zero()) > 0.8
         });
         if dist > 140.0 && !crowded {
-            c.wish = d / dist;
+            c.wish = towards;
         } else if dist < 80.0 {
             c.wish = -d / dist.max(1.0) * 0.5;
         }
