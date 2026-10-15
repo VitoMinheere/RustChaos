@@ -96,6 +96,8 @@ impl Run {
         me.fig.pos = spot;
         me.fig.angle = uc_world::character::angle_of(vec2(at.x - spot.x, at.z - spot.z));
         me.weapon = Weapon::Shotgun;
+        // A fresh aim, as cycling the target would give: it keeps one while it's in view.
+        self.g.target = None;
         // And a fresh box of shells for each van.
         me.give(Weapon::Shotgun);
     }
@@ -130,6 +132,8 @@ fn stern_revenge_runs_to_a_win() {
     assert!(r.until(60.0, |r| VANS.iter().all(|&w| r.g.vehicles.iter().any(|v| v.way == w))), "the vans never came");
     for way in VANS {
         let k = r.van(way);
+        // Its driver getting in is nearer to aim at than the van: wait till he's in.
+        assert!(r.until(10.0, |r| !r.g.people.iter().any(|p| matches!(p.state, uc_game::State::Enter { vehicle } if vehicle == k))), "van {way}'s driver never got in");
         r.line_up(k);
         r.run(0.5, Controls::default());
         assert_eq!(r.g.aim_vehicle, Some(k), "the gun isn't on van {way}");

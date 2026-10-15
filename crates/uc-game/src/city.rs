@@ -343,6 +343,7 @@ impl Game {
         for j in 0..self.people.len() {
             if j != shooter && (self.people[j].fig.pos - at).length() < GUNSHOT {
                 self.people[j].scare(Some(shooter), at);
+                self.people[j].hear(at);
             }
         }
     }

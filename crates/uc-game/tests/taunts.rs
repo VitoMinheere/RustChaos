@@ -197,3 +197,67 @@ fn roper_headbutts_from_further() {
     assert_eq!(200 - g.people[i].health, 40 - skill);
     assert!(g.people[i].is_down() || g.people[i].is_dead());
 }
+
+/// Sight and hearing (`can_a_see_b`, `PCOM_oscillate_tympanum`): someone with his back to
+/// Darci doesn't see her standing behind him, but turns on hearing her run up.
+#[test]
+fn a_gang_member_with_his_back_turned() {
+    let Some((level, mut g, i)) = rta_gang() else { return };
+    let p = g.player.unwrap();
+    // Behind him, close, with his back to her.
+    let me = g.people[p].fig.pos;
+    let f = g.people[p].facing_dir();
+    let at = me + vec3(f.x, 0.0, f.y) * 300.0;
+    let y = level.ground.surface(&level.map, at.x, at.z, at.y + 64.0);
+    g.people[i].fig.pos = vec3(at.x, y, at.z);
+    g.people[i].fig.angle = uc_world::character::angle_of(f);
+    g.people[i].mv = 1;
+    for _ in 0..(3.0 / DT) as usize {
+        g.people[i].goal = None;
+        run(&mut g, &level, DT, &Controls::default());
+    }
+    assert!(!g.people[i].aggro(), "saw her behind him");
+    assert_eq!(g.people[i].taunt, None);
+    // She runs at him: he hears her and turns.
+    let toward = vec2(f.x, f.y);
+    let go = Controls { wish: toward, run: true, ..Default::default() };
+    let mut noticed = false;
+    for _ in 0..(2.0 / DT) as usize {
+        run(&mut g, &level, DT, &go);
+        if g.people[i].aggro() {
+            noticed = true;
+            break;
+        }
+    }
+    assert!(noticed, "never heard her running up");
+}
+
+/// Losing sight of her mid-taunt ends the taunt but not the fight (it used to drop both, and
+/// he'd notice her again the next frame, over and over).
+#[test]
+fn out_of_sight_he_comes_looking() {
+    let Some((level, mut g, i)) = rta_gang() else { return };
+    for _ in 0..(5.0 / DT) as usize {
+        run(&mut g, &level, DT, &Controls::default());
+        if g.people[i].taunt.is_some() {
+            break;
+        }
+    }
+    assert!(g.people[i].taunt.is_some(), "no taunt");
+    // Somewhere near on the same level that a wall hides from him.
+    let p = g.player.unwrap();
+    let him = g.people[i].fig.pos;
+    let eye = vec3(0.0, 140.0, 0.0);
+    let hidden = (0..360).step_by(10).flat_map(|a| [400.0f32, 700.0, 1000.0].map(move |r| (a, r))).find_map(|(a, r)| {
+        let a = (a as f32).to_radians();
+        let at = him + vec3(a.sin(), 0.0, a.cos()) * r;
+        let y = level.ground.surface(&level.map, at.x, at.z, him.y + 64.0);
+        let at = vec3(at.x, y, at.z);
+        ((y - him.y).abs() < 32.0 && !level.ground.line_of_sight(him + eye, at + eye)).then_some(at)
+    });
+    let Some(at) = hidden else { return };
+    g.people[p].fig.pos = at;
+    run(&mut g, &level, 0.5, &Controls::default());
+    assert_eq!(g.people[i].taunt, None);
+    assert!(g.people[i].aggro(), "forgot her");
+}

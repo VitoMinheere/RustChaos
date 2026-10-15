@@ -562,6 +562,11 @@ pub struct Snap {
     pub in_car: bool,
     /// Lying injured, to be carried.
     pub injured: bool,
+    /// Crouched or crawling: harder to see.
+    pub crouching: bool,
+    /// How far off the noise they're making this frame is heard (`PCOM_oscillate_tympanum`'s
+    /// radii, pcom.cpp:13124): running feet 0x280, a landing 0x200, a fight 0x900; 0 for none.
+    pub noise: f32,
 }
 
 /// What someone is running from: a person (followed as they move) or a place.
@@ -671,6 +676,9 @@ pub struct Person {
     pub scared: Option<Scare>,
     /// Somebody has given them a fright (`pcom_ai_memory`): they don't forget it, and say so.
     pub annoyed: bool,
+    /// Heard something there, and looking that way for this many seconds more
+    /// (`PCOM_AI_STATE_INVESTIGATING`).
+    pub heard: Option<(Vec3, f32)>,
     aggro: bool,
     attack_timer: f32,
     /// Sounds made this frame (collected by the game).
@@ -708,7 +716,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 4], knocked_out: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, via: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
-            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false,
+            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, heard: None,
         }
     }
 
@@ -941,12 +949,47 @@ impl Person {
             blocking: matches!(self.state, State::Block),
             in_car: matches!(self.state, State::InCar { .. }),
             injured: matches!(self.state, State::Injured),
+            crouching: self.crouching(),
+            noise: match self.state {
+                _ if self.removed => 0.0,
+                State::Land { .. } => 0x200 as f32,
+                State::Attack { .. } => 0x900 as f32,
+                State::Move if matches!(self.fig.anim(), anim::RUN | anim::PISTOL_JOG | anim::AK_JOG) => 0x280 as f32,
+                _ => 0.0,
+            },
         }
     }
 
-    /// Whose blows can land on whom: the player can hit anybody, the AI only its foe.
+    /// A noise at `at` (`PCOM_oscillate_tympanum`): anyone hostile who isn't already after the
+    /// player turns to look (`PCOM_set_person_ai_investigate`).
+    pub fn hear(&mut self, at: Vec3) {
+        if self.hostile() && !self.aggro && !self.removed && !self.is_dead() && !self.is_down() {
+            self.heard = Some((at, 2.0));
+        }
+    }
+
+    /// `can_a_see_b` (Person.cpp:3198), with its range capped at `range`: within it, half that
+    /// if they're crouching; in front within 700 of 2048 either way up close (0xc0), 420
+    /// further off (`PEOPLE_FOV`); and in view head to head, a crouched head being lower.
+    fn can_see(&self, p: &Snap, range: f32, ground: &Ground) -> bool {
+        let d = flat(p.pos, self.fig.pos);
+        let dist = d.length();
+        let view = if p.crouching { range / 2.0 } else { range };
+        if dist > view || (p.pos.y - self.fig.pos.y).abs() > 256.0 {
+            return false;
+        }
+        let ahead = self.fig.facing().dot(d / dist.max(1.0));
+        // cos(700 / 2048 of a turn) and cos(420 / 2048).
+        let cone = if dist < 0xc0 as f32 { -0.54 } else { 0.28 };
+        let head = |crouch: bool| vec3(0.0, if crouch { 0x20 as f32 } else { 0x60 as f32 }, 0.0);
+        ahead > cone && ground.line_of_sight(self.fig.pos + head(self.crouching()), p.pos + head(p.crouching))
+    }
+
+    /// Whose blows can land on whom: the player can hit anybody, the AI only its foe, and
+    /// only once it's noticed them (else anyone hostile turned to face the player as she came
+    /// near, back turned or not).
     fn opponents(&self, j: usize, other: &Snap) -> bool {
-        if self.player { !other.player } else { self.fights() && self.foe == Some(j) }
+        if self.player { !other.player } else { self.fights() && self.foe == Some(j) && (self.aggro || self.is_dummy()) }
     }
 
     /// The nearest standing opponent within `range`.
@@ -1025,7 +1068,23 @@ impl Person {
         }
         let range = self.aggro_range();
         let hunter = range > 32.0 * 256.0;
-        if !self.aggro && dist < range && (dy < 128.0 || hunter) {
+        // A gang member notices the player by seeing them (`PCOM_can_i_see_person_to_taunt`
+        // is `can_a_see_b`), or turns to look on hearing them (running feet, a landing, a
+        // fight) and may see them then; others still by being near.
+        let gang = self.ai == AI_GANG && !hunter;
+        if gang && !self.aggro && p.noise > 0.0 && dist < p.noise {
+            self.hear(p.pos);
+        }
+        let notices = if gang { self.can_see(&p, range, ground) } else { dist < range && (dy < 128.0 || hunter) };
+        if !self.aggro && !notices {
+            if let Some((at, left)) = self.heard {
+                self.heard = (left > dt).then_some((at, left - dt));
+                self.fig.turn_towards(flat(at, self.fig.pos), 6.0, dt);
+                return c;
+            }
+        }
+        if !self.aggro && notices {
+            self.heard = None;
             self.aggro = true;
             self.cues.push(Sfx::Alert { kind: self.kind });
             self.attack_timer = 0.8;
@@ -1045,13 +1104,10 @@ impl Person {
             // `PCOM_process_taunt` (pcom.cpp:9467): out of sight, they give it up; done with
             // a taunt, they go for them half the time and otherwise pause (up to a second
             // and a half) and taunt again. A driver they can only taunt.
+            // Losing sight of them ends the taunt, not the fight: they come looking.
             let eye = vec3(0.0, 140.0, 0.0);
-            if !ground.line_of_sight(self.fig.pos + eye, p.pos + eye) {
-                self.taunt = None;
-                self.aggro = false;
-                return self.wander(c, ground, dt, rand);
-            }
             self.taunt = match t {
+                _ if !ground.line_of_sight(self.fig.pos + eye, p.pos + eye) => None,
                 Taunt::Now => {
                     c.taunt = true;
                     Some(Taunt::Doing)
