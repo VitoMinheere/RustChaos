@@ -303,6 +303,8 @@ pub struct Controls {
     pub aim: Option<Vec3>,
     /// Driving, when in a car.
     pub drive: crate::vehicle::Drive,
+    /// Taunt `target` (`ANIM_WANKER`), standing.
+    pub taunt: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -388,6 +390,9 @@ pub enum Grab {
     Knee1,
     Knee2,
     Throw,
+    /// Roper's grapples (`grapples[]`, combat.cpp:179, only his): strangling, and a headbutt.
+    Strangle,
+    Headbutt,
 }
 
 impl Grab {
@@ -398,8 +403,29 @@ impl Grab {
             Grab::Knee1 => (anim::GRAB_ARM_KNEE1, anim::GRAB_ARM_KNEE1V),
             Grab::Knee2 => (anim::GRAB_ARM_KNEE2, anim::GRAB_ARM_KNEE2V),
             Grab::Throw => (anim::GRAB_ARM_THROW, anim::GRAB_ARM_THROWV),
+            Grab::Strangle => (anim::STRANGLE, anim::STRANGLE_VICTIM),
+            Grab::Headbutt => (anim::HEADBUTT, anim::HEADBUTT_VICTIM),
         }
     }
+
+    /// How far in front of the one grappling the victim is held (`set_grapple_pos`).
+    pub fn reach(self) -> f32 {
+        match self {
+            Grab::Strangle | Grab::Headbutt => 100.0,
+            _ => 90.0,
+        }
+    }
+}
+
+/// A gang member taunting the player (`PCOM_AI_STATE_TAUNT`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Taunt {
+    /// About to make the gesture.
+    Now,
+    /// Making it.
+    Doing,
+    /// Pausing this many seconds before the next one.
+    Pause(f32),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -435,7 +461,10 @@ pub enum State {
     PullUp { start: Vec3, end: Vec3, to: Vec3 },
     /// On a ladder: feet at `y0` plus one rung cycle per loop of the animation since `loops0`.
     Climb { ladder: usize, y0: f32, loops0: f32 },
-    Grapple { victim: usize, grab: Grab, hit: bool, timer: f32 },
+    /// Grappling `victim`. `frame`: the last keyframe of Roper's grapples that did its damage.
+    Grapple { victim: usize, grab: Grab, hit: bool, timer: f32, frame: Option<usize> },
+    /// Taunting `at` (`ANIM_WANKER`), facing them all the while.
+    Taunt { at: usize },
     Held { by: usize },
     Arrest { victim: usize },
     Cuffed,
@@ -462,7 +491,10 @@ pub enum Event {
     Hit { attacker: usize, victim: usize, damage: i32, ko: u8, high: bool, low: bool, weapon: Weapon },
     /// A shot at `victim` (or at nothing); whether it hits is decided by the game.
     Shot { attacker: usize, victim: Option<usize>, weapon: Weapon },
-    Grab { attacker: usize, victim: usize },
+    Grab { attacker: usize, victim: usize, grab: Grab },
+    /// A frame of Roper's strangle or his headbutt landing on `victim`: the damage is taken
+    /// straight off their health, by how skilled they are (Person.cpp:18969).
+    Squeeze { victim: usize, headbutt: bool },
     /// The attacker changed grapple move; the victim follows.
     GrabMove { victim: usize, grab: Grab },
     Release { victim: usize },
@@ -587,6 +619,8 @@ pub struct Person {
     pub pace: Pace,
     /// Getting out of a car's way: run this way for this many seconds.
     pub dodge: Option<(Vec2, f32)>,
+    /// Taunting the player, rather than going for them just yet.
+    pub taunt: Option<Taunt>,
     /// `PCOM_MOVE_WANDER`: walking to this spot, giving up after this many seconds (or
     /// pausing, with no spot).
     wander: (Option<Vec2>, f32),
@@ -635,7 +669,7 @@ impl Person {
             fig, way, player, kind, ai: 0, bent: 0, ko_moves: 0, health, max_health: health, state: State::Move,
             pace: Pace::Walk,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 3], knocked_out: false, down_timer: 0.0,
-            block_timer: 0.0, zip_cooldown: 0.0, dodge: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
+            block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false,
         }
@@ -750,6 +784,11 @@ impl Person {
 
     pub fn is_dummy(&self) -> bool {
         self.ai == crate::script::PCOM_AI_FIGHT_TEST
+    }
+
+    /// Taunts at all (`PCOM_set_person_ai_taunt`): never cops, nor anyone helpless or held.
+    fn can_taunt(&self) -> bool {
+        self.kind != uc_world::character::person::COP && matches!(self.state, State::Move | State::Taunt { .. })
     }
 
     /// Attacks the player on sight (`PCOM_AI_GANG`, `_GUARD`, `_BULLY`, fight-test dummies...).
@@ -893,8 +932,13 @@ impl Person {
             }
             return c;
         }
-        if !self.fights() || !p.present || p.down || p.in_car {
+        // No point having a fist fight with a car: someone without a gun taunts its driver
+        // instead (`PCOM_process_navtokill`, pcom.cpp:7518 and 8814).
+        if self.fights() && self.aggro && p.present && p.in_car && !self.weapon.is_gun() && dist < self.aggro_range() && self.can_taunt() {
+            self.taunt.get_or_insert(Taunt::Now);
+        } else if !self.fights() || !p.present || p.down || p.in_car {
             self.aggro = false;
+            self.taunt = None;
             return self.wander(c, ground, dt, rand);
         }
         let range = self.aggro_range();
@@ -903,11 +947,42 @@ impl Person {
             self.aggro = true;
             self.cues.push(Sfx::Alert { kind: self.kind });
             self.attack_timer = 0.8;
+            // A gang member who sees the player taunts them first (`PCOM_AI_GANG` in
+            // `PCOM_process_person`, pcom.cpp:11180, `PCOM_can_i_see_person_to_taunt`).
+            if self.ai == AI_GANG && !hunter && self.can_taunt() {
+                self.taunt = Some(Taunt::Now);
+            }
         } else if self.aggro && !hunter && (dist > range * 2.0 + AGGRO_RANGE || dy > 256.0) {
             self.aggro = false;
         }
         if !self.aggro {
+            self.taunt = None;
             return self.wander(c, ground, dt, rand);
+        }
+        if let Some(t) = self.taunt {
+            // `PCOM_process_taunt` (pcom.cpp:9467): out of sight, they give it up; done with
+            // a taunt, they go for them half the time and otherwise pause (up to a second
+            // and a half) and taunt again. A driver they can only taunt.
+            let eye = vec3(0.0, 140.0, 0.0);
+            if !ground.line_of_sight(self.fig.pos + eye, p.pos + eye) {
+                self.taunt = None;
+                self.aggro = false;
+                return self.wander(c, ground, dt, rand);
+            }
+            self.taunt = match t {
+                Taunt::Now => {
+                    c.taunt = true;
+                    Some(Taunt::Doing)
+                }
+                Taunt::Doing if matches!(self.state, State::Taunt { .. }) => Some(Taunt::Doing),
+                Taunt::Doing if rand() & 1 == 1 && !p.in_car => None,
+                Taunt::Doing => Some(Taunt::Pause((rand() & 0xf) as f32 / 10.0)),
+                Taunt::Pause(left) if left > dt => Some(Taunt::Pause(left - dt)),
+                Taunt::Pause(_) => Some(Taunt::Now),
+            };
+            if self.taunt.is_some() {
+                return c;
+            }
         }
         // Block a blow that's coming (better fighters more often).
         self.block_timer -= dt;
@@ -1762,7 +1837,30 @@ impl Person {
                     self.climb_onto(anim::OFF_LADDER_TOP, to, false);
                 }
             }
-            State::Grapple { victim, grab, mut hit, mut timer } => {
+            State::Grapple { victim, grab: grab @ (Grab::Strangle | Grab::Headbutt), hit, timer, frame } => {
+                // `SUB_STATE_STRANGLE` and `_HEADBUTT` (Person.cpp:18932): the damage comes on
+                // certain frames, and when it's over the victim is left lying (or dead).
+                let now = self.fig.frame();
+                if now != frame {
+                    let strangle = grab == Grab::Strangle;
+                    let landed = match now {
+                        Some(f) if strangle => f == 27 || (f % 2 == 0 && (14..=24).contains(&f)),
+                        Some(f) => f == 11,
+                        None => false,
+                    };
+                    if landed && snaps[victim].present {
+                        events.push(Event::Squeeze { victim, headbutt: !strangle });
+                    }
+                }
+                if self.fig.finished() {
+                    events.push(Event::Hit { attacker: me, victim, damage: 0, ko: ko::GRAPPLE, high: false, low: false, weapon: Weapon::None });
+                    self.state = State::Move;
+                    self.idle(true);
+                    return;
+                }
+                self.state = State::Grapple { victim, grab, hit, timer, frame: now };
+            }
+            State::Grapple { victim, grab, mut hit, mut timer, frame } => {
                 let v = snaps[victim];
                 if !v.present {
                     self.state = State::Move;
@@ -1790,7 +1888,7 @@ impl Person {
                         events.push(Event::GrabMove { victim, grab: g });
                         events.push(if g == Grab::Throw { Event::Kick { attacker: me } } else { Event::Punch { attacker: me } });
                     }
-                    self.state = State::Grapple { victim, grab: g, hit: false, timer: 0.0 };
+                    self.state = State::Grapple { victim, grab: g, hit: false, timer: 0.0, frame };
                     return;
                 }
                 if matches!(grab, Grab::Knee2 | Grab::Throw) {
@@ -1804,7 +1902,17 @@ impl Person {
                         return;
                     }
                 }
-                self.state = State::Grapple { victim, grab, hit, timer };
+                self.state = State::Grapple { victim, grab, hit, timer, frame };
+            }
+            State::Taunt { at } => {
+                // `PCOM_process_taunt`: always facing who they're taunting.
+                if snaps[at].present {
+                    self.fig.turn_towards(flat(snaps[at].pos, self.fig.pos), 8.0, dt);
+                }
+                if self.fig.finished() {
+                    self.state = State::Move;
+                    self.idle(false);
+                }
             }
             State::Arrest { victim } => {
                 if self.fig.finished() {
@@ -1891,6 +1999,13 @@ impl Person {
             self.state = State::Block;
             return;
         }
+        if let (true, false, Some(at)) = (c.taunt, moving, c.target) {
+            if self.fig.restart(anim::WANKER, Play::Once) {
+                self.fig.angle = uc_world::character::angle_of(flat(snaps[at].pos, self.fig.pos));
+                self.state = State::Taunt { at };
+                return;
+            }
+        }
         // Action standing still with nothing else to do: crouch, gun and all.
         if c.action && self.player && !moving {
             let a = match self.weapon {
@@ -1928,13 +2043,32 @@ impl Person {
             if let Some(t) = target {
                 let d = flat(snaps[t].pos, self.fig.pos);
                 if self.player && d.length() < GRAB_RANGE && moving && c.wish.dot(d.normalize_or_zero()) > 0.6 {
-                    self.fig.angle = uc_world::character::angle_of(d);
-                    self.fig.restart(anim::GRAB_ARM, Play::Once);
-                    self.state = State::Grapple { victim: t, grab: Grab::Grab, hit: false, timer: 0.0 };
-                    self.cues.push(Sfx::Grab);
-                    events.push(Event::Grab { attacker: me, victim: t });
-                    events.push(Event::Punch { attacker: me });
-                    return;
+                    // Roper strangles or headbutts instead (`grapples[]`, combat.cpp:179: the
+                    // arm grab is everyone else's): the strangle from up to 70 away, the
+                    // headbutt from further. Neither on Roper himself, nor with too little
+                    // room in front, as the victim is thrown forward at the end
+                    // (`is_there_room_in_front_of_me(150)`, combat.cpp:789).
+                    use uc_world::character::person as ptype;
+                    let grab = if self.kind != ptype::ROPER {
+                        Some(Grab::Grab)
+                    } else {
+                        let up = vec3(0.0, 64.0, 0.0);
+                        let ahead = self.fig.pos + vec3(d.x, 0.0, d.y).normalize_or_zero() * 150.0;
+                        let room = ground.line_of_sight(self.fig.pos + up, ahead + up);
+                        let roper = snaps[t].kind == ptype::ROPER;
+                        (room && !roper).then_some(if d.length() < 70.0 { Grab::Strangle } else { Grab::Headbutt })
+                    };
+                    if let Some(grab) = grab {
+                        self.fig.angle = uc_world::character::angle_of(d);
+                        self.fig.restart(grab.anims().0, Play::Once);
+                        self.state = State::Grapple { victim: t, grab, hit: false, timer: 0.0, frame: None };
+                        self.cues.push(Sfx::Grab);
+                        events.push(Event::Grab { attacker: me, victim: t, grab });
+                        if grab == Grab::Grab {
+                            events.push(Event::Punch { attacker: me });
+                        }
+                        return;
+                    }
                 }
             }
             if let Some(t) = target {
@@ -2081,6 +2215,8 @@ impl Person {
                 return;
             }
         }
+        // Any sort of come-on, and a taunt is over: they go for whoever it was.
+        self.taunt = None;
         let damage = if blocking { damage / 4 } else { damage };
         // Fight-test dummies only go down to their moves; everyone else loses health, and
         // finishing moves knock them down even with some left.
