@@ -12,3 +12,4 @@ mod actions;
 mod combat;
 mod draw;
 pub mod mines;
+mod litter;

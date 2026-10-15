@@ -215,7 +215,7 @@ impl Game {
                     let yaw = (self.rand() % 628) as f32 / 100.0;
                     let semtex = level.name.eq_ignore_ascii_case("semtex");
                     let (prim, explodes) = Barrel::of_kind(kind, semtex);
-                    self.barrels.push(Barrel { kind, prim, explodes, way, gone: false, pos: Vec3::new(pos.x, y, pos.z), vel: Vec2::ZERO, yaw, tilt: 0.0 });
+                    self.add_barrel(Barrel { kind, prim, explodes, way, gone: false, pos: Vec3::new(pos.x, y, pos.z), vel: Vec2::ZERO, yaw, tilt: 0.0, on: None, vy: 0.0 });
                 }
                 Command::Sign { which, flip } => {
                     let text = match (which, flip) {
