@@ -205,9 +205,21 @@ impl Game {
             let v = &mut self.vehicles[vi];
             let d = if v.driver.is_some() && v.driver == player { input.drive } else { npc.map_or(Drive::default(), |(_, d)| d) };
             let sliding = v.slip.abs() > 300.0;
+            let mut smashed = None;
             if let Some(speed) = v.update(d, dt, &level.ground, &level.map) {
-                if speed > 300.0 {
+                // `DoDamage` (vehicle.cpp:2094), in its units of 1/256 a tick at 20 ticks a
+                // second: faster than 20000 smashes the prop it hit, as `OB_damage` does
+                // (so breakable ones break, explosive ones go up, `prim_damaged` sees it),
+                // and faster than 10000 only makes the noise.
+                const SMASH: f32 = 20000.0 / 256.0 * 20.0;
+                const NOISE: f32 = 10000.0 / 256.0 * 20.0;
+                let front = v.front(speed);
+                if speed > NOISE {
                     self.sounds.push((Sfx::Crash, v.pos));
+                }
+                if speed > SMASH {
+                    let hit = touching_prop(level, front, v.pos.y);
+                    smashed = hit;
                 }
                 // Ran into something: back off and come round (`PCOM_MOVE_SUBSTATE_3PTURN`).
                 if let Some(dr) = npc.and_then(|(pi, _)| self.drivers.get_mut(&pi)) {
@@ -218,6 +230,18 @@ impl Game {
             }
             if !sliding && v.slip.abs() > 300.0 {
                 self.sounds.push((Sfx::Skid, v.pos));
+            }
+            // Brushing past one at speed counts too: the original damages whatever prop its
+            // corners touch (`VEH_collide`), whether or not the car is stopped.
+            if smashed.is_none() && self.vehicles[vi].speed.abs() > 20000.0 / 256.0 * 20.0 {
+                let car = &self.vehicles[vi];
+                smashed = touching_prop(level, car.front(car.speed), car.pos.y).filter(|i| !self.damaged.contains(i));
+                if smashed.is_some() {
+                    self.sounds.push((Sfx::Crash, car.pos));
+                }
+            }
+            if let Some(i) = smashed {
+                self.damage_prop(level, i);
             }
             let v = self.vehicles[vi].clone();
             // (Not someone still getting in: they're at the door.)
@@ -343,4 +367,23 @@ impl Game {
             }
         }
     }
+}
+
+/// The breakable prop whose collision outline the round end of a car at `front` touches.
+fn touching_prop(level: &Level, front: Vec2, y: f32) -> Option<usize> {
+    let g = &level.ground;
+    g.prop_walls.iter()
+        .filter(|(i, _)| g.prop_damage.get(*i).is_some_and(|d| d.0 & DAMAGABLE != 0))
+        .filter(|(_, r)| g.walls[r.start].y0 < y + 128.0 && g.walls[r.start].y1 > y)
+        .map(|(i, r)| {
+            let d = g.walls[r.clone()].iter().map(|w| {
+                let (a, b) = (Vec2::from(w.a), Vec2::from(w.b));
+                let t = ((front - a).dot(b - a) / (b - a).length_squared().max(1.0)).clamp(0.0, 1.0);
+                (a + (b - a) * t - front).length()
+            }).fold(f32::MAX, f32::min);
+            (*i, d)
+        })
+        .filter(|&(_, d)| d < vehicle::REACH)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(i, _)| i)
 }
