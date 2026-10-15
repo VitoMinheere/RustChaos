@@ -1043,6 +1043,14 @@ impl Person {
         c
     }
 
+    /// Someone with a gun out about to shoot their foe, who they can see within range: how
+    /// near the shot is, 0 (now) to 100 (`track_gun_sight(p_target, shoot_time - counter)`,
+    /// pcom.cpp:8946, with our countdown at twenty to the second).
+    pub fn about_to_shoot(&self) -> Option<f32> {
+        (self.aggro && self.weapon.is_gun() && !self.player && matches!(self.state, State::Move | State::Shoot { .. }))
+            .then(|| (self.attack_timer.max(0.0) * 20.0).min(100.0))
+    }
+
     /// One of the Men in Black (`PersonIsMIB`, Person.cpp:498).
     pub fn is_mib(&self) -> bool {
         use uc_world::character::person as ptype;
