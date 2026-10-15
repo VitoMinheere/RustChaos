@@ -13,8 +13,10 @@
 //! Finally the events they produced (hits, grabs, arrests) are applied, grappled pairs are
 //! kept together and people are pushed apart.
 
+pub mod chopper;
+pub mod barrel;
 pub mod city;
-mod game;
+pub mod game;
 pub use game::Snipe;
 pub mod creature;
 pub mod dirt;
@@ -42,6 +44,8 @@ pub use person::{Controls, Person, Sfx, State, Weapon};
 pub use pyro::Pyro;
 pub use script::Shot;
 pub use vehicle::{Drive, Vehicle};
+pub use game::mines::Mine;
+pub use game::grenades::Grenade;
 
 /// `facet_rand`'s LCG (fallen/Source/facet.cpp): the one source of chance in the game, so a
 /// run plays out the same way twice.
@@ -63,15 +67,15 @@ pub struct Barrel {
     pub way: usize,
     /// Blown up (`BARREL_dissapear`): gone from the world, and the point that made it knows.
     pub gone: bool,
+    /// Its base.
     pub pos: Vec3,
-    pub vel: Vec2,
     pub yaw: f32,
-    /// How far it has toppled over (0 upright .. pi/2 on its side).
+    /// How far it has toppled over (0 upright, pi/2 on its side, pi upside down).
     pub tilt: f32,
     /// The barrel it stands on (`bb->on`), if it was put down on top of another.
     pub on: Option<usize>,
-    /// Falling speed, once the barrel under it has gone.
-    pub vy: f32,
+    /// While it's moving, the two spheres it is (`BARREL_Sphere`, [`barrel`]).
+    pub spheres: Option<[barrel::Sphere; 2]>,
 }
 
 impl Barrel {
@@ -266,6 +270,8 @@ enum Aim {
     Person(usize),
     Creature(usize),
     Barrel(usize),
+    Mine(usize),
+    Vehicle(usize),
 }
 
 /// A bolt of lightning from a creature to someone (`SPARK_create`): from, to, seconds left.
@@ -366,6 +372,13 @@ pub struct Game {
     player_fired: bool,
     /// Props damaged (`OB_FLAG_DAMAGED`), as indices into the map's objects.
     pub damaged: BTreeSet<usize>,
+    /// How long nothing has happened (`timer_bored`, Person.cpp:3762): seconds since the
+    /// player last fought, shot at someone or watched a scene.
+    pub bored: f32,
+    /// Grenades thrown and not yet gone off.
+    pub grenades: Vec<Grenade>,
+    /// The player's grenade, primed and still in hand: seconds to going off.
+    pub primed: Option<f32>,
     /// Explosives set down and waiting to go off.
     pub charges: Vec<Charge>,
     /// The mission's moving platforms, made or still waiting to be.
@@ -381,8 +394,26 @@ pub struct Game {
     pub creatures: Vec<creature::Creature>,
     /// Looking through the sniper rifle's scope (`SNIPE_on`).
     snipe: Option<game::Snipe>,
+    /// The navigation map (`MAV_precalculate`).
+    mav: uc_world::mav::Mav,
+    /// Each person's last route: (from square, to square, furthest square to walk to, first
+    /// square along it).
+    ways: HashMap<usize, ((u8, u8), (u8, u8), Option<(u8, u8)>, Option<(u8, u8)>)>,
+    /// The route search's own chance (its bias against odd moves).
+    mav_rng: u32,
+    /// The mission's helicopters.
+    pub choppers: Vec<chopper::Chopper>,
+    /// Seconds into the helicopters' next tick.
+    chopper_clock: f32,
+    /// The barrels' own chance, and seconds into their next turn, and where everyone was
+    /// at it (to knock barrels with as they walk).
+    barrel_rng: u32,
+    barrel_clock: f32,
+    barrel_marks: Vec<Vec3>,
     /// People getting into cars: (who, which car).
     entering: Vec<(usize, usize)>,
+    /// Who Darci was last aiming at, to notice when that changes.
+    last_aimed: Option<usize>,
     creature_by_way: HashMap<usize, usize>,
     pub fireballs: Vec<creature::Fireball>,
     pub sparks: Vec<Spark>,
@@ -390,6 +421,14 @@ pub struct Game {
     pub aim_creature: Option<usize>,
     /// The barrel the player's gun is pointed at (`find_target_new` takes barrels too).
     pub aim_barrel: Option<usize>,
+    /// The mine the player's gun is pointed at (`find_target_new` takes mines too).
+    pub aim_mine: Option<usize>,
+    /// Mines laid by the mission (`IT_MINE`).
+    pub mines: Vec<Mine>,
+    /// The car the player's gun is pointed at (`find_target_new` takes vehicles too).
+    pub aim_vehicle: Option<usize>,
+    /// Cars already blown up, so each goes up once.
+    blown: BTreeSet<usize>,
     /// Seconds into the creatures' next tick.
     creature_clock: f32,
     creature_rng: u32,
@@ -405,6 +444,8 @@ pub struct Game {
     pub mists: Mists,
     /// Drops in the air.
     pub drops: dirt::Drops,
+    /// The floor squares on the sea, drawn with the waves.
+    sea: Vec<uc_world::level::SeaSquare>,
     /// Leaves, cans and snow lying about round the player.
     pub dirt: dirt::Dirt,
     /// Seconds to the dirt's next turn.
@@ -468,7 +509,8 @@ impl Game {
             taken: BTreeSet::new(), dead_cops: BTreeSet::new(), player_fired: false,
             crime_rate: if level.mission.crime_rate == 0 { 50 } else { level.mission.crime_rate.min(100) },
             show_crime_rate: level.mission.flags & MISSION_FLAG_SHOW_CRIMERATE != 0, crimes: BTreeSet::new(),
-            searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(),
+            searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(), bored: 0.0,
+            grenades: Vec::new(), primed: None,
             wares: ware::Wares::new(&level.map), indoors: None,
             platforms: level.platforms.iter().map(|&(way, ob)| {
                 let o = &level.map.objects[ob];
@@ -477,9 +519,9 @@ impl Game {
             }).collect(),
             plat_prims: level.platforms.iter().map(|&(_, ob)| uc_world::level::load_prim(&level.game, level.map.objects[ob].prim)).collect(),
             plat_clock: 0.0,
-            creatures: Vec::new(), snipe: None, entering: Vec::new(), creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
-            aim_creature: None, aim_barrel: None, creature_clock: 0.0, creature_rng: 0xba7,
-            pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), dirt: Game::new_dirt(level), dirt_clock: 0.0, dirt_marks: Vec::new(), steam: steam::Steam::default(),
+            creatures: Vec::new(), snipe: None, mav: uc_world::mav::Mav::new(level), ways: HashMap::new(), mav_rng: 0x3a7, choppers: Vec::new(), chopper_clock: 0.0, barrel_rng: 0xba44, barrel_clock: 0.0, barrel_marks: Vec::new(), entering: Vec::new(), last_aimed: None, creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
+            aim_creature: None, aim_barrel: None, aim_mine: None, mines: Vec::new(), aim_vehicle: None, blown: BTreeSet::new(), creature_clock: 0.0, creature_rng: 0xba7,
+            pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), sea: level.sea(), dirt: Game::new_dirt(level), dirt_clock: 0.0, dirt_marks: Vec::new(), steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
             electrified: BTreeSet::new(), fence_spark_clock: 0.0, no_floor: false,
             player_name: "",
@@ -510,7 +552,7 @@ impl Game {
             let y = level.ground.surface(&level.map, at.x, at.z, at.y + 32.0);
             let yaw = o.yaw as f32 * std::f32::consts::TAU / 2048.0;
             g.add_barrel(Barrel { kind: 0, prim: uc_world::level::BARREL_PROP, explodes: true, way: 0, gone: false,
-                                  pos: Vec3::new(at.x, y, at.z), vel: Vec2::ZERO, yaw, tilt: 0.0, on: None, vy: 0.0 });
+                                  pos: Vec3::new(at.x, y, at.z), yaw, tilt: 0.0, on: None, spheres: None });
         }
         g
     }
@@ -566,6 +608,7 @@ impl Game {
         self.used = input.action;
         if self.outcome.is_none() {
             self.update_target(input.cycle_target, level);
+            self.aim_at_people();
         }
         if self.outcome.is_none() {
             self.run_script(dt, level);
@@ -578,11 +621,18 @@ impl Game {
         }
         self.vent_steam(dt, level);
         self.trip_wires(dt);
+        self.wreck_cars();
+        if self.outcome.is_none() {
+            self.run_mines(dt, level);
+            self.run_grenades(dt, level);
+        }
         self.electric_fences(dt, level);
         self.no_floor_falls();
         self.go_indoors(level);
         self.move_platforms(dt, level);
         self.run_creatures(dt, level, self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player));
+        self.fly_choppers(dt, level);
+        self.roll_barrels(dt, level);
         // From just under the pelvis, for as long as they're on their feet (the original asks
         // only that they're peeing, but its pelvis is never anywhere sensible once they're down).
         let streams: Vec<(Vec3, Vec2)> = self.people.iter()
@@ -609,7 +659,9 @@ impl Game {
         }
         input.target = self.target;
         input.aim = self.aim_creature.map(|k| self.creatures[k].middle())
-            .or_else(|| self.aim_barrel.map(|k| self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0)));
+            .or_else(|| self.aim_barrel.map(|k| self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0)))
+            .or_else(|| self.aim_mine.map(|k| self.mines[k].pos))
+            .or_else(|| self.aim_vehicle.map(|k| self.vehicles[k].pos + Vec3::new(0.0, 64.0, 0.0)));
         if self.outcome.is_none() && !held && input.action && self.use_something(level) {
             input.action = false;
         }
@@ -640,6 +692,7 @@ impl Game {
         // (12 squares from the mark), then carries on: the original starts at once, so the
         // crash cops in RTA had shot the drunk long before she got there.
         self.walk_goals();
+        self.find_ways(level);
         self.city_life(dt, level);
         self.board_cars(level);
         // `PCOM_AI_SUICIDE`, "the easiest AI! A random death" (fallen/Source/pcom.cpp): down
@@ -735,6 +788,12 @@ impl Game {
             // Really sprinting: out of breath she's only running, whatever is held.
             let sprinting = pl.sprinting;
             self.fight_timer = if fighting { 6.0 } else { (self.fight_timer - dt).max(0.0) };
+            // A fight, a fly-by or a conversation resets it; otherwise it counts up.
+            if fighting || self.cutscene.is_some() || self.in_conversation() {
+                self.bored = 0.0;
+            } else {
+                self.bored += dt;
+            }
             self.sprinting = sprinting;
         }
     }

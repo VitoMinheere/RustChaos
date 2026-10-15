@@ -3,14 +3,6 @@
 use crate::*;
 
 impl Game {
-    /// A blast that knocks people about: damage falls off from `damage` at the middle to
-    /// nothing at `radius`, and over 30 points knocks them down (`create_shockwave`,
-    /// fallen/Source/collide.cpp). People in cars are shielded, as everywhere else here.
-    /// `BARREL_shoot` (fallen/Source/barrel.cpp:1824): a bang, and a barrel that explodes
-    /// goes up in a firebomb, with a shockwave of 0x200 doing up to 250 that's the shooter's
-    /// doing, and knocks the barrels round it away. A cone or a bin is only knocked about.
-    /// Only a shot does this: a blast, a charge's included, leaves barrels alone
-    /// (`create_shockwave` doesn't look for them).
     /// Puts down a barrel (`BARREL_alloc`, barrel.cpp:1299): on top of the highest other
     /// barrel within `BARREL_STACK_RADIUS` (45) of it, `BARREL_HEIGHT` (93) up, if that's
     /// higher than the ground. Cones don't stack.
@@ -29,16 +21,26 @@ impl Game {
         self.barrels.push(b);
     }
 
+    /// `BARREL_shoot` (fallen/Source/barrel.cpp:1824): a bang, and a barrel that explodes
+    /// goes up in a firebomb, with a shockwave of 0x200 doing up to 250 that's the shooter's
+    /// doing, and knocks the barrels round it away (`BARREL_hit_with_sphere` 0x60 across, a
+    /// little under its middle). A cone or a bin is only knocked about, by a small sphere
+    /// somewhere just beside it. Only a shot does this: a blast, a charge's included, leaves
+    /// barrels alone (`create_shockwave` doesn't look for them).
     pub fn shoot_barrel(&mut self, k: usize, by: usize, level: &Level) {
         let b = &self.barrels[k];
         if b.gone {
             return;
         }
-        let (at, explodes) = (b.pos, b.explodes);
+        let (at, explodes, mid) = (b.pos, b.explodes, b.middle());
         self.sounds.push((Sfx::Explosion, at));
+        let mut seed = self.barrel_rng;
+        let mut r = || rand(&mut seed);
         if !explodes {
-            let a = (self.rand() % 628) as f32 / 100.0;
-            self.barrels[k].vel = Vec2::new(a.sin(), a.cos()) * 150.0;
+            let off = |v: u32| ((v & 0x1fff) as f32 - 0x0fff as f32) / 256.0;
+            let hit = Vec3::new(mid.x + off(r()), mid.y - 0x14 as f32, mid.z + off(r()));
+            barrel::hit_with_sphere(&mut self.barrels, hit, 0x15 as f32, &mut r);
+            self.barrel_rng = seed;
             return;
         }
         self.barrels[k].gone = true;
@@ -48,17 +50,15 @@ impl Game {
         self.pyro.burst(at, pyro::FIREBOMB, 256.0);
         self.bang(by, at);
         self.shockwave(level, at, 0x200 as f32, 250, Blame::Person(by));
-        // `BARREL_hit_with_sphere` 0x20 down, 0x60 across: the barrels beside it fly.
-        for (j, o) in self.barrels.iter_mut().enumerate() {
-            let d = Vec2::new(o.pos.x - at.x, o.pos.z - at.z);
-            if j != k && !o.gone && d.length() < 0x60 as f32 + 40.0 && (o.pos.y - at.y).abs() < 128.0 {
-                o.vel = d.normalize_or(Vec2::X) * 600.0;
-            }
-        }
+        // `BARREL_hit_with_sphere` 0x20 under its middle, 0x60 across: the barrels beside it
+        // fly.
+        barrel::hit_with_sphere(&mut self.barrels, mid - Vec3::new(0.0, 0x20 as f32, 0.0), 0x60 as f32, &mut r);
+        self.barrel_rng = seed;
     }
 
     pub(crate) fn shockwave(&mut self, level: &Level, at: Vec3, radius: f32, damage: i32, by: Blame) {
         self.shock_props(level, at, radius, damage);
+        self.light_mines(at);
         // Creatures: a little more than people get, as far out as the edge, and four times
         // that for the Balrog, who is "so hard that we'd better hurt them more here".
         let mut acts = Vec::new();
@@ -82,6 +82,17 @@ impl Game {
             creature::Act::Sound { id, at } => Some((Sfx::ById { id, replace: false }, at)),
             _ => None,
         }));
+        // Cars: the whole of it within 0x100 of the middle, less further out
+        // (`create_shockwave`, collide.cpp), of which `VEH_reduce_health` takes half.
+        for v in self.vehicles.iter_mut().filter(|v| !v.wrecked()) {
+            let dist = (v.pos - at).length();
+            if dist >= radius {
+                continue;
+            }
+            let dist = dist - 0x100 as f32;
+            let hit = if dist <= 0.0 { damage } else { (damage as f32 * (radius - dist) / radius) as i32 };
+            v.reduce_health(hit);
+        }
         for i in 0..self.people.len() {
             let p = &self.people[i];
             if p.removed || p.is_dead() {

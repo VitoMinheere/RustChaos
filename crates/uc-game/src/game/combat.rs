@@ -17,6 +17,7 @@ impl Game {
                     // The player's strength badges add to every blow, and her reflexes to every
                     // shot (`damage += Strength` / `Skill`, combat.cpp:2070).
                     if Some(attacker) == self.player {
+                        self.bored = 0.0;
                         damage += self.stats[1] as i32;
                     }
                     let from = self.people[attacker].fig.pos;
@@ -61,6 +62,39 @@ impl Game {
                         }
                     }
                 }
+                // A shot at a mine sets it off (Person.cpp:6474).
+                Event::Shot { attacker, victim: None, .. } if Some(attacker) == self.player && self.aim_mine.is_some() => {
+                    let k = self.aim_mine.unwrap();
+                    let (from, at) = (self.people[attacker].fig.pos, self.mines[k].pos + Vec3::new(0.0, 8.0, 0.0));
+                    let eye = Vec3::new(0.0, 140.0, 0.0);
+                    if !level.ground.line_of_sight(from + eye, at) {
+                        continue;
+                    }
+                    let dist = (at - from).length();
+                    let chance = (0.95 - dist / (40.0 * 256.0)).clamp(0.4, 0.95);
+                    if (self.rand() % 1000) as f32 / 1000.0 < chance {
+                        self.set_off_mine(k, level);
+                    }
+                }
+                Event::Shot { attacker, victim: None, weapon } if Some(attacker) == self.player && self.aim_vehicle.is_some() => {
+                    let k = self.aim_vehicle.unwrap();
+                    let (from, at) = (self.people[attacker].fig.pos, self.vehicles[k].pos + Vec3::new(0.0, 64.0, 0.0));
+                    let eye = Vec3::new(0.0, 140.0, 0.0);
+                    if !level.ground.line_of_sight(from + eye, at) {
+                        continue;
+                    }
+                    let dist = (at - from).length();
+                    let chance = (0.95 - dist / (40.0 * 256.0)).clamp(0.4, 0.95);
+                    let damage = match weapon {
+                        Weapon::Pistol => 70,
+                        Weapon::Ak47 => 100,
+                        Weapon::Shotgun => (250.0 * (1.0 - dist / (8.0 * 256.0))).max(30.0) as i32,
+                        _ => 0,
+                    };
+                    if (self.rand() % 1000) as f32 / 1000.0 < chance {
+                        self.vehicles[k].reduce_health(damage);
+                    }
+                }
                 Event::Shot { attacker, victim: None, .. } if Some(attacker) == self.player && self.aim_barrel.is_some() => {
                     let k = self.aim_barrel.unwrap();
                     let (from, at) = (self.people[attacker].fig.pos, self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0));
@@ -75,6 +109,10 @@ impl Game {
                     }
                 }
                 Event::Shot { attacker, victim: Some(victim), weapon } => {
+                    // Firing at a target (Person.cpp:6219).
+                    if Some(attacker) == self.player {
+                        self.bored = 0.0;
+                    }
                     let (a, v) = (&self.people[attacker], &self.people[victim]);
                     let eye = Vec3::new(0.0, 140.0, 0.0);
                     if !level.ground.line_of_sight(a.fig.pos + eye, v.fig.pos + eye) {
@@ -128,10 +166,29 @@ impl Game {
                         }
                     }
                 }
-                Event::Grab { attacker, victim } => {
+                Event::Grab { attacker, victim, grab } => {
                     let v = &mut self.people[victim];
                     v.state = State::Held { by: attacker };
-                    v.fig.restart(Grab::Grab.anims().1, uc_world::Play::Once);
+                    v.taunt = None;
+                    v.fig.restart(grab.anims().1, uc_world::Play::Once);
+                    // Roper's grapples come with one of his taunts, a fifth of the time
+                    // (`taunt_prob` 50 of 256, `set_grapple`).
+                    if matches!(grab, Grab::Strangle | Grab::Headbutt) && (self.rand() & 0xff) < 50 {
+                        let kind = self.people[attacker].kind;
+                        self.people[attacker].cues.push(Sfx::Taunt { kind });
+                    }
+                }
+                Event::Squeeze { victim, headbutt } => {
+                    // `40 - GET_SKILL(p_target) >> 3` plus one a strangling frame, which C
+                    // reads as (40 - skill) >> 3; 40 - skill for the headbutt, with a thud.
+                    let v = &mut self.people[victim];
+                    if !v.invulnerable {
+                        let skill = v.skill as i32;
+                        v.health -= if headbutt { 40 - skill } else { ((40 - skill) >> 3) + 1 };
+                    }
+                    if headbutt {
+                        v.cues.push(Sfx::BatHit);
+                    }
                 }
                 Event::GrabMove { victim, grab } => {
                     self.people[victim].fig.restart(grab.anims().1, uc_world::Play::Once);
@@ -188,10 +245,10 @@ impl Game {
     }
 
     /// A grappled victim stands in front of the attacker, facing him (`set_grapple_pos`,
-    /// fallen/Source/combat.cpp: 90 units in front, turned 180 degrees).
+    /// fallen/Source/combat.cpp: 90 units in front, 100 for Roper's, turned 180 degrees).
     pub(crate) fn sync_grapples(&mut self) {
         for i in 0..self.people.len() {
-            let State::Grapple { victim, .. } = self.people[i].state else {
+            let State::Grapple { victim, grab, .. } = self.people[i].state else {
                 if let State::Held { by } = self.people[i].state {
                     if !matches!(self.people[by].state, State::Grapple { victim, .. } if victim == i) {
                         self.people[i].state = State::Move;
@@ -202,7 +259,7 @@ impl Game {
             let (pos, angle, f) = (self.people[i].fig.pos, self.people[i].fig.angle, self.people[i].facing_dir());
             let v = &mut self.people[victim];
             if matches!(v.state, State::Held { .. }) {
-                v.fig.pos = pos + Vec3::new(f.x, 0.0, f.y) * 90.0;
+                v.fig.pos = pos + Vec3::new(f.x, 0.0, f.y) * grab.reach();
                 v.fig.angle = angle + std::f32::consts::PI;
             }
         }

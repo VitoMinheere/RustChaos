@@ -381,9 +381,13 @@ impl World {
         let n = 1024;
         let half = uc_formats::iam::MAP_SIZE as f32 / 2.0;
         let top = Camera { pos: vec3(half, 100.0, half), target: vec3(half, 0.0, half), fov_y: 1.0, ortho: Some(half) };
-        let layers: Vec<Layer> = Layer::ALL.iter().copied().filter(|&l| l != Layer::Character).collect();
+        // Of what the game draws, only the sea's floor (the dynamic batches come with the
+        // character layer).
+        let layers: Vec<Layer> = Layer::ALL.to_vec();
+        let mut sea = BTreeMap::new();
+        self.game.draw_sea(&mut sea);
         let shot = |r: &mut Renderer, cam: &Camera| {
-            r.render_to_image((n, n), cam, &Settings { sky: self.level.sky, fog: None, layers: layers.clone() }, &BTreeMap::new(), &Overlay::new())
+            r.render_to_image((n, n), cam, &Settings { sky: self.level.sky, fog: None, layers: layers.clone() }, &sea, &Overlay::new())
         };
         let mut rgba = shot(r, &top);
         // Warehouse roofs (and some ceilings) are black from above, as on PC: there, show the
@@ -839,6 +843,7 @@ impl Sound {
         self.audio.ambience(None, 0.0);
         self.audio.bed(None, 0.0);
         self.audio.engine(None);
+        self.audio.rotor(None);
     }
 
     /// Plays this frame's game sounds and keeps the music in step with the action.
@@ -896,6 +901,12 @@ impl Sound {
         // The engine of the car Darci drives.
         let revs = world.game.player_vehicle().map(|v| (v.speed.abs() / 3000.0).min(1.0));
         self.audio.engine(revs);
+        // The nearest helicopter's rotors, fading out 24 squares off.
+        let rotor = world.game.chopper_noise(listener.pos).map(|at| {
+            let fade = (1.0 - at.distance(listener.pos) / (24.0 * 256.0)).clamp(0.0, 1.0);
+            0.6 * fade * fade
+        });
+        self.audio.rotor(rotor);
         self.audio.update(dt);
     }
 }

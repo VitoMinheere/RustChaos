@@ -15,9 +15,9 @@ use glam::{vec2, Vec2, Vec3};
 use uc_world::character::person as ptype;
 use uc_world::Level;
 
-use crate::person::AI_CIV;
+use crate::person::{AI_CIV, AI_COP, AI_GANG, BENT_FIGHT_BACK};
 use crate::vehicle::Vehicle;
-use crate::{rand, Driving, Game, Message, State, AI_DRIVER};
+use crate::{rand, Driving, Game, Message, State, Weapon, AI_DRIVER};
 
 /// `DRAW_DIST` on the PC: 22 squares, how far the original draws, so how far away the extra
 /// people have to be before they can be moved without anyone seeing.
@@ -231,7 +231,7 @@ impl Game {
                         }
                     }
                 }
-                _ if p.ai == AI_CIV => {
+                _ if p.ai == AI_CIV && p.kind != ptype::THUG_RASTA => {
                     if p.unseen > UNSEEN && !paused && p.scared.is_none() {
                         let mut rng = self.city_rng;
                         let to = self.wand.start_ahead(me, facing, self.view_dist, &mut || rand(&mut rng));
@@ -245,6 +245,7 @@ impl Game {
                         if let Some(to) = to {
                             let y = level.ground.surface(&level.map, to.x, to.y, 1.0e4);
                             self.people[i].respawn(Vec3::new(to.x, y, to.y));
+                            self.turn_bored(i, pi, level);
                         }
                     }
                     let p = &mut self.people[i];
@@ -255,9 +256,80 @@ impl Game {
                         p.wander_to(to);
                     }
                 }
+                // A passer-by boredom turned into a thug: in on the player only while no real
+                // gang member or Man In Black is within six squares of her, and otherwise
+                // keeping clear, running if within fifteen (`PCOM_process_wander`,
+                // `PCOM_should_fake_person_attack_darci`). Out of sight thirty squares off,
+                // they're moved back near her like anyone in the crowd (pcom.cpp:8661).
+                _ if p.kind == ptype::THUG_RASTA => {
+                    let far = (at - me).length() > 30.0 * 256.0;
+                    if far && p.unseen > UNSEEN && !paused {
+                        let mut rng = self.city_rng;
+                        let to = self.wand.start_ahead(me, facing, self.view_dist, &mut || rand(&mut rng));
+                        self.city_rng = rng;
+                        if let Some(to) = to {
+                            let y = level.ground.surface(&level.map, to.x, to.y, 1.0e4);
+                            self.people[i].respawn(Vec3::new(to.x, y, to.y));
+                            self.turn_bored(i, pi, level);
+                        }
+                        continue;
+                    }
+                    if p.is_down() || p.is_dead() {
+                        continue;
+                    }
+                    let real_thugs = self.people.iter().any(|o| {
+                        !o.fake && !o.removed && !o.is_dead()
+                            && matches!(o.kind, ptype::THUG_RASTA | ptype::THUG_GREY | ptype::THUG_RED | ptype::MIB1 | ptype::MIB2 | ptype::MIB3)
+                            && (o.fig.pos - me).length() < 0x600 as f32
+                    });
+                    let p = &mut self.people[i];
+                    if real_thugs || paused {
+                        p.ai = AI_CIV;
+                        p.foe = None;
+                        if (at - me).length() < 15.0 * 256.0 {
+                            p.scare(Some(pi), me);
+                        }
+                    } else {
+                        p.ai = AI_GANG;
+                        p.foe = Some(pi);
+                    }
+                }
                 _ => {}
             }
         }
+    }
+
+    /// `PCOM_do_regen`'s boredom (pcom.cpp:7066): once nothing has happened for the mission's
+    /// `BOREDOM_RATE` times five seconds (at least four, and 255 for never), the passer-by
+    /// just moved back near the player comes back as a rasta thug out to get her, or as a cop
+    /// if she's one of the gang. Either way with 200 health, sometimes a gun.
+    pub(crate) fn turn_bored(&mut self, i: usize, pi: usize, level: &Level) {
+        let rate = level.mission.boredom_rate;
+        let rate = if level.mission.version < 10 { 4 } else { rate.max(4) };
+        if rate == 255 || self.bored <= rate as f32 * 5.0 {
+            return;
+        }
+        let gang_player = !matches!(self.people[pi].kind, ptype::DARCI | ptype::ROPER);
+        let (kind, ai, bent) = if gang_player { (ptype::COP, AI_COP, 0) } else { (ptype::THUG_RASTA, AI_GANG, BENT_FIGHT_BACK) };
+        let Some(people) = level.people.as_ref() else { return };
+        let variant = self.city_rand() % 3;
+        let (pos, angle) = (self.people[i].fig.pos, self.people[i].fig.angle);
+        let Some(fig) = people.figure(kind, variant, pos, angle) else { return };
+        // `timer_bored & 16`, in milliseconds.
+        let gun = (self.bored * 1000.0) as u32 & 16 != 0;
+        let p = &mut self.people[i];
+        p.fig = fig;
+        p.kind = kind;
+        (p.ai, p.bent, p.mv) = (ai, bent, 4);
+        (p.health, p.max_health) = (200, 200);
+        p.weapon = Weapon::None;
+        if gun {
+            p.give(Weapon::Pistol);
+            p.weapon = Weapon::Pistol;
+        }
+        p.foe = Some(pi);
+        p.scared = None;
+        self.bored = 0.0;
     }
 
     /// Gunfire: every civilian within earshot of `shooter` runs from them.

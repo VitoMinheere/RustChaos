@@ -14,4 +14,8 @@ mod draw;
 mod snipe;
 
 pub use snipe::Snipe;
+mod choppers;
+mod barrels;
+pub mod mines;
+pub mod grenades;
 mod litter;

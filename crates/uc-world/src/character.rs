@@ -69,6 +69,11 @@ pub mod anim {
     pub const BAT_IDLE: usize = 201;
     pub const RUN_JUMP: usize = 54;
     pub const PULL_UP: usize = 332;
+    /// `ANIM_DANGLE`: hanging from a ledge by the hands.
+    pub const DANGLE: usize = 223;
+    /// `ANIM_TRAVERSE_LEFT` and `_RIGHT`: a hand along the ledge either way.
+    pub const TRAVERSE_LEFT: usize = 130;
+    pub const TRAVERSE_RIGHT: usize = 131;
     pub const SLIDER_START: usize = 216;
     pub const SLIDER_END: usize = 217;
     pub const SLIDER_HOLD: usize = 218;
@@ -594,6 +599,12 @@ impl Figure {
     /// A `Once` animation has reached its last frame.
     pub fn finished(&self) -> bool {
         self.animator.done
+    }
+
+    /// The keyframe the animation is on, counting from 0 (`Draw.Tweened->FrameIndex`); None
+    /// while blending in from the one before.
+    pub fn frame(&self) -> Option<usize> {
+        self.animator.index
     }
 
     /// How far through the current animation (0..1).

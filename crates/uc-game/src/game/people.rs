@@ -2,6 +2,10 @@
 
 use crate::*;
 
+/// What a person on the AI's legs can do: walk, and climb a fence (which the walker does by
+/// itself on meeting one).
+const WALKER: u8 = uc_world::mav::caps(uc_world::mav::GOTO) | uc_world::mav::caps(uc_world::mav::CLIMB_OVER);
+
 impl Game {
     pub(crate) fn spawn(&mut self, level: &Level, kind: u8, player: bool, way: usize, pos: Vec3, angle: f32) -> Option<usize> {
         let variant = self.rand();
@@ -32,8 +36,116 @@ impl Game {
             // the pistol in the weapon list (`PANEL_ADDWEAPON`) for the player to pick.
             if let Some(i) = self.player {
                 self.people[i].give(Weapon::from_has(has));
+                // Stern Revenge hands her a shotgun too, hard-coded (`playing_level`,
+                // pcom.cpp:5601).
+                if level.mission.mission_name.eq_ignore_ascii_case("skymiss2") {
+                    self.people[i].give(Weapon::Shotgun);
+                }
             }
         }
+    }
+
+    /// Round what's in the way (`PCOM_set_person_move_mav_to_xz` and `MAV_do`): anyone whose
+    /// goal, or the person they're fighting, can't be walked to in a straight line heads
+    /// for the furthest square of the navigation map's route that can be. On foot and over
+    /// fences ([`WALKER`]).
+    pub(crate) fn find_ways(&mut self, level: &Level) {
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            if p.player || p.removed || p.is_dead() || p.is_down() {
+                self.people[i].via = None;
+                continue;
+            }
+            let at = p.fig.pos;
+            if let Some(goal) = p.goal {
+                if let Some(leg) = self.leg(i, at, goal, level) {
+                    self.people[i].goal = Some(leg);
+                }
+            }
+            if self.people[i].scared.is_some() {
+                let via = self.run_away(i, at, level);
+                self.people[i].via = via;
+                continue;
+            }
+            let p = &self.people[i];
+            let foe = p.foe.or(self.player).filter(|_| p.aggro()).map(|f| self.people[f].fig.pos);
+            let via = foe.and_then(|to| self.leg(i, at, to, level));
+            self.people[i].via = via;
+        }
+    }
+
+    /// Running from something (`PCOM_process_fleeing`): a place 32 squares or so straight away
+    /// from the danger, give or take four, gone to by the navigation map, and another once
+    /// there (`PCOM_set_person_move_runaway`, pcom.cpp:2466). A place whose way starts off
+    /// towards the danger is tried again, twice. Returns the next leg.
+    fn run_away(&mut self, i: usize, at: Vec3, level: &Level) -> Option<Vec3> {
+        let s = self.people[i].scared.clone()?;
+        let danger = s.at;
+        let arrived = s.goal.is_none_or(|g| Vec2::new(g.x - at.x, g.z - at.z).length() < 1.5 * 256.0);
+        if !arrived {
+            return self.leg(i, at, s.goal?, level);
+        }
+        let size = (uc_formats::iam::MAP_SIZE * 256) as f32;
+        let mut pick = None;
+        for _ in 0..3 {
+            let (dx, dz) = (at.x - danger.x, at.z - danger.z);
+            let dist = dx.abs() + dz.abs() + 1.0;
+            let mut r = || (rand(&mut self.mav_rng) & 0x7ff) as f32 - 0x400 as f32;
+            let mut gx = at.x + dx * 8192.0 / dist + r();
+            let mut gz = at.z + dz * 8192.0 / dist + r();
+            // Stay on the map, bouncing off its edges.
+            (gx, gz) = (gx.abs(), gz.abs());
+            if gx > size { gx = 2.0 * size - gx; }
+            if gz > size { gz = 2.0 * size - gz; }
+            let goal = Vec3::new(gx, at.y, gz);
+            self.ways.remove(&i);
+            let leg = self.leg(i, at, goal, level);
+            let dest = leg.unwrap_or(goal);
+            let flat = |a: Vec3, b: Vec3| Vec2::new(a.x - b.x, a.z - b.z).length();
+            pick = Some((goal, leg));
+            if flat(dest, danger) >= flat(dest, at) {
+                break;
+            }
+        }
+        let (goal, leg) = pick?;
+        if let Some(s) = self.people[i].scared.as_mut() {
+            s.goal = Some(goal);
+        }
+        leg
+    }
+
+    /// The next leg of the way from `from` to `to`: `None` to go straight (it can be walked,
+    /// or there's no knowing better), else the middle of the furthest square along the route
+    /// that can be walked to, or of the route's first square if a body's width of line from
+    /// where they stand to that one catches a wall (the corner of a building). A person's
+    /// route is kept until either end changes square.
+    fn leg(&mut self, i: usize, from: Vec3, to: Vec3, level: &Level) -> Option<Vec3> {
+        let sq = |v: Vec3| ((v.x / 256.0).clamp(0.0, 127.0) as u8, (v.z / 256.0).clamp(0.0, 127.0) as u8);
+        let (a, b) = (sq(from), sq(to));
+        if a == b || self.mav.can_walk(a, b) {
+            return None;
+        }
+        let (dest, first) = match self.ways.get(&i) {
+            Some(&(ka, kb, dest, first)) if (ka, kb) == (a, b) => (dest, first),
+            _ => {
+                let mut rng = self.mav_rng;
+                let (act, _) = self.mav.route(a, b, WALKER, &mut || rand(&mut rng));
+                self.mav_rng = rng;
+                // Over a fence: straight at it, and the walker climbs it.
+                let walk = act.action == uc_world::mav::GOTO && act.dest != a;
+                let (dest, first) = if walk { (Some(act.dest), Some(act.first)) } else { (None, None) };
+                self.ways.insert(i, (a, b, dest, first));
+                (dest, first)
+            }
+        };
+        let middle = |s: (u8, u8)| Vec3::new(s.0 as f32 * 256.0 + 128.0, from.y, s.1 as f32 * 256.0 + 128.0);
+        let dest = middle(dest?);
+        // A body's width: the line from each side of them as well as the middle.
+        let waist = Vec3::new(0.0, uc_world::ground::STEP_HEIGHT - 4.0, 0.0);
+        let along = (dest - from).normalize_or_zero();
+        let side = Vec3::new(-along.z, 0.0, along.x) * 40.0;
+        let clear = [Vec3::ZERO, side, -side].iter().all(|&o| level.ground.line_of_sight(from + waist + o, dest + waist + o));
+        Some(if clear { dest } else { middle(first.unwrap_or(sq(dest))) })
     }
 
     /// Where each person is walking to when they aren't fighting: `PCOM_process_patrol`
