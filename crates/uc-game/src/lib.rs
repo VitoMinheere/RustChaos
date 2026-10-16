@@ -18,7 +18,7 @@ pub mod chopper;
 pub mod barrel;
 pub mod city;
 pub mod game;
-pub use game::{Sight, Snipe};
+pub use game::{Aiming, Sight, Snipe};
 pub mod creature;
 pub mod dirt;
 pub mod goals;
@@ -321,6 +321,40 @@ pub struct Wide {
     pub top_talking: bool,
 }
 
+/// The game's random number generators (each `rand`'s state), kept apart so that, as in the
+/// original, one system's dice don't change another's.
+#[derive(Debug, Clone)]
+struct Rngs {
+    /// The mission's own: spawns, the AI's choices.
+    main: u32,
+    /// The route search's (its bias against odd moves).
+    mav: u32,
+    barrel: u32,
+    creature: u32,
+    /// The city's extra people's.
+    city: u32,
+}
+
+impl Default for Rngs {
+    fn default() -> Rngs {
+        Rngs { main: 1, mav: 0x3a7, barrel: 0xba44, creature: 0xba7, city: 0xc17 }
+    }
+}
+
+/// Seconds into the next turn of each system that runs at a fixed rate, whatever the frame
+/// rate.
+#[derive(Debug, Clone, Default)]
+struct Clocks {
+    plat: f32,
+    bike: f32,
+    chopper: f32,
+    barrel: f32,
+    creature: f32,
+    dirt: f32,
+    /// To the next sparks off the electrified fences.
+    fence_spark: f32,
+}
+
 pub struct Game {
     pub people: Vec<Person>,
     pub player: Option<usize>,
@@ -329,7 +363,10 @@ pub struct Game {
     pub messages: Vec<Message>,
     pub outcome: Option<Outcome>,
     pub time: f32,
-    rng: u32,
+    /// The game's random number generators.
+    rngs: Rngs,
+    /// How far into its next turn each system that runs at a fixed rate is.
+    clocks: Clocks,
     /// Sounds not tied to a person this frame.
     sounds: Vec<(Sfx, Vec3)>,
     /// Seconds left of fight music after the fighting stops.
@@ -349,6 +386,8 @@ pub struct Game {
     used: bool,
     /// Who the player's gun is aimed at.
     pub target: Option<usize>,
+    /// What else the player's gun is pointed at, and how steady it is.
+    pub aiming: Aiming,
     /// Darci's stats: stamina, strength, reflexes, constitution (badges from earlier
     /// missions, see `set_stats`, plus `badges`).
     pub stats: [u8; 4],
@@ -356,27 +395,16 @@ pub struct Game {
     pub badges: [u8; 4],
     /// The points of the badges picked up in this mission.
     pub found: BTreeSet<usize>,
-    /// The `create_item` points whose item the player has picked up (`EWAY_FLAG_GOTITEM`,
-    /// which the `specific_item_held` trigger watches).
-    taken: BTreeSet<usize>,
-    /// Cops already counted towards the script's tally of them, so none is counted twice.
-    dead_cops: BTreeSet<usize>,
+    /// What the script and the crime rate have counted already.
+    tally: game::Tally,
     /// The city's crime rate, 0..100 (`CRIME_RATE`): the mission's, or 50 if it has none
     /// (elev.cpp:309).
     pub crime_rate: u8,
-    /// The player's aim (`Genus.Person->Gunaim`): what at, and how far off steady, from
-    /// `MAX_GUN_AIM` (3000, three seconds' worth) down to 0.
-    gun_aim: (Option<Aim>, f32),
     /// The player's red marks: innocents they've killed (`Genus.Player->RedMarks`). More than
     /// one at the end of a mission as Darci, and the chief has words (Game.cpp:2783).
     pub red_marks: u8,
     /// The mission shows the crime rate on the HUD (`MISSION_FLAG_SHOW_CRIMERATE`).
     pub show_crime_rate: bool,
-    /// Deaths and arrests already counted towards the crime rate.
-    crimes: BTreeSet<usize>,
-    /// The player has fired a gun. `GF_PLAYER_FIRED_GUN` is set once and never cleared, so a
-    /// mission that cares only ever asks whether it has happened at all.
-    player_fired: bool,
     /// Props damaged (`OB_FLAG_DAMAGED`), as indices into the map's objects.
     pub damaged: BTreeSet<usize>,
     /// How long nothing has happened (`timer_bored`, Person.cpp:3762): seconds since the
@@ -392,7 +420,6 @@ pub struct Game {
     pub platforms: Vec<plat::Platform>,
     /// Their prims, loaded once.
     plat_prims: Vec<Option<uc_formats::prm::Prim>>,
-    plat_clock: f32,
     /// The map's warehouses, with the ambience the mission has given each.
     pub wares: ware::Wares,
     /// The warehouse the player is in, and the ambience it had as they came in.
@@ -403,46 +430,19 @@ pub struct Game {
     snipe: Option<game::Snipe>,
     /// The mission's motorbikes, each with its figure.
     pub bikes: Vec<(bike::Bike, Option<Figure>)>,
-    /// Seconds into the bikes' next turn.
-    bike_clock: f32,
-    /// The navigation map (`MAV_precalculate`).
-    mav: uc_world::mav::Mav,
-    /// Each person's last route: (from square, to square, furthest square to walk to, first
-    /// square along it).
-    ways: HashMap<usize, game::Route>,
-    /// The route search's own chance (its bias against odd moves).
-    mav_rng: u32,
+    /// The navigation map and everyone's last route.
+    routes: game::Routes,
     /// The mission's helicopters.
     pub choppers: Vec<chopper::Chopper>,
-    /// Seconds into the helicopters' next tick.
-    chopper_clock: f32,
-    /// The barrels' own chance, and seconds into their next turn, and where everyone was
-    /// at it (to knock barrels with as they walk).
-    barrel_rng: u32,
-    barrel_clock: f32,
+    /// Where everyone was at the barrels' last turn, to knock barrels with as they walk.
     barrel_marks: Vec<Vec3>,
     /// People getting into cars: (who, which car).
     entering: Vec<(usize, usize)>,
-    /// Who Darci was last aiming at, to notice when that changes.
-    last_aimed: Option<usize>,
     creature_by_way: HashMap<usize, usize>,
     pub fireballs: Vec<creature::Fireball>,
     pub sparks: Vec<Spark>,
-    /// The creature the player's gun is pointed at, when it isn't a person.
-    pub aim_creature: Option<usize>,
-    /// The barrel the player's gun is pointed at (`find_target_new` takes barrels too).
-    pub aim_barrel: Option<usize>,
-    /// The mine the player's gun is pointed at (`find_target_new` takes mines too).
-    pub aim_mine: Option<usize>,
     /// Mines laid by the mission (`IT_MINE`).
     pub mines: Vec<Mine>,
-    /// The car the player's gun is pointed at (`find_target_new` takes vehicles too).
-    pub aim_vehicle: Option<usize>,
-    /// Cars already blown up, so each goes up once.
-    blown: BTreeSet<usize>,
-    /// Seconds into the creatures' next tick.
-    creature_clock: f32,
-    creature_rng: u32,
     /// Props that can be searched (`OB_FLAG_SEARCHABLE`), as indices into the map's objects.
     pub searchable: BTreeSet<usize>,
     /// Items stashed in a prop, waiting to be found: (the prop, the item).
@@ -459,8 +459,6 @@ pub struct Game {
     sea: Vec<uc_world::level::SeaSquare>,
     /// Leaves, cans and snow lying about round the player.
     pub dirt: dirt::Dirt,
-    /// Seconds to the dirt's next turn.
-    dirt_clock: f32,
     /// Where each person, then each car, was at the dirt's last turn (NaN for nowhere).
     dirt_marks: Vec<Vec3>,
     /// Steam from the mission's vents.
@@ -469,28 +467,18 @@ pub struct Game {
     pub trips: trip::Trips,
     /// Buildings whose fences are electrified (`FACET_FLAG_ELECTRIFIED`).
     pub electrified: BTreeSet<u16>,
-    /// Seconds to the next sparks off the electrified fences.
-    fence_spark_clock: f32,
     /// There's no floor (`GF_NO_FLOOR`, Day Of Reckoning on top of Gunston Tower).
     pub no_floor: bool,
     /// Estate of Emergency, where the tramp's face is the boss's (`estate`).
     estate: bool,
     /// Grim Gardens, where jumping onto a platform puts you on it (`playing_level`).
     botanicc: bool,
-    /// The roads cars wander along.
-    roads: road::Roads,
-    /// What each person at the wheel is doing, by person.
-    drivers: HashMap<usize, Driving>,
-    /// The pavements the city's extra people walk.
-    wand: wand::Wander,
+    /// The roads, who's driving them, the pavements and what the people on them say.
+    streets: game::Streets,
     /// How far the player can see (world units): the city's extra people further away than
     /// this are out of sight, and may be moved. The original's draw distance by default; a
     /// renderer that sees further should say so.
     pub view_dist: f32,
-    /// Chance for the city's extra people, kept apart from the mission's.
-    city_rng: u32,
-    /// What the extra people say when spoken to.
-    chatter: city::Chatter,
     /// The player had a gun out last frame.
     gun_drawn: bool,
     /// What to call the player, for the HUD.
@@ -513,40 +501,79 @@ impl Game {
     pub fn new(level: &Level, scripted: bool) -> Game {
         let script = scripted.then(|| Script::new(&level.mission));
         let mut g = Game {
-            people: Vec::new(), player: None, by_way: HashMap::new(), script, messages: Vec::new(),
-            outcome: None, time: 0.0, rng: 1, sounds: Vec::new(), fight_timer: 0.0, sprinting: false,
-            items: Vec::new(), cutscene: None, convo: None, wide: None, used: false, vehicles: Vec::new(), veh_by_way: HashMap::new(),
-            barrels: Vec::new(), sign: None, target: None, stats: [0; 4], badges: [0; 4], found: BTreeSet::new(),
-            taken: BTreeSet::new(), dead_cops: BTreeSet::new(), player_fired: false,
-            red_marks: 0,
-            gun_aim: (None, 3000.0),
+            people: Vec::new(),
+            player: None,
+            by_way: HashMap::new(),
+            script,
+            messages: Vec::new(),
+            outcome: None,
+            time: 0.0,
+            rngs: Rngs::default(),
+            clocks: Clocks::default(),
+            sounds: Vec::new(),
+            fight_timer: 0.0,
+            sprinting: false,
+            items: Vec::new(),
+            vehicles: Vec::new(),
+            veh_by_way: HashMap::new(),
+            barrels: Vec::new(),
+            sign: None,
+            cutscene: None,
+            convo: None,
+            wide: None,
+            used: false,
+            target: None,
+            aiming: Aiming::default(),
+            stats: [0; 4],
+            badges: [0; 4],
+            found: BTreeSet::new(),
+            tally: game::Tally::default(),
             crime_rate: if level.mission.crime_rate == 0 { 50 } else { level.mission.crime_rate.min(100) },
-            show_crime_rate: level.mission.flags & MISSION_FLAG_SHOW_CRIMERATE != 0, crimes: BTreeSet::new(),
-            searchable: BTreeSet::new(), hidden: Vec::new(), search: None, damaged: BTreeSet::new(), charges: Vec::new(), bored: 0.0,
-            grenades: Vec::new(), primed: None,
-            wares: ware::Wares::new(&level.map), indoors: None,
+            red_marks: 0,
+            show_crime_rate: level.mission.flags & MISSION_FLAG_SHOW_CRIMERATE != 0,
+            damaged: BTreeSet::new(),
+            bored: 0.0,
+            grenades: Vec::new(),
+            primed: None,
+            charges: Vec::new(),
             platforms: level.platforms.iter().map(|&(way, ob)| {
                 let o = &level.map.objects[ob];
                 let yaw = o.yaw as f32 * std::f32::consts::TAU / 2048.0;
                 plat::Platform::new(way, ob, o.prim, Vec3::new(o.x as f32, o.y as f32, o.z as f32), yaw)
             }).collect(),
             plat_prims: level.platforms.iter().map(|&(_, ob)| uc_world::level::load_prim(&level.game, level.map.objects[ob].prim)).collect(),
-            plat_clock: 0.0,
-            creatures: Vec::new(), snipe: None, bikes: Vec::new(), bike_clock: 0.0, mav: uc_world::mav::Mav::new(level), ways: HashMap::new(), mav_rng: 0x3a7, choppers: Vec::new(), chopper_clock: 0.0, barrel_rng: 0xba44, barrel_clock: 0.0, barrel_marks: Vec::new(), entering: Vec::new(), last_aimed: None, creature_by_way: HashMap::new(), fireballs: Vec::new(), sparks: Vec::new(),
-            aim_creature: None, aim_barrel: None, aim_mine: None, mines: Vec::new(), aim_vehicle: None, blown: BTreeSet::new(), creature_clock: 0.0, creature_rng: 0xba7,
-            pyro: Pyro::default(), mists: Mists::default(), drops: dirt::Drops::default(), sea: level.sea(), dirt: Game::new_dirt(level), dirt_clock: 0.0, dirt_marks: Vec::new(), steam: steam::Steam::default(),
+            wares: ware::Wares::new(&level.map),
+            indoors: None,
+            creatures: Vec::new(),
+            snipe: None,
+            bikes: Vec::new(),
+            routes: game::Routes::new(level),
+            choppers: Vec::new(),
+            barrel_marks: Vec::new(),
+            entering: Vec::new(),
+            creature_by_way: HashMap::new(),
+            fireballs: Vec::new(),
+            sparks: Vec::new(),
+            mines: Vec::new(),
+            searchable: BTreeSet::new(),
+            hidden: Vec::new(),
+            search: None,
+            pyro: Pyro::default(),
+            mists: Mists::default(),
+            drops: dirt::Drops::default(),
+            sea: level.sea(),
+            dirt: Game::new_dirt(level),
+            dirt_marks: Vec::new(),
+            steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
-            electrified: BTreeSet::new(), fence_spark_clock: 0.0, no_floor: false,
-            player_name: "",
+            electrified: BTreeSet::new(),
+            no_floor: false,
             estate: level.mission.mission_name.eq_ignore_ascii_case("estate2"),
             botanicc: level.name.eq_ignore_ascii_case("botanicc"),
-            roads: road::Roads::new(&level.map, &level.mission.map),
-            drivers: HashMap::new(),
-            wand: wand::Wander::new(&level.map, &level.game),
+            streets: game::Streets::new(level),
             view_dist: city::DRAW_DIST,
-            city_rng: 0xc17,
-            chatter: city::Chatter::load(level),
             gun_drawn: false,
+            player_name: "",
         };
         if !scripted {
             g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
@@ -576,7 +603,7 @@ impl Game {
     }
 
     fn rand(&mut self) -> u32 {
-        rand(&mut self.rng)
+        rand(&mut self.rngs.main)
     }
 
     pub fn player(&self) -> Option<&Person> {
@@ -673,10 +700,10 @@ impl Game {
         }
         input.target = self.target;
         self.steady_aim(dt);
-        input.aim = self.aim_creature.map(|k| self.creatures[k].middle())
-            .or_else(|| self.aim_barrel.map(|k| self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0)))
-            .or_else(|| self.aim_mine.map(|k| self.mines[k].pos))
-            .or_else(|| self.aim_vehicle.map(|k| self.vehicles[k].pos + Vec3::new(0.0, 64.0, 0.0)));
+        input.aim = self.aiming.creature.map(|k| self.creatures[k].middle())
+            .or_else(|| self.aiming.barrel.map(|k| self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0)))
+            .or_else(|| self.aiming.mine.map(|k| self.mines[k].pos))
+            .or_else(|| self.aiming.vehicle.map(|k| self.vehicles[k].pos + Vec3::new(0.0, 64.0, 0.0)));
         if self.outcome.is_none() && !held && input.action && self.use_something(level) {
             input.action = false;
         }
@@ -770,10 +797,10 @@ impl Game {
             let c = if Some(i) == player {
                 if self.outcome.is_some() || held || self.search.is_some() { Controls::default() } else { input }
             } else {
-                let mut rng = self.rng;
+                let mut rng = self.rngs.main;
                 let mut rand = || { rng = rng.wrapping_mul(69069).wrapping_add(1); rng >> 16 };
                 let c = if frozen { Controls::default() } else { self.people[i].think(i, &snaps, &level.ground, dt, &mut rand) };
-                self.rng = rng;
+                self.rngs.main = rng;
                 c
             };
             self.people[i].step(i, &c, &snaps, &level.ground, &level.map, dt, &mut events);

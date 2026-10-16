@@ -2,6 +2,27 @@
 
 use crate::*;
 
+/// What the player's gun is pointed at when it isn't a person (`find_target_new` takes
+/// creatures, barrels, mines and vehicles too), and how steady it is.
+#[derive(Debug, Clone)]
+pub struct Aiming {
+    pub creature: Option<usize>,
+    pub barrel: Option<usize>,
+    pub mine: Option<usize>,
+    pub vehicle: Option<usize>,
+    /// The player's aim (`Genus.Person->Gunaim`): what at, and how far off steady, from
+    /// `MAX_GUN_AIM` (3000, three seconds' worth) down to 0.
+    pub(crate) gun: (Option<Aim>, f32),
+    /// Who Darci was last aiming at, to notice when that changes.
+    pub(crate) last: Option<usize>,
+}
+
+impl Default for Aiming {
+    fn default() -> Aiming {
+        Aiming { creature: None, barrel: None, mine: None, vehicle: None, gun: (None, 3000.0), last: None }
+    }
+}
+
 impl Game {
     /// The player presses action: get out of the car, into a car next to her, or talk to the
     /// person next to her. Returns whether something used the key.
@@ -113,12 +134,12 @@ impl Game {
         let p = &self.people[pi];
         let aiming = p.kind == ptype::DARCI && p.weapon.is_gun() && !matches!(p.state, State::InCar { .. });
         let target = self.target.filter(|_| aiming);
-        if target != self.last_aimed {
+        if target != self.aiming.last {
             if let Some(t) = target {
                 self.cop_aiming_at(t, pi);
             }
         }
-        self.last_aimed = target;
+        self.aiming.last = target;
         for (i, q) in self.people.iter_mut().enumerate() {
             if let State::HandsUp { by, time } = q.state {
                 if time > 20.0 && (by != pi || target != Some(i)) {
@@ -156,10 +177,10 @@ impl Game {
         let p = &self.people[pi];
         if !p.weapon.is_gun() || matches!(p.state, State::InCar { .. }) {
             self.target = None;
-            self.aim_creature = None;
-            self.aim_barrel = None;
-            self.aim_mine = None;
-            self.aim_vehicle = None;
+            self.aiming.creature = None;
+            self.aiming.barrel = None;
+            self.aiming.mine = None;
+            self.aiming.vehicle = None;
             return;
         }
         let (pos, f) = (p.fig.pos, p.facing_dir());
@@ -230,7 +251,7 @@ impl Game {
             .filter(|&(_, d, off)| d < 8.0 * 256.0 && 1.0 - off > cone);
         let mut options: Vec<(Aim, f32, f32)> = people.chain(creatures).chain(barrels).chain(mines).chain(cars).collect();
         options.sort_by(|a, b| a.1.total_cmp(&b.1));
-        let current = match (self.target, self.aim_creature, self.aim_barrel, self.aim_mine, self.aim_vehicle) {
+        let current = match (self.target, self.aiming.creature, self.aiming.barrel, self.aiming.mine, self.aiming.vehicle) {
             (Some(t), ..) => Some(Aim::Person(t)),
             (None, Some(k), ..) => Some(Aim::Creature(k)),
             (None, None, Some(k), ..) => Some(Aim::Barrel(k)),
@@ -248,7 +269,7 @@ impl Game {
             // The nearest, favouring those ahead (someone right behind counts as 3x as far).
             options.iter().min_by(|a, b| (a.1 * (1.0 + a.2)).total_cmp(&(b.1 * (1.0 + b.2)))).map(|o| o.0)
         };
-        (self.target, self.aim_creature, self.aim_barrel, self.aim_mine, self.aim_vehicle) = match aim {
+        (self.target, self.aiming.creature, self.aiming.barrel, self.aiming.mine, self.aiming.vehicle) = match aim {
             Some(Aim::Person(t)) => (Some(t), None, None, None, None),
             Some(Aim::Creature(k)) => (None, Some(k), None, None, None),
             Some(Aim::Barrel(k)) => (None, None, Some(k), None, None),
@@ -371,7 +392,7 @@ impl Game {
             p.cues.push(Sfx::Pickup);
             self.items.remove(i);
             if way != 0 {
-                self.taken.insert(way);
+                self.tally.taken.insert(way);
             }
         }
     }

@@ -23,13 +23,13 @@ impl Game {
         if self.barrels.is_empty() {
             return;
         }
-        self.barrel_clock += dt;
-        while self.barrel_clock >= barrel::TICK {
-            self.barrel_clock -= barrel::TICK;
+        self.clocks.barrel += dt;
+        while self.clocks.barrel >= barrel::TICK {
+            self.clocks.barrel -= barrel::TICK;
             let now: Vec<Vec3> = self.people.iter()
                 .map(|p| if p.removed || matches!(p.state, State::InCar { .. }) { Vec3::NAN } else { p.fig.pos })
                 .collect();
-            let mut seed = self.barrel_rng;
+            let mut seed = self.rngs.barrel;
             for (i, &at) in now.iter().enumerate() {
                 let was = self.barrel_marks.get(i).copied().unwrap_or(at);
                 if at.is_nan() || was.is_nan() || at == was {
@@ -42,7 +42,7 @@ impl Game {
                 let at = self.barrels[k].pos;
                 self.sounds.push((Sfx::Cone, at));
             }
-            self.barrel_rng = seed;
+            self.rngs.barrel = seed;
         }
     }
 }

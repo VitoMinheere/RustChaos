@@ -17,14 +17,14 @@ impl Game {
         for c in self.creatures.iter().filter(|c| c.kind == creature::BALROG && !c.dead) {
             for _ in 0..2 {
                 let r = |rng: &mut u32| rand(rng) as f32 / 32768.0 - 1.0;
-                let (dx, dz, up) = (r(&mut self.creature_rng), r(&mut self.creature_rng), r(&mut self.creature_rng));
+                let (dx, dz, up) = (r(&mut self.rngs.creature), r(&mut self.rngs.creature), r(&mut self.rngs.creature));
                 let at = c.fig.pos + Vec3::new(dx * 90.0, 160.0 + up * 150.0, dz * 90.0);
                 self.pyro.lick(at, 50.0);
             }
         }
-        self.creature_clock += dt;
-        while self.creature_clock >= creature::TICK {
-            self.creature_clock -= creature::TICK;
+        self.clocks.creature += dt;
+        while self.clocks.creature >= creature::TICK {
+            self.clocks.creature -= creature::TICK;
             self.creature_tick(level, frozen);
         }
     }
@@ -51,7 +51,7 @@ impl Game {
             people: &seen, player: self.player, floor: &floor, terrain: &terrain, clear: &clear, slide: &slide, frozen,
         };
         let mut acts = Vec::new();
-        let mut rng = self.creature_rng;
+        let mut rng = self.rngs.creature;
         for (k, c) in self.creatures.iter_mut().enumerate() {
             let before = acts.len();
             c.tick(k, &around, &mut rng, &mut acts);
@@ -62,7 +62,7 @@ impl Game {
                 }
             }
         }
-        self.creature_rng = rng;
+        self.rngs.creature = rng;
         // Fireballs fall and burst on whatever they meet.
         let mut bursts = Vec::new();
         for f in &mut self.fireballs {
@@ -144,7 +144,7 @@ impl Game {
 impl Game {
     pub fn creature_health(&self) -> Option<(&'static str, f32)> {
         let me = self.player()?.fig.pos;
-        let c = self.aim_creature.map(|k| &self.creatures[k]).or_else(|| {
+        let c = self.aiming.creature.map(|k| &self.creatures[k]).or_else(|| {
             self.creatures.iter()
                 .filter(|c| c.targetable() && (c.fig.pos - me).length() < 12.0 * 256.0)
                 .min_by(|a, b| (a.fig.pos - me).length().total_cmp(&(b.fig.pos - me).length()))

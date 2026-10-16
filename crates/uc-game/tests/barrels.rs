@@ -87,7 +87,7 @@ fn semtex_is_won_by_shooting_the_two_drums() {
         assert!(r.g.barrels[k].explodes, "drum {way} doesn't explode");
         r.line_up(k);
         r.run(0.5, Controls::default());
-        assert_eq!(r.g.aim_barrel, Some(k), "the gun isn't on drum {way}");
+        assert_eq!(r.g.aiming.barrel, Some(k), "the gun isn't on drum {way}");
         assert!(r.shoot(k), "shooting drum {way} didn't blow it up");
     }
     r.run(10.0, Controls::default());

@@ -82,12 +82,12 @@ impl Chatter {
 
 impl Game {
     fn city_rand(&mut self) -> u32 {
-        rand(&mut self.city_rng)
+        rand(&mut self.rngs.city)
     }
 
     /// Makes the mission's extra civilians and cars, all over the map.
     pub(crate) fn populate(&mut self, level: &Level) {
-        if level.people.is_none() || !self.wand.any() {
+        if level.people.is_none() || !self.streets.wand.any() {
             return;
         }
         for _ in 0..level.mission.fake_civs {
@@ -95,7 +95,7 @@ impl Game {
             let mut at = None;
             for _ in 0..1000 {
                 let (x, z) = ((self.city_rand() % 100 + 14) as i32, (self.city_rand() % 100 + 14) as i32);
-                if let Some(p) = self.wand.start_near(x, z, 2) {
+                if let Some(p) = self.streets.wand.start_near(x, z, 2) {
                     at = Some(p);
                     break;
                 }
@@ -109,7 +109,7 @@ impl Game {
             let p = &mut self.people[i];
             (p.ai, p.mv, p.fake, p.unseen) = (AI_CIV, 4, true, unseen);
         }
-        if self.roads.nodes.len() < 2 {
+        if self.streets.roads.nodes.len() < 2 {
             return;
         }
         for _ in 0..level.mission.fake_cars {
@@ -125,7 +125,7 @@ impl Game {
             let p = &mut self.people[i];
             (p.ai, p.mv, p.fake, p.unseen) = (AI_DRIVER, 4, true, unseen);
             p.state = State::InCar { vehicle: vi };
-            self.drivers.insert(i, Driving::default());
+            self.streets.drivers.insert(i, Driving::default());
         }
     }
 
@@ -142,8 +142,8 @@ impl Game {
             let pl = player?;
             vec2(pl.x, pl.z) + vec2(a.sin(), a.cos()) * self.view_dist
         };
-        let (n1, n2) = self.roads.find(p)?;
-        let (r1, r2) = (self.roads.pos(n1), self.roads.pos(n2));
+        let (n1, n2) = self.streets.roads.find(p)?;
+        let (r1, r2) = (self.streets.roads.pos(n1), self.streets.roads.pos(n2));
         let side = if heading { -384.0 } else { 384.0 };
         let at = if r1.x == r2.x {
             // Not off the end of the road, and not on a junction.
@@ -170,7 +170,7 @@ impl Game {
             return None;
         }
         // Facing down the lane it's in, so it drives off the way the traffic goes.
-        let dir = if self.roads.signed_dist(n1, n2, at) >= 0.0 { r2 - r1 } else { r1 - r2 };
+        let dir = if self.streets.roads.signed_dist(n1, n2, at) >= 0.0 { r2 - r1 } else { r1 - r2 };
         Some((at, dir.x.atan2(dir.y)))
     }
 
@@ -226,16 +226,16 @@ impl Game {
                         if let Some((to, yaw)) = self.car_start(level, false) {
                             let y = level.ground.surface(&level.map, to.x, to.y, 1.0e4);
                             self.vehicles[vehicle].reset(Vec3::new(to.x, y, to.y), yaw);
-                            self.drivers.insert(i, Driving::default());
+                            self.streets.drivers.insert(i, Driving::default());
                             self.people[i].unseen = (self.city_rand() & 15) as f32 / 20.0;
                         }
                     }
                 }
                 _ if p.ai == AI_CIV && p.kind != ptype::THUG_RASTA => {
                     if p.unseen > UNSEEN && !paused && p.scared.is_none() {
-                        let mut rng = self.city_rng;
-                        let to = self.wand.start_ahead(me, facing, self.view_dist, &mut || rand(&mut rng));
-                        self.city_rng = rng;
+                        let mut rng = self.rngs.city;
+                        let to = self.streets.wand.start_ahead(me, facing, self.view_dist, &mut || rand(&mut rng));
+                        self.rngs.city = rng;
                         // Not on top of another of them. The original takes the first pavement
                         // it finds near a spot ahead of the player, so while the player stands
                         // still, everyone moved ends up at the same few corners; this engine
@@ -250,9 +250,9 @@ impl Game {
                     }
                     let p = &mut self.people[i];
                     if p.wants_somewhere() && p.scared.is_none() && !p.is_down() {
-                        let mut rng = self.city_rng;
-                        let to = self.wand.next_place(p.fig.pos, p.fig.facing(), &mut || rand(&mut rng));
-                        self.city_rng = rng;
+                        let mut rng = self.rngs.city;
+                        let to = self.streets.wand.next_place(p.fig.pos, p.fig.facing(), &mut || rand(&mut rng));
+                        self.rngs.city = rng;
                         p.wander_to(to);
                     }
                 }
@@ -264,9 +264,9 @@ impl Game {
                 _ if p.kind == ptype::THUG_RASTA => {
                     let far = (at - me).length() > 30.0 * 256.0;
                     if far && p.unseen > UNSEEN && !paused {
-                        let mut rng = self.city_rng;
-                        let to = self.wand.start_ahead(me, facing, self.view_dist, &mut || rand(&mut rng));
-                        self.city_rng = rng;
+                        let mut rng = self.rngs.city;
+                        let to = self.streets.wand.start_ahead(me, facing, self.view_dist, &mut || rand(&mut rng));
+                        self.rngs.city = rng;
                         if let Some(to) = to {
                             let y = level.ground.surface(&level.map, to.x, to.y, 1.0e4);
                             self.people[i].respawn(Vec3::new(to.x, y, to.y));
@@ -351,7 +351,7 @@ impl Game {
     /// One of the extra people within reach, for the player to talk to: only Darci asks
     /// them anything (`PERSON_DARCI`, in `INTERFAC`'s action handling).
     pub(crate) fn chat(&mut self, pi: usize) -> bool {
-        if self.people[pi].kind != ptype::DARCI || self.chatter.normal.is_empty() {
+        if self.people[pi].kind != ptype::DARCI || self.streets.chatter.normal.is_empty() {
             return false;
         }
         let pos = self.people[pi].fig.pos;
@@ -362,7 +362,7 @@ impl Game {
             return false;
         };
         let r = self.city_rand() as usize;
-        let lines = if self.people[j].annoyed && !self.chatter.annoyed.is_empty() { &self.chatter.annoyed } else { &self.chatter.normal };
+        let lines = if self.people[j].annoyed && !self.streets.chatter.annoyed.is_empty() { &self.streets.chatter.annoyed } else { &self.streets.chatter.normal };
         let text = lines[r % lines.len()].clone();
         self.people[j].face_towards(pos);
         let face = Some(self.face(j));

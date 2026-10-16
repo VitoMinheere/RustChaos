@@ -136,7 +136,7 @@ fn stern_revenge_runs_to_a_win() {
         assert!(r.until(10.0, |r| !r.g.people.iter().any(|p| matches!(p.state, uc_game::State::Enter { vehicle } if vehicle == k))), "van {way}'s driver never got in");
         r.line_up(k);
         r.run(0.5, Controls::default());
-        assert_eq!(r.g.aim_vehicle, Some(k), "the gun isn't on van {way}");
+        assert_eq!(r.g.aiming.vehicle, Some(k), "the gun isn't on van {way}");
         for _ in 0..20 {
             if r.g.vehicles[k].wrecked() {
                 break;

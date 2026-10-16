@@ -34,18 +34,18 @@ impl Game {
         }
         let (at, explodes, mid) = (b.pos, b.explodes, b.middle());
         self.sounds.push((Sfx::Explosion, at));
-        let mut seed = self.barrel_rng;
+        let mut seed = self.rngs.barrel;
         let mut r = || rand(&mut seed);
         if !explodes {
             let off = |v: u32| ((v & 0x1fff) as f32 - 0x0fff as f32) / 256.0;
             let hit = Vec3::new(mid.x + off(r()), mid.y - 0x14 as f32, mid.z + off(r()));
             barrel::hit_with_sphere(&mut self.barrels, hit, 0x15 as f32, &mut r);
-            self.barrel_rng = seed;
+            self.rngs.barrel = seed;
             return;
         }
         self.barrels[k].gone = true;
-        if self.aim_barrel == Some(k) {
-            self.aim_barrel = None;
+        if self.aiming.barrel == Some(k) {
+            self.aiming.barrel = None;
         }
         self.pyro.burst(at, pyro::FIREBOMB, 256.0);
         self.bang(by, at);
@@ -53,7 +53,7 @@ impl Game {
         // `BARREL_hit_with_sphere` 0x20 under its middle, 0x60 across: the barrels beside it
         // fly.
         barrel::hit_with_sphere(&mut self.barrels, mid - Vec3::new(0.0, 0x20 as f32, 0.0), 0x60 as f32, &mut r);
-        self.barrel_rng = seed;
+        self.rngs.barrel = seed;
     }
 
     pub(crate) fn shockwave(&mut self, level: &Level, at: Vec3, radius: f32, damage: i32, by: Blame) {

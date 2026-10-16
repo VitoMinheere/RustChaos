@@ -115,11 +115,11 @@ impl Game {
                                 // The camera on whoever has the line, over the other one.
                                 let (s, l) = if speaker == Some(j) { (j, i) } else { (i, j) };
                                 let (sp, sa, lp) = (self.people[s].fig.pos, self.people[s].fig.angle, self.people[l].fig.pos);
-                                let mut rng = self.rng;
+                                let mut rng = self.rngs.main;
                                 let mut rand = || rand(&mut rng);
                                 let eye = Vec3::new(0.0, 0.0, 0.0);
                                 cv.cam = Some(talk::converse_camera(sp, sa, lp, |a, b| level.ground.line_of_sight(a + eye, b), &mut rand));
-                                self.rng = rng;
+                                self.rngs.main = rng;
                             }
                             _ => self.messages.push(Message { text, left: cv.left, face: Some(face), filmed: false }),
                         }

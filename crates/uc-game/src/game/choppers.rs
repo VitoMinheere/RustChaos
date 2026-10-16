@@ -40,9 +40,9 @@ impl Game {
         if self.choppers.is_empty() {
             return;
         }
-        self.chopper_clock += dt;
-        while self.chopper_clock >= chopper::TICK {
-            self.chopper_clock -= chopper::TICK;
+        self.clocks.chopper += dt;
+        while self.clocks.chopper >= chopper::TICK {
+            self.clocks.chopper -= chopper::TICK;
             let mut choppers = std::mem::take(&mut self.choppers);
             {
                 let world = World { game: self, level };
