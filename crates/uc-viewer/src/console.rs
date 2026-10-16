@@ -7,7 +7,7 @@ use crate::*;
 
 const HELP: &str = "telw N (to event point N)  tels / telr (store / return)  wpt (nearest point)  \
 win  lose  restart  roper  darci  kit  boo  pos  god  ammo  freeze  give WHAT  kill [near]  \
-crime N  time X  wave N  bonus  telb N";
+crime N  time X  wave N  bonus  telb N  car  call WHAT";
 
 #[derive(Default)]
 pub(crate) struct Console {
@@ -195,6 +195,22 @@ impl World {
                 },
                 None => self.console.say("telb N: teleport to bonus objective N (see bonus)"),
             },
+            "car" => {
+                let made = self.game.spawn_car(&self.level);
+                self.console.say(if made { "A car, just ahead" } else { "Only on foot" });
+            }
+            "call" => {
+                use uc_game::game::beat::Kind;
+                match (arg.and_then(Kind::named), self.game.beat().is_some()) {
+                    (_, false) => self.console.say("call WHAT: only on a Beat Cop shift"),
+                    (Some(kind), true) if self.game.call_in_now(kind, &self.level) => self.console.say(format!("{} called in", kind.label())),
+                    (Some(kind), true) => self.console.say(format!("Nowhere for a {} round here", kind.label().to_ascii_lowercase())),
+                    (None, true) => {
+                        let names: Vec<_> = Kind::ALL.iter().map(|k| k.label().split(' ').next().unwrap_or("").to_ascii_lowercase()).collect();
+                        self.console.say(format!("call {}", names.join("|")));
+                    }
+                }
+            }
             "pos" => self.console.show_pos = !self.console.show_pos,
             _ => self.console.say(format!("Unknown command '{name}': try help")),
         }

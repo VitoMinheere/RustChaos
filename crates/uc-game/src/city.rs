@@ -37,7 +37,7 @@ const GUNSHOT: f32 = 0xa00 as f32;
 const DRAW_GUN: f32 = 0x600 as f32;
 /// `vehicle_random` (fallen/Source/vehicle.cpp): the extra cars are vans, cars, taxis, jeeps
 /// and sedans.
-const VEHICLE_RANDOM: [u8; 16] = [0, 1, 2, 5, 7, 0, 1, 2, 5, 7, 0, 1, 2, 0, 1, 2];
+pub(crate) const VEHICLE_RANDOM: [u8; 16] = [0, 1, 2, 5, 7, 0, 1, 2, 5, 7, 0, 1, 2, 0, 1, 2];
 
 /// What the extra people say when spoken to: any line of the mission's chatter file, or
 /// `annoyed.txt`'s once someone has frightened them.
@@ -119,15 +119,25 @@ impl Game {
             let y = level.ground.surface(&level.map, at.x, at.y, 1.0e4);
             let variant = self.city_rand();
             let Some(i) = self.spawn_variant(level, ptype::CIV, false, 0, Vec3::new(at.x, y, at.y), 0.0, variant) else { break };
-            self.vehicles.push(Vehicle::new(0, kind, Vec3::new(at.x, y, at.y), yaw, crate::vehicle::Key::None));
-            let vi = self.vehicles.len() - 1;
-            self.vehicles[vi].driver = Some(i);
+            self.drive_off(i, kind, Vec3::new(at.x, y, at.y), yaw, Driving::default());
             let unseen = (self.city_rand() % 20 + 20) as f32 / 20.0;
             let p = &mut self.people[i];
-            (p.ai, p.mv, p.fake, p.unseen) = (AI_DRIVER, 4, true, unseen);
-            p.state = State::InCar { vehicle: vi };
-            self.streets.drivers.insert(i, Driving::default());
+            (p.fake, p.unseen) = (true, unseen);
         }
+    }
+
+    /// Puts person `i` at the wheel of a new car of `kind` at `at`, facing `yaw`, driving the
+    /// roads (`PCOM_AI_DRIVER`, wandering); returns the car.
+    pub(crate) fn drive_off(&mut self, i: usize, kind: u8, at: Vec3, yaw: f32, driving: Driving) -> usize {
+        self.vehicles.push(Vehicle::new(0, kind, at, yaw, crate::vehicle::Key::None));
+        let vi = self.vehicles.len() - 1;
+        self.vehicles[vi].driver = Some(i);
+        let p = &mut self.people[i];
+        (p.ai, p.mv) = (AI_DRIVER, 4);
+        p.fig.pos = at;
+        p.state = State::InCar { vehicle: vi };
+        self.streets.drivers.insert(i, driving);
+        vi
     }
 
     /// `WAND_find_good_start_point_for_car`: a spot in a lane of the road nearest a random
@@ -143,6 +153,19 @@ impl Game {
             let pl = player?;
             vec2(pl.x, pl.z) + vec2(a.sin(), a.cos()) * self.view_dist
         };
+        let at = self.lane_spot(level, p, heading)?;
+        if let (false, Some(pl)) = (anywhere, player) {
+            if crate::creature::qdist2(at.0 - vec2(pl.x, pl.z)) < self.view_dist {
+                return None;
+            }
+        }
+        Some(at)
+    }
+
+    /// A spot in a lane of the road nearest `p` (the left lane or the right as `heading`
+    /// says), with the way the lane runs: none if it's near a junction, near another car,
+    /// or off the map.
+    pub(crate) fn lane_spot(&self, level: &Level, p: Vec2, heading: bool) -> Option<(Vec2, f32)> {
         let (n1, n2) = self.streets.roads.find(p)?;
         let (r1, r2) = (self.streets.roads.pos(n1), self.streets.roads.pos(n2));
         let side = if heading { -384.0 } else { 384.0 };
@@ -158,11 +181,6 @@ impl Game {
             }
             vec2(p.x, r1.y + side)
         };
-        if let (false, Some(pl)) = (anywhere, player) {
-            if crate::creature::qdist2(at - vec2(pl.x, pl.z)) < self.view_dist {
-                return None;
-            }
-        }
         if self.vehicles.iter().any(|v| (vec2(v.pos.x, v.pos.z) - at).length() < 1024.0) {
             return None;
         }

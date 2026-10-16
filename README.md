@@ -139,7 +139,13 @@ Each wave comes from a different side of the arena, marked with a beacon for its
 - an armed suspect;
 - a gun dumped in a bin;
 - a gang fight;
-- a wanted man who runs when he sees you.
+- a wanted man who runs when he sees you;
+- a drunk driver weaving down the road: get him out of the car (draw a gun, or wreck it), then take him;
+- a getaway car with an armed robber, who fights once he's out of it;
+- a jumper on a roof by a ladder: get up there and stay with them a moment to talk them down;
+- a bomb in the street: stay beside it for three seconds to defuse it before it goes up.
+
+The console's `call` command calls one in at once (`call drunk`, `call bomb` and so on), and `car` puts an empty car in front of you.
 
 Handling one scores, with arrests worth extra, and brings the crime rate down. Missing one puts it up. The shift ends when its time is up, or early if the crime rate reaches 100; an open-ended one only ends that way. The best score is kept per map and shift length.
 

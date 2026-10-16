@@ -77,7 +77,7 @@ fn handling_a_call_scores() {
         let Some((level, mut g)) = start(seed) else { return };
         first_call(&mut g, &level, 10.0);
         let inc = g.beat().unwrap().incidents[0].clone();
-        if inc.kind == Kind::DumpedWeapon {
+        if !matches!(inc.kind, Kind::Mugging | Kind::ArmedSuspect | Kind::GangFight | Kind::WantedMan) {
             continue;
         }
         let crime = g.crime_rate;
@@ -89,7 +89,7 @@ fn handling_a_call_scores() {
         assert!(g.crime_rate < crime, "the crime rate should come down");
         return;
     }
-    panic!("no call but dumped weapons");
+    panic!("no call with people to take down");
 }
 
 /// Letting the time run out misses a call: the crime rate goes up.
@@ -152,4 +152,94 @@ fn shift_lengths() {
     run(&mut g, &level, 3.0);
     assert_eq!(g.outcome, None, "an open-ended shift ended on the clock");
     assert!(g.beat().unwrap().on > 3600.0);
+}
+
+/// Calls `kind` in, with nothing else on.
+fn call(seed: u32, kind: Kind) -> Option<(Level, Game)> {
+    let (level, mut g) = start(seed)?;
+    run(&mut g, &level, 1.0);
+    assert!(g.call_in_now(kind, &level), "nowhere for a {}", kind.label());
+    Some((level, g))
+}
+
+/// The person an incident's about.
+fn culprit(g: &Game) -> usize {
+    let at = g.beat().unwrap().incidents[0].at;
+    g.people.iter().position(|p| !p.player && p.guilty && !p.removed && (p.fig.pos - at).length() < 64.0).expect("nobody there")
+}
+
+/// A drunk driver weaves down the road; wreck his car and he's thrown out, and taking him
+/// in handles it.
+#[test]
+fn a_drunk_driver_is_stopped() {
+    let Some((level, mut g)) = call(11, Kind::DrunkDriver) else { return };
+    let d = culprit(&g);
+    let uc_game::State::InCar { vehicle } = g.people[d].state else { panic!("not in a car") };
+    let from = g.vehicles[vehicle].pos;
+    run(&mut g, &level, 4.0);
+    assert!((g.vehicles[vehicle].pos - from).length() > 256.0, "the car never went anywhere");
+    g.vehicles[vehicle].health = 0;
+    run(&mut g, &level, 1.0);
+    assert!(!matches!(g.people[d].state, uc_game::State::InCar { .. }), "still in the wreck");
+    assert!(g.people[d].is_down(), "not knocked down by the crash");
+    // Cuffed where he lies.
+    g.people[d].arrested = true;
+    run(&mut g, &level, 0.5);
+    let b = g.beat().unwrap();
+    assert_eq!((b.handled, b.missed), (1, 0));
+}
+
+/// A getaway driver frightened out of his car turns gang member, and fights, gun and all.
+#[test]
+fn a_getaway_driver_fights_once_out() {
+    let Some((level, mut g)) = call(11, Kind::Getaway) else { return };
+    let d = culprit(&g);
+    assert!(g.people[d].has(Weapon::Pistol));
+    run(&mut g, &level, 2.0);
+    // A shot fired close by.
+    let at = g.people[d].fig.pos + glam::vec3(300.0, 0.0, 0.0);
+    g.people[d].scare(None, at);
+    let mut out = false;
+    for _ in 0..40 {
+        run(&mut g, &level, 0.25);
+        if !matches!(g.people[d].state, uc_game::State::InCar { .. }) && g.people[d].ai == uc_game::person::AI_GANG {
+            out = true;
+            break;
+        }
+    }
+    assert!(out, "he never got out to fight");
+}
+
+/// Staying beside the jumper a moment talks them down.
+#[test]
+fn a_jumper_is_talked_down() {
+    let Some((level, mut g)) = call(11, Kind::Jumper) else { return };
+    let j = g.beat().unwrap().incidents[0].jumper.unwrap();
+    let at = g.people[j].fig.pos;
+    assert!(at.y > 2.0 * 256.0, "not up on a roof: {at:?}");
+    run(&mut g, &level, 3.0);
+    assert_eq!(g.people[j].fig.pos.x, at.x, "the jumper wandered off the ledge");
+    assert!(g.teleport(at + glam::vec3(100.0, 0.0, 0.0), &level));
+    run(&mut g, &level, 3.0);
+    let b = g.beat().unwrap();
+    assert_eq!((b.handled, b.missed), (1, 0), "not talked down");
+    assert!(!g.people[j].removed);
+}
+
+/// Staying with the bomb defuses it; leaving it, it goes up.
+#[test]
+fn a_bomb_is_defused_or_goes_up() {
+    let Some((level, mut g)) = call(11, Kind::Bomb) else { return };
+    let at = g.beat().unwrap().incidents[0].at;
+    assert!(g.teleport(at + glam::vec3(150.0, 0.0, 0.0), &level));
+    run(&mut g, &level, 4.0);
+    let b = g.beat().unwrap();
+    assert_eq!((b.handled, b.missed), (1, 0), "not defused");
+
+    let Some((level, mut g)) = call(11, Kind::Bomb) else { return };
+    let k = g.beat().unwrap().incidents[0].bomb.unwrap();
+    let crime = g.crime_rate;
+    run(&mut g, &level, 95.0);
+    assert!(g.mines[k].gone, "it never went off");
+    assert!(g.beat().unwrap().missed >= 1 && g.crime_rate > crime);
 }
