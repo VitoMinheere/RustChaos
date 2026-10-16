@@ -127,6 +127,24 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 **Explosives:** walk over a pack to carry it (four at most). Switch to them with G and press action: a charge goes down at your feet with a five-second fuse, and the blast is five squares across and does 500 at the middle, so run. Blasts damage props as well as people, and a mission can watch for a prop being damaged (`prim_damaged`): Transmission Terminated's transmitter, the supplies in Arms Breaker, Media Trouble's props. Some props blow up when damaged and set off their neighbours. As in the 1999 code, a blast only ever looks at every other prop in each part of the map (its loop steps two at a time), so a prop right next to one that went up can survive. Cars ramming props don't damage them yet.
 
+**Console and cheats (for play-testing):** `~` or F9 opens the developer console, as F9 did in the original. Type a command and press Enter; Esc closes it. The commands:
+- `telw N`: to event point N;
+- `tels` and `telr`: store Darci's position, and go back to it;
+- `wpt`: the nearest event point;
+- `win` and `lose`;
+- `restart`;
+- `roper` and `darci`: play on as the other, where the mission has Roper's body;
+- `kit`: the full kit;
+- `boo`: an explosion to look at;
+- `pos`: the position readout;
+- `help`.
+
+Two more shortcuts:
+- **Free-camera teleport:** in the free camera (V), T puts Darci where the camera is looking. Look at a building's wall and she lands on its roof.
+- **Shift+F12** toggles the position readout.
+
+The original's cheat works too: hold punch, kick, action, jump and right together (J, K, E, Space and D) for full health, 240 rounds for every gun, and an AK-47, a shotgun and a grenade at her feet.
+
 **Searching:** some props hide things. Stand at one, face it and hold action (E): a bar fills over about three seconds, and whatever was stashed in it drops out, as the original's search does. Let go and the search is abandoned. A mission marks the props worth searching (`make_searchable`), and a `create_item` point can stash its item in the nearest one instead of leaving it in the open: in Auto-Destruct, the UCNN video turns up in the Wildcat den this way.
 
 **Searching people:** the dead, the knocked out and the arrested keep their weapons, and whatever their event point says they carry (often a health pack, ammo or a gun), until searched. Stand over them and hold action: after the same bar their things are put on the ground round them, and there's nothing more on them after that.

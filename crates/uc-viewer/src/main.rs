@@ -8,6 +8,7 @@ mod args;
 mod audio;
 mod cam;
 mod checklist;
+mod console;
 mod hud;
 mod input;
 mod menu;
@@ -19,6 +20,7 @@ mod world;
 use args::*;
 use audio::*;
 use cam::*;
+use console::*;
 use hud::*;
 use input::*;
 use pause::*;
@@ -264,6 +266,10 @@ impl App {
             w.fly.pitch = (w.fly.pitch + pad.look.y * 1.5 * dt).clamp(-1.5, 1.5);
             let pad_mv = fwd * pad.mv.y + right * pad.mv.x;
             w.fly.pos += (mv.normalize_or_zero() + pad_mv) * speed * dt;
+            // T: Darci goes where the camera looks, and the camera's back on her.
+            if inp.hit(KeyCode::KeyT) && w.game.player.is_some() {
+                w.teleport_to_view();
+            }
         }
         if w.game.cutscene.is_some() && (inp.hit(KeyCode::Space) || inp.hit(KeyCode::Enter) || pad.hit(Button::South)) {
             w.game.skip_cutscene();
@@ -416,6 +422,10 @@ impl App {
             self.menu_frame(el);
             return;
         }
+        if self.world.as_ref().is_some_and(|w| w.pause.is_none()) {
+            let w = self.world.as_mut().unwrap();
+            w.console_input(&mut self.input, dt);
+        }
         let won = self.world.as_ref().is_some_and(|w| w.game.outcome == Some(Outcome::Won));
         // Esc (or Start) pauses (`GAMEMENU_process`, gamemenu.cpp:279): the sound stops and
         // the menu comes up; again, and it's gone. After a win it's back to the mission list;
@@ -489,8 +499,10 @@ impl App {
             world.kept = p.get(&world.level.name).cloned().unwrap_or_default();
             world.result = Some((world.game.time, before));
         }
-        let screenshot = self.input.hit(KeyCode::F12);
+        let shift = self.input.held(KeyCode::ShiftLeft) || self.input.held(KeyCode::ShiftRight);
+        let screenshot = self.input.hit(KeyCode::F12) && !shift;
         self.input.pressed.clear();
+        self.input.typed.clear();
         self.input.lmb_pressed = false;
         self.input.mouse = Vec2::ZERO;
         self.input.wheel = 0.0;
@@ -578,7 +590,11 @@ impl ApplicationHandler for App {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     match event.state {
                         ElementState::Pressed => {
-                            if !event.repeat {
+                            if let Some(t) = &event.text {
+                                self.input.typed.push_str(t);
+                            }
+                            // Held Backspace repeats, in the console.
+                            if !event.repeat || code == KeyCode::Backspace {
                                 self.input.pressed.insert(code);
                             }
                             self.input.down.insert(code);

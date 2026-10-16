@@ -28,3 +28,4 @@ mod barrels;
 pub mod mines;
 pub mod grenades;
 mod litter;
+mod cheats;
