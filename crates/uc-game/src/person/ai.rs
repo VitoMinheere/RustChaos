@@ -1,0 +1,333 @@
+//! The AI: noticing people, deciding what to do, wandering and running scared.
+
+use super::*;
+
+impl Person {
+    /// A noise at `at` (`PCOM_oscillate_tympanum`): anyone hostile who isn't already after the
+    /// player turns to look (`PCOM_set_person_ai_investigate`).
+    pub fn hear(&mut self, at: Vec3) {
+        if self.hostile() && !self.aggro && !self.removed && !self.is_dead() && !self.is_down() {
+            self.heard = Some((at, 2.0));
+        }
+    }
+
+    /// `can_a_see_b` (Person.cpp:3198), with its range capped at `range`: within it, half that
+    /// if they're crouching; in front within 700 of 2048 either way up close (0xc0), 420
+    /// further off (`PEOPLE_FOV`); and in view head to head, a crouched head being lower.
+    pub(super) fn can_see(&self, p: &Snap, range: f32, ground: &Ground) -> bool {
+        let d = flat(p.pos, self.fig.pos);
+        let dist = d.length();
+        let view = if p.crouching { range / 2.0 } else { range };
+        if dist > view || (p.pos.y - self.fig.pos.y).abs() > 256.0 {
+            return false;
+        }
+        let ahead = self.fig.facing().dot(d / dist.max(1.0));
+        // cos(700 / 2048 of a turn) and cos(420 / 2048).
+        let cone = if dist < 0xc0 as f32 { -0.54 } else { 0.28 };
+        let head = |crouch: bool| vec3(0.0, if crouch { 0x20 as f32 } else { 0x60 as f32 }, 0.0);
+        ahead > cone && ground.line_of_sight(self.fig.pos + head(self.crouching()), p.pos + head(p.crouching))
+    }
+
+    /// Whose blows can land on whom: the player can hit anybody, the AI only its foe, and
+    /// only once it's noticed them (else anyone hostile turned to face the player as she came
+    /// near, back turned or not).
+    pub(super) fn opponents(&self, j: usize, other: &Snap) -> bool {
+        if self.player { !other.player } else { self.fights() && self.foe == Some(j) && (self.aggro || self.is_dummy()) }
+    }
+
+    /// The nearest standing opponent within `range`.
+    pub(super) fn nearest_opponent(&self, me: usize, snaps: &[Snap], range: f32) -> Option<usize> {
+        snaps
+            .iter()
+            .enumerate()
+            .filter(|&(j, s)| j != me && s.standing && self.opponents(j, s) && (!self.player || s.fighter)
+                && (s.pos.y - self.fig.pos.y).abs() < 128.0)
+            .map(|(j, s)| (j, flat(s.pos, self.fig.pos).length()))
+            .filter(|&(_, d)| d < range)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(j, _)| j)
+    }
+
+    /// AI: decide this frame's controls, against its `foe` (see `Person::foe`).
+    pub fn think(&mut self, me: usize, snaps: &[Snap], ground: &Ground, dt: f32,
+                 rand: &mut impl FnMut() -> u32) -> Controls {
+        let mut c = self.decide(me, snaps, ground, dt, rand);
+        // "MIB are too cool to run anywhere" (Person.cpp:19913).
+        if self.is_mib() {
+            (c.run, c.sprint) = (false, false);
+        }
+        c
+    }
+
+    /// Someone with a gun out about to shoot their foe, who they can see within range: how
+    /// near the shot is, 0 (now) to 100 (`track_gun_sight(p_target, shoot_time - counter)`,
+    /// pcom.cpp:8946, with our countdown at twenty to the second).
+    pub fn about_to_shoot(&self) -> Option<f32> {
+        (self.aggro && self.weapon.is_gun() && !self.player && matches!(self.state, State::Move | State::Shoot { .. }))
+            .then(|| (self.attack_timer.max(0.0) * 20.0).min(100.0))
+    }
+
+    /// One of the Men in Black (`PersonIsMIB`, Person.cpp:498).
+    pub fn is_mib(&self) -> bool {
+        use uc_world::character::person as ptype;
+        matches!(self.kind, ptype::MIB1 | ptype::MIB2 | ptype::MIB3)
+    }
+
+    /// One of the Men in Black dodging a blow (Person.cpp:1970): "Men In Black jump to avoid
+    /// the attack like ninjas!" On their feet, they jump straight up and it misses; returns
+    /// whether they did.
+    pub fn dodge(&mut self) -> bool {
+        if !self.is_mib() {
+            return false;
+        }
+        match self.state {
+            // Already in the air: it passes beneath.
+            State::Fall { .. } | State::Land { .. } => true,
+            State::Move | State::Attack { .. } | State::Shoot { .. } | State::Block => {
+                self.jump(Vec2::ZERO);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub(super) fn decide(&mut self, me: usize, snaps: &[Snap], ground: &Ground, dt: f32,
+              rand: &mut impl FnMut() -> u32) -> Controls {
+        let player = self.foe;
+        let mut c = Controls { target: player, ..Default::default() };
+        // A car coming: run out of its way (`PCOM_find_runover_thing`).
+        if let Some((dir, left)) = self.dodge {
+            self.dodge = (left > dt).then_some((dir, left - dt));
+            c.wish = dir;
+            c.run = true;
+            return c;
+        }
+        // Frightened: run until far enough from it, fifteen squares x plus z, or three once
+        // they've been running half a minute (`PCOM_AI_STATE_FLEE_PERSON` in
+        // `PCOM_process_state_change`, fallen/Source/pcom.cpp). Then back to what they were
+        // doing.
+        if let Some(s) = self.scared.as_mut() {
+            s.time += dt;
+            let d = flat(self.fig.pos, s.at);
+            let far = if s.time >= 30.0 { 3.0 * 256.0 } else { 15.0 * 256.0 };
+            if d.x.abs() + d.y.abs() > far {
+                self.scared = None;
+                self.wander = (None, 0.0);
+            } else {
+                // Along the way the game found to somewhere away from it, or just away.
+                let to = self.via.or(s.goal).map(|v| flat(v, self.fig.pos)).unwrap_or(d);
+                c.wish = to.try_normalize().unwrap_or(self.fig.facing());
+                c.run = true;
+                return c;
+            }
+        }
+        // Nobody to fight: walk the patrol, follow whoever is being followed, or stroll.
+        // Dropping `aggro` matters as much as the walking does: the game only gives someone
+        // somewhere to go while they aren't in a fight, so a bodyguard whose man went down
+        // would otherwise stand there for good.
+        let Some(p) = player.map(|p| snaps[p]) else {
+            self.aggro = false;
+            return self.wander(c, ground, dt, rand);
+        };
+        let d = flat(p.pos, self.fig.pos);
+        let dist = d.length();
+        let dy = (p.pos.y - self.fig.pos.y).abs();
+        // Which way to go to close in: round whatever is in the way, if there's a way round.
+        let towards = self.via.map_or(d, |v| flat(v, self.fig.pos)).normalize_or_zero();
+        // PCOM_AI_FLEE_PLAYER keeps its distance (until hit: then it fights, see take_hit).
+        if self.ai == 16 && p.present && !p.down {
+            if dist < 6.0 * 256.0 {
+                c.wish = -d.normalize_or_zero();
+                c.run = true;
+            }
+            return c;
+        }
+        // No point having a fist fight with a car: someone without a gun taunts its driver
+        // instead (`PCOM_process_navtokill`, pcom.cpp:7518 and 8814).
+        if self.fights() && self.aggro && p.present && p.in_car && !self.weapon.is_gun() && dist < self.aggro_range() && self.can_taunt() {
+            self.taunt.get_or_insert(Taunt::Now);
+        } else if !self.fights() || !p.present || p.down || p.in_car {
+            self.aggro = false;
+            self.taunt = None;
+            return self.wander(c, ground, dt, rand);
+        }
+        let range = self.aggro_range();
+        let hunter = range > 32.0 * 256.0;
+        // A gang member notices the player by seeing them (`PCOM_can_i_see_person_to_taunt`
+        // is `can_a_see_b`), or turns to look on hearing them (running feet, a landing, a
+        // fight) and may see them then; others still by being near.
+        let gang = self.ai == AI_GANG && !hunter;
+        if gang && !self.aggro && p.noise > 0.0 && dist < p.noise {
+            self.hear(p.pos);
+        }
+        let notices = if gang { self.can_see(&p, range, ground) } else { dist < range && (dy < 128.0 || hunter) };
+        if !self.aggro && !notices {
+            if let Some((at, left)) = self.heard {
+                self.heard = (left > dt).then_some((at, left - dt));
+                self.fig.turn_towards(flat(at, self.fig.pos), 6.0, dt);
+                return c;
+            }
+        }
+        if !self.aggro && notices {
+            self.heard = None;
+            self.aggro = true;
+            self.cues.push(Sfx::Alert { kind: self.kind });
+            self.attack_timer = 0.8;
+            // A gang member who sees the player taunts them first (`PCOM_AI_GANG` in
+            // `PCOM_process_person`, pcom.cpp:11180, `PCOM_can_i_see_person_to_taunt`).
+            if self.ai == AI_GANG && !hunter && self.can_taunt() {
+                self.taunt = Some(Taunt::Now);
+            }
+        } else if self.aggro && !hunter && (dist > range * 2.0 + AGGRO_RANGE || dy > 256.0) {
+            self.aggro = false;
+        }
+        if !self.aggro {
+            self.taunt = None;
+            return self.wander(c, ground, dt, rand);
+        }
+        if let Some(t) = self.taunt {
+            // `PCOM_process_taunt` (pcom.cpp:9467): out of sight, they give it up; done with
+            // a taunt, they go for them half the time and otherwise pause (up to a second
+            // and a half) and taunt again. A driver they can only taunt.
+            // Losing sight of them ends the taunt, not the fight: they come looking.
+            let eye = vec3(0.0, 140.0, 0.0);
+            self.taunt = match t {
+                _ if !ground.line_of_sight(self.fig.pos + eye, p.pos + eye) => None,
+                Taunt::Now => {
+                    c.taunt = true;
+                    Some(Taunt::Doing)
+                }
+                Taunt::Doing if matches!(self.state, State::Taunt { .. }) => Some(Taunt::Doing),
+                Taunt::Doing if rand() & 1 == 1 && !p.in_car => None,
+                Taunt::Doing => Some(Taunt::Pause((rand() & 0xf) as f32 / 10.0)),
+                Taunt::Pause(left) if left > dt => Some(Taunt::Pause(left - dt)),
+                Taunt::Pause(_) => Some(Taunt::Now),
+            };
+            if self.taunt.is_some() {
+                return c;
+            }
+        }
+        // Block a blow that's coming (better fighters more often).
+        self.block_timer -= dt;
+        if self.block_timer > 0.0 {
+            c.block = true;
+            return c;
+        }
+        let swinging = snaps.iter().any(|s| s.player && s.attacking) && dist < 220.0;
+        if swinging && self.block_timer <= -0.4 && rand() % 100 < self.skill as u32 * 5 {
+            self.block_timer = 0.6;
+            c.block = true;
+            return c;
+        }
+        // Guns shoot from range when they can see the player, and close in otherwise.
+        let skill = self.skill as f32;
+        if self.weapon.is_gun() && dist > 260.0 {
+            self.attack_timer -= dt;
+            let eye = vec3(0.0, 140.0, 0.0);
+            let seen = dist < SHOOT_RANGE && ground.line_of_sight(self.fig.pos + eye, p.pos + eye);
+            if seen && self.attack_timer <= 0.0 {
+                c.punch = true;
+                self.attack_timer = (2.4 - skill * 0.1).max(0.8) + (rand() % 100) as f32 / 100.0;
+            } else if !seen || dist > SHOOT_RANGE * 0.8 {
+                c.wish = towards;
+                c.run = dist > SHOOT_RANGE;
+            }
+            return c;
+        }
+        // Keep out of each other's way: hold back while another opponent is closer to the player.
+        let crowded = snaps.iter().enumerate().any(|(j, s)| {
+            j != me && s.standing && s.hostile && flat(p.pos, s.pos).length() + 20.0 < dist
+                && flat(s.pos, self.fig.pos).normalize_or_zero().dot(d.normalize_or_zero()) > 0.8
+        });
+        if dist > 140.0 && !crowded {
+            c.wish = towards;
+        } else if dist < 80.0 {
+            c.wish = -d / dist.max(1.0) * 0.5;
+        }
+        c.run = hunter && dist > 600.0;
+        self.attack_timer -= dt;
+        // Take turns, like the original's gang attacks: nobody swings while another does.
+        let busy = snaps.iter().enumerate().any(|(j, s)| j != me && s.hostile && s.attacking);
+        if dist < 170.0 && self.attack_timer <= 0.0 && p.standing && !busy {
+            // Armed people use their weapon; others punch or kick.
+            if self.weapon != Weapon::None || rand().is_multiple_of(2) { c.punch = true } else { c.kick = true }
+            self.attack_timer = (1.8 - skill * 0.07).max(0.6) + (rand() % 100) as f32 / 70.0;
+        }
+        c
+    }
+
+    /// `PCOM_MOVE_WANDER` (move 4): strolls from spot to spot nearby, pausing in between.
+    /// Spots are in plain sight on the same level; walking never steps off a ledge.
+    pub(super) fn wander(&mut self, mut c: Controls, ground: &Ground, dt: f32, rand: &mut impl FnMut() -> u32) -> Controls {
+        // Off to the goal the game set: a patrol's next point, or whoever is being followed.
+        if let (Some(goal), false) = (self.goal, self.is_down()) {
+            let d = flat(goal, self.fig.pos);
+            if d.length() > 40.0 {
+                c.wish = d.normalize();
+                (c.run, c.sprint) = self.pace.controls();
+            }
+            return c;
+        }
+        if self.mv != 4 || self.is_down() {
+            return c;
+        }
+        let here = vec2(self.fig.pos.x, self.fig.pos.z);
+        let (spot, left) = self.wander;
+        let left = left - dt;
+        match spot {
+            Some(s) if left > 0.0 && (s - here).length() > 40.0 => {
+                c.wish = (s - here).normalize_or_zero();
+                self.wander = (Some(s), left);
+            }
+            // The city's extra people go straight on to the next place, which the game
+            // picks from the pavements ([`Person::wander_to`]).
+            _ if self.fake => self.wander = (None, 0.0),
+            // There (or stuck): pause for a few seconds.
+            Some(_) => self.wander = (None, 1.0 + (rand() % 400) as f32 / 100.0),
+            None if left > 0.0 => self.wander = (None, left),
+            None => {
+                let angle = (rand() % 628) as f32 / 100.0;
+                let dist = 2.0 * 256.0 + (rand() % 1024) as f32;
+                let s = here + vec2(angle.sin(), angle.cos()) * dist;
+                let waist = vec3(0.0, 80.0, 0.0);
+                if ground.line_of_sight(self.fig.pos + waist, vec3(s.x, self.fig.pos.y, s.y) + waist) {
+                    // Long enough to get there at a walk, with some to spare.
+                    self.wander = (Some(s), dist / WALK_SPEED * 1.5 + 1.0);
+                }
+            }
+        }
+        c
+    }
+
+    /// Whether a wanderer has nowhere to go just now.
+    pub fn wants_somewhere(&self) -> bool {
+        self.mv == 4 && self.wander.0.is_none() && self.wander.1 <= 0.0
+    }
+
+    /// Sends a wanderer to `spot`, picking another if not there in five seconds, so they
+    /// don't stand stuck against something (`PCOM_process_wander`).
+    pub fn wander_to(&mut self, spot: Vec2) {
+        self.wander = (Some(spot), 5.0);
+    }
+
+    /// Frightened by `by`, or by something at `at`: run from it, unless they're the sort to
+    /// stand their ground (`PCOM_set_person_ai_flee_person`). Only civilians scare, and
+    /// they remember it.
+    ///
+    /// In the original the mission's civilians scare too. Here only the city's extra people
+    /// do for now: with no route-finding, someone running from gunfire can end up behind a
+    /// wall where nobody can reach them, and a mission's witness or mark doing that can stall
+    /// its script (RTA's drunk driver hides from the very cops sent to stop him).
+    pub fn scare(&mut self, by: Option<usize>, at: Vec3) {
+        // Drivers too: `PCOM_set_person_ai_flee_person` has them leave their car first
+        // (`PCOM_EXCAR_FLEE_PERSON`). Cop drivers don't run.
+        if self.player || !matches!(self.ai, AI_CIV | AI_DRIVER) || self.bent & BENT_FIGHT_BACK != 0 || self.removed || self.is_dead() {
+            return;
+        }
+        self.annoyed = true;
+        match self.scared.as_mut() {
+            Some(s) => (s.by, s.at) = (by, at),
+            None => self.scared = Some(Scare { by, at, time: 0.0, goal: None }),
+        }
+    }
+}
