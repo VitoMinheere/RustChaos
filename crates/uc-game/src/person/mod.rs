@@ -349,6 +349,8 @@ pub enum Move {
     KickBack,
     KickLeft,
     KickRight,
+    /// Darci's kick between the legs (`ANIM_KICK_NAD`).
+    KickNad,
     Knife1,
     Knife2,
     Knife3,
@@ -392,6 +394,8 @@ impl Move {
             KickBack => d(anim::KICK_BEHIND, 0.45, 160.0, Dir::Back, 25, false, ko::BACK_KICK, None),
             KickLeft => d(anim::KICK_LEFT, 0.45, 160.0, Dir::Left, 25, false, ko::SIDE_KICK, None),
             KickRight => d(anim::KICK_RIGHT, 0.45, 160.0, Dir::Right, 25, false, ko::SIDE_KICK, None),
+            // The combat table's extra (combat.cpp:1894) comes on top, by who's kicked.
+            KickNad => d(anim::KICK_NAD, 0.45, 130.0, Dir::Front, 10, false, 0, None),
             // Weapons (damage from apply_hit_to_person, fallen/Source/combat.cpp).
             Knife1 => d(anim::KNIFE_ATTACK1, 0.45, 150.0, Dir::Front, 30, true, 0, Some(Knife2)),
             Knife2 => d(anim::KNIFE_ATTACK2, 0.45, 150.0, Dir::Front, 50, true, ko::COMBO_ANY, Some(Knife3)),
@@ -596,6 +600,8 @@ pub struct Snap {
     pub injured: bool,
     /// Crouched or crawling: harder to see.
     pub crouching: bool,
+    /// Doubled over from a kick between the legs: another won't do it again (`not_nad`).
+    pub doubled: bool,
     /// How far off the noise they're making this frame is heard (`PCOM_oscillate_tympanum`'s
     /// radii, pcom.cpp:13124): running feet 0x280, a landing 0x200, a fight 0x900; 0 for none.
     pub noise: f32,
@@ -981,6 +987,17 @@ impl Person {
         matches!(self.state, State::Grapple { grab: Grab::Hold, .. })
     }
 
+    /// Doubled over from a kick between the legs, or straightening up again.
+    pub fn doubled(&self) -> bool {
+        matches!(self.state, State::Hurt) && matches!(self.fig.anim(), anim::KICK_NAD_TAKE | anim::KICK_NAD_STUNNED | anim::KICK_NAD_RECOVER)
+    }
+
+    /// Has what a kick between the legs hurts most (`SOUND_Gender` 1): all but Darci, the
+    /// women and the hostage.
+    pub fn male(&self) -> bool {
+        !uc_world::character::person::uses_darci_meshes(self.kind)
+    }
+
     pub fn snap(&self) -> Snap {
         Snap {
             // Where the body is: a knockdown carries it away from the figure's origin (standing,
@@ -1002,6 +1019,7 @@ impl Person {
             in_car: matches!(self.state, State::InCar { .. }),
             injured: matches!(self.state, State::Injured),
             crouching: self.crouching(),
+            doubled: self.doubled(),
             noise: match self.state {
                 _ if self.removed => 0.0,
                 State::Land { .. } => 0x200 as f32,
@@ -1120,8 +1138,17 @@ impl Person {
                     return;
                 }
                 if self.fig.finished() {
-                    self.state = State::Move;
-                    self.idle(self.nearest_opponent(me, snaps, FIGHT_RANGE).is_some());
+                    // Kicked between the legs: bent double for a while, then straightening up
+                    // (`fn_person_recoil`).
+                    let next = match self.fig.anim() {
+                        anim::KICK_NAD_TAKE => Some(anim::KICK_NAD_STUNNED),
+                        anim::KICK_NAD_STUNNED => Some(anim::KICK_NAD_RECOVER),
+                        _ => None,
+                    };
+                    if !next.is_some_and(|a| self.fig.restart(a, Play::Once)) {
+                        self.state = State::Move;
+                        self.idle(self.nearest_opponent(me, snaps, FIGHT_RANGE).is_some());
+                    }
                 }
             }
             State::Down => self.step_down(ground, map, dt),

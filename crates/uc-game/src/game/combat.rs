@@ -33,9 +33,23 @@ impl Game {
                         self.people[victim].state = State::Move;
                     }
                     let was_down = self.people[victim].is_down();
+                    // Between the legs (combat.cpp:1894): 50 more for a man, 10 for a woman.
+                    let nad = self.people[attacker].fig.anim() == uc_world::character::anim::KICK_NAD;
+                    let male = self.people[victim].male();
+                    let damage = damage + if !nad { 0 } else if male { 50 } else { 10 };
                     self.people[victim].hurt_by = Some(attacker);
                     let damage = self.hurt(victim, damage);
                     self.people[victim].take_hit(from, damage, ko, high, low, weapon);
+                    // He doubles over (`ANIM_KICK_NAD_TAKE`), and she crows about it more
+                    // often than not (`taunt_prob` 75).
+                    let v = &mut self.people[victim];
+                    if nad && matches!(v.state, State::Hurt) && v.fig.restart(uc_world::character::anim::KICK_NAD_TAKE, uc_world::Play::Once) {
+                        v.fig.set_speed(1.0);
+                        if male && (self.rand() & 0xff) < 75 {
+                            let kind = self.people[attacker].kind;
+                            self.people[attacker].cues.push(Sfx::Taunt { kind });
+                        }
+                    }
                     if !was_down && self.people[victim].is_down() && Some(attacker) == self.player {
                         let kind = self.people[attacker].kind;
                         self.people[attacker].cues.push(Sfx::Taunt { kind });

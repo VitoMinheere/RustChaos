@@ -2,6 +2,10 @@
 
 use super::*;
 
+/// How close Darci has to be to kick between the legs (`dist < 100`, Person.cpp:9909), a
+/// little more as our fighters stand a touch further apart.
+const NAD_RANGE: f32 = 120.0;
+
 impl Person {
     pub(super) fn step_crouch(&mut self, phase: u8, c: &Controls, ground: &Ground, map: &Map, dt: f32) {
         let moving = c.wish.length_squared() > 0.01;
@@ -420,7 +424,13 @@ impl Person {
                 events.push(Event::Kick { attacker: me });
                 return;
             }
-            let mv = if fight && moving && rel.y < -0.5 {
+            // Darci stepping in on someone close kicks between the legs, unless they're still
+            // doubled up from the last one (`set_person_kick_near`).
+            let close = target.filter(|&t| flat(snaps[t].pos, self.fig.pos).length() < NAD_RANGE && !snaps[t].doubled);
+            let mv = if let (true, true, true, Some(t)) = (self.kind == uc_world::character::person::DARCI, fight && moving, rel.y > 0.5, close) {
+                self.face(snaps[t].pos);
+                Move::KickNad
+            } else if fight && moving && rel.y < -0.5 {
                 Move::KickBack
             } else if fight && moving && rel.x.abs() > 0.5 {
                 if rel.x > 0.0 { Move::KickRight } else { Move::KickLeft }
