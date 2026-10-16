@@ -1014,6 +1014,14 @@ impl Game {
         if self.outcome.is_none() && !held && input.action && self.use_something(level) {
             input.action = false;
         }
+        // Attack with a grenade in hand primes it, then throws it (`player_activate_in_hand`).
+        if let (true, false, true, Some(pi)) = (self.outcome.is_none(), held, input.punch, self.player) {
+            let p = &self.people[pi];
+            if p.weapon == Weapon::Grenade && p.grenades > 0 {
+                self.use_grenade(pi);
+                input.punch = false;
+            }
+        }
         // Fly-bys that hold the player still hold the car too (it rolls to a stop).
         if held || self.outcome.is_some() {
             input.drive = Drive::default();

@@ -532,6 +532,9 @@ pub enum State {
     /// Carrying `victim` (`STATE_CARRY`, `FLAG2_PERSON_CARRYING`): phase 0 picking them up,
     /// 1 standing, 2 walking, 3 putting them down.
     Carry { victim: usize, phase: u8 },
+    /// Throwing a grenade (`STATE_CANNING`, `SUB_STATE_CANNING_RELEASE`): whether it's left
+    /// her hand yet.
+    Throw { released: bool },
     /// Crouched, for as long as action is held (`set_person_croutch`): phase 0 going down,
     /// 1 down, 2 crawling (`SUB_STATE_CRAWLING`), 3 getting up (`SUB_STATE_IDLE_UNCROUCH`).
     Crouch { phase: u8 },
@@ -559,6 +562,8 @@ pub enum Event {
     Arrested { victim: usize },
     Punch { attacker: usize },
     Kick { attacker: usize },
+    /// The throw's reached the frame where the grenade leaves `thrower`'s hand.
+    Throw { thrower: usize },
 }
 
 /// What everyone else needs to know about a person this frame.
@@ -1165,6 +1170,20 @@ impl Person {
                 }
             }
             State::Grapple { victim, grab, hit, timer, frame } => self.step_grapple(victim, grab, hit, timer, frame, me, c, snaps, dt, events),
+            State::Throw { released } => {
+                // The fourth frame lets it go (`FrameIndex == 3`).
+                if !released && self.fig.frame().is_some_and(|f| f >= 3) {
+                    events.push(Event::Throw { thrower: me });
+                    self.state = State::Throw { released: true };
+                }
+                if self.fig.finished() {
+                    if !released {
+                        events.push(Event::Throw { thrower: me });
+                    }
+                    self.state = State::Move;
+                    self.idle(false);
+                }
+            }
             State::Taunt { at } => {
                 // `PCOM_process_taunt`: always facing who they're taunting.
                 if snaps[at].present {

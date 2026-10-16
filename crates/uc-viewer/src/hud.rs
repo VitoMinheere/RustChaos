@@ -84,9 +84,11 @@ impl World {
                 o.rect(x + 4.0 * s, y, 4.0 * s, 1.0 * s, [190, 190, 190, 255]);
             }
             // What's in hand, and the rounds left in a gun.
-            let weapon = match p.rounds() {
-                Some(n) => format!("{} {n}", p.weapon.name()),
-                None => p.weapon.name().to_string(),
+            let weapon = match (p.rounds(), self.game.primed) {
+                // A primed grenade: the seconds to it going off.
+                (Some(n), Some(t)) if p.weapon == uc_game::Weapon::Grenade => format!("{} {n}  PRIMED {:.0}", p.weapon.name(), t.ceil()),
+                (Some(n), _) => format!("{} {n}", p.weapon.name()),
+                (None, _) => p.weapon.name().to_string(),
             };
             let col = if p.rounds() == Some(0) { [240, 90, 70, 255] } else { white };
             let mut wx = bx + bw + 8.0 * s + o.text(bx + bw + 8.0 * s, by - 2.0 * s, s, col, &weapon);

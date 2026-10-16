@@ -35,7 +35,7 @@ fn run(g: &mut Game, level: &Level, secs: f32, c: Controls) {
 
 fn press_action(g: &mut Game, level: &Level) {
     run(g, level, DT, Controls { action: true, ..Default::default() });
-    run(g, level, 0.2, Controls::default());
+    run(g, level, 1.0, Controls::default());
 }
 
 /// Standing on the one lying out picks up three.
@@ -87,6 +87,35 @@ fn a_thrown_grenade_flies_lands_and_goes_off() {
     run(&mut g, &level, 2.5, Controls::default());
     assert!(g.grenades.is_empty(), "never went off");
     assert!(g.people[victim].is_down() || g.people[victim].is_dead(), "the blast missed: {:?}", g.people[victim].state);
+}
+
+/// Attack primes it and throws it too, as in the original (`player_activate_in_hand`): she
+/// plays the throw (`ANIM_CAN_RELEASE`), and it leaves her hand partway through, not at once.
+#[test]
+fn attack_throws_with_the_throw_animation() {
+    let Some((level, mut g)) = start() else { return };
+    let p = g.player.unwrap();
+    let pl = &mut g.people[p];
+    pl.grenades = 3;
+    pl.weapon = Weapon::Grenade;
+    let punch = Controls { punch: true, ..Default::default() };
+    run(&mut g, &level, DT, punch);
+    run(&mut g, &level, 0.3, Controls::default());
+    assert!(g.primed.is_some(), "attack should prime it");
+    assert!(g.grenades.is_empty());
+    run(&mut g, &level, DT, punch);
+    assert!(matches!(g.people[p].state, uc_game::person::State::Throw { .. }), "no throw: {:?}", g.people[p].state);
+    assert_eq!(g.people[p].fig.anim(), uc_game::game::grenades::ANIM_CAN_RELEASE);
+    assert!(g.grenades.is_empty(), "out of her hand before the throw");
+    let mut thrown = false;
+    for _ in 0..60 {
+        run(&mut g, &level, DT, Controls::default());
+        thrown |= !g.grenades.is_empty();
+    }
+    assert!(thrown, "the throw never let it go");
+    assert_eq!(g.people[p].grenades, 2);
+    assert!(g.primed.is_none());
+    assert!(matches!(g.people[p].state, uc_game::person::State::Move), "still throwing");
 }
 
 /// Held past its fuse, it goes off in her hand.

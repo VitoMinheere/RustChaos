@@ -184,6 +184,7 @@ impl Game {
                         self.people[attacker].cues.push(Sfx::Taunt { kind });
                     }
                 }
+                Event::Throw { thrower } => self.release_grenade(thrower),
                 Event::OutCold { attacker, victim } => {
                     let from = self.people[attacker].fig.pos;
                     let v = &mut self.people[victim];
