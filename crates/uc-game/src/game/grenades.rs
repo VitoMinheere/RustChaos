@@ -1,6 +1,6 @@
 //! Grenades (fallen/Source/grenade.cpp, `SPECIAL_GRENADE` in Special.cpp): primed with
-//! action, thrown with action again, bouncing off the ground and walls until the fuse runs
-//! out.
+//! attack (or action), thrown with it again (`player_activate_in_hand`), leaving her hand on
+//! the throw's fourth frame, bouncing off the ground and walls until the fuse runs out.
 
 use crate::*;
 
@@ -11,7 +11,7 @@ pub const GRENADE_PRIM: u8 = 168;
 /// `SPECIAL_prime_grenade`: `16 * 20 * 6` counted down by 16 a tick at 20 ticks a second.
 pub const FUSE: f32 = 6.0;
 /// `ANIM_CAN_RELEASE`: the throw.
-const ANIM_CAN_RELEASE: usize = 65;
+pub const ANIM_CAN_RELEASE: usize = 65;
 
 // grenade.cpp works in 1/256 units a tick at 20 ticks a second: these are a second's worth.
 /// The throw: `181 << 11` along her facing (of a 16.16 unit vector), `181 << 6` up.
@@ -38,19 +38,35 @@ pub struct Grenade {
 }
 
 impl Game {
-    /// Action with a grenade in hand: the first press primes it (`SPECIAL_prime_grenade`),
-    /// the next throws it (`set_person_can_release`, then `CreateGrenadeFromPerson` from the
-    /// left hand). Not inside a warehouse.
+    /// Attack or action with a grenade in hand: the first press primes it
+    /// (`SPECIAL_prime_grenade`), the next starts the throw (`set_person_can_release`:
+    /// `ANIM_CAN_RELEASE` in `STATE_CANNING`), which lets it go a few frames in. Not inside a
+    /// warehouse.
     pub(crate) fn use_grenade(&mut self, pi: usize) {
-        if self.indoors.is_some() {
+        if self.indoors.is_some() || !matches!(self.people[pi].state, State::Move) {
             return;
         }
-        let Some(fuse) = self.primed else {
+        if self.primed.is_none() {
             self.primed = Some(FUSE);
+            self.messages.push(Message { text: "Grenade primed".into(), left: 2.0, face: None, filmed: false });
             return;
-        };
+        }
         let p = &mut self.people[pi];
-        p.fig.restart(ANIM_CAN_RELEASE, uc_world::Play::Once);
+        if p.fig.restart(ANIM_CAN_RELEASE, uc_world::Play::Once) {
+            p.state = State::Throw { released: false };
+        } else {
+            self.release_grenade(pi);
+        }
+    }
+
+    /// The throw reaches its release (`SUB_STATE_CANNING_RELEASE`, frame 3): the primed
+    /// grenade leaves her left hand (`SPECIAL_throw_grenade`, `CreateGrenadeFromPerson`).
+    pub(crate) fn release_grenade(&mut self, pi: usize) {
+        let Some(fuse) = self.primed else { return };
+        let p = &mut self.people[pi];
+        if p.grenades == 0 {
+            return;
+        }
         let hand = p.fig.part_world(7).map_or(p.fig.pos + Vec3::new(0.0, 120.0, 0.0), |(_, at)| at);
         let f = p.fig.facing();
         let vel = Vec3::new(f.x * THROW_ACROSS, THROW_UP, f.y * THROW_ACROSS);
