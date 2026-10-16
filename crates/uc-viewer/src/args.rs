@@ -13,6 +13,7 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --explore         don't run the mission script: just Darci and the level
   --mute            no sound or music
   --endless         endless mode on the mission's map: waves of thugs (with --seed N to repeat a run)
+  --arena X,Z,R     the endless arena: its middle in squares and its radius (default: 10 round the start)
   --windowed        in a window (default: full screen; F11 or Alt+Enter switches)
   --weapon W        start holding a weapon (knife, bat, pistol, shotgun, ak)
   --overrides DIR   folder of page_NNNN.png files that replace clump textures
@@ -61,6 +62,10 @@ pub(crate) struct Args {
     /// Endless mode on the mission's map (#129), with this seed or a new one.
     pub(crate) endless: bool,
     pub(crate) seed: Option<u32>,
+    /// The endless arena: its middle in squares (the start if none) and its radius.
+    pub(crate) arena: (Option<(f32, f32)>, f32),
+    /// The arena's name in the menu, which its best run is kept under.
+    pub(crate) arena_name: Option<String>,
     /// In a window rather than full screen.
     pub(crate) windowed: bool,
     pub(crate) weapon: uc_game::Weapon,
@@ -94,6 +99,8 @@ pub(crate) fn parse_args() -> Result<Args, String> {
         mute: false,
         endless: false,
         seed: None,
+        arena: (None, 10.0),
+        arena_name: None,
         windowed: false,
         weapon: uc_game::Weapon::None,
         overrides: None,
@@ -119,6 +126,10 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             "--explore" => a.explore = true,
             "--mute" => a.mute = true,
             "--endless" => a.endless = true,
+            "--arena" => {
+                let v = parse_floats(&value()?, 3, "--arena")?;
+                a.arena = (Some((v[0], v[1])), v[2]);
+            }
             "--seed" => a.seed = Some(value()?.parse().map_err(|e| format!("--seed: {e}"))?),
             "--windowed" => a.windowed = true,
             "--weapon" => {

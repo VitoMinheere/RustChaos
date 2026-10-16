@@ -327,8 +327,10 @@ impl App {
             return;
         }
         if let Some(i) = m.loading_endless {
-            let name = m.maps[i].0.clone();
+            let (name, label, centre, radius) = m.maps[i].clone();
             self.args.endless = true;
+            self.args.arena = (centre, radius);
+            self.args.arena_name = Some(label);
             self.play(&name);
             self.input.pressed.clear();
             return;
@@ -516,8 +518,9 @@ impl App {
         }
         if let (Some(e), Some(Outcome::Lost(_)), None) = (world.game.endless(), &world.game.outcome, world.endless_recorded) {
             let mut p = progress::Progress::load();
-            let before = p.best_endless(&world.level.name);
-            let best = p.record_endless(&world.level.name, e.score, e.wave);
+            let key = world.args.arena_name.clone().unwrap_or_else(|| world.level.name.clone());
+            let before = p.best_endless(&key);
+            let best = p.record_endless(&key, e.score, e.wave);
             world.endless_recorded = Some((best, before));
         }
         if world.game.outcome == Some(Outcome::Won) && world.result.is_none() {

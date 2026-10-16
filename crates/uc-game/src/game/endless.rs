@@ -45,7 +45,11 @@ pub struct Endless {
     rng: u32,
     /// The middle of the arena, and how far out from it (world units) waves are made.
     centre: Vec3,
-    radius: f32,
+    /// The arena: the middle of every square that can be walked to from where the player
+    /// started, within its radius, on their level ([`arena`]).
+    pub spots: Vec<Vec3>,
+    /// The arena's squares: each one's middle and the squares it leads to.
+    grid: Grid,
     /// Still to come in this wave.
     to_come: u32,
     foes: Vec<Foe>,
@@ -80,16 +84,26 @@ pub fn wave_size(n: u32) -> u32 {
 }
 
 impl Game {
-    /// Starts an endless run on `level` with `seed`, the arena `radius` squares round the
-    /// player's start: no mission script, the city's crowd about as usual, the crime rate on the HUD.
-    pub fn new_endless(level: &Level, seed: u32, radius: f32) -> Game {
+    /// Starts an endless run on `level` with `seed`, in the arena `radius` squares round
+    /// `centre` (world xz; the player's start if none), the player put there: no mission
+    /// script, the city's crowd about as usual, the crime rate on the HUD.
+    pub fn new_endless(level: &Level, seed: u32, centre: Option<Vec2>, radius: f32) -> Game {
         let mut g = Game::new(level, false);
+        if let Some(c) = centre {
+            g.teleport(Vec3::new(c.x, 1.0e5, c.y), level);
+            // From the ground there, not the roof above it: the highest surface no more than
+            // a storey over the street.
+            let y = level.ground.surface(&level.map, c.x, c.y, level.ground.surface(&level.map, c.x, c.y, 0.0) + 128.0);
+            g.teleport(Vec3::new(c.x, y, c.y), level);
+        }
         let centre = g.player().map_or(Vec3::ZERO, |p| p.fig.pos);
+        let grid = arena(level, centre, radius * 256.0);
+        let spots = grid.values().map(|(at, _)| *at).collect();
         g.show_crime_rate = true;
         g.crime_rate = 20;
         g.endless = Some(Endless {
             seed, wave: 0, phase: Phase::Breather(5.0), score: 0, arrests: 0, downed: 0,
-            rng: seed | 1, centre, radius: radius * 256.0, to_come: 0, foes: Vec::new(), red_marks: 0, crime_clock: 0.0,
+            rng: seed | 1, centre, spots, grid, to_come: 0, foes: Vec::new(), red_marks: 0, crime_clock: 0.0,
         });
         g
     }
@@ -149,12 +163,23 @@ impl Game {
                 self.crime_rate = self.crime_rate.saturating_sub(2);
             }
         }
-        // The rest keep coming for the player.
-        for f in e.foes.iter().filter(|f| !f.counted) {
+        // The rest keep coming for the player, by the arena's own ways (the navigation map
+        // can think a wall's open).
+        let ways = self.player().and_then(|me| towards(&e.grid, me.fig.pos));
+        let me = self.player().map(|p| p.fig.pos);
+        for f in &e.foes {
             let p = &mut self.people[f.person];
+            if f.counted {
+                p.steer = None;
+                continue;
+            }
             if !p.aggro() && !p.is_down() {
                 p.go_for();
             }
+            p.steer = match (&ways, me) {
+                (Some(ways), Some(me)) => next_step(&e.grid, ways, p.fig.pos, me, level),
+                _ => None,
+            };
         }
         // More of the wave, as there's room.
         let about = e.foes.iter().filter(|f| !f.counted).count();
@@ -242,32 +267,22 @@ impl Game {
         true
     }
 
-    /// A spot for the next of the wave: on the ground in the arena, no nearer the player
-    /// than [`NOT_NEARER`] and out of their sight if any such spot turns up, preferring the
-    /// pavements the crowd walks (where they're sure to be on the street).
+    /// A spot for the next of the wave: one of the arena's squares, no nearer the player
+    /// than [`NOT_NEARER`] (or half the arena, if that's smaller) and out of their sight if
+    /// any such turns up.
     fn spawn_spot(&mut self, e: &mut Endless, level: &Level) -> Option<Vec3> {
         let me = self.player().map(|p| p.fig.pos)?;
         let eye = me + Vec3::new(0.0, 120.0, 0.0);
+        let far = e.spots.iter().map(|s| flat_dist(*s, e.centre)).fold(0.0, f32::max);
+        let not_nearer = NOT_NEARER.min(far * 0.5);
         let mut seen = None;
-        for k in 0..60 {
-            let a = (e.rand() % 2048) as f32 * std::f32::consts::TAU / 2048.0;
-            let r = e.radius * (0.3 + 0.7 * (e.rand() % 1000) as f32 / 1000.0);
-            let (x, z) = (e.centre.x + r * a.cos(), e.centre.z + r * a.sin());
-            let size = (uc_formats::iam::MAP_SIZE * 256) as f32;
-            if !(256.0..size - 256.0).contains(&x) || !(256.0..size - 256.0).contains(&z) {
-                continue;
+        for _ in 0..60 {
+            if e.spots.is_empty() {
+                return None;
             }
-            let (sx, sz) = ((x / 256.0) as i32, (z / 256.0) as i32);
-            if k < 40 && self.streets.wand.any() && !self.streets.wand.is_wander(sx, sz) {
-                continue;
-            }
-            let y = level.ground.surface(&level.map, x, z, me.y + 256.0);
-            // On the player's level, give or take a storey, so they're reachable.
-            if (y - me.y).abs() > 300.0 {
-                continue;
-            }
-            let at = Vec3::new(x, y, z);
-            if Vec2::new(x - me.x, z - me.z).length() < NOT_NEARER {
+            let k = (e.rand() as usize) % e.spots.len();
+            let at = e.spots[k];
+            if flat_dist(at, me) < not_nearer {
                 continue;
             }
             if !level.ground.line_of_sight(eye, at + Vec3::new(0.0, 120.0, 0.0)) {
@@ -277,4 +292,104 @@ impl Game {
         }
         seen
     }
+}
+
+fn flat_dist(a: Vec3, b: Vec3) -> f32 {
+    Vec2::new(a.x - b.x, a.z - b.z).length()
+}
+
+/// The arena round `start` (world units): the middle of each square within `radius` that
+/// can be walked to from `start`'s square on its level. A square leads to the next if the
+/// ground there is within a step of it (the highest surface no more than a step over this
+/// one, so the inside of a building isn't its roof) and no wall stands between their
+/// middles at waist height, as the walker finds them. So everyone made there can get to the
+/// player, and nobody is made outside the playable area or on a roof.
+pub fn arena(level: &Level, start: Vec3, radius: f32) -> Grid {
+    let n = uc_formats::iam::MAP_SIZE as i32;
+    let sq = |v: Vec3| ((v.x / 256.0) as i32, (v.z / 256.0) as i32);
+    let middle = |x: i32, z: i32, from: f32| {
+        let (cx, cz) = (x as f32 * 256.0 + 128.0, z as f32 * 256.0 + 128.0);
+        Vec3::new(cx, level.ground.surface(&level.map, cx, cz, from + uc_world::ground::STEP_HEIGHT), cz)
+    };
+    let waist = Vec3::new(0.0, uc_world::ground::STEP_HEIGHT - 4.0, 0.0);
+    let (sx, sz) = sq(start);
+    let mut at = std::collections::BTreeMap::new();
+    at.insert((sx, sz), Vec3::new(sx as f32 * 256.0 + 128.0, start.y, sz as f32 * 256.0 + 128.0));
+    let mut queue = std::collections::VecDeque::from([(sx, sz)]);
+    let mut out = Grid::new();
+    while let Some((x, z)) = queue.pop_front() {
+        let here = at[&(x, z)];
+        let mut leads = Vec::new();
+        for (dx, dz) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+            let (nx, nz) = (x + dx, z + dz);
+            if !(1..n - 1).contains(&nx) || !(1..n - 1).contains(&nz) {
+                continue;
+            }
+            let next = at.get(&(nx, nz)).copied().unwrap_or_else(|| middle(nx, nz, here.y));
+            if flat_dist(next, start) > radius || (next.y - here.y).abs() > uc_world::ground::STEP_HEIGHT {
+                continue;
+            }
+            if !level.ground.line_of_sight(here + waist, next + waist) {
+                continue;
+            }
+            leads.push((nx, nz));
+            if let std::collections::btree_map::Entry::Vacant(v) = at.entry((nx, nz)) {
+                v.insert(next);
+                queue.push_back((nx, nz));
+            }
+        }
+        out.insert((x, z), (here, leads));
+    }
+    out
+}
+
+/// An arena: each square's middle, and the squares it leads to.
+pub type Grid = std::collections::BTreeMap<(i32, i32), (Vec3, Vec<(i32, i32)>)>;
+
+fn square(v: Vec3) -> (i32, i32) {
+    ((v.x / 256.0) as i32, (v.z / 256.0) as i32)
+}
+
+/// For every square of the arena, the next one on the way to `to`'s square (a search out
+/// from it), or None if `to` isn't in the arena.
+fn towards(grid: &Grid, to: Vec3) -> Option<std::collections::BTreeMap<(i32, i32), (i32, i32)>> {
+    let goal = square(to);
+    grid.get(&goal)?;
+    let mut next = std::collections::BTreeMap::from([(goal, goal)]);
+    let mut queue = std::collections::VecDeque::from([goal]);
+    while let Some(s) = queue.pop_front() {
+        for &n in &grid[&s].1 {
+            if let std::collections::btree_map::Entry::Vacant(v) = next.entry(n) {
+                v.insert(s);
+                queue.push_back(n);
+            }
+        }
+    }
+    Some(next)
+}
+
+/// Where someone at `from` should head for to get to `me` by the arena: the furthest of the
+/// next three squares on the way that can be walked to straight, or None to go straight
+/// for her (already near, or off the arena).
+fn next_step(grid: &Grid, ways: &std::collections::BTreeMap<(i32, i32), (i32, i32)>, from: Vec3, me: Vec3, level: &Level) -> Option<Vec3> {
+    let waist = Vec3::new(0.0, uc_world::ground::STEP_HEIGHT - 4.0, 0.0);
+    if level.ground.line_of_sight(from + waist, me + waist) && flat_dist(from, me) < 6.0 * 256.0 {
+        return None;
+    }
+    let mut s = square(from);
+    let mut best = None;
+    for _ in 0..3 {
+        let &n = ways.get(&s)?;
+        if n == s {
+            break;
+        }
+        let at = grid[&n].0;
+        if best.is_none() || level.ground.line_of_sight(from + waist, at + waist) {
+            best = Some(at);
+        } else {
+            break;
+        }
+        s = n;
+    }
+    best
 }
