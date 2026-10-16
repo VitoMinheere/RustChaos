@@ -252,6 +252,8 @@ With an install present, the tests check:
 
 Without an install, the data tests print a note and pass. That's what CI sees: `.github/workflows/rust.yml` builds, tests and runs Clippy on Windows and Linux.
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for what to run before a pull request, and for the helpers the mission tests share.
+
 ## What is and isn't there
 
 **Drawn:**

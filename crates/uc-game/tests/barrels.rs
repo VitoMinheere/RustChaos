@@ -3,44 +3,16 @@
 //! Semtex is won by shooting its two drums. Skipped without an install.
 
 use glam::{vec3, Vec3};
-use uc_game::{Charge, Controls, Game, Outcome, Weapon};
-use uc_world::{Level, LoadOptions};
+use uc_game::{Charge, Controls, Outcome, Weapon};
 
-const DT: f32 = 1.0 / 30.0;
-
-struct Run {
-    level: Level,
-    g: Game,
-    seen: Vec<String>,
-}
+mod common;
+use common::{Run, DT};
 
 fn start(mission: &str) -> Option<Run> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, mission, &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
-    let g = Game::new(&level, true);
-    assert!(g.unsupported().is_empty(), "{mission}: unsupported {:?}", g.unsupported());
-    Some(Run { level, g, seen: Vec::new() })
+    common::start(mission)
 }
 
 impl Run {
-    fn run(&mut self, secs: f32, c: Controls) {
-        for _ in 0..(secs / DT).max(1.0) as usize {
-            self.g.skip_cutscene();
-            let p = self.g.player.unwrap();
-            self.g.people[p].health = self.g.people[p].max_health;
-            self.g.update(DT, &c, &self.level);
-            for m in &self.g.messages {
-                if !self.seen.contains(&m.text) {
-                    println!("[{:6.1}s] {}", self.g.time, m.text);
-                    self.seen.push(m.text.clone());
-                }
-            }
-            if self.g.outcome.is_some() {
-                return;
-            }
-        }
-    }
-
     fn barrel(&self, way: usize) -> usize {
         self.g.barrels.iter().position(|b| b.way == way).unwrap_or_else(|| panic!("no barrel from point {way}"))
     }
@@ -69,8 +41,8 @@ impl Run {
             if self.g.barrels[k].gone {
                 break;
             }
-            self.run(DT, Controls { punch: true, ..Default::default() });
-            self.run(0.4, Controls::default());
+            self.play(DT, Controls { punch: true, ..Default::default() });
+            self.play(0.4, Controls::default());
         }
         self.g.barrels[k].gone
     }
@@ -81,16 +53,16 @@ impl Run {
 #[test]
 fn semtex_is_won_by_shooting_the_two_drums() {
     let Some(mut r) = start("Semtex") else { return };
-    r.run(1.0, Controls::default());
+    r.play(1.0, Controls::default());
     for way in [199, 183] {
         let k = r.barrel(way);
         assert!(r.g.barrels[k].explodes, "drum {way} doesn't explode");
         r.line_up(k);
-        r.run(0.5, Controls::default());
+        r.play(0.5, Controls::default());
         assert_eq!(r.g.aim_barrel, Some(k), "the gun isn't on drum {way}");
         assert!(r.shoot(k), "shooting drum {way} didn't blow it up");
     }
-    r.run(10.0, Controls::default());
+    r.play(10.0, Controls::default());
     assert!(r.seen.iter().any(|m| m.contains("blowing that Semtex to hell")), "{:?}", r.seen);
     assert_eq!(r.g.outcome, Some(Outcome::Won));
 }
@@ -99,14 +71,14 @@ fn semtex_is_won_by_shooting_the_two_drums() {
 #[test]
 fn a_barrel_going_up_knocks_people_down() {
     let Some(mut r) = start("Semtex") else { return };
-    r.run(1.0, Controls::default());
+    r.play(1.0, Controls::default());
     let k = r.barrel(324);
     let at = r.g.barrels[k].pos;
     let victim = r.g.people.iter().position(|p| p.hostile() && !p.removed && !p.is_dead()).unwrap();
     r.g.people[victim].fig.pos = at + vec3(100.0, 0.0, 0.0);
     let p = r.g.player.unwrap();
     r.g.shoot_barrel(k, p, &r.level);
-    r.run(0.5, Controls::default());
+    r.play(0.5, Controls::default());
     assert!(r.g.barrels[k].gone);
     assert!(r.g.people[victim].is_down() || r.g.people[victim].is_dead(), "{:?}", r.g.people[victim].state);
 }
@@ -115,7 +87,7 @@ fn a_barrel_going_up_knocks_people_down() {
 #[test]
 fn cones_and_bins_dont_explode() {
     let Some(mut r) = start("police1") else { return };
-    r.run(1.0, Controls::default());
+    r.play(1.0, Controls::default());
     let p = r.g.player.unwrap();
     for way in [75, 95] {
         let k = r.barrel(way);
@@ -130,11 +102,11 @@ fn cones_and_bins_dont_explode() {
 #[test]
 fn a_charge_leaves_barrels_alone() {
     let Some(mut r) = start("Semtex") else { return };
-    r.run(1.0, Controls::default());
+    r.play(1.0, Controls::default());
     let k = r.barrel(324);
     let at: Vec3 = r.g.barrels[k].pos;
     r.g.charges.push(Charge { pos: at + vec3(60.0, 0.0, 0.0), fuse: 0.1 });
-    r.run(2.0, Controls::default());
+    r.play(2.0, Controls::default());
     assert!(!r.g.barrels[k].gone, "the charge set the barrel off");
 }
 
@@ -143,18 +115,18 @@ fn a_charge_leaves_barrels_alone() {
 #[test]
 fn stacked_barrels_fall_when_the_one_under_goes() {
     let Some(mut r) = start("Semtex") else { return };
-    r.run(1.0, Controls::default());
+    r.play(1.0, Controls::default());
     let top = r.g.barrels.iter().position(|b| b.on.is_some()).expect("nothing stacked in Semtex");
     let under = r.g.barrels[top].on.unwrap();
     assert_eq!(r.g.barrels[top].pos.y, r.g.barrels[under].pos.y + 93.0);
     // Stays put while the one under it does.
-    r.run(1.0, Controls::default());
+    r.play(1.0, Controls::default());
     assert_eq!(r.g.barrels[top].on, Some(under));
     // Gone from under it: down it comes, onto the ground, and settles (standing or on its
     // side).
     let floor = r.g.barrels[under].pos.y;
     r.g.barrels[under].gone = true;
-    r.run(6.0, Controls::default());
+    r.play(6.0, Controls::default());
     let b = &r.g.barrels[top];
     assert!(b.on.is_none() && b.spheres.is_none(), "still moving");
     let mid = b.middle().y - floor;

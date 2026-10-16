@@ -6,44 +6,17 @@
 use glam::{vec3, Vec3};
 use uc_game::creature::{self, State as Cs};
 use uc_game::person::ko;
-use uc_game::{Controls, Game, Outcome, State, Weapon};
-use uc_world::{Level, LoadOptions};
+use uc_game::{Controls, Outcome, State, Weapon};
 
-const DT: f32 = 1.0 / 30.0;
-
-struct Run {
-    level: Level,
-    g: Game,
-    seen: Vec<String>,
-}
+mod common;
+use common::Run;
 
 fn start(mission: &str) -> Option<Run> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, mission, &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
-    let g = Game::new(&level, true);
-    Some(Run { level, g, seen: Vec::new() })
+    Some(Run::new(common::load(mission)?))
 }
 
 impl Run {
-    fn play(&mut self, secs: f32, c: Controls) {
-        for _ in 0..(secs / DT).max(1.0) as usize {
-            self.g.skip_cutscene();
-            let me = self.g.player.unwrap();
-            self.g.people[me].health = self.g.people[me].max_health;
-            self.g.update(DT, &c, &self.level);
-            for m in &self.g.messages {
-                if !self.seen.contains(&m.text) {
-                    println!("[{:6.1}s] {}", self.g.time, m.text);
-                    self.seen.push(m.text.clone());
-                }
-            }
-            if self.g.outcome.is_some() {
-                return;
-            }
-        }
-    }
-
-    fn stand(&mut self, p: Vec3) {
+    fn set_down(&mut self, p: Vec3) {
         let y = self.level.ground.surface(&self.level.map, p.x, p.z, p.y + 64.0);
         let i = self.g.player.unwrap();
         self.g.people[i].fig.pos = vec3(p.x, y, p.z);
@@ -54,7 +27,7 @@ impl Run {
     /// (point 20); the Balrog waits on both of them going down.
     fn wake_the_balrog(&mut self) {
         let corner = self.level.mission.event_points.iter().find(|e| e.index == 20).unwrap();
-        self.stand(vec3(corner.x as f32, corner.y as f32, corner.z as f32));
+        self.set_down(vec3(corner.x as f32, corner.y as f32, corner.z as f32));
         self.play(3.0, Controls::default());
         assert!(self.g.creatures.is_empty(), "he waits on point 42");
         self.kill(21);
@@ -97,7 +70,7 @@ fn the_balrog_comes_and_goes_down_to_bullets() {
     let home = r.g.creatures[0].fig.pos;
 
     // Six squares off and in plain view: he's after Darci, and comes for her or throws fire.
-    r.stand(home + vec3(6.0 * 256.0, 0.0, 0.0));
+    r.set_down(home + vec3(6.0 * 256.0, 0.0, 0.0));
     let start = r.g.creatures[0].fig.pos;
     let mut threw = false;
     let mut states = std::collections::BTreeSet::new();
@@ -130,7 +103,7 @@ fn the_balrog_comes_and_goes_down_to_bullets() {
         .expect("an open spot near him");
     let mut aimed = 0;
     for _ in 0..1200 {
-        r.stand(spot);
+        r.set_down(spot);
         r.play(0.25, Controls { punch: true, ..Default::default() });
         aimed += r.g.aim_creature.is_some() as u32;
         r.play(0.25, Controls::default());
@@ -167,7 +140,7 @@ fn the_gargoyle_wakes_and_bane_summons() {
     assert_eq!(r.g.creatures[garg].state, Cs::Ground);
 
     let at = r.g.creatures[garg].fig.pos;
-    r.stand(at + vec3(3.0 * 256.0, 0.0, 0.0));
+    r.set_down(at + vec3(3.0 * 256.0, 0.0, 0.0));
     r.play(10.0, Controls::default());
     assert_ne!(r.g.creatures[garg].state, Cs::Ground, "the player is near: it should be up");
     assert!(r.g.creatures[garg].fig.pos.y > at.y + 32.0, "and in the air");
