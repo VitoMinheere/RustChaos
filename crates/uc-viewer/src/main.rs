@@ -321,6 +321,14 @@ impl App {
         let Some(m) = self.menu.as_mut() else { return };
         if let Some(i) = m.loading {
             let name = m.entries[i].mission.clone();
+            self.args.endless = false;
+            self.play(&name);
+            self.input.pressed.clear();
+            return;
+        }
+        if let Some(i) = m.loading_endless {
+            let name = m.maps[i].0.clone();
+            self.args.endless = true;
             self.play(&name);
             self.input.pressed.clear();
             return;
@@ -350,6 +358,7 @@ impl App {
                 if go {
                     match menu::MAIN[m.main] {
                         "START" => m.screen = menu::Screen::Missions,
+                        "ENDLESS" => m.screen = menu::Screen::Endless,
                         _ => {
                             el.exit();
                             return;
@@ -369,6 +378,20 @@ impl App {
                 }
                 if go && !m.entries.is_empty() {
                     m.loading = Some(m.selected);
+                }
+            }
+            menu::Screen::Endless => {
+                if back {
+                    m.screen = menu::Screen::Main;
+                }
+                if up {
+                    m.map_up();
+                }
+                if down {
+                    m.map_down();
+                }
+                if go && !m.maps.is_empty() {
+                    m.loading_endless = Some(m.map_selected);
                 }
             }
         }
@@ -491,6 +514,12 @@ impl App {
                 world.game.outcome = Some(Outcome::Lost("Too many civilian casualties".into()));
             }
         }
+        if let (Some(e), Some(Outcome::Lost(_)), None) = (world.game.endless(), &world.game.outcome, world.endless_recorded) {
+            let mut p = progress::Progress::load();
+            let before = p.best_endless(&world.level.name);
+            let best = p.record_endless(&world.level.name, e.score, e.wave);
+            world.endless_recorded = Some((best, before));
+        }
         if world.game.outcome == Some(Outcome::Won) && world.result.is_none() {
             let mut p = progress::Progress::load();
             let before = p.best_time(&world.level.name);
@@ -507,6 +536,8 @@ impl App {
         self.input.mouse = Vec2::ZERO;
         self.input.wheel = 0.0;
 
+        // Drawn between the last two turns, so it moves smoothly at any frame rate.
+        world.game.begin_draw();
         let cam = world.camera();
         match self.sound.as_mut() {
             Some(s) if !paused => s.update(world, &cam, dt),
@@ -514,12 +545,16 @@ impl App {
         }
         let settings = world.settings();
         let dynamic = world.dynamic();
-        let Some(g) = self.gfx.as_mut() else { return };
+        let Some(g) = self.gfx.as_mut() else {
+            world.game.end_draw();
+            return;
+        };
         let size = (g.config.width, g.config.height);
         let mut hud = world.hud(size);
         if world.pause.is_none() {
             draw_sights(&mut hud, &world.game.gun_sights(), &cam, size);
         }
+        world.game.end_draw();
         if let Some(p) = &world.pause {
             p.overlay(&mut hud, size);
         }

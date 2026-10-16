@@ -58,3 +58,30 @@ fn a_different_input_shows_in_the_hash() {
     assert_eq!(a[..4], b[..4]);
     assert_ne!(a[4], b[4]);
 }
+
+/// The game plays out the same at any frame rate (#128): fed the same inputs turn by turn,
+/// it agrees with itself at 30, 60 and 144 frames a second, every second's worth of turns.
+#[test]
+fn the_frame_rate_makes_no_difference() {
+    let run = |fps: f32| -> Option<Vec<u64>> {
+        let level = common::load("police1")?;
+        let mut g = uc_game::Game::new(&level, true);
+        let mut out = Vec::new();
+        while g.turns() < 30 * 20 {
+            let before = g.turns();
+            // The inputs go by the turn about to be played, not by the clock.
+            g.update(1.0 / fps, &input((before / 30) as usize), &level);
+            if g.turns() != before && g.turns().is_multiple_of(30) {
+                out.push(g.state_hash());
+            }
+        }
+        Some(out)
+    };
+    let Some(at30) = run(30.0) else { return };
+    for fps in [60.0, 144.0] {
+        let other = run(fps).unwrap();
+        if let Some(t) = at30.iter().zip(&other).position(|(a, b)| a != b) {
+            panic!("at {fps} fps the game parts from 30 fps after {} s", t + 1);
+        }
+    }
+}

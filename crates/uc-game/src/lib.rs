@@ -364,6 +364,32 @@ struct Clocks {
     fence_spark: f32,
 }
 
+/// One game turn, in seconds: the game always advances by whole turns (#128). Thirty a
+/// second, the rate everything here was tuned and tested at; the systems the original runs
+/// at its own twenty a second still do, on their own clocks.
+pub const TURN: f32 = 1.0 / 30.0;
+
+/// Where everything that moves is, and which way it faces: kept from the start of each turn
+/// to draw between turns.
+#[derive(Debug, Clone, Default)]
+struct Before {
+    people: Vec<(Vec3, f32)>,
+    vehicles: Vec<(Vec3, f32)>,
+    creatures: Vec<(Vec3, f32)>,
+    bikes: Vec<Option<(Vec3, f32)>>,
+}
+
+impl Before {
+    fn of(g: &Game) -> Before {
+        Before {
+            people: g.people.iter().map(|p| (p.fig.pos, p.fig.angle)).collect(),
+            vehicles: g.vehicles.iter().map(|v| (v.pos, v.yaw)).collect(),
+            creatures: g.creatures.iter().map(|c| (c.fig.pos, c.fig.angle)).collect(),
+            bikes: g.bikes.iter().map(|(_, f)| f.as_ref().map(|f| (f.pos, f.angle))).collect(),
+        }
+    }
+}
+
 pub struct Game {
     pub people: Vec<Person>,
     pub player: Option<usize>,
@@ -376,6 +402,18 @@ pub struct Game {
     rngs: Rngs,
     /// How far into its next turn each system that runs at a fixed rate is.
     clocks: Clocks,
+    /// Real time not yet played: less than a [`TURN`].
+    turn_clock: f32,
+    /// The turns played.
+    turns: u64,
+    /// Presses waiting for the next turn.
+    pending: Controls,
+    /// Where everything was at the start of the last turn.
+    before: Before,
+    /// Where everything really is, while it's drawn between turns.
+    drawing: Option<Before>,
+    /// An endless run's waves (#129), when this is one.
+    endless: Option<game::endless::Endless>,
     /// Sounds not tied to a person this frame.
     sounds: Vec<(Sfx, Vec3)>,
     /// Seconds left of fight music after the fighting stops.
@@ -519,6 +557,12 @@ impl Game {
             time: 0.0,
             rngs: Rngs::default(),
             clocks: Clocks::default(),
+            turn_clock: 0.0,
+            turns: 0,
+            pending: Controls::default(),
+            before: Before::default(),
+            drawing: None,
+            endless: None,
             sounds: Vec::new(),
             fight_timer: 0.0,
             sprinting: false,
@@ -682,8 +726,107 @@ impl Game {
         out
     }
 
-    /// Advances the game by `dt` seconds with the player's `input`.
+    /// Advances the game by `dt` seconds of real time with the player's `input`: as many
+    /// whole turns of [`TURN`] as are due, so how it plays out doesn't depend on the frame
+    /// rate. What's held (moving, running, firing) is as `input` has it now; what's pressed
+    /// (punch, jump, action...) is kept until a turn takes it, so a tap between turns isn't
+    /// lost, and only the first turn of a frame sees it.
     pub fn update(&mut self, dt: f32, input: &Controls, level: &Level) {
+        let p = &mut self.pending;
+        p.punch |= input.punch;
+        p.kick |= input.kick;
+        p.action |= input.action;
+        p.jump |= input.jump;
+        p.switch |= input.switch;
+        p.cycle_target |= input.cycle_target;
+        p.scope |= input.scope;
+        p.taunt |= input.taunt;
+        self.turn_clock += dt;
+        while self.turn_clock >= TURN {
+            self.turn_clock -= TURN;
+            let p = std::mem::take(&mut self.pending);
+            let c = Controls {
+                punch: p.punch, kick: p.kick, action: p.action, jump: p.jump, switch: p.switch,
+                cycle_target: p.cycle_target, scope: p.scope, taunt: p.taunt, ..*input
+            };
+            self.before = Before::of(self);
+            self.turn(&c, level);
+            self.turns += 1;
+        }
+    }
+
+    /// The turns played so far.
+    pub fn turns(&self) -> u64 {
+        self.turns
+    }
+
+    /// How far into the next turn real time is, 0 to 1: where to draw between the last two.
+    pub fn between(&self) -> f32 {
+        (self.turn_clock / TURN).clamp(0.0, 1.0)
+    }
+
+    /// Puts everyone and everything that moves where they are [`Game::between`] the last two
+    /// turns, for drawing; [`Game::end_draw`] puts them back. Anything that jumped further
+    /// than two squares in a turn (a teleport, a respawn) is drawn where it is now.
+    pub fn begin_draw(&mut self) {
+        if self.drawing.is_some() {
+            return;
+        }
+        let now = Before::of(self);
+        let t = self.between();
+        let mix = |a: (Vec3, f32), b: (Vec3, f32)| {
+            if (b.0 - a.0).length() > 512.0 {
+                return b;
+            }
+            let turn = (b.1 - a.1 + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+            (a.0.lerp(b.0, t), a.1 + turn * t)
+        };
+        let b = &self.before;
+        for (i, p) in self.people.iter_mut().enumerate() {
+            if let (Some(&was), Some(&is)) = (b.people.get(i), now.people.get(i)) {
+                (p.fig.pos, p.fig.angle) = mix(was, is);
+            }
+        }
+        for (i, v) in self.vehicles.iter_mut().enumerate() {
+            if let (Some(&was), Some(&is)) = (b.vehicles.get(i), now.vehicles.get(i)) {
+                (v.pos, v.yaw) = mix(was, is);
+            }
+        }
+        for (i, c) in self.creatures.iter_mut().enumerate() {
+            if let (Some(&was), Some(&is)) = (b.creatures.get(i), now.creatures.get(i)) {
+                (c.fig.pos, c.fig.angle) = mix(was, is);
+            }
+        }
+        for (i, (_, f)) in self.bikes.iter_mut().enumerate() {
+            if let (Some(f), Some(Some(was)), Some(Some(is))) = (f.as_mut(), b.bikes.get(i), now.bikes.get(i)) {
+                (f.pos, f.angle) = mix(*was, *is);
+            }
+        }
+        self.drawing = Some(now);
+    }
+
+    /// Back to where everything really is, after [`Game::begin_draw`].
+    pub fn end_draw(&mut self) {
+        let Some(now) = self.drawing.take() else { return };
+        for (p, &(pos, angle)) in self.people.iter_mut().zip(&now.people) {
+            (p.fig.pos, p.fig.angle) = (pos, angle);
+        }
+        for (v, &(pos, yaw)) in self.vehicles.iter_mut().zip(&now.vehicles) {
+            (v.pos, v.yaw) = (pos, yaw);
+        }
+        for (c, &(pos, angle)) in self.creatures.iter_mut().zip(&now.creatures) {
+            (c.fig.pos, c.fig.angle) = (pos, angle);
+        }
+        for ((_, f), was) in self.bikes.iter_mut().zip(&now.bikes) {
+            if let (Some(f), Some((pos, angle))) = (f.as_mut(), was) {
+                (f.pos, f.angle) = (*pos, *angle);
+            }
+        }
+    }
+
+    /// One turn of the game with `input`.
+    fn turn(&mut self, input: &Controls, level: &Level) {
+        let dt = TURN;
         self.time += dt;
         for m in &mut self.messages {
             m.left -= dt;
@@ -697,6 +840,7 @@ impl Game {
         if self.outcome.is_none() {
             self.run_script(dt, level);
         }
+        self.run_endless(dt, level);
         let pressed = input.punch || input.kick || input.jump || input.action;
         self.update_scenes(dt, level, pressed);
         self.pyro.update(dt);

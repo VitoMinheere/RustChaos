@@ -17,6 +17,22 @@ pub(crate) fn arm(game: &mut Game, args: &Args) {
     }
 }
 
+/// How far round the player's start an endless run's waves come from, in squares.
+const ENDLESS_RADIUS: f32 = 24.0;
+
+/// The game for `args`: the mission, or an endless run on its map (with `--seed`'s seed, or
+/// one from the clock).
+fn new_game(level: &Level, args: &Args) -> Game {
+    if !args.endless {
+        return Game::new(level, !args.explore);
+    }
+    let seed = args.seed.unwrap_or_else(|| {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos() ^ d.as_secs() as u32)
+    });
+    println!("endless: {} with seed {seed}", level.name);
+    Game::new_endless(level, seed, ENDLESS_RADIUS)
+}
+
 /// Everything about a loaded level that doesn't depend on the window.
 pub(crate) struct World {
     pub(crate) args: Args,
@@ -46,13 +62,15 @@ pub(crate) struct World {
     pub(crate) pause: Option<Pause>,
     /// The developer console, and the free camera's teleport.
     pub(crate) console: Console,
+    /// An endless run that's over and saved: whether it beat the best, and the best before.
+    pub(crate) endless_recorded: Option<(bool, Option<(i64, u32)>)>,
 }
 
 impl World {
     pub(crate) fn load(args: Args) -> Result<World, String> {
         let opt = LoadOptions { fullbright: args.fullbright, character: !args.no_character, overrides: args.overrides.clone() };
         let level = Level::load(&args.game, &args.mission, &opt)?;
-        let mut game = Game::new(&level, !args.explore);
+        let mut game = new_game(&level, &args);
         arm(&mut game, &args);
         if !game.unsupported().is_empty() {
             println!("{}: {} event points aren't supported yet and do nothing: {}", level.name,
@@ -89,6 +107,7 @@ impl World {
             pause: None,
             civ_warning: None,
             console: Console::default(),
+            endless_recorded: None,
         })
     }
 
@@ -103,8 +122,9 @@ impl World {
     pub(crate) fn restart(&mut self) {
         self.result = None;
         self.civ_warning = None;
-        self.game = Game::new(&self.level, !self.args.explore);
+        self.game = new_game(&self.level, &self.args);
         arm(&mut self.game, &self.args);
+        self.endless_recorded = None;
         if let Some(p) = self.game.player() {
             self.orbit = Orbit::behind(p.fig.angle);
         }

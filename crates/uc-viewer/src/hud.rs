@@ -108,7 +108,8 @@ impl World {
             // How much of the mission is done: badges and side objectives (with earlier wins).
             let (badges, sides) = self.tally();
             let (nb, ns) = (self.goals.badges.len(), self.goals.sides.len());
-            if nb + ns > 0 {
+            // Not in an endless run: its map's mission isn't being played.
+            if nb + ns > 0 && self.game.endless().is_none() {
                 let text = format!("  BADGES {badges}/{nb}   SIDE {sides}/{ns}");
                 let all = badges == nb && sides == ns;
                 o.text(x, by + bh + 4.0 * s, s, if all { [255, 210, 70, 255] } else { [190, 190, 180, 200] }, &text);
@@ -312,8 +313,33 @@ impl World {
             }
         }
 
+        // An endless run: the wave, who's left of it, the score; or the breather's countdown.
+        if let Some(e) = self.game.endless() {
+            let gold = [255, 210, 70, 255];
+            let line = match e.breather() {
+                Some(t) => format!("WAVE {} IN {:.0}", e.wave + 1, t.ceil()),
+                None => format!("WAVE {}   LEFT {}", e.wave, e.left(&self.game)),
+            };
+            let big = s * 2.0;
+            o.text(w / 2.0 - Overlay::text_width(&line, big) / 2.0, 8.0 * s, big, gold, &line);
+            let score = format!("SCORE {}", e.score);
+            o.text(w / 2.0 - Overlay::text_width(&score, s) / 2.0, 26.0 * s, s, white, &score);
+        }
+
         // Outcome.
-        if let Some(out) = &self.game.outcome {
+        if let (Some(e), Some(Outcome::Lost(why))) = (self.game.endless(), &self.game.outcome) {
+            let title = format!("RUN OVER: WAVE {}", e.wave);
+            let best = match self.endless_recorded {
+                Some((true, _)) => "A new best!".to_string(),
+                Some((false, Some((b, bw)))) => format!("Best {b} (wave {bw})"),
+                _ => String::new(),
+            };
+            let sub = format!("{why}. Score {}   Arrests {}   Knockouts {}   {best}   R: again   Esc: menu", e.score, e.arrests, e.downed);
+            let big = s * 3.0;
+            o.rect(0.0, h * 0.33, w, 50.0 * s, [0, 0, 0, 160]);
+            o.text(w / 2.0 - Overlay::text_width(&title, big) / 2.0, h * 0.33 + 8.0 * s, big, [255, 210, 70, 255], &title);
+            o.text(w / 2.0 - Overlay::text_width(&sub, s) / 2.0, h * 0.33 + 36.0 * s, s, white, &sub);
+        } else if let Some(out) = &self.game.outcome {
             let (title, sub, col) = match out {
                 Outcome::Won => {
                     // The time, and how it compares with the best before.

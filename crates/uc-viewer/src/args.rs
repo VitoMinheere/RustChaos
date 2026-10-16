@@ -12,6 +12,7 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --mission NAME    mission to play, e.g. ftutor1, testdrive1a, police1 (default: the menu)
   --explore         don't run the mission script: just Darci and the level
   --mute            no sound or music
+  --endless         endless mode on the mission's map: waves of thugs (with --seed N to repeat a run)
   --windowed        in a window (default: full screen; F11 or Alt+Enter switches)
   --weapon W        start holding a weapon (knife, bat, pistol, shotgun, ak)
   --overrides DIR   folder of page_NNNN.png files that replace clump textures
@@ -57,6 +58,9 @@ pub(crate) struct Args {
     pub(crate) mission_given: bool,
     pub(crate) explore: bool,
     pub(crate) mute: bool,
+    /// Endless mode on the mission's map (#129), with this seed or a new one.
+    pub(crate) endless: bool,
+    pub(crate) seed: Option<u32>,
     /// In a window rather than full screen.
     pub(crate) windowed: bool,
     pub(crate) weapon: uc_game::Weapon,
@@ -88,6 +92,8 @@ pub(crate) fn parse_args() -> Result<Args, String> {
         mission_given: false,
         explore: false,
         mute: false,
+        endless: false,
+        seed: None,
         windowed: false,
         weapon: uc_game::Weapon::None,
         overrides: None,
@@ -112,6 +118,8 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             }
             "--explore" => a.explore = true,
             "--mute" => a.mute = true,
+            "--endless" => a.endless = true,
+            "--seed" => a.seed = Some(value()?.parse().map_err(|e| format!("--seed: {e}"))?),
             "--windowed" => a.windowed = true,
             "--weapon" => {
                 a.weapon = match value()?.as_str() {
