@@ -28,6 +28,16 @@ pub struct Entry {
     pub goals: Goals,
 }
 
+/// An endless arena in the menu: a mission on its map, its name, its middle in squares (the
+/// mission's start if none) and its radius.
+pub type Arena = (String, String, Option<(f32, f32)>, f32);
+
+/// Endless arenas with names: (map, name, middle in squares, radius in squares).
+const NAMED_ARENAS: [(&str, &str, f32, f32, f32); 1] = [
+    // Where Gun Hunt sends Darci to find Deeks ("Park: Find Deeks", police3 point 202).
+    ("disturb1", "West District: the park", 34.5, 40.1, 9.0),
+];
+
 /// The front end's screens (fallen/Source/frontend.cpp): the title (`FE_TITLESCREEN`), the
 /// main menu (`FE_MAINMENU`) and the missions (the original's map screen, `FE_MAPSCREEN`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,8 +95,9 @@ pub struct Menu {
     pub selected: usize,
     /// A mission chosen, to load on the next frame (after "Loading" is on screen).
     pub loading: Option<usize>,
-    /// Endless mode's maps: a mission on each (to load it by), and what's shown for it.
-    pub maps: Vec<(String, String)>,
+    /// Endless mode's arenas: a mission on the map (to load it by), what's shown for it,
+    /// and the arena (its middle in squares, the mission's start if none, and radius).
+    pub maps: Vec<Arena>,
     pub map_selected: usize,
     /// A map chosen for an endless run, to load on the next frame.
     pub loading_endless: Option<usize>,
@@ -117,13 +128,19 @@ impl Menu {
         }
         let progress = Progress::load();
         let theme = Theme::of(entries.iter().filter(|e| progress.completed(&e.mission)).count());
-        // One endless map for each map the missions use, called after its missions.
-        let maps = maps.into_iter().map(|(map, ms)| {
-            let names: Vec<&str> = ms.iter().take(3).map(|m| m.1.as_str()).collect();
-            let more = if ms.len() > 3 { ", ..." } else { "" };
+        // An endless arena round the start of each map the missions use (named after its
+        // first mission), and the few named ones besides.
+        let mut arenas = Vec::new();
+        for (map, ms) in maps {
             let stem = map.rsplit(['\\', '/']).next().unwrap_or(&map).trim_end_matches(".iam").to_string();
-            (ms[0].0.clone(), format!("{stem}: {}{more}", names.join(", ")))
-        }).collect();
+            arenas.push((ms[0].0.clone(), format!("{}: round the start ({stem})", ms[0].1), None, 10.0));
+            for &(m, name, x, z, r) in &NAMED_ARENAS {
+                if m.eq_ignore_ascii_case(&stem) {
+                    arenas.push((ms[0].0.clone(), name.to_string(), Some((x, z)), r));
+                }
+            }
+        }
+        let maps = arenas;
         Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, map_selected: 0, loading_endless: None }
     }
 
@@ -240,13 +257,13 @@ impl Menu {
         let top = 64.0 * s;
         let rows = (((h - top - 40.0 * s) / line) as usize).max(3);
         let first = self.map_selected.saturating_sub(rows / 2).min(self.maps.len().saturating_sub(rows));
-        for (k, (mission, label)) in self.maps.iter().enumerate().skip(first).take(rows) {
+        for (k, (_, label, _, _)) in self.maps.iter().enumerate().skip(first).take(rows) {
             let y = top + (k - first) as f32 * line;
             if k == self.map_selected {
                 o.rect(x - 4.0 * s, y - 2.0 * s, w * 0.55 - x - 8.0 * s, line, [200, 150, 40, 200]);
             }
             o.text(x, y, s, white, label);
-            if let Some((score, wave)) = self.progress.best_endless(mission) {
+            if let Some((score, wave)) = self.progress.best_endless(label) {
                 let tag = format!("BEST {score} (WAVE {wave})");
                 o.text(w * 0.55 - Overlay::text_width(&tag, s) - 16.0 * s, y, s, gold, &tag);
             }

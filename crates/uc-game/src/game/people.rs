@@ -112,6 +112,10 @@ impl Game {
                 self.people[i].via = None;
                 continue;
             }
+            if let Some(s) = p.steer {
+                self.people[i].via = Some(s);
+                continue;
+            }
             let at = p.fig.pos;
             if let Some(goal) = p.goal {
                 if let Some(leg) = self.leg(i, at, goal, level) {

@@ -12,7 +12,7 @@ use common::DT;
 
 fn start(seed: u32) -> Option<(Level, Game)> {
     let level = common::load("police1")?;
-    let g = Game::new_endless(&level, seed, 24.0);
+    let g = Game::new_endless(&level, seed, None, 10.0);
     Some((level, g))
 }
 
@@ -56,7 +56,7 @@ fn waves_come_and_grow() {
     for &i in &wave {
         let p = &g.people[i];
         assert_eq!(p.weapon, Weapon::None, "the first wave is unarmed");
-        assert!((p.fig.pos - me).length() > 5.0 * 256.0, "made too near her");
+        assert!((p.fig.pos - me).length() > 2.0 * 256.0, "made too near her");
     }
     // Down they go.
     for _ in 0..10 {
@@ -100,4 +100,30 @@ fn the_crime_rate_ends_a_run_left_alone() {
     }
     assert!(g.crime_rate >= 100 || g.outcome.is_some(), "crime rate only got to {} from {before}", g.crime_rate);
     assert!(matches!(g.outcome, Some(Outcome::Lost(_))));
+}
+
+/// In a small arena (RTA's park), everyone of the wave is made in it, on the ground, and
+/// gets to Darci.
+#[test]
+fn the_wave_comes_at_her_in_the_park() {
+    let Some(level) = common::load("police1") else { return };
+    let park = glam::vec2(8827.0, 10274.0);
+    let mut g = Game::new_endless(&level, 3, Some(park), 10.0);
+    let me = g.player().unwrap().fig.pos;
+    assert!(glam::vec2(me.x, me.z).distance(park) < 256.0, "she should start in the park");
+    let spots = &g.endless().unwrap().spots;
+    assert!(spots.len() > 40, "the park should be a fair size: {} squares", spots.len());
+    run(&mut g, &level, 6.0);
+    let wave = standing(&g);
+    assert_eq!(wave.len() as u32, wave_size(1));
+    for &i in &wave {
+        let p = g.people[i].fig.pos;
+        assert!(glam::vec2(p.x, p.z).distance(park) < 11.0 * 256.0, "made outside the park at {p:?}");
+        assert!((p.y - me.y).abs() < 200.0, "made off her level at {p:?}");
+    }
+    // They come for her.
+    run(&mut g, &level, 20.0);
+    let me = g.player().unwrap().fig.pos;
+    let near = wave.iter().filter(|&&i| (g.people[i].fig.pos - me).length() < 3.0 * 256.0).count();
+    assert!(near >= 2, "only {near} of the wave got to her");
 }

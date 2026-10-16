@@ -17,9 +17,6 @@ pub(crate) fn arm(game: &mut Game, args: &Args) {
     }
 }
 
-/// How far round the player's start an endless run's waves come from, in squares.
-const ENDLESS_RADIUS: f32 = 24.0;
-
 /// The game for `args`: the mission, or an endless run on its map (with `--seed`'s seed, or
 /// one from the clock).
 fn new_game(level: &Level, args: &Args) -> Game {
@@ -30,7 +27,8 @@ fn new_game(level: &Level, args: &Args) -> Game {
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos() ^ d.as_secs() as u32)
     });
     println!("endless: {} with seed {seed}", level.name);
-    Game::new_endless(level, seed, ENDLESS_RADIUS)
+    let (centre, radius) = args.arena;
+    Game::new_endless(level, seed, centre.map(|(x, z)| glam::vec2(x * 256.0, z * 256.0)), radius)
 }
 
 /// Everything about a loaded level that doesn't depend on the window.
