@@ -103,6 +103,39 @@ impl Game {
                 uc_world::level::prim_batches(prim, |p| g.pos + Vec3::new(p.x, c * p.y - s * p.z, s * p.y + c * p.z), lighter.as_ref(), &mut out);
             }
         }
+        // The grappling hook and its line: the line in short pieces from her hand, going from
+        // dark orange to white along it (`AENG_draw`'s `HOOK_pos_point` loop, aeng.cpp:2978).
+        if let Some(h) = &self.hook {
+            if let Some(prim) = level.item_prims.get(&game::hook::HOOK_PRIM) {
+                let (sy, cy) = h.yaw.sin_cos();
+                let (sp, cp) = h.pitch.sin_cos();
+                uc_world::level::prim_batches(prim, |p| {
+                    let p = Vec3::new(p.x, cp * p.y - sp * p.z, sp * p.y + cp * p.z);
+                    h.pos + Vec3::new(cy * p.x + sy * p.z, p.y, -sy * p.x + cy * p.z)
+                }, lighter.as_ref(), &mut out);
+            }
+            let mut colour = [0x80u8, 0x20, 0x00];
+            for w in h.line.windows(2) {
+                let (a, b) = (w[0], w[1]);
+                for _ in 0..4 {
+                    if colour[0] < 250 {
+                        colour[0] += 2;
+                    } else if colour[1] < 250 {
+                        colour[1] += 2;
+                    } else if colour[2] < 250 {
+                        colour[2] += 3;
+                    }
+                }
+                let across = (a - eye).cross(b - a).normalize_or(Vec3::X) * 1.5;
+                let corner = |p: Vec3, s: f32| (p + across * s) / uc_world::UNIT;
+                let [r, g, bl] = colour;
+                out.entry(uc_world::UNTEXTURED).or_default().quad(
+                    [corner(a, -1.0), corner(a, 1.0), corner(b, -1.0), corner(b, 1.0)],
+                    [[0.0, 0.0]; 4],
+                    [[r, g, bl, 255]; 4],
+                );
+            }
+        }
         // Barrels and cones: modelled with z up, they topple when knocked.
         for b in self.barrels.iter().filter(|b| !b.gone) {
             let Some(prim) = level.item_prims.get(&b.prim()) else { continue };

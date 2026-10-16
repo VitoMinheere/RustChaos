@@ -551,6 +551,8 @@ pub struct Game {
     pub grenades: Vec<Grenade>,
     /// The player's grenade, primed and still in hand: seconds to going off.
     pub primed: Option<f32>,
+    /// Darci's grappling hook, while it's out of her hand (#109).
+    pub hook: Option<game::hook::Hook>,
     /// Explosives set down and waiting to go off.
     pub charges: Vec<Charge>,
     /// The mission's moving platforms, made or still waiting to be.
@@ -684,6 +686,7 @@ impl Game {
             bored: 0.0,
             grenades: Vec::new(),
             primed: None,
+            hook: None,
             charges: Vec::new(),
             platforms: level.platforms.iter().map(|&(way, ob)| {
                 let o = &level.map.objects[ob];
@@ -988,6 +991,7 @@ impl Game {
         if self.outcome.is_none() {
             self.run_mines(dt, level);
             self.run_grenades(dt, level);
+            self.run_hook(dt, level);
         }
         self.electric_fences(dt, level);
         self.no_floor_falls();
@@ -1041,6 +1045,9 @@ impl Game {
             let p = &self.people[pi];
             if p.weapon == Weapon::Grenade && p.grenades > 0 {
                 self.use_grenade(pi);
+                input.punch = false;
+            } else if p.weapon == Weapon::Hook && p.hook {
+                self.use_hook(pi);
                 input.punch = false;
             }
         }

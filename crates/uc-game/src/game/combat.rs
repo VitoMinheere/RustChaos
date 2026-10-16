@@ -211,6 +211,7 @@ impl Game {
                     }
                 }
                 Event::Throw { thrower } => self.release_grenade(thrower),
+                Event::Hook { thrower } => self.release_hook(thrower),
                 Event::OutCold { attacker, victim } => {
                     if Some(attacker) == self.player {
                         self.record.takedowns += 1;

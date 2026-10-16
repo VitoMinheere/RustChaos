@@ -26,6 +26,7 @@ pub fn weapon_named(name: &str) -> Option<Weapon> {
         "bat" => Weapon::Bat,
         "grenade" | "grenades" => Weapon::Grenade,
         "explosives" | "c4" => Weapon::Explosives,
+        "hook" | "grapple" => Weapon::Hook,
         _ => return None,
     })
 }
