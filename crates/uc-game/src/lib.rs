@@ -602,6 +602,41 @@ impl Game {
         self.script.as_ref().map_or(&[], |s| &s.unsupported)
     }
 
+    /// A hash of the state that matters to how the game plays on: the time, the outcome, the
+    /// dice, and where everyone and everything is and what they're doing. Two runs given the
+    /// same inputs must agree on it every frame (what lockstep multiplayer and replays need,
+    /// #114).
+    pub fn state_hash(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        // SipHash with fixed keys: the same on every machine and every run.
+        let mut h = std::hash::DefaultHasher::new();
+        let v = |h: &mut std::hash::DefaultHasher, v: Vec3| [v.x, v.y, v.z].map(f32::to_bits).hash(h);
+        self.time.to_bits().hash(&mut h);
+        format!("{:?}", self.outcome).hash(&mut h);
+        let r = &self.rngs;
+        [r.main, r.mav, r.barrel, r.creature, r.city].hash(&mut h);
+        for p in &self.people {
+            p.removed.hash(&mut h);
+            v(&mut h, p.fig.pos);
+            p.fig.angle.to_bits().hash(&mut h);
+            p.fig.anim().hash(&mut h);
+            p.health.hash(&mut h);
+            format!("{:?}", p.state).hash(&mut h);
+        }
+        for c in &self.vehicles {
+            v(&mut h, c.pos);
+            [c.yaw, c.speed].map(f32::to_bits).hash(&mut h);
+        }
+        for b in &self.barrels {
+            v(&mut h, b.pos);
+            b.gone.hash(&mut h);
+        }
+        for m in &self.messages {
+            m.text.hash(&mut h);
+        }
+        h.finish()
+    }
+
     fn rand(&mut self) -> u32 {
         rand(&mut self.rngs.main)
     }
