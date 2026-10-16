@@ -984,6 +984,12 @@ impl Game {
         self.no_floor_falls();
         self.go_indoors(level);
         self.move_platforms(dt, level);
+        // Lightning dies away (the Men in Black's and the fences' too, where there are no
+        // creatures).
+        for s in &mut self.sparks {
+            s.left -= dt;
+        }
+        self.sparks.retain(|s| s.left > 0.0);
         self.run_creatures(dt, level, self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player));
         self.run_bikes(dt, level);
         self.fly_choppers(dt, level);
@@ -1139,7 +1145,7 @@ impl Game {
         self.separate(level);
         self.count_dead_cops();
         self.tally_crime();
-        self.men_in_black(level);
+        self.men_in_black(dt, level);
         self.blow_dirt(dt, level);
 
         if let (Some(p), None) = (self.player, &self.outcome) {

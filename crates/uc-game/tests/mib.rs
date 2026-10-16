@@ -265,3 +265,52 @@ fn the_fallen_runs_to_a_win() {
     println!("clues {} of 5, outcome {:?} at {:.1}s", r.clues(), r.g.outcome, r.g.time);
     assert_eq!(r.g.outcome, Some(uc_game::Outcome::Won));
 }
+
+/// A Man in Black down for good rises off the ground, crackling, then goes up in a lightning
+/// strike; and the lightning dies away after (#86: it stayed, as the bolts only faded in
+/// missions with creatures). Men in Black come with endless mode's later waves.
+#[test]
+fn a_downed_man_in_black_levitates_then_goes_up() {
+    let Some(level) = common::load("police1") else { return };
+    let mut g = uc_game::Game::new_endless(&level, 7, None, 10.0);
+    let e = g.endless_mut().unwrap();
+    e.wave = 15;
+    e.phase = uc_game::game::endless::Phase::Breather(0.1);
+    let mut m = None;
+    for _ in 0..(5.0 / DT) as usize {
+        g.update(DT, &Controls::default(), &level);
+        m = g.people.iter().position(|p| p.is_mib() && !p.removed);
+        if m.is_some() {
+            break;
+        }
+    }
+    let m = m.expect("no Man in Black in wave 16");
+    // Everyone else out of it.
+    for (k, p) in g.people.iter_mut().enumerate() {
+        if !p.player && k != m {
+            p.removed = true;
+        }
+    }
+    let run = |g: &mut uc_game::Game, secs: f32| -> bool {
+        let mut crackled = false;
+        for _ in 0..(secs / DT) as usize {
+            let me = g.player.unwrap();
+            g.people[me].health = g.people[me].max_health;
+            g.update(DT, &Controls::default(), &level);
+            crackled |= !g.sparks.is_empty();
+        }
+        crackled
+    };
+    let from = g.people[m].fig.pos + vec3(50.0, 0.0, 0.0);
+    g.people[m].take_hit(from, 100_000, ko::FINISHERS, false, false, uc_game::Weapon::None);
+    assert!(g.people[m].knocked_out);
+    run(&mut g, 1.5);
+    let low = g.people[m].fig.pos.y;
+    assert!(run(&mut g, 3.0), "no lightning round him");
+    let risen = g.people[m].fig.pos.y - low;
+    assert!(risen > 60.0, "only rose {risen:.0}");
+    run(&mut g, 4.0);
+    assert!(g.people[m].removed && g.people[m].blown_up, "never went up");
+    run(&mut g, 3.0);
+    assert!(g.sparks.is_empty(), "{} bolts still there", g.sparks.len());
+}

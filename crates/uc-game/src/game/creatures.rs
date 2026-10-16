@@ -9,10 +9,6 @@ impl Game {
         if self.creatures.is_empty() && self.fireballs.is_empty() {
             return;
         }
-        for s in &mut self.sparks {
-            s.left -= dt;
-        }
-        self.sparks.retain(|s| s.left > 0.0);
         // The Balrog burns as he goes (`PYRO_IMMOLATE` on him).
         for c in self.creatures.iter().filter(|c| c.kind == creature::BALROG && !c.dead) {
             for _ in 0..2 {
