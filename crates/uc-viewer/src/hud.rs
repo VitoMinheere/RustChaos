@@ -340,6 +340,14 @@ impl World {
             o.text(w / 2.0 - Overlay::text_width(&score, s) / 2.0, 26.0 * s, s, white, &score);
         }
 
+        // Achievements just earned.
+        for (k, (text, _)) in self.popups.iter().enumerate() {
+            let y = h * 0.16 + k as f32 * 16.0 * s;
+            let tw = Overlay::text_width(text, s);
+            o.rect(w / 2.0 - tw / 2.0 - 8.0 * s, y - 4.0 * s, tw + 16.0 * s, 14.0 * s, [0, 0, 0, 190]);
+            o.text(w / 2.0 - tw / 2.0, y, s, [255, 210, 70, 255], text);
+        }
+
         // A shift: its clock, the score and the tally, and what's on.
         if let Some(b) = self.game.beat() {
             let gold = [255, 210, 70, 255];

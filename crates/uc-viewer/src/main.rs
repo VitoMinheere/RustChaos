@@ -4,6 +4,7 @@
 //! messages, navigation beacons, fighting and arrests (see the uc-game crate). With
 //! `--explore`, Darci just walks around the level. V switches to a free-flying camera.
 
+mod achievements;
 mod args;
 mod audio;
 mod cam;
@@ -280,6 +281,9 @@ impl App {
 
     /// Loads mission `name` and starts playing it.
     fn play(&mut self, name: &str) {
+        if let Some(w) = self.world.as_mut() {
+            w.save_stats();
+        }
         let mut args = self.args.clone();
         args.mission = name.to_string();
         match World::load(args) {
@@ -302,7 +306,8 @@ impl App {
     fn open_menu(&mut self) {
         let mut m = menu::Menu::new(&self.args.game);
         // Back from a mission: straight to the missions, past the title.
-        if let Some(w) = &self.world {
+        if let Some(w) = self.world.as_mut() {
+            w.save_stats();
             m.select(&w.level.name);
             m.screen = menu::Screen::Missions;
         }
@@ -373,6 +378,7 @@ impl App {
                             m.for_beat = true;
                             m.screen = menu::Screen::Endless;
                         }
+                        "STATS" => m.screen = menu::Screen::Stats,
                         "DIFFICULTY" => {
                             let all = uc_game::Difficulty::ALL;
                             let now = all.iter().position(|&d| d == m.progress.difficulty()).unwrap_or(1);
@@ -397,6 +403,11 @@ impl App {
                 }
                 if go && !m.entries.is_empty() {
                     m.loading = Some(m.selected);
+                }
+            }
+            menu::Screen::Stats => {
+                if back || go {
+                    m.screen = menu::Screen::Main;
                 }
             }
             menu::Screen::Endless => {
@@ -564,7 +575,22 @@ impl App {
             p.record(&world.level.name, world.game.time, &world.game.found, &sides, world.game.difficulty());
             world.kept = p.get(&world.level.name).cloned().unwrap_or_default();
             world.result = Some((world.game.time, before));
+            // By the book: an arrest, not a shot fired and no red mark. Thorough: everything
+            // in the mission done.
+            let s = &mut world.game.record;
+            if s.arrests > 0 && s.shots == 0 && world.game.red_marks == 0 {
+                s.by_the_book += 1;
+            }
+            let (badges, sides) = world.tally();
+            if badges + sides > 0 && badges == world.goals.badges.len() && sides == world.goals.sides.len() {
+                world.game.record.perfect += 1;
+            }
         }
+        // Over: this game's stats go into the totals.
+        if world.game.outcome.is_some() {
+            world.save_stats();
+        }
+        world.check_achievements(dt);
         let shift = self.input.held(KeyCode::ShiftLeft) || self.input.held(KeyCode::ShiftRight);
         let screenshot = self.input.hit(KeyCode::F12) && !shift;
         self.input.pressed.clear();

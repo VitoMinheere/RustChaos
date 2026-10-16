@@ -151,6 +151,8 @@ Handling one scores, with arrests worth extra, and brings the crime rate down. M
 
 Normal is the original's tuning.
 
+**Stats and achievements:** STATS in the main menu shows totals over all play: arrests, takedowns from behind, people searched, red marks; knockouts by fists, by knife or bat and by gun; shots fired and the hit rate; distance on foot, driving and on the bike; zip-wire distance and the longest ride; ladders climbed and falls survived; missions completed, the furthest endless wave and the best Beat Cop shift. Next to them are the achievements, with how far along each one is: Rookie (finish the training), By the Book (win with an arrest, no shots and no red marks), Clean Record (the campaign without a red mark), Silent Partner (25 takedowns), Frisk (search 100 people), High Wire (a 20-square zip-wire ride), Roof Runner (pull yourself up onto a roof), Riot Control (wave 20 in endless mode), Thorough (a mission with everything found) and Hard Boiled (the campaign on Hard). One pops up on screen as it's earned. They're saved with the progress.
+
 **Console and cheats (for play-testing):** `~` or F9 opens the developer console, as F9 did in the original. Type a command and press Enter; Esc closes it. The commands:
 - `telw N`: to event point N;
 - `tels` and `telr`: store Darci's position, and go back to it;

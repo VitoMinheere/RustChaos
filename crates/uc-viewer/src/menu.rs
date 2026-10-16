@@ -11,7 +11,7 @@ use uc_render::Overlay;
 
 /// Missions that play from start to finish here; the rest load, run what they can and are
 /// good for exploring.
-const PLAYABLE: [&str; 35] = ["ftutor1", "assault1", "testdrive1a", "fight1", "fight2", "police1", "testdrive2",
+pub(crate) const PLAYABLE: [&str; 35] = ["ftutor1", "assault1", "testdrive1a", "fight1", "fight2", "police1", "testdrive2",
                               "testdrive3", "police2", "Bankbomb1", "police3", "Gangorder2", "Gordout1",
                               "Stealtst1", "Baalrog3", "Gangorder1", "police4", "bball2",
                               "wstores1", "e3", "westcrime1", "carbomb1", "botanicc",
@@ -47,11 +47,13 @@ pub enum Screen {
     Missions,
     /// Endless mode's maps.
     Endless,
+    /// The stats and achievements (#132).
+    Stats,
 }
 
 /// The main menu's items (`raw_menu_data`, frontend.cpp:376): the ones there's something
 /// behind here.
-pub const MAIN: [&str; 5] = ["START", "ENDLESS", "BEAT COP", "DIFFICULTY", "EXIT"];
+pub const MAIN: [&str; 6] = ["START", "ENDLESS", "BEAT COP", "DIFFICULTY", "STATS", "EXIT"];
 
 /// The menus' look, by how far through the game (`menu_theme`, set in
 /// `FRONTEND_MissionHierarchy`, frontend.cpp:3337): leaves for the first eight missions done,
@@ -153,7 +155,7 @@ impl Menu {
         let w = self.theme.word();
         match self.screen {
             Screen::Title | Screen::Main => format!("data\\TITLE {}1.TGA", w.to_ascii_uppercase()),
-            Screen::Missions | Screen::Endless => format!("data\\map {w} darci.tga"),
+            Screen::Missions | Screen::Endless | Screen::Stats => format!("data\\map {w} darci.tga"),
         }
     }
 
@@ -292,6 +294,73 @@ impl Menu {
         }
     }
 
+    /// The stats over all play, and the achievements with how far along each is.
+    fn stats_overlay(&self, o: &mut Overlay, w: f32, h: f32, s: f32) {
+        o.backdrop(0.0, 0.0, w, h, [255, 255, 255, 255]);
+        self.kibble(o, w, h, s);
+        o.rect(0.0, 0.0, w, h, [0, 0, 0, 170]);
+        let (white, gold, dim) = ([235, 235, 225, 255], [255, 210, 70, 255], [150, 150, 145, 255]);
+        let x = 20.0 * s;
+        o.text(x, 16.0 * s, s * 3.0, gold, "STATS");
+        o.text(x, 44.0 * s, s, [200, 200, 190, 220], "Esc back");
+        let p = &self.progress;
+        let t = &p.totals;
+        let hit_rate = (t.hits * 100).checked_div(t.shots).map_or("-".into(), |r| format!("{r}%"));
+        let wave = p.best_wave();
+        let shift = p.best_shift().map_or("-".into(), |b| b.to_string());
+        let rows = [
+            ("LAW AND ORDER", String::new()),
+            ("Arrests", t.arrests.to_string()),
+            ("Takedowns from behind", t.takedowns.to_string()),
+            ("People searched", t.searched.to_string()),
+            ("Red marks", t.red_marks.to_string()),
+            ("FIGHTS AND WEAPONS", String::new()),
+            ("Knockouts: fists", t.ko_fists.to_string()),
+            ("Knockouts: knife and bat", t.ko_weapons.to_string()),
+            ("Knockouts: guns", t.ko_guns.to_string()),
+            ("Shots fired", format!("{} ({hit_rate} hit)", t.shots)),
+            ("GETTING ABOUT", String::new()),
+            ("On foot", format!("{:.0} squares", t.on_foot)),
+            ("Driving", format!("{:.0} squares", t.driven)),
+            ("On the bike", format!("{:.0} squares", t.biked)),
+            ("Zip wires", format!("{:.0} squares, longest {:.0}", t.zipped, t.longest_zip)),
+            ("Ladders climbed", t.ladders.to_string()),
+            ("Falls survived", t.falls.to_string()),
+            ("MISSIONS AND MODES", String::new()),
+            ("Missions completed", p.completed_count().to_string()),
+            ("Endless: furthest wave", if wave > 0 { wave.to_string() } else { "-".into() }),
+            ("Beat Cop: best shift", shift),
+        ];
+        let line = 10.0 * s;
+        let mut y = 64.0 * s;
+        for (label, value) in rows {
+            if value.is_empty() {
+                y += line * 0.4;
+                o.text(x, y, s, gold, label);
+            } else {
+                o.text(x + 8.0 * s, y, s, white, label);
+                o.text(x + 170.0 * s, y, s, white, &value);
+            }
+            y += line;
+        }
+        // The achievements, on the right.
+        let ax = w * 0.5;
+        let mut y = 64.0 * s + line * 0.4;
+        o.text(ax, y, s, gold, "ACHIEVEMENTS");
+        y += line * 1.4;
+        for a in &crate::achievements::ALL {
+            let earned = a.earned(p, t);
+            let (have, goal) = a.progress(p, t);
+            let col = if earned { gold } else { white };
+            o.text(ax, y, s, col, a.name);
+            let tag = if earned { "EARNED".to_string() } else if goal > 1 { format!("{have}/{goal}") } else { String::new() };
+            o.text(w - Overlay::text_width(&tag, s) - 20.0 * s, y, s, col, &tag);
+            y += line;
+            o.text(ax + 8.0 * s, y, s, dim, a.text);
+            y += line * 1.4;
+        }
+    }
+
     pub fn map_up(&mut self) {
         self.map_selected = (self.map_selected + self.maps.len().max(1) - 1) % self.maps.len().max(1);
     }
@@ -307,6 +376,10 @@ impl Menu {
         let s = (h / 360.0).round().max(1.0);
         if self.screen == Screen::Endless {
             self.endless_overlay(&mut o, w, h, s);
+            return o;
+        }
+        if self.screen == Screen::Stats {
+            self.stats_overlay(&mut o, w, h, s);
             return o;
         }
         if self.screen != Screen::Missions {

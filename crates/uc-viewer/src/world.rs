@@ -68,6 +68,14 @@ pub(crate) struct World {
     pub(crate) console: Console,
     /// An endless run that's over and saved: whether it beat the best, and the best before.
     pub(crate) endless_recorded: Option<(bool, Option<(i64, u32)>)>,
+    /// The progress as it stood, for the achievements (#132).
+    pub(crate) known: progress::Progress,
+    /// This game's stats are in the saved totals.
+    pub(crate) stats_saved: bool,
+    /// Achievements just earned, on screen for the seconds left.
+    pub(crate) popups: Vec<(String, f32)>,
+    /// Seconds to the next look for achievements earned.
+    ach_clock: f32,
 }
 
 impl World {
@@ -112,6 +120,10 @@ impl World {
             civ_warning: None,
             console: Console::default(),
             endless_recorded: None,
+            known: progress::Progress::load(),
+            stats_saved: false,
+            popups: Vec::new(),
+            ach_clock: 1.0,
         })
     }
 
@@ -123,7 +135,39 @@ impl World {
         (badges, sides)
     }
 
+    /// Adds this game's stats to the saved totals, once: when it's over, or left.
+    pub(crate) fn save_stats(&mut self) {
+        if self.stats_saved {
+            return;
+        }
+        self.stats_saved = true;
+        progress::Progress::load().add_stats(&self.game.record);
+        self.known = progress::Progress::load();
+    }
+
+    /// Once a second: achievements earned (by the totals with this game's added), popped up
+    /// and saved.
+    pub(crate) fn check_achievements(&mut self, dt: f32) {
+        for p in &mut self.popups {
+            p.1 -= dt;
+        }
+        self.popups.retain(|p| p.1 > 0.0);
+        self.ach_clock -= dt;
+        if self.ach_clock > 0.0 {
+            return;
+        }
+        self.ach_clock = 1.0;
+        let totals = if self.stats_saved { self.known.totals.clone() } else { self.known.totals.plus(&self.game.record) };
+        for a in achievements::newly(&self.known, &totals) {
+            self.known.achieved.insert(a.id.to_string());
+            progress::Progress::load().achieve(a.id);
+            self.popups.push((format!("ACHIEVEMENT: {}  ({})", a.name.to_uppercase(), a.text), 6.0));
+        }
+    }
+
     pub(crate) fn restart(&mut self) {
+        self.save_stats();
+        self.stats_saved = false;
         self.result = None;
         self.civ_warning = None;
         self.game = new_game(&self.level, &self.args);

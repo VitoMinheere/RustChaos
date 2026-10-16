@@ -499,6 +499,9 @@ pub struct Game {
     difficulty: Difficulty,
     /// The console's switches (#147).
     pub cheats: game::cheats::Cheats,
+    /// What the player's done this mission (#132).
+    pub record: game::stats::Stats,
+    stats_track: game::stats::Track,
     /// Sounds not tied to a person this frame.
     sounds: Vec<(Sfx, Vec3)>,
     /// Seconds left of fight music after the fighting stops.
@@ -651,6 +654,8 @@ impl Game {
             beat: None,
             difficulty: Difficulty::Normal,
             cheats: Default::default(),
+            record: Default::default(),
+            stats_track: Default::default(),
             sounds: Vec::new(),
             fight_timer: 0.0,
             sprinting: false,
@@ -967,6 +972,7 @@ impl Game {
         self.run_endless(dt, level);
         self.run_beat(dt, level);
         self.run_cheats();
+        self.run_stats(level);
         let pressed = input.punch || input.kick || input.jump || input.action;
         self.update_scenes(dt, level, pressed);
         self.pyro.update(dt);

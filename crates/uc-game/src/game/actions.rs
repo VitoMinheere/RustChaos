@@ -327,7 +327,10 @@ impl Game {
                     self.hidden = kept;
                     found.into_iter().map(|(_, it)| it).collect()
                 }
-                Searched::Body(j) => self.empty_pockets(j, level),
+                Searched::Body(j) => {
+                    self.record.searched += 1;
+                    self.empty_pockets(j, level)
+                }
             };
             if !found.is_empty() {
                 let at = self.player().map_or(Vec3::ZERO, |p| p.fig.pos);
