@@ -27,6 +27,7 @@ mod choppers;
 mod barrels;
 pub mod mines;
 pub mod grenades;
+pub mod stats;
 mod litter;
 pub mod cheats;
 pub mod endless;

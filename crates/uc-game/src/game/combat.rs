@@ -10,6 +10,9 @@ impl Game {
             // `GF_PLAYER_FIRED_GUN` where the shot leaves the gun, not where it lands.
             if let Event::Shot { attacker, .. } = &e {
                 self.tally.player_fired |= Some(*attacker) == self.player;
+                if Some(*attacker) == self.player {
+                    self.record.shots += 1;
+                }
                 self.gunshot(*attacker);
             }
             match e {
@@ -49,6 +52,9 @@ impl Game {
                             let kind = self.people[attacker].kind;
                             self.people[attacker].cues.push(Sfx::Taunt { kind });
                         }
+                    }
+                    if !was_down && self.people[victim].is_down() {
+                        self.count_knockout(attacker, weapon);
                     }
                     if !was_down && self.people[victim].is_down() && Some(attacker) == self.player {
                         let kind = self.people[attacker].kind;
@@ -169,6 +175,12 @@ impl Game {
                         self.people[victim].hurt_by = Some(attacker);
                         let damage = self.hurt(victim, damage);
                         self.people[victim].take_hit(from, damage, ko, true, false, weapon);
+                        if Some(attacker) == self.player {
+                            self.record.hits += 1;
+                        }
+                        if !was_down && self.people[victim].is_down() {
+                            self.count_knockout(attacker, weapon);
+                        }
                         if !was_down && self.people[victim].is_down() && Some(attacker) == self.player {
                             let kind = self.people[attacker].kind;
                             self.people[attacker].cues.push(Sfx::Taunt { kind });
@@ -200,6 +212,9 @@ impl Game {
                 }
                 Event::Throw { thrower } => self.release_grenade(thrower),
                 Event::OutCold { attacker, victim } => {
+                    if Some(attacker) == self.player {
+                        self.record.takedowns += 1;
+                    }
                     let from = self.people[attacker].fig.pos;
                     let v = &mut self.people[victim];
                     if matches!(v.state, State::Held { .. }) {
@@ -238,6 +253,9 @@ impl Game {
                     self.people[victim].state = State::Carried { by: carrier };
                 }
                 Event::Arrest { attacker, victim } => {
+                    if Some(attacker) == self.player {
+                        self.record.arrests += 1;
+                    }
                     let at = self.people[attacker].fig.pos;
                     let v = &mut self.people[victim];
                     v.state = State::Cuffed;

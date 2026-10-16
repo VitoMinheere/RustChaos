@@ -46,6 +46,10 @@ pub struct Progress {
     difficulty: uc_game::Difficulty,
     /// The Beat Cop shift length chosen in the menu, in minutes (`None` open-ended).
     shift: Option<u32>,
+    /// Everything done, over all play (#132).
+    pub totals: uc_game::game::stats::Stats,
+    /// The achievements earned, by id.
+    pub achieved: BTreeSet<String>,
     path: Option<PathBuf>,
 }
 
@@ -109,7 +113,15 @@ impl Progress {
             .and_then(|n| uc_game::Difficulty::ALL.get(n).copied()).unwrap_or_default();
         let shift = text.lines().find_map(|l| l.strip_prefix("@shift ")?.trim().parse::<u32>().ok())
             .map_or(uc_game::game::beat::DEFAULT_SHIFT, |m| (m > 0).then_some(m));
-        Progress { done, civ_warnings, endless, difficulty, shift, path }
+        let mut stats = uc_game::game::stats::Stats::default();
+        for l in text.lines().filter_map(|l| l.strip_prefix("@stat ")) {
+            let mut f = l.split_whitespace();
+            if let (Some(name), Some(v)) = (f.next(), f.next().and_then(|v| v.parse().ok())) {
+                stats.set(name, v);
+            }
+        }
+        let achieved = text.lines().filter_map(|l| Some(l.strip_prefix("@ach ")?.trim().to_string())).collect();
+        Progress { done, civ_warnings, endless, difficulty, shift, totals: stats, achieved, path }
     }
 
     /// Another mission ended with too many civilian casualties: the chief's warnings before
@@ -137,6 +149,33 @@ impl Progress {
     pub fn set_shift(&mut self, minutes: Option<u32>) {
         self.shift = minutes;
         self.save();
+    }
+
+    /// Adds a mission's or a run's stats to the totals.
+    pub fn add_stats(&mut self, s: &uc_game::game::stats::Stats) {
+        self.totals = self.totals.plus(s);
+        self.save();
+    }
+
+    /// Notes achievement `id` earned.
+    pub fn achieve(&mut self, id: &str) {
+        self.achieved.insert(id.to_string());
+        self.save();
+    }
+
+    /// The furthest wave reached in an endless run, on any map.
+    pub fn best_wave(&self) -> u32 {
+        self.endless.iter().filter(|(k, _)| !k.starts_with("beat")).map(|(_, &(_, w))| w).max().unwrap_or(0)
+    }
+
+    /// The best Beat Cop score, any map and shift.
+    pub fn best_shift(&self) -> Option<i64> {
+        self.endless.iter().filter(|(k, _)| k.starts_with("beat")).map(|(_, &(s, _))| s).max()
+    }
+
+    /// The missions completed.
+    pub fn completed_count(&self) -> usize {
+        self.done.len()
     }
 
     /// The best endless run on `map`: (score, wave).
@@ -207,6 +246,8 @@ impl Progress {
             .chain((self.civ_warnings > 0).then(|| format!("@civ_warnings {}\n", self.civ_warnings)))
             .chain(self.endless.iter().map(|(m, (s, w))| format!("@endless {m} {s} {w}\n")))
             .chain((self.shift != uc_game::game::beat::DEFAULT_SHIFT).then(|| format!("@shift {}\n", self.shift.unwrap_or(0))))
+            .chain(self.totals.fields().into_iter().filter(|(_, v)| *v != 0.0).map(|(n, v)| format!("@stat {n} {v}\n")))
+            .chain(self.achieved.iter().map(|a| format!("@ach {a}\n")))
             .chain((self.difficulty != uc_game::Difficulty::Normal).then(|| {
                 let n = uc_game::Difficulty::ALL.iter().position(|&d| d == self.difficulty).unwrap_or(1);
                 format!("@difficulty {n}\n")
