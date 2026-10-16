@@ -150,6 +150,12 @@ impl Game {
             g.teleport(Vec3::new(c.x, y, c.y), level);
         }
         let start = g.player().map_or(Vec3::ZERO, |p| p.fig.pos);
+        // Out in the street: RTA's start is inside the police station.
+        let outside = game::endless::out_of_doors(level, start);
+        if outside != start {
+            g.teleport(outside, level);
+        }
+        let start = outside;
         let spots = game::endless::arena(level, start, BEAT * 256.0).values().map(|(at, _)| *at).collect();
         g.show_crime_rate = true;
         g.crime_rate = 40;

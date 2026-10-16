@@ -128,11 +128,11 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 **Explosives:** walk over a pack to carry it (four at most). Switch to them with G and press action: a charge goes down at your feet with a five-second fuse, and the blast is five squares across and does 500 at the middle, so run. Blasts damage props as well as people, and a mission can watch for a prop being damaged (`prim_damaged`): Transmission Terminated's transmitter, the supplies in Arms Breaker, Media Trouble's props. Some props blow up when damaged and set off their neighbours. As in the 1999 code, a blast only ever looks at every other prop in each part of the map (its loop steps two at a time), so a prop right next to one that went up can survive. Cars ramming props don't damage them yet.
 
 **Endless mode:** ENDLESS in the main menu, then a map, or `--mission NAME --endless [--seed N]`. Waves of Wildcats keep coming at Darci, each bigger and better armed than the last:
-- fists first, then bats and knives, pistols, shotguns and AKs;
+- fists first, then bats and knives, a few pistols from wave 7, shotguns and AKs later, with only so many guns out at once;
 - Men in Black from wave 15;
-- a tough boss every tenth wave.
+- a boss every tenth wave, marked on the map.
 
-Downed thugs often carry health or ammo, so search them. Arrests score more than knockouts, and innocents hurt cost points. The run ends when Darci goes down, or when the crime rate, which rises while thugs are left standing, reaches 100. The same seed gives the same waves, and each map keeps its best score.
+Each wave comes from a different side of the arena, marked with a beacon for its first seconds. Downed thugs often carry health or ammo, so search them. Arrests score more than knockouts, and innocents hurt cost points. The run ends when Darci goes down, or when the crime rate reaches 100: it only climbs while she keeps out of the fight (hiding or running), not while she's fighting, however slowly. The same seed gives the same waves, and each map keeps its best score.
 
 **Beat Cop:** BEAT COP in the main menu, then a map, or `--mission NAME --beat [--shift MINUTES|endless] [--seed N]`. A shift of 5, 10 (the default), 15 or 20 minutes, or an open-ended one (Left/Right on the map list picks it), with no mission script: dispatch calls in incidents, each with a beacon and a time limit:
 - a mugging;
