@@ -237,3 +237,33 @@ fn a_stuck_one_is_made_again() {
     let sq = level.map.square((p.x / 256.0) as usize, (p.z / 256.0) as usize);
     assert!(!sq.has(uc_formats::iam::flags::HIDDEN), "still shut in at {p:?}");
 }
+
+/// The radio before each wave and when one's cleared, and the sirens with a boss (#149).
+#[test]
+fn the_radio_calls_the_waves() {
+    use uc_game::Sfx;
+    let Some((level, mut g)) = start(7) else { return };
+    // The radio and the sirens heard over `secs`.
+    let listen = |g: &mut Game, level: &Level, secs: f32| -> Vec<Sfx> {
+        let mut heard = Vec::new();
+        for _ in 0..(secs / DT) as usize {
+            g.update(DT, &Controls::default(), level);
+            heard.extend(g.take_sounds().into_iter().map(|(s, _)| s).filter(|s| matches!(s, Sfx::Radio | Sfx::Siren)));
+        }
+        heard
+    };
+    // Before the first wave.
+    let heard = listen(&mut g, &level, 2.5);
+    assert!(heard.contains(&Sfx::Radio), "no radio before the first wave");
+    assert!(g.messages.iter().any(|m| m.text.starts_with("Despatch")));
+    listen(&mut g, &level, 3.5);
+    knock_out_the_wave(&mut g);
+    let heard = listen(&mut g, &level, 1.0);
+    assert!(heard.contains(&Sfx::Radio), "no radio when the wave was cleared");
+    // The boss wave.
+    let e = g.endless_mut().unwrap();
+    e.wave = 9;
+    e.phase = Phase::Breather(4.0);
+    let heard = listen(&mut g, &level, 5.0);
+    assert!(heard.contains(&Sfx::Siren), "no sirens with the boss");
+}
