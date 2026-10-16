@@ -161,7 +161,6 @@ impl Game {
                 let kind = self.people[pi].kind;
                 self.people[pi].cues.push(Sfx::Taunt { kind });
             }
-            self.drop_weapon(t);
         }
     }
 }

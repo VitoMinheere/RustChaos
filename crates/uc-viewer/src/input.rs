@@ -39,6 +39,16 @@ pub(crate) struct Input {
     pub(crate) mouse: Vec2,
     pub(crate) wheel: f32,
     pub(crate) pad: Pad,
+    /// The window has the keyboard and mouse.
+    pub(crate) focused: bool,
+    /// The cursor is captured now.
+    pub(crate) captured: bool,
+    /// Seconds to capturing it again anyway: Windows lets go of a confined cursor when the
+    /// window moves or another program confines one, without telling.
+    pub(crate) regrab: f32,
+    /// Seconds a click is still taken as the one that gave the window back its focus, which
+    /// mustn't also punch or shoot.
+    pub(crate) swallow_click: f32,
 }
 
 impl Input {
@@ -51,8 +61,27 @@ impl Input {
 }
 
 impl App {
+    /// Whether the cursor should be captured: playing (not at the menu), with mouse look on,
+    /// in the window that has the focus.
+    pub(crate) fn want_cursor(&self) -> bool {
+        self.input.focused && self.input.mouse_look && self.menu.is_none() && self.world.is_some()
+    }
+
+    /// Captures the cursor or gives it back as `want_cursor` says, and captures it again
+    /// every second while it should be, in case the system has let go of it.
+    pub(crate) fn sync_cursor(&mut self, dt: f32) {
+        let want = self.want_cursor();
+        self.input.regrab -= dt;
+        self.input.swallow_click = (self.input.swallow_click - dt).max(0.0);
+        if want != self.input.captured || (want && self.input.regrab <= 0.0) {
+            self.capture_cursor(want);
+        }
+    }
+
     /// Captures (hides and locks) the cursor for mouse look, or gives it back.
-    pub(crate) fn capture_cursor(&self, on: bool) {
+    pub(crate) fn capture_cursor(&mut self, on: bool) {
+        self.input.captured = on;
+        self.input.regrab = 1.0;
         let Some(g) = &self.gfx else { return };
         if on {
             // Locked keeps the cursor in place; some platforms only support confining it.

@@ -45,9 +45,15 @@ fn gun_hunt_script_runs_to_a_win() {
     assert!(r.said("behind some skips"), "Deeks never said where it was: {:?}", r.seen);
     assert_eq!(r.g.outcome, None, "talking to Deeks shouldn't end the mission");
 
-    // The weapon is put somewhere random too. Walk over it.
+    // The weapon stays where its point puts it, behind the skips: the four `move_thing`
+    // points aimed at it move nothing, as `EWAY_get_person` gives nothing for an item. It's in
+    // the open, with nothing over it. Walk over it.
     let gun = r.g.items.iter().find(|it| it.way == 54).expect("the stashed weapon").clone();
     assert_eq!(gun.kind, 2, "the stash should be a pistol");
+    let at = r.point(54);
+    assert_eq!((gun.pos.x, gun.pos.z), (at.x, at.z), "the gun should be at its own point");
+    let over = r.level.ground.surface(&r.level.map, gun.pos.x, gun.pos.z, gun.pos.y + 2000.0);
+    assert!(over - gun.pos.y < 8.0, "something {} above the gun hides it", over - gun.pos.y);
     r.stand(gun.pos);
     r.play(2.0, Controls::default());
     assert!(r.g.player().unwrap().has(uc_game::Weapon::Pistol), "Darci should have picked the weapon up");

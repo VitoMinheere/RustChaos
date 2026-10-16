@@ -134,7 +134,9 @@ fn bot_shoots_through_combat_gold_with_an_ak() {
              p.guns, p.ammo, g.outcome, g.time);
     assert!(targeted > 30 && fired > 10, "the gun was hardly used");
     assert!(downed_by_gun >= 5, "only {downed_by_gun} enemies shot down");
-    // Combat Gold's gunmen drop their guns.
-    assert!(!dropped.is_empty());
+    // Combat Gold's gunmen keep their guns when they go down, until they're searched (the
+    // bot never holds action long enough to search anyone).
+    let armed_down = g.people.iter().filter(|e| !e.player && (e.is_down() || e.is_dead()) && e.weapon.is_gun()).count();
+    assert!(armed_down > 0, "no gunman went down still holding his gun");
     assert_ne!(g.outcome, Some(Outcome::Lost("Darci was knocked out".into())));
 }

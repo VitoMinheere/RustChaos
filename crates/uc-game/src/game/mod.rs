@@ -13,6 +13,7 @@ pub(crate) use mission::Tally;
 mod scenes;
 mod actions;
 pub use actions::Aiming;
+pub(crate) use actions::special_item;
 mod combat;
 mod draw;
 mod snipe;

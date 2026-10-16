@@ -3,7 +3,7 @@
 use crate::*;
 
 pub(crate) const USAGE: &str = "\
-uc-viewer [--game DIR] [--mission NAME] [--explore] [--overrides DIR] [--linear] [--fullbright]
+uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DIR] [--linear] [--fullbright]
           [--fog START,END | --no-fog] [--no-character] [--cam X,Y,Z,YAW,PITCH]
           [--screenshot FILE [--size WxH] [--sim-walk SECS | --sim-run SECS | --sim SECS]]
           [--dump-pages DIR]
@@ -12,6 +12,7 @@ uc-viewer [--game DIR] [--mission NAME] [--explore] [--overrides DIR] [--linear]
   --mission NAME    mission to play, e.g. ftutor1, testdrive1a, police1 (default: the menu)
   --explore         don't run the mission script: just Darci and the level
   --mute            no sound or music
+  --windowed        in a window (default: full screen; F11 or Alt+Enter switches)
   --weapon W        start holding a weapon (knife, bat, pistol, shotgun, ak)
   --overrides DIR   folder of page_NNNN.png files that replace clump textures
   --dump-pages DIR  write every texture this level uses as DIR/page_NNNN.png and exit
@@ -27,7 +28,9 @@ uc-viewer [--game DIR] [--mission NAME] [--explore] [--overrides DIR] [--linear]
   --sim-walk SECS   the same, walking Darci forward; --sim-run SECS running
 
 Darci: WASD move (relative to the camera), Shift run, J or left mouse punch, K kick, Q block,
-  E action (arrest, climb; hold while running to sprint), mouse turns the camera, wheel zoom.
+  E action (arrest, climb; hold while running to sprint; hold over a searchable prop or someone
+  dead, out cold or arrested to search them), mouse turns the camera, wheel zoom.
+  F11 or Alt+Enter: full screen or a window.
   C or Left Ctrl crouch (hold; move to crawl). Punch someone with their back to her, close by,
   to knock them out cold from behind (crouching or crawling up is quietest).
   G next weapon. With a gun: punch fires (hold for the AK-47) at the bracketed target,
@@ -54,6 +57,8 @@ pub(crate) struct Args {
     pub(crate) mission_given: bool,
     pub(crate) explore: bool,
     pub(crate) mute: bool,
+    /// In a window rather than full screen.
+    pub(crate) windowed: bool,
     pub(crate) weapon: uc_game::Weapon,
     pub(crate) overrides: Option<PathBuf>,
     pub(crate) linear: bool,
@@ -83,6 +88,7 @@ pub(crate) fn parse_args() -> Result<Args, String> {
         mission_given: false,
         explore: false,
         mute: false,
+        windowed: false,
         weapon: uc_game::Weapon::None,
         overrides: None,
         linear: false,
@@ -106,6 +112,7 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             }
             "--explore" => a.explore = true,
             "--mute" => a.mute = true,
+            "--windowed" => a.windowed = true,
             "--weapon" => {
                 a.weapon = match value()?.as_str() {
                     "knife" => uc_game::Weapon::Knife,
