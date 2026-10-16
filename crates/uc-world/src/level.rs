@@ -74,6 +74,15 @@ pub struct Level {
 /// Where the prims' texture pages start (`POLY_load_texture_flags(..., 11 * 64)`,
 /// texture.cpp:712).
 pub const PRIM_PAGES: u32 = 11 * 64;
+/// Where the prims' pages end and the extra pages begin (the sky, the moon, the leaves,
+/// rubbish and snowflakes from `extras`, `TEXTURE_NUM_STANDARD`), which follow no
+/// `textype.txt` of the prims'.
+pub const EXTRA_PAGES: u32 = 22 * 64;
+
+/// Whether `page` is one of the prims' pages, which follow `shared/prims/textype.txt`.
+pub fn is_prim_page(page: u32) -> bool {
+    (PRIM_PAGES..EXTRA_PAGES).contains(&page)
+}
 
 /// The pages `textype.txt` makes see-through (`POLY_load_texture_flags`,
 /// polyrenderstate.cpp:82): 'T' black is transparent, 'M' the alpha channel, 'A' additive,
@@ -247,7 +256,7 @@ impl Level {
         // A prim page `textype.txt` doesn't make see-through is drawn solid, as the original
         // only alpha-tests pages it flags (polyrenderstate.cpp:1525). The mine's (#85) has an
         // alpha channel that's mostly clear, which would otherwise hide most of it.
-        if page >= PRIM_PAGES && t.has_alpha && !self.see_through_prims.contains(&(page - PRIM_PAGES)) {
+        if is_prim_page(page) && t.has_alpha && !self.see_through_prims.contains(&(page - PRIM_PAGES)) {
             t.has_alpha = false;
             for px in t.rgba.chunks_mut(4) {
                 px[3] = 255;
@@ -658,5 +667,15 @@ mod see_through_tests {
         let t = "# comment\nPage 000: T\nPage 022: M\nPage 025: MS\nPage 030: W\nPage 040: I\nPage 050: S\n";
         let s = see_through_pages(t);
         assert_eq!(s.into_iter().collect::<Vec<_>>(), vec![0, 22, 25, 41]);
+    }
+
+    /// The leaves, the sky and the other extras aren't prim pages: their see-through edges
+    /// stay (#135).
+    #[test]
+    fn the_extras_are_not_prim_pages() {
+        assert!(is_prim_page(788));
+        for page in [LEAF_PAGE, RUBBISH_PAGE, SNOWFLAKE_PAGE, crate::SKY_PAGE, crate::MOON_PAGE] {
+            assert!(!is_prim_page(page), "page {page}");
+        }
     }
 }
