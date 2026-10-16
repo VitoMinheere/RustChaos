@@ -3,53 +3,19 @@
 //! points 75, 76 and 81 watch explode when they're caught. Skipped without an install.
 
 use glam::{vec3, Vec3};
-use uc_game::{Charge, Controls, Game, Weapon};
-use uc_world::{Level, LoadOptions};
+use uc_game::{Charge, Controls, Weapon};
 
-const DT: f32 = 1.0 / 30.0;
-
-struct Run {
-    level: Level,
-    g: Game,
-    seen: Vec<String>,
-}
+mod common;
+use common::{Run, DT};
 
 fn start(mission: &str) -> Option<Run> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, mission, &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
-    let g = Game::new(&level, true);
-    let mut r = Run { level, g, seen: Vec::new() };
+    let mut r = Run::new(common::load(mission)?);
+    r.stop_at_outcome = false;
     r.play(1.0, Controls::default());
     Some(r)
 }
 
 impl Run {
-    fn play(&mut self, secs: f32, c: Controls) {
-        for _ in 0..(secs / DT).max(1.0) as usize {
-            self.g.skip_cutscene();
-            let me = self.g.player.unwrap();
-            self.g.people[me].health = self.g.people[me].max_health;
-            self.g.update(DT, &c, &self.level);
-            for m in &self.g.messages {
-                if !self.seen.contains(&m.text) {
-                    println!("[{:6.1}s] {}", self.g.time, m.text);
-                    self.seen.push(m.text.clone());
-                }
-            }
-        }
-    }
-
-    fn point(&self, i: usize) -> Vec3 {
-        let e = self.level.mission.event_points.iter().find(|e| e.index == i).unwrap();
-        vec3(e.x as f32, e.y as f32, e.z as f32)
-    }
-
-    fn stand(&mut self, p: Vec3) {
-        let y = self.level.ground.surface(&self.level.map, p.x, p.z, p.y + 64.0);
-        let i = self.g.player.unwrap();
-        self.g.people[i].fig.pos = vec3(p.x, y, p.z);
-    }
-
     /// The prop nearest `p`.
     fn prop(&self, p: Vec3) -> usize {
         let d = |o: &uc_formats::iam::Object| (o.x as f32 - p.x).abs() + (o.y as f32 - p.y).abs() + (o.z as f32 - p.z).abs();

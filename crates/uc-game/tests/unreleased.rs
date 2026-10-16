@@ -4,31 +4,21 @@
 //! isn't a civilian is knocked out a moment after they appear. Skipped without an install.
 
 use uc_game::person::ko;
-use uc_game::{Controls, Game, Outcome, Weapon};
-use uc_world::{Level, LoadOptions};
+use uc_game::{Controls, Outcome, Weapon};
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::{Run, DT};
 
 /// `PCOM_AI_CIVILIAN`.
 const AI_CIVILIAN: u8 = 1;
 
-struct Run {
-    level: Level,
-    g: Game,
-    seen: Vec<String>,
-}
-
 fn start(mission: &str) -> Option<Run> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, mission, &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
-    let g = Game::new(&level, true);
-    assert!(g.unsupported().is_empty(), "{mission}: unsupported {:?}", g.unsupported());
-    Some(Run { level, g, seen: Vec::new() })
+    common::start(mission)
 }
 
 impl Run {
     /// Plays for `secs`, knocking out every fighter once a second if `fight`.
-    fn play(&mut self, secs: f32, fight: bool) {
+    fn run(&mut self, secs: f32, fight: bool) {
         for frame in 0..(secs / DT).max(1.0) as usize {
             self.g.skip_cutscene();
             if fight && frame % 30 == 0 {
@@ -54,10 +44,6 @@ impl Run {
         }
     }
 
-    fn said(&self, text: &str) -> bool {
-        self.seen.iter().any(|m| m.contains(text))
-    }
-
     /// Kills the first civilian the script made at point `way`.
     fn kill(&mut self, way: usize) {
         let i = self.g.people.iter().position(|p| p.way == way).unwrap_or_else(|| panic!("nobody from point {way}"));
@@ -70,9 +56,9 @@ impl Run {
 #[test]
 fn construction_site_siege_runs_to_a_win() {
     let Some(mut r) = start("FreeCD1") else { return };
-    r.play(3.0, false);
+    r.run(3.0, false);
     assert!(r.said("FOUR minutes"), "no briefing: {:?}", r.seen);
-    r.play(230.0, true);
+    r.run(230.0, true);
     println!("outcome {:?} at {:.1}s", r.g.outcome, r.g.time);
     assert_eq!(r.g.outcome, Some(Outcome::Won));
 }
@@ -81,9 +67,9 @@ fn construction_site_siege_runs_to_a_win() {
 #[test]
 fn construction_site_siege_needs_the_hostages_alive() {
     let Some(mut r) = start("FreeCD1") else { return };
-    r.play(3.0, false);
+    r.run(3.0, false);
     r.kill(103);
-    r.play(3.0, false);
+    r.run(3.0, false);
     assert!(r.said("Hostage down!"), "nobody noticed: {:?}", r.seen);
     assert!(matches!(r.g.outcome, Some(Outcome::Lost(_))), "{:?}", r.g.outcome);
 }
@@ -92,7 +78,7 @@ fn construction_site_siege_needs_the_hostages_alive() {
 #[test]
 fn construction_site_siege_runs_out_of_time() {
     let Some(mut r) = start("FreeCD1") else { return };
-    r.play(245.0, false);
+    r.run(245.0, false);
     assert!(matches!(r.g.outcome, Some(Outcome::Lost(_))), "{:?}", r.g.outcome);
 }
 
@@ -100,9 +86,9 @@ fn construction_site_siege_runs_out_of_time() {
 #[test]
 fn el_cossa_island_runs_to_a_win() {
     let Some(mut r) = start("jung3") else { return };
-    r.play(3.0, false);
+    r.run(3.0, false);
     assert!(r.said("El Cosso Island"), "no briefing: {:?}", r.seen);
-    r.play(600.0, true);
+    r.run(600.0, true);
     println!("outcome {:?} at {:.1}s", r.g.outcome, r.g.time);
     assert!(r.said("All Bane workers down!"), "{:?}", r.seen);
     assert_eq!(r.g.outcome, Some(Outcome::Won));
@@ -112,9 +98,9 @@ fn el_cossa_island_runs_to_a_win() {
 #[test]
 fn el_cossa_island_needs_the_islanders_alive() {
     let Some(mut r) = start("jung3") else { return };
-    r.play(3.0, false);
+    r.run(3.0, false);
     r.kill(81);
-    r.play(3.0, false);
+    r.run(3.0, false);
     assert!(r.said("You killed a hostage!"), "nobody noticed: {:?}", r.seen);
     assert!(matches!(r.g.outcome, Some(Outcome::Lost(_))), "{:?}", r.g.outcome);
 }
@@ -126,7 +112,7 @@ fn el_cossa_island_needs_the_islanders_alive() {
 fn officer_training_and_the_missile_silos() {
     for (mission, bikes) in [("train11", 1), ("snow1", 3)] {
         let Some(mut r) = start(mission) else { return };
-        r.play(1.0, false);
+        r.run(1.0, false);
         assert_eq!(r.g.bikes.len(), bikes, "{mission}'s bikes");
         if mission == "train11" {
             let pistol = r.g.items.iter().find(|i| i.way == 29).expect("no pistol").pos;

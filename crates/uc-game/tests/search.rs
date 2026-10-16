@@ -5,46 +5,24 @@
 
 use glam::{vec3, Vec3};
 use uc_formats::ucm::trigger;
-use uc_game::{Controls, Game, Search};
-use uc_world::{Level, LoadOptions};
+use uc_game::{Controls, Search};
 
-const DT: f32 = 1.0 / 30.0;
-
-struct Run {
-    level: Level,
-    g: Game,
-    seen: Vec<String>,
-}
+mod common;
+use common::{Run, DT};
 
 /// Auto-Destruct with the video stashed from the start: point 181 waits on the bombers being
 /// arrested, which is a long way into the mission and nothing to do with searching.
 fn start() -> Option<Run> {
-    let game = uc_formats::default_install()?;
-    let mut level = Level::load(&game, "carbomb1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let mut level = common::load("carbomb1")?;
     level.mission.event_points.iter_mut().find(|e| e.index == 181).unwrap().trigger = trigger::NONE;
-    let g = Game::new(&level, true);
-    assert!(g.unsupported().is_empty(), "unsupported: {:?}", g.unsupported());
-    let mut r = Run { level, g, seen: Vec::new() };
+    let mut r = Run::new(level);
+    assert!(r.g.unsupported().is_empty(), "unsupported: {:?}", r.g.unsupported());
+    r.stop_at_outcome = false;
     r.play(1.0, Controls::default());
     Some(r)
 }
 
 impl Run {
-    fn play(&mut self, secs: f32, c: Controls) {
-        for _ in 0..(secs / DT).max(1.0) as usize {
-            self.g.skip_cutscene();
-            let me = self.g.player.unwrap();
-            self.g.people[me].health = self.g.people[me].max_health;
-            self.g.update(DT, &c, &self.level);
-            for m in &self.g.messages {
-                if !self.seen.contains(&m.text) {
-                    println!("[{:6.1}s] {}", self.g.time, m.text);
-                    self.seen.push(m.text.clone());
-                }
-            }
-        }
-    }
-
     /// Darci a little way off prop `ob`, facing it.
     fn face(&mut self, ob: usize) {
         let o = self.level.map.objects[ob];
