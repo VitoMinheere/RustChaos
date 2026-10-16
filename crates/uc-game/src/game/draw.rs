@@ -8,6 +8,7 @@ impl Game {
     pub fn beacons(&self) -> Vec<(String, Vec3)> {
         let mut out = self.beat_beacons();
         out.extend(self.endless_beacons());
+        out.extend(self.ctf_beacons());
         let Some(s) = &self.script else { return out };
         out.extend(s.beacons()
             .into_iter()

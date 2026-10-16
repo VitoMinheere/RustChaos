@@ -914,6 +914,11 @@ impl Person {
 
     /// Goes for `by` (`PCOM_set_person_ai_navtokill`): those who fight anyway notice them at
     /// once; anyone else guilty takes up the fight as a gang member would.
+    /// Stops going for anyone (capture the flag's bot getting on with the game).
+    pub(crate) fn calm_down(&mut self) {
+        self.aggro = false;
+    }
+
     pub fn go_for(&mut self) {
         if !self.fights() {
             self.ai = AI_GANG;
