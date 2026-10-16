@@ -127,3 +127,113 @@ fn the_wave_comes_at_her_in_the_park() {
     let near = wave.iter().filter(|&&i| (g.people[i].fig.pos - me).length() < 3.0 * 256.0).count();
     assert!(near >= 2, "only {near} of the wave got to her");
 }
+
+/// Plays through wave `n`'s start: skips to just before it and lets it come.
+fn skip_to_wave(g: &mut Game, level: &Level, n: u32) {
+    let e = g.endless_mut().unwrap();
+    e.wave = n - 1;
+    e.phase = Phase::Breather(0.1);
+    run(g, level, 1.0);
+}
+
+/// Every tenth wave has a boss: made first, said, marked, and one a fist can land on.
+#[test]
+fn wave_ten_brings_a_boss() {
+    let Some((level, mut g)) = start(7) else { return };
+    skip_to_wave(&mut g, &level, 10);
+    let e = g.endless().unwrap();
+    assert_eq!(e.wave, 10);
+    let boss = e.boss(&g).expect("no boss on wave ten");
+    let b = &g.people[boss];
+    assert!(b.max_health > uc_world::character::person::HEALTH[b.kind as usize], "the boss is no tougher");
+    use uc_world::character::person::{MIB1, MIB2, MIB3};
+    assert!(![MIB1, MIB2, MIB3].contains(&b.kind), "a boss who jumps clear of every blow");
+    assert!(g.messages.iter().any(|m| m.text.contains("boss")), "nobody said a boss was coming");
+    assert!(g.beacons().iter().any(|(l, _)| l == "Boss"));
+    // Not on the others.
+    let Some((level, mut g)) = start(7) else { return };
+    skip_to_wave(&mut g, &level, 9);
+    assert!(g.endless().unwrap().boss(&g).is_none());
+}
+
+/// Wave ten isn't a wall: no more than a couple of guns about at once, and some fists still.
+#[test]
+fn wave_ten_is_not_all_guns() {
+    let Some((level, mut g)) = start(7) else { return };
+    skip_to_wave(&mut g, &level, 10);
+    let wave = standing(&g);
+    let guns = wave.iter().filter(|&&i| g.people[i].weapon.is_gun()).count();
+    assert!(!wave.is_empty());
+    assert!(guns <= 3, "{guns} guns out of {}", wave.len());
+}
+
+/// No spot of the arena is inside a building, on RTA's map round the start (inside the police
+/// station: she's put outside) or in the park.
+#[test]
+fn nobody_is_made_inside_a_building() {
+    let Some(level) = common::load("police1") else { return };
+    for centre in [None, Some(glam::vec2(8827.0, 10274.0))] {
+        let g = Game::new_endless(&level, 3, centre, 10.0);
+        for s in &g.endless().unwrap().spots {
+            let sq = level.map.square((s.x / 256.0) as usize, (s.z / 256.0) as usize);
+            assert!(!sq.has(uc_formats::iam::flags::HIDDEN), "a spot inside a building at {s:?}");
+        }
+    }
+}
+
+/// Each wave comes from another side of the arena than the last, with a beacon there.
+#[test]
+fn waves_come_from_another_side_each_time() {
+    let Some((level, mut g)) = start(7) else { return };
+    let mut last = None;
+    for n in 1..=5 {
+        skip_to_wave(&mut g, &level, n);
+        let e = g.endless().unwrap();
+        assert_ne!(Some(e.side), last, "wave {n} came from the same side");
+        last = Some(e.side);
+        assert!(g.beacons().iter().any(|(l, _)| l.starts_with("Wave")), "no beacon for wave {n}");
+        knock_out_the_wave(&mut g);
+        run(&mut g, &level, 0.5);
+    }
+}
+
+/// Fighting, however slowly, holds the crime rate: a blow every few seconds and it doesn't
+/// climb, where keeping out of it does (`the_crime_rate_ends_a_run_left_alone`).
+#[test]
+fn the_crime_rate_holds_while_she_fights() {
+    let Some((level, mut g)) = start(7) else { return };
+    run(&mut g, &level, 6.0);
+    let before = g.crime_rate;
+    for k in 0..40 {
+        // A light blow to one of them every three seconds.
+        if let Some(&i) = standing(&g).get(k % 3) {
+            let from = g.people[i].fig.pos + glam::vec3(50.0, 0.0, 0.0);
+            g.people[i].take_hit(from, 1, 0, false, false, Weapon::None);
+        }
+        run(&mut g, &level, 3.0);
+    }
+    assert!(g.crime_rate <= before, "the crime rate went from {before} to {} while she fought", g.crime_rate);
+}
+
+/// One stuck where he can't get out (shut in a building) is made again in the arena.
+#[test]
+fn a_stuck_one_is_made_again() {
+    let Some((level, mut g)) = start(7) else { return };
+    run(&mut g, &level, 6.0);
+    let me = g.player().unwrap().fig.pos;
+    // A square under a roof, well away from her.
+    let n = uc_formats::iam::MAP_SIZE;
+    let (x, z) = (0..n * n).map(|k| (k % n, k / n))
+        .find(|&(x, z)| level.map.square(x, z).has(uc_formats::iam::flags::HIDDEN)
+            && glam::vec2(x as f32 * 256.0 + 128.0 - me.x, z as f32 * 256.0 + 128.0 - me.z).length() > 12.0 * 256.0)
+        .expect("no building");
+    let i = standing(&g)[0];
+    let (cx, cz) = (x as f32 * 256.0 + 128.0, z as f32 * 256.0 + 128.0);
+    let y = level.ground.map_height(&level.map, cx, cz);
+    g.people[i].fig.pos = glam::vec3(cx, y, cz);
+    g.people[i].steer = None;
+    run(&mut g, &level, 12.0);
+    let p = g.people[i].fig.pos;
+    let sq = level.map.square((p.x / 256.0) as usize, (p.z / 256.0) as usize);
+    assert!(!sq.has(uc_formats::iam::flags::HIDDEN), "still shut in at {p:?}");
+}
