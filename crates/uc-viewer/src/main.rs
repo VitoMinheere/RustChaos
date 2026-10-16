@@ -40,7 +40,7 @@ use winit::dpi::LogicalSize;
 use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::window::{CursorGrabMode, Window, WindowId};
+use winit::window::{CursorGrabMode, Fullscreen, Window, WindowId};
 
 fn save_png(path: &Path, size: (u32, u32), rgba: &[u8]) -> Result<(), String> {
     let file = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -80,7 +80,8 @@ struct App {
 impl App {
     fn init_gfx(&mut self, el: &ActiveEventLoop) -> Result<(), String> {
         let window = Arc::new(
-            el.create_window(Window::default_attributes().with_title("Urban Chaos").with_inner_size(LogicalSize::new(1280, 720)))
+            el.create_window(Window::default_attributes().with_title("Urban Chaos").with_inner_size(LogicalSize::new(1280, 720))
+                .with_fullscreen((!self.args.windowed).then_some(Fullscreen::Borderless(None))))
                 .map_err(|e| e.to_string())?,
         );
         let instance = wgpu::Instance::default();
@@ -111,7 +112,8 @@ impl App {
         }
         self.gfx = Some(Gfx { window, surface, config, renderer });
         self.input.mouse_look = true;
-        self.capture_cursor(self.menu.is_none());
+        self.input.focused = true;
+        self.capture_cursor(self.want_cursor());
         Ok(())
     }
 
@@ -119,7 +121,7 @@ impl App {
         self.poll_pad();
         if self.input.hit(KeyCode::KeyM) {
             self.input.mouse_look = !self.input.mouse_look;
-            self.capture_cursor(self.input.mouse_look);
+            self.capture_cursor(self.want_cursor());
         }
         let inp = &self.input;
         let pad = &inp.pad;
@@ -285,7 +287,7 @@ impl App {
                 }
                 self.world = Some(w);
                 self.menu = None;
-                self.capture_cursor(self.input.mouse_look);
+                self.capture_cursor(self.want_cursor());
             }
             Err(e) => eprintln!("{name}: {e}"),
         }
@@ -398,6 +400,15 @@ impl App {
         let now = Instant::now();
         let dt = (now - self.last).as_secs_f32().min(0.1);
         self.last = now;
+        let alt = self.input.held(KeyCode::AltLeft) || self.input.held(KeyCode::AltRight);
+        if self.input.hit(KeyCode::F11) || (alt && self.input.hit(KeyCode::Enter)) {
+            self.input.pressed.remove(&KeyCode::Enter);
+            if let Some(g) = &self.gfx {
+                let full = g.window.fullscreen().is_some();
+                g.window.set_fullscreen((!full).then_some(Fullscreen::Borderless(None)));
+            }
+        }
+        self.sync_cursor(dt);
         if self.menu.is_some() || self.world.is_none() {
             if self.menu.is_none() {
                 self.open_menu();
@@ -582,6 +593,9 @@ impl ApplicationHandler for App {
                 self.input.rmb = state == ElementState::Pressed;
             }
             WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => {
+                if std::mem::take(&mut self.input.swallow_click) > 0.0 && state == ElementState::Pressed {
+                    return;
+                }
                 self.input.lmb = state == ElementState::Pressed;
                 self.input.lmb_pressed |= self.input.lmb;
             }
@@ -594,9 +608,15 @@ impl ApplicationHandler for App {
             WindowEvent::Focused(false) => {
                 self.input.down.clear();
                 self.input.rmb = false;
+                self.input.lmb = false;
+                self.input.focused = false;
                 self.capture_cursor(false);
             }
-            WindowEvent::Focused(true) => self.capture_cursor(self.input.mouse_look),
+            WindowEvent::Focused(true) => {
+                self.input.focused = true;
+                self.input.swallow_click = 0.3;
+                self.capture_cursor(self.want_cursor());
+            }
             WindowEvent::RedrawRequested => self.frame(el),
             _ => {}
         }
