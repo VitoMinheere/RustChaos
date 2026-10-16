@@ -1,5 +1,6 @@
 //! What the game draws over the level: people, cars, items, effects and beacons.
 
+use uc_formats::units::radians;
 use crate::*;
 
 impl Game {
@@ -151,7 +152,7 @@ impl Game {
                 Some(_) => ((turn << 5) & 2047, 25.0),
                 None => ((((turn * (3 + (k as i64 & 7))) + k as i64 * 9) << 4) & 2047, 15.0),
             };
-            let a = c0 as f32 * std::f32::consts::TAU / 2048.0;
+            let a = radians(c0 as f32);
             let at = m.pos + Vec3::new(0.0, up, 0.0);
             let towards = Vec3::new(a.sin(), 0.0, a.cos()).dot((at - eye).normalize_or(Vec3::Z));
             if towards < 0.0 {
@@ -162,7 +163,7 @@ impl Game {
         // with its timer (`timer << 3`; the timer counts down 0x10 a tick).
         for c in &self.charges {
             let timer = (c.fuse * 20.0 * 16.0) as i64;
-            let a = ((timer << 3) & 2047) as f32 * std::f32::consts::TAU / 2048.0;
+            let a = radians(((timer << 3) & 2047) as f32);
             let at = c.pos + Vec3::new(0.0, 25.0, 0.0);
             let towards = Vec3::new(a.sin(), 0.0, a.cos()).dot((at - eye).normalize_or(Vec3::Z));
             if towards < 0.0 {
@@ -260,7 +261,7 @@ impl Game {
     /// rolling across the squares as `sea_offset` counts the milliseconds.
     pub fn draw_sea(&self, out: &mut BTreeMap<u32, Batch>) {
         let offset = (self.time * 1000.0) as i64 / 2;
-        let turn = |a: i64| (a & 2047) as f32 * std::f32::consts::TAU / 2048.0;
+        let turn = |a: i64| radians((a & 2047) as f32);
         let wave = |x: usize, z: usize| {
             let c = turn(((x as i64) << 8) + offset).cos();
             let s = turn(((z as i64) << 8) + offset + 700).sin();
@@ -298,15 +299,15 @@ impl Game {
             let Some(d) = d else { continue };
             let at = Vec3::new(d.x as f32, d.y as f32 + UP, d.z as f32);
             // The rotation `AENG_draw_dirt` builds from pitch and roll (no yaw).
-            let (sp, cp) = (d.pitch as f32 * std::f32::consts::PI / 1024.0).sin_cos();
-            let (sr, cr) = (d.roll as f32 * std::f32::consts::PI / 1024.0).sin_cos();
+            let (sp, cp) = radians(d.pitch as f32).sin_cos();
+            let (sr, cr) = radians(d.roll as f32).sin_cos();
             let across = Vec3::new(cr, -cp * sr, sp * sr);
             let along = Vec3::new(0.0, sp, cp);
             match d.kind {
                 dirt::Kind::Can => {
                     if let Some(prim) = level.item_prims.get(&uc_world::level::CAN_PRIM) {
-                        let rot = glam::Quat::from_rotation_y((d.yaw as f32) * std::f32::consts::TAU / 2048.0)
-                            * glam::Quat::from_rotation_x(d.pitch as f32 * std::f32::consts::TAU / 2048.0);
+                        let rot = glam::Quat::from_rotation_y(radians(d.yaw as f32))
+                            * glam::Quat::from_rotation_x(radians(d.pitch as f32));
                         let base = Vec3::new(d.x as f32, d.y as f32, d.z as f32);
                         uc_world::level::prim_batches(prim, |v| base + rot * v, lighter.as_ref(), out);
                     }

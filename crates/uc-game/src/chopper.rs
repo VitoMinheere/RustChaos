@@ -10,6 +10,7 @@
 //! It runs on the original's 20 ticks a second in the original's own units: positions in
 //! 256ths of a world unit (`WorldPos`), speeds in those a tick, angles 2048 to a turn.
 
+use uc_formats::units::radians;
 use glam::Vec3;
 
 pub const TICK: f32 = 1.0 / 20.0;
@@ -99,7 +100,7 @@ fn dist2(dx: i32, dz: i32) -> i64 {
 }
 
 fn sin(a: i32) -> i32 {
-    (((a & 2047) as f32 * std::f32::consts::TAU / 2048.0).sin() * 65536.0) as i32
+    (radians((a & 2047) as f32).sin() * 65536.0) as i32
 }
 
 fn cos(a: i32) -> i32 {

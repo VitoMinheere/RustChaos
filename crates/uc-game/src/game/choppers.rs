@@ -1,6 +1,7 @@
 //! The mission's helicopters: flown a tick at a time, drawn with their rotors and
 //! searchlight, and heard.
 
+use uc_formats::units::radians;
 use crate::chopper::{Sky, Target};
 use glam::Quat;
 use crate::*;
@@ -80,7 +81,7 @@ impl Game {
     /// bright yellow at the lamp and fading out, pointed at its target's pelvis.
     pub(crate) fn draw_choppers(&self, out: &mut BTreeMap<u32, Batch>, level: &Level) {
         let lighter = level.lighter();
-        let angle = |a: i32| a as f32 * std::f32::consts::TAU / 2048.0;
+        let angle = |a: i32| radians(a as f32);
         for c in &self.choppers {
             let at = c.pos();
             let (tilt, roll) = c.tilt_roll();

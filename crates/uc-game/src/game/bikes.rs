@@ -1,5 +1,6 @@
 //! The mission's motorbikes: their physics a turn at a time, and drawn.
 
+use uc_formats::units::radians;
 use crate::bike::{Bike, Road, WHEEL_COL};
 use crate::*;
 
@@ -57,7 +58,7 @@ impl Game {
         for (b, fig) in &mut self.bikes {
             if let Some(f) = fig {
                 f.pos = b.pos() - Vec3::new(0.0, (0x18 + 0x10) as f32, 0.0);
-                f.angle = b.yaw as f32 * std::f32::consts::TAU / 2048.0;
+                f.angle = radians(b.yaw as f32);
                 f.advance(dt);
             }
             // The bike's own getting on and off, played out (`advance_keyframe`).
@@ -101,12 +102,12 @@ impl Game {
                 b.mode = bike::Mode::Driving;
             }
         }
-        let heading = (b.yaw + 1024) as f32 * std::f32::consts::TAU / 2048.0;
+        let heading = radians((b.yaw + 1024) as f32);
         let (vx, vz) = (heading.sin(), heading.cos());
         let mid = b.pos();
         let p = &mut self.people[pi];
         p.fig.pos = Vec3::new(mid.x + vz * 60.0 + vx * 30.0, p.fig.pos.y, mid.z - vx * 60.0 + vz * 30.0);
-        p.fig.angle = (b.yaw - 512) as f32 * std::f32::consts::TAU / 2048.0;
+        p.fig.angle = radians((b.yaw - 512) as f32);
         p.fig.restart_now(uc_world::character::anim::ENTER_CAR, uc_world::character::Play::Once);
         p.state = State::Bike { bike: k, phase: 0 };
         true
@@ -159,7 +160,7 @@ impl Game {
                     // Her stand-in pose (the end of `ANIM_ENTER_CAR`) sits her sideways,
                     // legs out along her left a little way off: turned a quarter, as when
                     // getting on, her legs lie along the bike, and her hips go on the seat.
-                    p.fig.angle = (yaw - 512) as f32 * std::f32::consts::TAU / 2048.0;
+                    p.fig.angle = radians((yaw - 512) as f32);
                     p.fig.pos = pos - Vec3::new(0.0, 40.0, 0.0);
                     if let Some((_, hips)) = p.fig.part_world(0) {
                         p.fig.pos += Vec3::new(pos.x - hips.x, 0.0, pos.z - hips.z);
@@ -168,7 +169,7 @@ impl Game {
                 _ => {
                     if self.people[pi].fig.finished() {
                         // Stood beside it, on the ground.
-                        let heading = (b.yaw + 1024) as f32 * std::f32::consts::TAU / 2048.0;
+                        let heading = radians((b.yaw + 1024) as f32);
                         let (vx, vz) = (heading.sin(), heading.cos());
                         let mid = b.pos();
                         let (x, z) = (mid.x + vz * 60.0 + vx * 30.0, mid.z - vx * 60.0 + vz * 30.0);

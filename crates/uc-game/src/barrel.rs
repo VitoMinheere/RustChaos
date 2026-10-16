@@ -12,6 +12,7 @@
 // The index loops follow the original's, over x, y and z and over other barrels.
 #![allow(clippy::needless_range_loop)]
 
+use uc_formats::units::radians;
 use crate::Barrel;
 use glam::{Vec2, Vec3};
 
@@ -269,7 +270,7 @@ pub fn process(barrels: &mut [Barrel], world: &impl World, rand: &mut dyn FnMut(
         if grounded {
             let off_upright = bar.tilt.min(std::f32::consts::PI - bar.tilt);
             let upside_down = bar.tilt > std::f32::consts::FRAC_PI_2;
-            if off_upright < 224.0 * std::f32::consts::TAU / 2048.0 && !(matches!(bar.kind, 1 | 2 | 4) && upside_down) {
+            if off_upright < radians(224.0) && !(matches!(bar.kind, 1 | 2 | 4) && upside_down) {
                 let (dx, dz) = ((b.p[0] - a.p[0]) / 4, (b.p[2] - a.p[2]) / 4);
                 a.p[0] += dx;
                 a.p[2] += dz;

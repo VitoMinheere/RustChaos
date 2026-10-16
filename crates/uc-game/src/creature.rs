@@ -22,6 +22,7 @@
 //! slides along whatever is in the way, and it only picks on people it could walk to: those on
 //! the ground, not up on a roof.
 
+use uc_formats::units::radians;
 use crate::rand;
 use glam::{vec3, Vec2, Vec3};
 use std::f32::consts::TAU;
@@ -179,7 +180,7 @@ fn wrap(a: f32) -> f32 {
 
 /// `(SIN(a), COS(a))` as unit numbers, `a` in 2048ths of a turn.
 fn sin_cos(a: f32) -> Vec2 {
-    let r = a * TAU / 2048.0;
+    let r = radians(a);
     Vec2::new(r.sin(), r.cos())
 }
 
@@ -284,7 +285,7 @@ impl Creature {
     }
 
     fn sync(&mut self) {
-        self.fig.angle = self.yaw * TAU / 2048.0;
+        self.fig.angle = radians(self.yaw);
     }
 
     fn pos(&self) -> Vec3 {

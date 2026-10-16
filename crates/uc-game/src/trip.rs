@@ -1,6 +1,7 @@
 //! Tripwires (fallen/Source/trip.cpp): a beam out of a tripwire prop that a `tripwire`
 //! point watches for the player to cross.
 
+use uc_formats::units::radians;
 use glam::{vec2, vec3, Vec2, Vec3};
 use std::collections::{BTreeMap, HashMap};
 use uc_formats::ucm::{trigger, Mission};
@@ -58,7 +59,7 @@ impl Trips {
                 .min_by(|a, b| a.1.total_cmp(&b.1));
             let Some((ob, _)) = ob else { continue };
             // Out of the prop's facing (`FMATRIX_vector(yaw, 0)`), from its edge, halfway up.
-            let (s, c) = (ob.yaw as f32 * std::f32::consts::TAU / 2048.0).sin_cos();
+            let (s, c) = radians(ob.yaw as f32).sin_cos();
             let dir = vec2(s, c);
             let a = vec2(ob.x as f32, ob.z as f32) - dir * radius;
             let y = ob.y as f32 + ((lo.y + hi.y) / 2.0).floor();

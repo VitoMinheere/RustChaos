@@ -12,6 +12,7 @@ pub mod reader;
 pub mod tma;
 pub mod txc;
 pub mod ucm;
+pub mod units;
 #[cfg(feature = "json")]
 pub mod ucm_json;
 

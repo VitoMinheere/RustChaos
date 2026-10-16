@@ -7,6 +7,7 @@
 //! for its colour. The original's speeds are in sixteenths of a unit a tick at 20 ticks a
 //! second; here they are in units a second.
 
+use uc_formats::units::radians;
 use crate::rand;
 use glam::{vec3, Vec2, Vec3};
 
@@ -169,7 +170,7 @@ fn qdist2(x: i32, z: i32) -> i32 {
 
 /// `SIN` and `COS`: 2048 to a turn, 65536 at full.
 fn sin(a: i32) -> i32 {
-    (((a & 2047) as f32 * std::f32::consts::TAU / 2048.0).sin() * 65536.0) as i32
+    (radians((a & 2047) as f32).sin() * 65536.0) as i32
 }
 
 fn cos(a: i32) -> i32 {

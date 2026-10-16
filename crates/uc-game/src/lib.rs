@@ -35,6 +35,7 @@ pub mod vehicle;
 pub mod wand;
 pub mod ware;
 
+use uc_formats::units::radians;
 use glam::{vec2, Vec2, Vec3};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use uc_world::character::person as ptype;
@@ -538,7 +539,7 @@ impl Game {
             charges: Vec::new(),
             platforms: level.platforms.iter().map(|&(way, ob)| {
                 let o = &level.map.objects[ob];
-                let yaw = o.yaw as f32 * std::f32::consts::TAU / 2048.0;
+                let yaw = radians(o.yaw as f32);
                 plat::Platform::new(way, ob, o.prim, Vec3::new(o.x as f32, o.y as f32, o.z as f32), yaw)
             }).collect(),
             plat_prims: level.platforms.iter().map(|&(_, ob)| uc_world::level::load_prim(&level.game, level.map.objects[ob].prim)).collect(),
@@ -590,7 +591,7 @@ impl Game {
             let o = &level.map.objects[ob];
             let at = Vec3::new(o.x as f32, o.y as f32, o.z as f32);
             let y = level.ground.surface(&level.map, at.x, at.z, at.y + 32.0);
-            let yaw = o.yaw as f32 * std::f32::consts::TAU / 2048.0;
+            let yaw = radians(o.yaw as f32);
             g.add_barrel(Barrel { kind: 0, prim: uc_world::level::BARREL_PROP, explodes: true, way: 0, gone: false,
                                   pos: Vec3::new(at.x, y, at.z), yaw, tilt: 0.0, on: None, spheres: None });
         }

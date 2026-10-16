@@ -6,6 +6,7 @@
 //! [`Weather::turn`] runs once a game turn (20 a second) while the player is out of doors
 //! and says what to play; the caller plays it. Ids are [`crate::sounds`] ids.
 
+use uc_formats::units::radians;
 use glam::Vec3;
 
 /// `S_WIND_START`: seven gusts.
@@ -134,7 +135,7 @@ impl Weather {
     /// `PlayAmbient3D`: somewhere 16 squares off round the player, on the ground or up in
     /// the air.
     fn around(&mut self, id: usize, player: Vec3, height: Height) -> Cue {
-        let a = (self.random() & 2047) as f32 * std::f32::consts::TAU / 2048.0;
+        let a = radians((self.random() & 2047) as f32);
         let y = match height {
             Height::OnGround => 0.0,
             Height::InAir => player.y + (512 + (self.random() & 1023)) as f32,

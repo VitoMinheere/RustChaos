@@ -1,5 +1,6 @@
 //! Loading a mission's level from an install and turning it into geometry.
 
+use uc_formats::units::radians;
 use crate::geometry::{Builder, Layer, WorldGeometry, UNIT, UNTEXTURED};
 use glam::{vec3, Vec3};
 use std::collections::HashMap;
@@ -532,7 +533,7 @@ fn build_props(b: &mut Builder, map: &Map, game: &Path, sh: &Shader, moving: &st
     let mut cache: HashMap<u8, Option<Prim>> = HashMap::new();
     for ob in map.objects.iter().enumerate().filter(|(i, _)| !moving.contains(i)).map(|(_, o)| o) {
         let Some(prim) = cache.entry(ob.prim).or_insert_with(|| load_prim(game, ob.prim)) else { continue };
-        let a = ob.yaw as f32 * std::f32::consts::TAU / 2048.0;
+        let a = radians(ob.yaw as f32);
         let (s, c) = a.sin_cos();
         let origin = vec3(ob.x as f32, ob.y as f32, ob.z as f32);
         // MESH_draw_poly: world = transpose(MATRIX_calc(yaw)) * local.

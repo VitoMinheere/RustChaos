@@ -8,6 +8,7 @@
 //! Props block as the original's collision models say (`PRIM_COLLIDE_*`, Editor/Headers/Prim.h):
 //! boxes as their rotated bounding box, cylinders as an octagon, the rest not at all.
 
+use uc_formats::units::radians;
 use glam::{vec2, vec3, Vec2, Vec3};
 use std::collections::HashMap;
 use std::path::Path;
@@ -137,7 +138,7 @@ pub fn cable_points(f: &uc_formats::iam::Facet) -> Vec<Vec3> {
     let mut pts = Vec::new();
     for i in 0..=count {
         let t = i as f32 / count as f32;
-        let a = ((angle + 2048) & 2047) as f32 * std::f32::consts::TAU / 2048.0;
+        let a = radians(((angle + 2048) & 2047) as f32);
         pts.push(vec3(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t - a.cos() * sag, z1 + (z2 - z1) * t));
         angle += dangle;
         if angle >= -30 {
@@ -254,7 +255,7 @@ impl Ground {
                 lo = lo.min(v);
                 hi = hi.max(v);
             }
-            let a = ob.yaw as f32 * std::f32::consts::TAU / 2048.0;
+            let a = radians(ob.yaw as f32);
             let (s, c) = a.sin_cos();
             let origin = vec2(ob.x as f32, ob.z as f32);
             let place = |x: f32, z: f32| origin + vec2(c * x + s * z, -s * x + c * z);

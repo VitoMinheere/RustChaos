@@ -7,6 +7,7 @@
 //! (`TEXTURE_page_face1`, `_face2`): 64-pixel faces on the first (and a few on the second) for
 //! a conversation's widescreen, 32-pixel ones on the second for messages.
 
+use uc_formats::units::radians;
 use glam::{Vec2, Vec3};
 use uc_world::character::person as ptype;
 
@@ -108,7 +109,7 @@ pub fn converse_camera(s: Vec3, angle: f32, l: Vec3, clear: impl Fn(Vec3, Vec3) 
     let facing = angle * 2048.0 / std::f32::consts::TAU;
     let mut score = [0u8; ANGLES];
     for (i, sc) in score.iter_mut().enumerate() {
-        let a = (i * 2048 / ANGLES) as f32 * std::f32::consts::TAU / 2048.0;
+        let a = radians((i * 2048 / ANGLES) as f32);
         let at = s + Vec3::new(a.sin() * dist, 0x100 as f32, a.cos() * dist);
         if !clear(at, head) {
             continue;
@@ -141,7 +142,7 @@ pub fn converse_camera(s: Vec3, angle: f32, l: Vec3, clear: impl Fn(Vec3, Vec3) 
     // A little off the chosen angle, at random, and aimed at somewhere up to halfway from the
     // speaker to the listener.
     let division = 2048 / ANGLES as u32;
-    let a = ((best as u32 * division + (rand() & (division - 1))) as f32 - (division / 2) as f32) * std::f32::consts::TAU / 2048.0;
+    let a = radians((best as u32 * division + (rand() & (division - 1))) as f32 - (division / 2) as f32);
     let t = (rand() & 127) as f32 / 256.0;
     let base = s + (l - s) * t;
     let target = base + Vec3::new(0.0, 0xa0 as f32, 0.0);

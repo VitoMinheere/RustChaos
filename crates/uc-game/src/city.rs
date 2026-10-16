@@ -11,6 +11,7 @@
 //! say, from the mission's own chatter file (`EWAY_get_fake_wander_message`,
 //! fallen/Source/eway.cpp).
 
+use uc_formats::units::radians;
 use glam::{vec2, Vec2, Vec3};
 use uc_world::character::person as ptype;
 use uc_world::Level;
@@ -101,7 +102,7 @@ impl Game {
                 }
             }
             let Some(at) = at else { break };
-            let angle = (self.city_rand() & 2047) as f32 * std::f32::consts::TAU / 2048.0;
+            let angle = radians((self.city_rand() & 2047) as f32);
             let variant = self.city_rand();
             let Some(i) = self.spawn_variant(level, ptype::CIV, false, 0, Vec3::new(at.x, 0.0, at.y), angle, variant) else { break };
             // Partway to being moved already (`InsideRoom` starts at 20 to 39 of the 50).
@@ -138,7 +139,7 @@ impl Game {
         let p = if anywhere {
             vec2(((self.city_rand() % 112 + 8) << 8) as f32, ((self.city_rand() % 112 + 8) << 8) as f32)
         } else {
-            let a = (self.city_rand() & 2047) as f32 * std::f32::consts::TAU / 2048.0;
+            let a = radians((self.city_rand() & 2047) as f32);
             let pl = player?;
             vec2(pl.x, pl.z) + vec2(a.sin(), a.cos()) * self.view_dist
         };

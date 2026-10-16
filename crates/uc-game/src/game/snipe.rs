@@ -6,6 +6,7 @@
 //! in from 20 to 30. Firing turns her to the scope's heading and hits the best target
 //! there (`SNIPE_shoot`, `find_snipe_target`) for 260.
 
+use uc_formats::units::radians;
 use crate::*;
 
 /// `SNIPE_LENS_START`, `_END` (16.16), and the original's ordinary lens (`AENG_lens`, 4).
@@ -36,15 +37,15 @@ impl Snipe {
     /// The way it looks (a unit vector), and how far it's zoomed in (the lens over the
     /// ordinary one).
     pub fn view(&self) -> (Vec3, f32) {
-        let yaw = (self.yaw >> 16) as f32 * std::f32::consts::TAU / 2048.0;
-        let pitch = (self.pitch >> 16) as f32 * std::f32::consts::TAU / 2048.0;
+        let yaw = radians((self.yaw >> 16) as f32);
+        let pitch = radians((self.pitch >> 16) as f32);
         let (sp, cp) = pitch.sin_cos();
         (Vec3::new(yaw.sin() * cp, sp, yaw.cos() * cp), (self.lens as f32 / 65536.0) / LENS_NORMAL)
     }
 
     /// The angle a person faces looking the scope's way (`SNIPE_yaw >> 16` + 1024).
     fn facing(&self) -> f32 {
-        (((self.yaw >> 16) + 1024) & 2047) as f32 * std::f32::consts::TAU / 2048.0
+        radians((((self.yaw >> 16) + 1024) & 2047) as f32)
     }
 
     /// `SNIPE_process`, one turn.

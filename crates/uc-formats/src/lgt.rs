@@ -2,6 +2,7 @@
 //! static-light evaluation of `NIGHT_ambient_at_point` / `NIGHT_get_light_at`
 //! (night.cpp:112, :2880), so any renderer can light its vertices like the game.
 
+use crate::units::radians;
 use crate::iam::Object;
 use crate::reader::{count, Reader, Result};
 
@@ -100,7 +101,7 @@ impl<'a> Lighter<'a> {
         if lighting.flags & FLAG_LIGHTS_UNDER_LAMPOSTS != 0 {
             for o in objects.iter().filter(|o| o.prim < 5) {
                 // The light hangs off the lamp's arm: -FMATRIX_vector(yaw) >> 9, i.e. 128 units.
-                let a = o.yaw as f32 * std::f32::consts::TAU / 2048.0;
+                let a = radians(o.yaw as f32);
                 lamps.push([o.x as f32 - a.sin() * 128.0, o.y as f32 + 256.0, o.z as f32 - a.cos() * 128.0]);
             }
         }
