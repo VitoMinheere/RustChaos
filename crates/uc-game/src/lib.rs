@@ -497,6 +497,8 @@ pub struct Game {
     beat: Option<game::beat::Beat>,
     /// How hard it is ([`Game::set_difficulty`]).
     difficulty: Difficulty,
+    /// The console's switches (#147).
+    pub cheats: game::cheats::Cheats,
     /// Sounds not tied to a person this frame.
     sounds: Vec<(Sfx, Vec3)>,
     /// Seconds left of fight music after the fighting stops.
@@ -648,6 +650,7 @@ impl Game {
             endless: None,
             beat: None,
             difficulty: Difficulty::Normal,
+            cheats: Default::default(),
             sounds: Vec::new(),
             fight_timer: 0.0,
             sprinting: false,
@@ -870,6 +873,9 @@ impl Game {
 
     /// `damage` to person `i`, as the difficulty has it if they're the player.
     pub(crate) fn hurt(&self, i: usize, damage: i32) -> i32 {
+        if self.people[i].player && self.cheats.god {
+            return 0;
+        }
         if self.people[i].player { self.difficulty.hurt(damage) } else { damage }
     }
 
@@ -960,6 +966,7 @@ impl Game {
         }
         self.run_endless(dt, level);
         self.run_beat(dt, level);
+        self.run_cheats();
         let pressed = input.punch || input.kick || input.jump || input.action;
         self.update_scenes(dt, level, pressed);
         self.pyro.update(dt);
@@ -1106,7 +1113,8 @@ impl Game {
             let away = p.ai == person::AI_BODYGUARD
                 && darci.is_some_and(|d| (d - p.fig.pos).length() > 20.0 * 256.0);
             self.people[i].foe = foe;
-            self.people[i].invulnerable = away || self.people[i].protected;
+            // God mode (#147): nothing lands on the player.
+            self.people[i].invulnerable = away || self.people[i].protected || (self.cheats.god && Some(i) == self.player);
         }
         for i in 0..self.people.len() {
             let c = if Some(i) == player {
@@ -1114,7 +1122,7 @@ impl Game {
             } else {
                 let mut rng = self.rngs.main;
                 let mut rand = || { rng = rng.wrapping_mul(69069).wrapping_add(1); rng >> 16 };
-                let c = if frozen { Controls::default() } else { self.people[i].think(i, &snaps, &level.ground, dt, &mut rand) };
+                let c = if frozen || self.cheats.freeze { Controls::default() } else { self.people[i].think(i, &snaps, &level.ground, dt, &mut rand) };
                 self.rngs.main = rng;
                 c
             };

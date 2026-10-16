@@ -238,6 +238,18 @@ impl World {
                     o.text(w - Overlay::text_width(&text, s) - 10.0 * s, y, s, gold, &text);
                     y += 10.0 * s;
                 }
+                // The console's `bonus`: what's left to find, in light blue, numbered for `telb`.
+                if self.console.show_bonus {
+                    let blue = [120, 200, 255, 255];
+                    for (n, (label, pos)) in self.bonus_points().into_iter().enumerate() {
+                        let (p, _) = at(vec2(pos.x, pos.z) / uc_world::UNIT);
+                        dot(&mut o, p, 2.0 * s, blue);
+                        let dist = (pl.fig.pos - pos).length() / uc_world::UNIT;
+                        let text = format!("{}: {label} {dist:.0}", n + 1);
+                        o.text(w - Overlay::text_width(&text, s) - 10.0 * s, y, s, blue, &text);
+                        y += 10.0 * s;
+                    }
+                }
                 // Darci, with a tick the way she (or her car) faces.
                 let (c, _) = at(me);
                 for k in 1..=3 {

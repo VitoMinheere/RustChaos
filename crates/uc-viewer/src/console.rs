@@ -6,7 +6,8 @@
 use crate::*;
 
 const HELP: &str = "telw N (to event point N)  tels / telr (store / return)  wpt (nearest point)  \
-win  lose  restart  roper  darci  kit  boo  pos";
+win  lose  restart  roper  darci  kit  boo  pos  god  ammo  freeze  give WHAT  kill [near]  \
+crime N  time X  wave N  bonus  telb N";
 
 #[derive(Default)]
 pub(crate) struct Console {
@@ -18,6 +19,10 @@ pub(crate) struct Console {
     pub(crate) stored: Option<Vec3>,
     /// The position readout is on.
     pub(crate) show_pos: bool,
+    /// `bonus`: the bonus objectives left are on the map.
+    pub(crate) show_bonus: bool,
+    /// `time`: the game runs this much faster (or slower) than normal.
+    pub(crate) time_scale: Option<f32>,
 }
 
 impl Console {
@@ -126,9 +131,85 @@ impl World {
                 self.console.say("Full kit");
             }
             "boo" => self.game.boo(),
+            "god" => {
+                self.game.cheats.god = !self.game.cheats.god;
+                self.console.say(if self.game.cheats.god { "God mode on" } else { "God mode off" });
+            }
+            "ammo" => {
+                self.game.cheats.ammo = !self.game.cheats.ammo;
+                self.console.say(if self.game.cheats.ammo { "Unlimited ammo on" } else { "Unlimited ammo off" });
+            }
+            "freeze" => {
+                self.game.cheats.freeze = !self.game.cheats.freeze;
+                self.console.say(if self.game.cheats.freeze { "Everyone else frozen" } else { "Unfrozen" });
+            }
+            "give" => match arg.map(str::to_ascii_lowercase) {
+                Some(what) if self.game.give(&what) => self.console.say(format!("Given {what}")),
+                _ => self.console.say("give pistol|shotgun|ak|sniper|knife|bat|grenades|explosives|health|key"),
+            },
+            "kill" => {
+                let near = arg.is_some_and(|a| a.eq_ignore_ascii_case("near"));
+                let n = self.game.knock_out_enemies(near.then_some(10.0 * uc_world::UNIT));
+                self.console.say(format!("{n} knocked out"));
+            }
+            "crime" => match arg.and_then(|a| a.parse::<u8>().ok()) {
+                Some(n) => {
+                    self.game.set_crime_rate(n);
+                    self.console.say(format!("Crime rate {}", self.game.crime_rate));
+                }
+                None => self.console.say("crime N: set the crime rate (0-100)"),
+            },
+            "wave" => match (arg.and_then(|a| a.parse::<u32>().ok()), self.game.endless_mut()) {
+                (Some(n), Some(e)) if n > 0 => {
+                    e.wave = n - 1;
+                    e.phase = uc_game::game::endless::Phase::Breather(0.1);
+                    self.console.say(format!("On to wave {n}"));
+                }
+                (_, None) => self.console.say("wave N: only in an endless run"),
+                _ => self.console.say("wave N: jump to wave N"),
+            },
+            "time" => match arg.and_then(|a| a.parse::<f32>().ok()) {
+                Some(x) => {
+                    self.console.time_scale = Some(x.clamp(0.1, 4.0)).filter(|&x| x != 1.0);
+                    self.console.say(format!("Time x{:.2}", x.clamp(0.1, 4.0)));
+                }
+                None => self.console.say("time X: game speed, 0.1 to 4 (1 is normal)"),
+            },
+            "bonus" => {
+                self.console.show_bonus = !self.console.show_bonus;
+                let open = self.bonus_points();
+                if open.is_empty() {
+                    self.console.say("No bonus objectives or badges left here");
+                }
+                for (n, (label, at)) in open.iter().enumerate().take(5) {
+                    let d = here.map_or(0.0, |h| (*at - h).length() / uc_world::UNIT);
+                    self.console.say(format!("{}: {label} ({d:.0} squares)", n + 1));
+                }
+                self.console.say(if self.console.show_bonus { "Shown on the map in light blue; telb N to go there" } else { "Hidden from the map" });
+            }
+            "telb" => match arg.and_then(|a| a.parse::<usize>().ok()) {
+                Some(n) => match self.bonus_points().get(n.wrapping_sub(1)).cloned() {
+                    Some((label, at)) if self.game.teleport(at, &self.level) => self.console.say(format!("At {label}")),
+                    Some(_) => self.console.say("Not while driving"),
+                    None => self.console.say(format!("No bonus objective {n}: bonus lists them")),
+                },
+                None => self.console.say("telb N: teleport to bonus objective N (see bonus)"),
+            },
             "pos" => self.console.show_pos = !self.console.show_pos,
             _ => self.console.say(format!("Unknown command '{name}': try help")),
         }
+    }
+
+    /// The bonus objectives still open, for `bonus` and `telb`: the side objectives not yet
+    /// done (at the point whose triggering does them) and the badges not yet found (where
+    /// their point is).
+    pub(crate) fn bonus_points(&self) -> Vec<(String, Vec3)> {
+        let done = self.game.sides_done(&self.goals);
+        let sides = self.goals.sides.iter().filter(|g| !done.contains(&g.id))
+            .filter_map(|g| Some((g.label.clone(), Game::point_pos(&self.level, g.id)?)));
+        let badges = self.goals.badges.iter().filter(|b| !self.game.found.contains(b) && !self.kept.badges.contains(b))
+            .filter_map(|&b| Some((format!("Badge {b}"), Game::point_pos(&self.level, b)?)));
+        sides.chain(badges).collect()
     }
 
     /// The free camera's teleport: Darci goes where the camera is looking. Along the line

@@ -161,6 +161,16 @@ Normal is the original's tuning.
 - `kit`: the full kit;
 - `boo`: an explosion to look at;
 - `pos`: the position readout;
+- `god`: Darci takes no damage (again to turn it off; the same for `ammo` and `freeze`);
+- `ammo`: her guns, grenades and explosives never run out;
+- `freeze`: everyone else stands still;
+- `give WHAT`: `pistol`, `shotgun`, `ak`, `sniper`, `knife`, `bat`, `grenades`, `explosives`, `health` or `key`;
+- `kill`: knocks out everyone after her; `kill near` only those within 10 squares;
+- `crime N`: sets the crime rate;
+- `time X`: game speed, 0.1 to 4 (1 is normal);
+- `wave N`: in an endless run, on to wave N;
+- `bonus`: lists the side objectives and badges still to find, and shows them on the minimap in light blue, numbered (again to hide them);
+- `telb N`: to bonus objective N;
 - `help`.
 
 Two more shortcuts:
