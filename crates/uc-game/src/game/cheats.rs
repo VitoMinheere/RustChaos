@@ -97,6 +97,17 @@ impl Game {
         self.crime_rate = n.min(100);
     }
 
+    /// `car`: an empty car (a sedan) a few steps in front of the player, facing the way she
+    /// is, to get into. Not while driving or riding. Whether it did.
+    pub fn spawn_car(&mut self, level: &Level) -> bool {
+        let Some(p) = self.player().filter(|p| matches!(p.state, State::Move)) else { return false };
+        let f = p.facing_dir();
+        let at = Vec2::new(p.fig.pos.x, p.fig.pos.z) + f * 400.0;
+        let y = level.ground.surface(&level.map, at.x, at.y, p.fig.pos.y + 128.0);
+        self.vehicles.push(Vehicle::new(0, 7, Vec3::new(at.x, y, at.y), f.x.atan2(f.y), crate::vehicle::Key::None));
+        true
+    }
+
     /// Puts the player on foot at `at` (world units), on whatever is there to stand on from
     /// a little above it. Not while driving or riding. Whether it did.
     pub fn teleport(&mut self, at: Vec3, level: &Level) -> bool {

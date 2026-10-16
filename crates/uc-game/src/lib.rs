@@ -168,6 +168,10 @@ struct Driving {
     next: usize,
     /// Seconds left of backing off something the car ran into (`PCOM_MOVE_SUBSTATE_3PTURN`).
     reversing: f32,
+    /// Beat Cop's drunk driver (#130): weaving across the road, and stopping for nobody.
+    drunk: bool,
+    /// Beat Cop's getaway driver: twice the limit, and stopping for nobody.
+    reckless: bool,
 }
 
 /// A camera fly-by in progress.

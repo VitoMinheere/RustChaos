@@ -163,11 +163,16 @@ impl Game {
         // Slow for a bend, down to a third of the limit; diligent drivers go twice as fast.
         let dangle = diff.abs() * 2048.0 / std::f32::consts::TAU;
         let mut want = if dangle > 100.0 { (1.0 - (dangle - 100.0) / 2.0 / 750.0).max(250.0 / 750.0) } else { 1.0 } * CRUISE;
-        if bent & 2 != 0 {
+        if bent & 2 != 0 || st.reckless {
             want *= 2.0;
         }
         // (The car turns away from its steering: steer left for a larger yaw.)
         let mut steer = (-diff * 2.0).clamp(-1.0, 1.0);
+        if st.drunk {
+            // Weaving: a slow sway one way and the other, now and then a lurch.
+            let t = self.time + pi as f32;
+            steer = (steer + (t * 1.3).sin() * 0.6 + (t * 3.1).sin() * 0.25).clamp(-1.0, 1.0);
+        }
         if reversing {
             st.reversing -= dt;
             want = -CRUISE * 0.4;
@@ -182,7 +187,7 @@ impl Game {
                 && r.dot(fwd) > 0.0 && r.dot(fwd) < 250.0 + speed.max(0.0) * 0.5 && r.dot(side).abs() < 170.0
         });
         self.streets.drivers.insert(pi, st);
-        if blocked && want > 0.0 {
+        if blocked && want > 0.0 && !st.drunk && !st.reckless {
             return stop;
         }
         Drive { throttle: Vehicle::throttle_for(want), steer, handbrake: false }
