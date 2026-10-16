@@ -188,6 +188,18 @@ impl Game {
         }
         match e.phase {
             Phase::Breather(t) => {
+                // Three seconds before the next: the radio, and dispatch says what's coming.
+                let soon = 3.0;
+                if t > soon && t - dt <= soon {
+                    let next = e.wave + 1;
+                    let text = if next.is_multiple_of(BOSS_EVERY) {
+                        "Despatch: a big one's leading the next lot. Watch yourself".to_string()
+                    } else {
+                        format!("Despatch: wave {next} on its way")
+                    };
+                    self.messages.push(Message { text, left: 3.0, face: Some(talk::face::RADIO), filmed: false });
+                    self.sounds.push((Sfx::Radio, e.centre));
+                }
                 let t = t - dt;
                 if t > 0.0 {
                     e.phase = Phase::Breather(t);
@@ -209,6 +221,10 @@ impl Game {
                 let text = if e.boss_due { format!("Wave {}: a boss is coming", e.wave) } else { format!("Wave {}", e.wave) };
                 self.messages.push(Message { text, left: 3.0, face: None, filmed: false });
                 self.sounds.push((Sfx::Alert { kind: ptype::THUG_GREY }, at));
+                // A boss comes with the sirens, from his side.
+                if e.boss_due {
+                    self.sounds.push((Sfx::Siren, e.side_middle(e.side).unwrap_or(e.centre)));
+                }
             }
             Phase::Wave => {}
         }
@@ -321,8 +337,8 @@ impl Game {
             e.score += 250 * mult;
             e.phase = Phase::Breather(BREATHER);
             let at = self.player().map_or(e.centre, |p| p.fig.pos);
-            self.messages.push(Message { text: format!("Wave {} cleared", e.wave), left: 3.0, face: None, filmed: false });
-            self.sounds.push((Sfx::Found, at));
+            self.messages.push(Message { text: format!("Wave {} cleared", e.wave), left: 3.0, face: Some(talk::face::RADIO), filmed: false });
+            self.sounds.push((Sfx::Radio, at));
         }
     }
 

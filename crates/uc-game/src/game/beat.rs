@@ -244,6 +244,8 @@ impl Game {
     /// A message from dispatch.
     fn say(&mut self, text: &str) {
         self.messages.push(Message { text: format!("Despatch: {text}"), left: 6.0, face: Some(talk::face::RADIO), filmed: false });
+        let at = self.player().map_or(Vec3::ZERO, |p| p.fig.pos);
+        self.sounds.push((Sfx::Radio, at));
     }
 
     /// Whether incident `inc` is handled (true), missed (false) or still going (None).
