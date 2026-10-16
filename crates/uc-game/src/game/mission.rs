@@ -100,10 +100,9 @@ impl Game {
                             p.fig.angle = angle;
                         }
                     }
-                    let hidden = self.hidden.iter_mut().map(|(_, it)| it);
-                    for it in self.items.iter_mut().chain(hidden).filter(|it| it.way == way) {
-                        it.pos = Vec3::new(pos.x, y, pos.z);
-                    }
+                    // Only people, vehicles and animals: `EWAY_get_person` gives nothing for a
+                    // `create_item` point (eway.cpp:6196), so the `move_thing` points several
+                    // missions aim at items (Gun Hunt's four for its stashed gun) do nothing.
                 }
                 Command::Item { way, kind, pos, .. } if kind == game::mines::IT_MINE => {
                     let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
