@@ -539,7 +539,7 @@ fn square(v: Vec3) -> (i32, i32) {
 
 /// For every square of the arena, the next one on the way to `to`'s square (a search out
 /// from it), or None if `to` isn't in the arena.
-fn towards(grid: &Grid, to: Vec3) -> Option<std::collections::BTreeMap<(i32, i32), (i32, i32)>> {
+pub(crate) fn towards(grid: &Grid, to: Vec3) -> Option<std::collections::BTreeMap<(i32, i32), (i32, i32)>> {
     let goal = square(to);
     grid.get(&goal)?;
     let mut next = std::collections::BTreeMap::from([(goal, goal)]);
@@ -558,7 +558,7 @@ fn towards(grid: &Grid, to: Vec3) -> Option<std::collections::BTreeMap<(i32, i32
 /// Where someone at `from` should head for to get to `me` by the arena: the furthest of the
 /// next three squares on the way that can be walked to straight, or None to go straight
 /// for her (already near, or off the arena).
-fn next_step(grid: &Grid, ways: &std::collections::BTreeMap<(i32, i32), (i32, i32)>, from: Vec3, me: Vec3, level: &Level) -> Option<Vec3> {
+pub(crate) fn next_step(grid: &Grid, ways: &std::collections::BTreeMap<(i32, i32), (i32, i32)>, from: Vec3, me: Vec3, level: &Level) -> Option<Vec3> {
     let waist = Vec3::new(0.0, uc_world::ground::STEP_HEIGHT - 4.0, 0.0);
     if level.ground.line_of_sight(from + waist, me + waist) && flat_dist(from, me) < 6.0 * 256.0 {
         return None;

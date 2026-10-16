@@ -332,6 +332,14 @@ impl App {
             self.input.pressed.clear();
             return;
         }
+        // Capture the flag against Roper (#133): the original's two-player mission.
+        if m.loading_ctf {
+            self.args.endless = false;
+            self.args.beat = false;
+            self.play("Capflag1");
+            self.input.pressed.clear();
+            return;
+        }
         if let Some(i) = m.loading_endless {
             let (name, label, centre, radius) = m.maps[i].clone();
             let beat = m.for_beat;
@@ -378,6 +386,7 @@ impl App {
                             m.for_beat = true;
                             m.screen = menu::Screen::Endless;
                         }
+                        "CAPTURE THE FLAG" => m.loading_ctf = true,
                         "STATS" => m.screen = menu::Screen::Stats,
                         "DIFFICULTY" => {
                             let all = uc_game::Difficulty::ALL;

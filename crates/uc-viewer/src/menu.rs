@@ -53,7 +53,7 @@ pub enum Screen {
 
 /// The main menu's items (`raw_menu_data`, frontend.cpp:376): the ones there's something
 /// behind here.
-pub const MAIN: [&str; 6] = ["START", "ENDLESS", "BEAT COP", "DIFFICULTY", "STATS", "EXIT"];
+pub const MAIN: [&str; 7] = ["START", "ENDLESS", "BEAT COP", "CAPTURE THE FLAG", "DIFFICULTY", "STATS", "EXIT"];
 
 /// The menus' look, by how far through the game (`menu_theme`, set in
 /// `FRONTEND_MissionHierarchy`, frontend.cpp:3337): leaves for the first eight missions done,
@@ -103,6 +103,8 @@ pub struct Menu {
     pub map_selected: usize,
     /// A map chosen for an endless run, to load on the next frame.
     pub loading_endless: Option<usize>,
+    /// Capture the flag chosen, to load on the next frame.
+    pub loading_ctf: bool,
     /// The arena list is for a Beat Cop shift, not an endless run.
     pub for_beat: bool,
     /// Missions completed so far.
@@ -145,7 +147,7 @@ impl Menu {
             }
         }
         let maps = arenas;
-        Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, map_selected: 0, loading_endless: None, for_beat: false }
+        Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false }
     }
 
     /// The image behind the current screen, from the install's `data\` (`menu_back_names`,

@@ -216,7 +216,8 @@ pub enum Command {
     /// Play the game's sound `id` at `pos`. `replace` is `play_glue_wave`'s type 1, which cuts
     /// off whatever it last started rather than letting them overlap.
     Sound { id: usize, pos: Vec3, replace: bool },
-    Win,
+    /// The mission's won, by `end_game_win` point `way`.
+    Win { way: usize },
     Lose,
 }
 
@@ -856,7 +857,7 @@ impl Script {
             },
             waypoint::END_GAME_WIN | waypoint::END_GAME_LOSE if !self.finished => {
                 self.finished = true;
-                self.commands.push(if ep.kind == waypoint::END_GAME_WIN { Command::Win } else { Command::Lose });
+                self.commands.push(if ep.kind == waypoint::END_GAME_WIN { Command::Win { way: i } } else { Command::Lose });
             }
             _ => {}
         }

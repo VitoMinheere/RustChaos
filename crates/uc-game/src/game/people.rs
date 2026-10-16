@@ -193,10 +193,15 @@ impl Game {
                 let caps = caps_of(&self.people[i], &self.streets.wand);
                 let (act, _) = self.routes.mav.route(a, b, caps, &mut || rand(&mut rng));
                 self.rngs.mav = rng;
-                // Over a fence: straight at it, and the walker climbs it.
-                let walk = act.action == uc_world::mav::GOTO && act.dest != a;
+                // Over a fence: to the square it's climbed from first (`dest`), then straight
+                // at it, and the walker climbs it.
+                let climb = act.action == uc_world::mav::CLIMB_OVER;
+                let walk = (act.action == uc_world::mav::GOTO || climb) && act.dest != a;
                 let (dest, first) = if walk { (Some(act.dest), Some(act.first)) } else { (None, None) };
-                let drop = (act.action == uc_world::mav::FALL_OFF).then(|| {
+                // Dropping off an edge, or over a fence from where it's climbed: into the next
+                // square that way, square on, so the walker drops or climbs (a fence met at a
+                // slant isn't climbed).
+                let drop = (act.action == uc_world::mav::FALL_OFF || climb && act.dest == a).then(|| {
                     let (dx, dz) = uc_world::mav::DIRS[act.dir as usize & 3];
                     ((a.0 as i32 + dx).clamp(0, 127) as u8, (a.1 as i32 + dz).clamp(0, 127) as u8)
                 });

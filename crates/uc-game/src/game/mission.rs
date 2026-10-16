@@ -38,8 +38,14 @@ impl Game {
         for c in commands {
             match c {
                 Command::SpawnPlayer { way, pos, angle, person, has } => {
-                    self.spawn_player(level, pos, angle, way, person, has);
-                    if let Some(p) = self.player {
+                    // A second player (capture the flag) is a bot.
+                    let made = if self.player.is_some() && game::ctf::two_players(level) {
+                        self.spawn_bot(level, pos, angle, way, person, has)
+                    } else {
+                        self.spawn_player(level, pos, angle, way, person, has);
+                        self.player
+                    };
+                    if let Some(p) = made {
                         self.by_way.insert(way, p);
                     }
                 }
@@ -273,7 +279,9 @@ impl Game {
                         eprintln!("mission: no door near {:.0},{:.0} to open", pos.x, pos.z);
                     }
                 }
-                Command::Win => self.finish(Outcome::Won),
+                // Capture the flag: the bot's seat winning is Darci losing.
+                Command::Win { way } if self.bot_won(way) => self.finish(Outcome::Lost("Roper got the disk home".into())),
+                Command::Win { .. } => self.finish(Outcome::Won),
                 Command::Lose => self.finish(Outcome::Lost("Mission failed".into())),
             }
         }

@@ -497,6 +497,8 @@ pub struct Game {
     beat: Option<game::beat::Beat>,
     /// How hard it is ([`Game::set_difficulty`]).
     difficulty: Difficulty,
+    /// Capture the flag against a bot (#133), when this is a game of it.
+    ctf: Option<game::ctf::Ctf>,
     /// The console's switches (#147).
     pub cheats: game::cheats::Cheats,
     /// What the player's done this mission (#132).
@@ -653,6 +655,7 @@ impl Game {
             endless: None,
             beat: None,
             difficulty: Difficulty::Normal,
+            ctf: None,
             cheats: Default::default(),
             record: Default::default(),
             stats_track: Default::default(),
@@ -1069,6 +1072,7 @@ impl Game {
         // (12 squares from the mark), then carries on: the original starts at once, so the
         // crash cops in RTA had shot the drunk long before she got there.
         self.walk_goals();
+        self.run_ctf(dt, level);
         self.find_ways(level);
         self.city_life(dt, level);
         self.board_cars(level);
@@ -1154,7 +1158,8 @@ impl Game {
         self.men_in_black(dt, level);
         self.blow_dirt(dt, level);
 
-        if let (Some(p), None) = (self.player, &self.outcome) {
+        // Capture the flag: knocked out, she comes back at home ([`Game::run_ctf`]).
+        if let (Some(p), None, None) = (self.player, &self.outcome, &self.ctf) {
             if self.people[p].knocked_out {
                 let who = self.player_name();
                 self.finish(Outcome::Lost(format!("{who} was knocked out")));
