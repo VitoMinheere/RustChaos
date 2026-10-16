@@ -332,7 +332,8 @@ impl App {
             let beat = m.for_beat;
             self.args.endless = !beat;
             self.args.beat = beat;
-            let label = if beat { format!("beat:{label}") } else { label };
+            self.args.shift = m.progress.shift();
+            let label = if beat { progress::beat_key(&label, self.args.shift) } else { label };
             self.args.arena = (centre, radius);
             self.args.arena_name = Some(label);
             self.play(&name);
@@ -401,6 +402,15 @@ impl App {
             menu::Screen::Endless => {
                 if back {
                     m.screen = menu::Screen::Main;
+                }
+                // Left and right pick a shift's length.
+                let left = inp.hit(KeyCode::ArrowLeft) || inp.hit(KeyCode::KeyA) || inp.pad.hit(Button::DPadLeft);
+                let right = inp.hit(KeyCode::ArrowRight) || inp.hit(KeyCode::KeyD) || inp.pad.hit(Button::DPadRight);
+                if m.for_beat && (left || right) {
+                    let all = uc_game::game::beat::SHIFTS;
+                    let now = all.iter().position(|&s| s == m.progress.shift()).unwrap_or(1);
+                    let step = if right { 1 } else { all.len() - 1 };
+                    m.progress.set_shift(all[(now + step) % all.len()]);
                 }
                 if up {
                     m.map_up();
@@ -535,7 +545,7 @@ impl App {
         }
         if let (Some(b), Some(_), None) = (world.game.beat(), &world.game.outcome, world.endless_recorded) {
             let mut p = progress::Progress::load();
-            let key = world.args.arena_name.clone().unwrap_or_else(|| format!("beat:{}", world.level.name));
+            let key = world.args.arena_name.clone().unwrap_or_else(|| progress::beat_key(&world.level.name, world.args.shift));
             let before = p.best_endless(&key);
             let best = p.record_endless(&key, b.score, b.handled);
             world.endless_recorded = Some((best, before));
