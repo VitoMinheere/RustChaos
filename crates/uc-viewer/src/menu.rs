@@ -344,23 +344,12 @@ impl Menu {
             if k == self.selected {
                 o.rect(x - 4.0 * s, y - 2.0 * s, w * 0.5 - x - 8.0 * s, line, [200, 150, 40, 200]);
             }
-            let done = self.progress.completed(&e.mission);
             let col = if e.playable { white } else { [150, 150, 145, 255] };
-            // A tick before missions completed.
-            if done {
-                o.rect(x - 2.0 * s, y + 4.0 * s, 2.0 * s, 2.0 * s, gold);
-                o.rect(x, y + 6.0 * s, 2.0 * s, 2.0 * s, gold);
-                o.rect(x + 2.0 * s, y + 2.0 * s, 2.0 * s, 4.0 * s, gold);
-                o.rect(x + 4.0 * s, y, 2.0 * s, 2.0 * s, gold);
+            // A medal before missions completed, by the hardest difficulty won on.
+            if let Some(d) = self.progress.get(&e.mission) {
+                medal(&mut o, x, y, s, d.hardest, self.full(e));
             }
             o.text(x + 10.0 * s, y, s, col, &e.title);
-            let (tag, tc) = match (done, e.playable) {
-                (true, _) if self.full(e) => ("100%", gold),
-                (true, _) => ("COMPLETE", gold),
-                (false, true) => ("PLAYABLE", [120, 230, 120, 255]),
-                (false, false) => ("EXPLORE", [150, 150, 145, 255]),
-            };
-            o.text(w * 0.5 - Overlay::text_width(tag, s) - 16.0 * s, y, s, tc, tag);
         }
         // The selected mission in a panel on the right: its title, the checklist (objectives,
         // side objectives and badges, ticked once done in a win), then the briefing.
@@ -375,7 +364,9 @@ impl Menu {
             let mut lines = Overlay::wrap(&story, bw, s);
             if let Some(t) = self.progress.best_time(&e.mission) {
                 lines.push(String::new());
-                lines.push(format!("Completed. Best time {}", clock(t)));
+                let on = self.progress.get(&e.mission).map_or(uc_game::Difficulty::Normal, |d| d.hardest);
+                let full = if self.full(e) { ", everything found" } else { "" };
+                lines.push(format!("Completed on {}{full}. Best time {}", on.name(), clock(t)));
             }
             let list_h = checklist::height(&items, bw, s);
             let ph = 44.0 * s + list_h + lines.len() as f32 * line;
@@ -474,4 +465,33 @@ pub fn backdrop(game: &Path, file: &str) -> Option<Texture> {
         }
     }
     Some(Texture { width: w as u32, height: h as u32, has_alpha: false, rgba })
+}
+
+/// The medal before a completed mission in the list (#136), at `x`, `y` (the row's top):
+/// bronze won on Easy, silver on Normal, gold on Hard, on a ribbon; ringed when everything
+/// in it has been found (100%).
+fn medal(o: &mut Overlay, x: f32, y: f32, s: f32, on: uc_game::Difficulty, full: bool) {
+    let col = match on {
+        uc_game::Difficulty::Easy => [205, 127, 50, 255],
+        uc_game::Difficulty::Normal => [205, 210, 220, 255],
+        uc_game::Difficulty::Hard => [255, 210, 70, 255],
+    };
+    let dark = [0, 0, 0, 200];
+    // The ring: an outline round the whole medal.
+    if full {
+        let ring = [255, 245, 200, 255];
+        o.rect(x - 3.0 * s, y - 2.0 * s, 9.0 * s, 1.0 * s, ring);
+        o.rect(x - 3.0 * s, y + 8.0 * s, 9.0 * s, 1.0 * s, ring);
+        o.rect(x - 3.0 * s, y - 2.0 * s, 1.0 * s, 11.0 * s, ring);
+        o.rect(x + 5.0 * s, y - 2.0 * s, 1.0 * s, 11.0 * s, ring);
+    }
+    // The ribbon, two tails up top.
+    o.rect(x - 1.0 * s, y - 1.0 * s, 1.5 * s, 3.0 * s, [60, 90, 200, 255]);
+    o.rect(x + 2.5 * s, y - 1.0 * s, 1.5 * s, 3.0 * s, [200, 50, 50, 255]);
+    // The disc: a square with its corners cut, edged dark.
+    o.rect(x - 1.5 * s, y + 2.0 * s, 6.0 * s, 6.0 * s, dark);
+    o.rect(x - 1.0 * s, y + 2.5 * s, 5.0 * s, 5.0 * s, col);
+    for (cx, cy) in [(-1.0, 2.5), (3.0, 2.5), (-1.0, 6.5), (3.0, 6.5)] {
+        o.rect(x + cx * s, y + cy * s, 1.0 * s, 1.0 * s, dark);
+    }
 }
