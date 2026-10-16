@@ -51,7 +51,7 @@ pub enum Screen {
 
 /// The main menu's items (`raw_menu_data`, frontend.cpp:376): the ones there's something
 /// behind here.
-pub const MAIN: [&str; 4] = ["START", "ENDLESS", "DIFFICULTY", "EXIT"];
+pub const MAIN: [&str; 5] = ["START", "ENDLESS", "BEAT COP", "DIFFICULTY", "EXIT"];
 
 /// The menus' look, by how far through the game (`menu_theme`, set in
 /// `FRONTEND_MissionHierarchy`, frontend.cpp:3337): leaves for the first eight missions done,
@@ -101,6 +101,8 @@ pub struct Menu {
     pub map_selected: usize,
     /// A map chosen for an endless run, to load on the next frame.
     pub loading_endless: Option<usize>,
+    /// The arena list is for a Beat Cop shift, not an endless run.
+    pub for_beat: bool,
     /// Missions completed so far.
     pub progress: Progress,
 }
@@ -141,7 +143,7 @@ impl Menu {
             }
         }
         let maps = arenas;
-        Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, map_selected: 0, loading_endless: None }
+        Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, map_selected: 0, loading_endless: None, for_beat: false }
     }
 
     /// The image behind the current screen, from the install's `data\` (`menu_back_names`,
@@ -252,8 +254,13 @@ impl Menu {
         o.rect(0.0, 0.0, w * 0.55, h, [0, 0, 0, 170]);
         let (white, gold) = ([235, 235, 225, 255], [255, 210, 70, 255]);
         let x = 20.0 * s;
-        o.text(x, 16.0 * s, s * 3.0, gold, "ENDLESS");
-        o.text(x, 44.0 * s, s, [200, 200, 190, 220], "Waves of thugs until you drop. Up/Down choose a map   Enter play   Esc back");
+        let (title, what) = if self.for_beat {
+            ("BEAT COP", "A twenty-minute shift: deal with what dispatch calls in.")
+        } else {
+            ("ENDLESS", "Waves of thugs until you drop.")
+        };
+        o.text(x, 16.0 * s, s * 3.0, gold, title);
+        o.text(x, 44.0 * s, s, [200, 200, 190, 220], &format!("{what} Up/Down choose a map   Enter play   Esc back"));
         if let Some(i) = self.loading_endless {
             let text = format!("LOADING {}...", self.maps[i].1.to_uppercase());
             o.text(w / 2.0 - Overlay::text_width(&text, s * 2.0) / 2.0, h * 0.5, s * 2.0, white, &text);
@@ -269,8 +276,9 @@ impl Menu {
                 o.rect(x - 4.0 * s, y - 2.0 * s, w * 0.55 - x - 8.0 * s, line, [200, 150, 40, 200]);
             }
             o.text(x, y, s, white, label);
-            if let Some((score, wave)) = self.progress.best_endless(label) {
-                let tag = format!("BEST {score} (WAVE {wave})");
+            let best = if self.for_beat { self.progress.best_endless(&format!("beat:{label}")) } else { self.progress.best_endless(label) };
+            if let Some((score, wave)) = best {
+                let tag = if self.for_beat { format!("BEST {score} ({wave} HANDLED)") } else { format!("BEST {score} (WAVE {wave})") };
                 o.text(w * 0.55 - Overlay::text_width(&tag, s) - 16.0 * s, y, s, gold, &tag);
             }
         }

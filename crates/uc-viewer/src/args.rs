@@ -13,6 +13,7 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --explore         don't run the mission script: just Darci and the level
   --mute            no sound or music
   --endless         endless mode on the mission's map: waves of thugs (with --seed N to repeat a run)
+  --beat           a Beat Cop shift on the mission's map: incidents over the radio (--seed, --arena too)
   --arena X,Z,R     the endless arena: its middle in squares and its radius (default: 10 round the start)
   --windowed        in a window (default: full screen; F11 or Alt+Enter switches)
   --weapon W        start holding a weapon (knife, bat, pistol, shotgun, ak)
@@ -61,6 +62,8 @@ pub(crate) struct Args {
     pub(crate) mute: bool,
     /// Endless mode on the mission's map (#129), with this seed or a new one.
     pub(crate) endless: bool,
+    /// A Beat Cop shift on the mission's map (#130).
+    pub(crate) beat: bool,
     pub(crate) seed: Option<u32>,
     /// The endless arena: its middle in squares (the start if none) and its radius.
     pub(crate) arena: (Option<(f32, f32)>, f32),
@@ -98,6 +101,7 @@ pub(crate) fn parse_args() -> Result<Args, String> {
         explore: false,
         mute: false,
         endless: false,
+        beat: false,
         seed: None,
         arena: (None, 10.0),
         arena_name: None,
@@ -126,6 +130,7 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             "--explore" => a.explore = true,
             "--mute" => a.mute = true,
             "--endless" => a.endless = true,
+            "--beat" => a.beat = true,
             "--arena" => {
                 let v = parse_floats(&value()?, 3, "--arena")?;
                 a.arena = (Some((v[0], v[1])), v[2]);

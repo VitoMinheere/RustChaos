@@ -22,7 +22,7 @@ pub(crate) fn arm(game: &mut Game, args: &Args) {
 /// The game for `args`: the mission, or an endless run on its map (with `--seed`'s seed, or
 /// one from the clock).
 fn new_game(level: &Level, args: &Args) -> Game {
-    if !args.endless {
+    if !args.endless && !args.beat {
         return Game::new(level, !args.explore);
     }
     let seed = args.seed.unwrap_or_else(|| {
@@ -30,7 +30,11 @@ fn new_game(level: &Level, args: &Args) -> Game {
     });
     println!("endless: {} with seed {seed}", level.name);
     let (centre, radius) = args.arena;
-    Game::new_endless(level, seed, centre.map(|(x, z)| glam::vec2(x * 256.0, z * 256.0)), radius)
+    let centre = centre.map(|(x, z)| glam::vec2(x * 256.0, z * 256.0));
+    if args.beat {
+        return Game::new_beat(level, seed, centre);
+    }
+    Game::new_endless(level, seed, centre, radius)
 }
 
 /// Everything about a loaded level that doesn't depend on the window.

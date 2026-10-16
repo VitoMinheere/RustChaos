@@ -322,13 +322,17 @@ impl App {
         if let Some(i) = m.loading {
             let name = m.entries[i].mission.clone();
             self.args.endless = false;
+            self.args.beat = false;
             self.play(&name);
             self.input.pressed.clear();
             return;
         }
         if let Some(i) = m.loading_endless {
             let (name, label, centre, radius) = m.maps[i].clone();
-            self.args.endless = true;
+            let beat = m.for_beat;
+            self.args.endless = !beat;
+            self.args.beat = beat;
+            let label = if beat { format!("beat:{label}") } else { label };
             self.args.arena = (centre, radius);
             self.args.arena_name = Some(label);
             self.play(&name);
@@ -360,7 +364,14 @@ impl App {
                 if go {
                     match menu::MAIN[m.main] {
                         "START" => m.screen = menu::Screen::Missions,
-                        "ENDLESS" => m.screen = menu::Screen::Endless,
+                        "ENDLESS" => {
+                            m.for_beat = false;
+                            m.screen = menu::Screen::Endless;
+                        }
+                        "BEAT COP" => {
+                            m.for_beat = true;
+                            m.screen = menu::Screen::Endless;
+                        }
                         "DIFFICULTY" => {
                             let all = uc_game::Difficulty::ALL;
                             let now = all.iter().position(|&d| d == m.progress.difficulty()).unwrap_or(1);
@@ -495,7 +506,8 @@ impl App {
             return;
         }
         let won = self.world.as_ref().is_some_and(|w| w.game.outcome == Some(Outcome::Won));
-        if won && (self.input.hit(KeyCode::Enter) || self.input.pad.hit(Button::Start)) {
+        let shift = self.world.as_ref().is_some_and(|w| w.game.beat().is_some());
+        if won && !shift && (self.input.hit(KeyCode::Enter) || self.input.pad.hit(Button::Start)) {
             let current = self.world.as_ref().unwrap().level.name.clone();
             let m = menu::Menu::new(&self.args.game);
             if let Some(next) = m.after(&current) {
@@ -521,6 +533,13 @@ impl App {
                 world.game.outcome = Some(Outcome::Lost("Too many civilian casualties".into()));
             }
         }
+        if let (Some(b), Some(_), None) = (world.game.beat(), &world.game.outcome, world.endless_recorded) {
+            let mut p = progress::Progress::load();
+            let key = world.args.arena_name.clone().unwrap_or_else(|| format!("beat:{}", world.level.name));
+            let before = p.best_endless(&key);
+            let best = p.record_endless(&key, b.score, b.handled);
+            world.endless_recorded = Some((best, before));
+        }
         if let (Some(e), Some(Outcome::Lost(_)), None) = (world.game.endless(), &world.game.outcome, world.endless_recorded) {
             let mut p = progress::Progress::load();
             let key = world.args.arena_name.clone().unwrap_or_else(|| world.level.name.clone());
@@ -528,7 +547,7 @@ impl App {
             let best = p.record_endless(&key, e.score, e.wave);
             world.endless_recorded = Some((best, before));
         }
-        if world.game.outcome == Some(Outcome::Won) && world.result.is_none() {
+        if world.game.outcome == Some(Outcome::Won) && world.result.is_none() && world.game.beat().is_none() {
             let mut p = progress::Progress::load();
             let before = p.best_time(&world.level.name);
             let sides = world.game.sides_done(&world.goals);

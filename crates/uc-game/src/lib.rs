@@ -493,6 +493,8 @@ pub struct Game {
     drawing: Option<Before>,
     /// An endless run's waves (#129), when this is one.
     endless: Option<game::endless::Endless>,
+    /// A Beat Cop shift (#130), when this is one.
+    beat: Option<game::beat::Beat>,
     /// How hard it is ([`Game::set_difficulty`]).
     difficulty: Difficulty,
     /// Sounds not tied to a person this frame.
@@ -644,6 +646,7 @@ impl Game {
             before: Before::default(),
             drawing: None,
             endless: None,
+            beat: None,
             difficulty: Difficulty::Normal,
             sounds: Vec::new(),
             fight_timer: 0.0,
@@ -956,6 +959,7 @@ impl Game {
             self.run_script(dt, level);
         }
         self.run_endless(dt, level);
+        self.run_beat(dt, level);
         let pressed = input.punch || input.kick || input.jump || input.action;
         self.update_scenes(dt, level, pressed);
         self.pyro.update(dt);
