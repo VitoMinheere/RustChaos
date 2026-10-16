@@ -364,6 +364,85 @@ struct Clocks {
     fence_spark: f32,
 }
 
+/// How hard the game is (#131). Normal is the original's own tuning, untouched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
+pub enum Difficulty {
+    Easy,
+    #[default]
+    Normal,
+    Hard,
+}
+
+impl Difficulty {
+    pub const ALL: [Difficulty; 3] = [Difficulty::Easy, Difficulty::Normal, Difficulty::Hard];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Difficulty::Easy => "Easy",
+            Difficulty::Normal => "Normal",
+            Difficulty::Hard => "Hard",
+        }
+    }
+
+    /// Added to an enemy's skill as they're made.
+    pub(crate) fn skill_change(self) -> i32 {
+        self.skill()
+    }
+
+    /// Added to an enemy's skill (0 to 15).
+    fn skill(self) -> i32 {
+        match self {
+            Difficulty::Easy => -3,
+            Difficulty::Normal => 0,
+            Difficulty::Hard => 3,
+        }
+    }
+
+    /// Times the wait between an enemy's shots.
+    fn shot_wait(self) -> f32 {
+        match self {
+            Difficulty::Easy => 1.5,
+            Difficulty::Normal => 1.0,
+            Difficulty::Hard => 0.75,
+        }
+    }
+
+    /// The damage the player takes.
+    fn hurt(self, damage: i32) -> i32 {
+        match self {
+            Difficulty::Easy => damage * 3 / 5,
+            Difficulty::Normal => damage,
+            Difficulty::Hard => damage * 7 / 5,
+        }
+    }
+
+    /// Times how fast the player's aim settles.
+    pub(crate) fn steadying(self) -> f32 {
+        match self {
+            Difficulty::Easy => 1.5,
+            Difficulty::Normal => 1.0,
+            Difficulty::Hard => 0.7,
+        }
+    }
+
+    /// Times how fast a search goes.
+    pub(crate) fn searching(self) -> f32 {
+        match self {
+            Difficulty::Easy => 1.5,
+            _ => 1.0,
+        }
+    }
+
+    /// Added to the chance (percent) of something to find on an endless run's thugs.
+    pub(crate) fn finds(self) -> i32 {
+        match self {
+            Difficulty::Easy => 10,
+            Difficulty::Normal => 0,
+            Difficulty::Hard => -10,
+        }
+    }
+}
+
 /// One game turn, in seconds: the game always advances by whole turns (#128). Thirty a
 /// second, the rate everything here was tuned and tested at; the systems the original runs
 /// at its own twenty a second still do, on their own clocks.
@@ -414,6 +493,8 @@ pub struct Game {
     drawing: Option<Before>,
     /// An endless run's waves (#129), when this is one.
     endless: Option<game::endless::Endless>,
+    /// How hard it is ([`Game::set_difficulty`]).
+    difficulty: Difficulty,
     /// Sounds not tied to a person this frame.
     sounds: Vec<(Sfx, Vec3)>,
     /// Seconds left of fight music after the fighting stops.
@@ -563,6 +644,7 @@ impl Game {
             before: Before::default(),
             drawing: None,
             endless: None,
+            difficulty: Difficulty::Normal,
             sounds: Vec::new(),
             fight_timer: 0.0,
             sprinting: false,
@@ -753,6 +835,39 @@ impl Game {
             self.turn(&c, level);
             self.turns += 1;
         }
+    }
+
+    /// How hard the game is.
+    pub fn difficulty(&self) -> Difficulty {
+        self.difficulty
+    }
+
+    /// Sets how hard the game is, for everyone made so far and everyone made from now on.
+    pub fn set_difficulty(&mut self, d: Difficulty) {
+        let change = d.skill() - self.difficulty.skill();
+        self.difficulty = d;
+        for i in 0..self.people.len() {
+            self.tune(i, change);
+        }
+    }
+
+    /// Person `i`'s skill moved by `change`, and how long they wait between shots, for the
+    /// difficulty.
+    pub(crate) fn tune(&mut self, i: usize, change: i32) {
+        let d = self.difficulty;
+        let p = &mut self.people[i];
+        if p.player {
+            return;
+        }
+        if change != 0 {
+            p.skill = (p.skill as i32 + change).clamp(0, 15) as u8;
+        }
+        p.shot_wait = d.shot_wait();
+    }
+
+    /// `damage` to person `i`, as the difficulty has it if they're the player.
+    pub(crate) fn hurt(&self, i: usize, damage: i32) -> i32 {
+        if self.people[i].player { self.difficulty.hurt(damage) } else { damage }
     }
 
     /// The turns played so far.

@@ -10,7 +10,9 @@ pub(crate) fn arm(game: &mut Game, args: &Args) {
     if let Some((_, end)) = args.fog {
         game.view_dist = game.view_dist.max(end * 256.0);
     }
-    game.set_stats(progress::Progress::load().stats());
+    let progress = progress::Progress::load();
+    game.set_stats(progress.stats());
+    game.set_difficulty(progress.difficulty());
     if let Some(p) = game.player {
         game.people[p].give(weapon);
         game.people[p].weapon = weapon;

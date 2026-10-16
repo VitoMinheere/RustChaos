@@ -361,6 +361,11 @@ impl App {
                     match menu::MAIN[m.main] {
                         "START" => m.screen = menu::Screen::Missions,
                         "ENDLESS" => m.screen = menu::Screen::Endless,
+                        "DIFFICULTY" => {
+                            let all = uc_game::Difficulty::ALL;
+                            let now = all.iter().position(|&d| d == m.progress.difficulty()).unwrap_or(1);
+                            m.progress.set_difficulty(all[(now + 1) % all.len()]);
+                        }
                         _ => {
                             el.exit();
                             return;
@@ -527,7 +532,7 @@ impl App {
             let mut p = progress::Progress::load();
             let before = p.best_time(&world.level.name);
             let sides = world.game.sides_done(&world.goals);
-            p.record(&world.level.name, world.game.time, &world.game.found, &sides);
+            p.record(&world.level.name, world.game.time, &world.game.found, &sides, world.game.difficulty());
             world.kept = p.get(&world.level.name).cloned().unwrap_or_default();
             world.result = Some((world.game.time, before));
         }
@@ -560,6 +565,9 @@ impl App {
         world.game.end_draw();
         if let Some(p) = &world.pause {
             p.overlay(&mut hud, size);
+            let s = (size.1 as f32 / 360.0).round().max(1.0);
+            let text = format!("DIFFICULTY: {}", world.game.difficulty().name().to_uppercase());
+            hud.text(size.0 as f32 / 2.0 - Overlay::text_width(&text, s) / 2.0, size.1 as f32 * 0.9, s, [200, 200, 190, 220], &text);
         }
         let frame = match g.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,

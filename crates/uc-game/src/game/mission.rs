@@ -56,6 +56,8 @@ impl Game {
                         (p.colour, p.group) = (spec.colour, spec.group);
                         (p.protected, p.guilty) = (spec.invulnerable, spec.guilty);
                         p.give(p.weapon);
+                        let change = self.difficulty().skill_change();
+                        self.tune(i, change);
                     }
                 }
                 Command::Adjust { way, ai, bent, ko_moves, other, mv, follow, colour, group } => {

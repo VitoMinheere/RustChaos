@@ -16,6 +16,8 @@ pub struct Done {
     pub sides: BTreeSet<usize>,
     /// Stat counts from before badges were tracked one by one.
     legacy: [u8; 4],
+    /// The hardest difficulty it's been won on (Normal for wins from before there was one).
+    pub hardest: uc_game::Difficulty,
 }
 
 impl Done {
@@ -40,6 +42,8 @@ pub struct Progress {
     civ_warnings: u8,
     /// The best endless run on each map: (score, wave reached).
     endless: BTreeMap<String, (i64, u32)>,
+    /// The difficulty chosen in the menu.
+    difficulty: uc_game::Difficulty,
     path: Option<PathBuf>,
 }
 
@@ -79,6 +83,8 @@ impl Progress {
                         d.badges = list(b);
                     } else if let Some(s) = field.strip_prefix("s=") {
                         d.sides = list(s);
+                    } else if let Some(n) = field.strip_prefix("d=").and_then(|n| n.parse::<usize>().ok()) {
+                        d.hardest = uc_game::Difficulty::ALL.get(n).copied().unwrap_or_default();
                     } else if let (Ok(n), true) = (field.parse(), legacy < 4) {
                         d.legacy[legacy] = n;
                         legacy += 1;
@@ -87,7 +93,9 @@ impl Progress {
                 Some((mission, d))
             })
             .collect();
-        Progress { done, civ_warnings, endless, path }
+        let difficulty = text.lines().find_map(|l| l.strip_prefix("@difficulty ")?.trim().parse::<usize>().ok())
+            .and_then(|n| uc_game::Difficulty::ALL.get(n).copied()).unwrap_or_default();
+        Progress { done, civ_warnings, endless, difficulty, path }
     }
 
     /// Another mission ended with too many civilian casualties: the chief's warnings before
@@ -97,6 +105,15 @@ impl Progress {
         self.civ_warnings = before.saturating_add(1);
         self.save();
         before
+    }
+
+    pub fn difficulty(&self) -> uc_game::Difficulty {
+        self.difficulty
+    }
+
+    pub fn set_difficulty(&mut self, d: uc_game::Difficulty) {
+        self.difficulty = d;
+        self.save();
     }
 
     /// The best endless run on `map`: (score, wave).
@@ -140,8 +157,12 @@ impl Progress {
 
     /// Records a win in `secs`, with the badges found and side objectives done on the way
     /// (added to those of earlier wins).
-    pub fn record(&mut self, mission: &str, secs: f32, badges: &BTreeSet<usize>, sides: &BTreeSet<usize>) {
-        let d = self.done.entry(mission.to_ascii_lowercase()).or_insert(Done { best: secs, ..Default::default() });
+    pub fn record(&mut self, mission: &str, secs: f32, badges: &BTreeSet<usize>, sides: &BTreeSet<usize>, on: uc_game::Difficulty) {
+        let fresh = !self.done.contains_key(&mission.to_ascii_lowercase());
+        let d = self.done.entry(mission.to_ascii_lowercase()).or_insert(Done { best: secs, hardest: on, ..Default::default() });
+        if fresh || on > d.hardest {
+            d.hardest = on;
+        }
         d.best = d.best.min(secs);
         d.badges.extend(badges);
         d.sides.extend(sides);
@@ -157,10 +178,15 @@ impl Progress {
             .map(|(m, d)| {
                 let [a, b, c, e] = d.legacy;
                 let legacy = if d.legacy == [0; 4] { String::new() } else { format!(" {a} {b} {c} {e}") };
-                format!("{m} {:.1} b={} s={}{legacy}\n", d.best, join(&d.badges), join(&d.sides))
+                let on = uc_game::Difficulty::ALL.iter().position(|&x| x == d.hardest).unwrap_or(1);
+                format!("{m} {:.1} b={} s={} d={on}{legacy}\n", d.best, join(&d.badges), join(&d.sides))
             })
             .chain((self.civ_warnings > 0).then(|| format!("@civ_warnings {}\n", self.civ_warnings)))
             .chain(self.endless.iter().map(|(m, (s, w))| format!("@endless {m} {s} {w}\n")))
+            .chain((self.difficulty != uc_game::Difficulty::Normal).then(|| {
+                let n = uc_game::Difficulty::ALL.iter().position(|&d| d == self.difficulty).unwrap_or(1);
+                format!("@difficulty {n}\n")
+            }))
             .collect();
         let saved = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| std::fs::write(path, text));
         if let Err(e) = saved {
@@ -192,11 +218,25 @@ mod tests {
         p.done.insert("police1".into(), Done { best: 600.0, legacy: [2, 0, 0, 1], ..Default::default() });
         // Two badges this time: the stats are at least what the old save had.
         let found: BTreeSet<usize> = [23, 82].into();
-        p.record("police1", 500.0, &found, &[149].into());
-        p.record("police1", 550.0, &found, &BTreeSet::new());
+        p.record("police1", 500.0, &found, &[149].into(), uc_game::Difficulty::Normal);
+        p.record("police1", 550.0, &found, &BTreeSet::new(), uc_game::Difficulty::Normal);
         let d = p.get("police1").unwrap();
         assert_eq!((d.best, d.badges.len(), d.sides.len()), (500.0, 2, 1));
         let s = p.stats();
         assert!(s[0] >= 2 && s[3] >= 1 && s.iter().map(|&n| n as usize).sum::<usize>() <= 5);
+    }
+
+    /// The hardest difficulty a mission's been won on is kept: a later, easier win doesn't
+    /// lower it.
+    #[test]
+    fn the_hardest_win_is_kept() {
+        use uc_game::Difficulty::*;
+        let mut p = Progress::default();
+        let none = BTreeSet::new();
+        p.record("police1", 500.0, &none, &none, Easy);
+        assert_eq!(p.get("police1").unwrap().hardest, Easy);
+        p.record("police1", 500.0, &none, &none, Hard);
+        p.record("police1", 400.0, &none, &none, Normal);
+        assert_eq!(p.get("police1").unwrap().hardest, Hard);
     }
 }

@@ -242,7 +242,7 @@ impl Person {
             let seen = dist < SHOOT_RANGE && ground.line_of_sight(self.fig.pos + eye, p.pos + eye);
             if seen && self.attack_timer <= 0.0 {
                 c.punch = true;
-                self.attack_timer = (2.4 - skill * 0.1).max(0.8) + (rand() % 100) as f32 / 100.0;
+                self.attack_timer = ((2.4 - skill * 0.1).max(0.8) + (rand() % 100) as f32 / 100.0) * self.shot_wait;
             } else if !seen || dist > SHOOT_RANGE * 0.8 {
                 c.wish = towards;
                 c.run = dist > SHOOT_RANGE;

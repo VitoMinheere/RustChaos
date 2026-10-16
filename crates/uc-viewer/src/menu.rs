@@ -51,7 +51,7 @@ pub enum Screen {
 
 /// The main menu's items (`raw_menu_data`, frontend.cpp:376): the ones there's something
 /// behind here.
-pub const MAIN: [&str; 3] = ["START", "ENDLESS", "EXIT"];
+pub const MAIN: [&str; 4] = ["START", "ENDLESS", "DIFFICULTY", "EXIT"];
 
 /// The menus' look, by how far through the game (`menu_theme`, set in
 /// `FRONTEND_MissionHierarchy`, frontend.cpp:3337): leaves for the first eight missions done,
@@ -196,7 +196,13 @@ impl Menu {
             return;
         }
         let mut y = h * 0.55;
-        for (k, item) in MAIN.iter().enumerate() {
+        for (k, &item) in MAIN.iter().enumerate() {
+            let label = if item == "DIFFICULTY" {
+                format!("DIFFICULTY: {}", self.progress.difficulty().name().to_uppercase())
+            } else {
+                item.to_string()
+            };
+            let item = label.as_str();
             let tw = Overlay::text_width(item, s * 2.0);
             if k == self.main {
                 o.rect(w / 2.0 - tw / 2.0 - 8.0 * s, y - 3.0 * s, tw + 16.0 * s, 20.0 * s, [200, 150, 40, 200]);
