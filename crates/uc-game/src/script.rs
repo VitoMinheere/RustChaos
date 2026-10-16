@@ -102,6 +102,9 @@ pub struct EnemySpec {
     pub skill: u8,
     /// `HAS_*` weapons (fallen/Headers/Mission.h): 1 pistol, 0x20 knife, 0x40 bat.
     pub has: u8,
+    /// What they give up when searched, as a `SPECIAL_*` type (0 for nothing): `Data[8]`'s
+    /// highest bit set, plus one (`ee.drop`, elev.cpp:915).
+    pub drop: u8,
     /// `PCOM_MOVE_*`.
     pub mv: u8,
     /// `follow` (`Data[1]`): for `PCOM_MOVE_FOLLOW`, the event point that creates the person
@@ -682,6 +685,7 @@ impl Script {
                 let spec = EnemySpec {
                     person: enemy_person(et), ai, bent: d[4] as u8, ko_moves: ko_moves(ai, d[7]),
                     skill: ((d[5] >> 16) as u8).min(15), has: ((d[2] >> 16) as u8) | enemy_has(et), mv: (d[3] + 1) as u8,
+                    drop: (0..32).rev().find(|j| d[8] >> j & 1 != 0).map_or(0, |j| j as u8 + 1),
                     follow: (d[1] & 0xFFFF) as usize, colour: w.ep.colour, other: ai_other(ai, d[7]), group: w.ep.group,
                     invulnerable: zone & (1 << 4) != 0 && ai != PCOM_AI_FIGHT_TEST, guilty: zone & (1 << 5) != 0,
                 };

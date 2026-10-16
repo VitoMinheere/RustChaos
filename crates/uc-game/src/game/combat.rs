@@ -39,7 +39,6 @@ impl Game {
                         let kind = self.people[attacker].kind;
                         self.people[attacker].cues.push(Sfx::Taunt { kind });
                     }
-                    self.drop_weapon(victim);
                 }
                 Event::Shot { attacker, victim: None, weapon } if Some(attacker) == self.player && self.aiming.creature.is_some() => {
                     let k = self.aiming.creature.unwrap();
@@ -158,7 +157,6 @@ impl Game {
                             let kind = self.people[attacker].kind;
                             self.people[attacker].cues.push(Sfx::Taunt { kind });
                         }
-                        self.drop_weapon(victim);
                     } else {
                         // A miss hits the nearest barrel within 0xa0 of who it was meant for
                         // (Person.cpp:6508).
@@ -231,7 +229,6 @@ impl Game {
                 }
                 Event::Arrested { victim } => {
                     self.people[victim].arrested = true;
-                    self.drop_weapon(victim);
                 }
                 Event::Punch { attacker } if Some(attacker) == self.player => {
                     if let Some(s) = &mut self.script {
@@ -245,20 +242,6 @@ impl Game {
                 }
                 _ => {}
             }
-        }
-    }
-
-    /// Someone knocked out or arrested drops their weapon.
-    pub(crate) fn drop_weapon(&mut self, i: usize) {
-        let p = &mut self.people[i];
-        if p.player || !(p.knocked_out || p.arrested) || p.weapon == Weapon::None {
-            return;
-        }
-        if let Some(kind) = p.weapon.item() {
-            let f = p.facing_dir();
-            let pos = p.fig.pos + Vec3::new(f.x, 0.0, f.y) * 60.0;
-            p.weapon = Weapon::None;
-            self.items.push(Item { way: 0, kind, pos });
         }
     }
 

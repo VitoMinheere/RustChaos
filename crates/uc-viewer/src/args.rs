@@ -28,7 +28,9 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --sim-walk SECS   the same, walking Darci forward; --sim-run SECS running
 
 Darci: WASD move (relative to the camera), Shift run, J or left mouse punch, K kick, Q block,
-  E action (arrest, climb; hold while running to sprint), mouse turns the camera, wheel zoom.
+  E action (arrest, climb; hold while running to sprint; hold over a searchable prop or someone
+  dead, out cold or arrested to search them), mouse turns the camera, wheel zoom.
+  F11 or Alt+Enter: full screen or a window.
   C or Left Ctrl crouch (hold; move to crawl). Punch someone with their back to her, close by,
   to knock them out cold from behind (crouching or crawling up is quietest).
   G next weapon. With a gun: punch fires (hold for the AK-47) at the bracketed target,

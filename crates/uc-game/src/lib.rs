@@ -110,13 +110,21 @@ pub struct Item {
 }
 
 /// The player going through a prop for whatever is hidden in it (`STATE_SEARCH`,
-/// `SUB_STATE_SEARCH_PRIM`).
+/// `SUB_STATE_SEARCH_PRIM`), or through someone's pockets (`SUB_STATE_SEARCH_CORPSE`).
 #[derive(Debug, Clone, Copy)]
 pub struct Search {
-    /// The prop, as an index into the map's objects.
-    pub ob: usize,
+    pub what: Searched,
     /// Seconds spent at it so far.
     pub time: f32,
+}
+
+/// What's being searched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Searched {
+    /// A prop, as an index into the map's objects.
+    Prop(usize),
+    /// Someone dead, out cold or arrested, as an index into the people.
+    Body(usize),
 }
 
 impl Search {
@@ -750,7 +758,7 @@ impl Game {
         self.drive(dt, &input, level);
         self.ride(&input, level);
         // Action held: the viewer passes it on as `sprint`.
-        self.searching(dt, input.sprint);
+        self.searching(dt, input.sprint, level);
 
         let player = self.player;
         let mut snaps: Vec<_> = self.people.iter().map(|p| p.snap()).collect();

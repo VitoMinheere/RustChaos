@@ -129,6 +129,8 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 **Searching:** some props hide things. Stand at one, face it and hold action (E): a bar fills over about three seconds, and whatever was stashed in it drops out, as the original's search does. Let go and the search is abandoned. A mission marks the props worth searching (`make_searchable`), and a `create_item` point can stash its item in the nearest one instead of leaving it in the open: in Auto-Destruct, the UCNN video turns up in the Wildcat den this way.
 
+**Searching people:** the dead, the knocked out and the arrested keep their weapons, and whatever their event point says they carry (often a health pack, ammo or a gun), until searched. Stand over them and hold action: after the same bar their things are put on the ground round them, and there's nothing more on them after that.
+
 **Insane Assault walkthrough:** go to Brick Road and put down the two gang members who turn up. Then the Balrog comes: a burning giant who stomps, swipes and throws fireballs, and goes for you above anyone else. Fists don't touch him. Only bullets and blasts do, and he takes an eighth of what anything else would: you start with a pistol, and ammo boxes appear about the place once he's out. Keep your distance, keep shooting, and when he goes down the mission is yours.
 
 **Who's talking:** every message has the speaker's face beside it, from the game's own sheets of talking heads: dispatch gets the radio, and someone you've just spoken to says their lines themselves (and turns to you). A conversation is filmed as in the original: widescreen bars, one speaker's face top right and the other's bottom left, the line beside whoever is saying it, and the camera cutting to each speaker in turn, placed where it can see them. You're held still while it goes on; punch, kick, jump or action cuts a line short. A conversation the mission marks as overheard just shows its lines. Anything happening to either speaker breaks it off.
@@ -248,6 +250,7 @@ With an install present, the tests check:
 - steam vents keep to their routines and scald, and a trap that stays on for good never blows;
 - explosives blow up Transmission Terminated's transmitter and Media Trouble's props, which their missions see;
 - searching a prop turns up what Auto-Destruct stashes in it, and letting go of action, facing away or an empty prop finds nothing;
+- someone knocked out keeps their gun until searched, and a search turns it up; enemies carry their point's drop;
 - The Fallen gets three of its five clues (see `mib.rs` for what the other two still want).
 
 Without an install, the data tests print a note and pass. That's what CI sees: `.github/workflows/rust.yml` builds, tests and runs Clippy on Windows and Linux.

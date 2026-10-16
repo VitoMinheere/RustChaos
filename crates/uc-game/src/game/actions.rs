@@ -88,9 +88,22 @@ impl Game {
                         if to != Vec2::ZERO {
                             p.face_towards(at);
                         }
-                        self.search = Some(Search { ob, time: 0.0 });
+                        self.search = Some(Search { what: Searched::Prop(ob), time: 0.0 });
                         return true;
                     }
+                }
+                // Search someone at her feet (`find_searchable_person`): dead, out cold or
+                // arrested, not searched yet, with their pelvis within 64 of her.
+                let flat = |h: Vec3| Vec2::new(h.x - pos.x, h.z - pos.z).length();
+                let body = self.people.iter().enumerate()
+                    .filter(|&(j, o)| j != pi && !o.player && !o.removed && !o.searched
+                        && (o.is_dead() || o.knocked_out || o.arrested) && !matches!(o.state, State::Carried { .. }))
+                    .map(|(j, o)| (j, o.fig.hips()))
+                    .filter(|&(_, h)| flat(h) < 64.0 && (h.y - pos.y).abs() < 128.0)
+                    .min_by(|a, b| flat(a.1).total_cmp(&flat(b.1)));
+                if let Some((j, _)) = body {
+                    self.search = Some(Search { what: Searched::Body(j), time: 0.0 });
+                    return true;
                 }
                 // Talk to someone friendly close by, on their feet (not lying injured: those
                 // are for Roper to pick up).
@@ -282,7 +295,24 @@ impl Game {
     /// The search goes on while action is held (`continue_pressing_action`); let go and it's
     /// abandoned. Part way through, whatever is stashed in the prop drops out where it was
     /// put, and the prop is empty from then on, though still searchable.
-    pub(crate) fn searching(&mut self, dt: f32, held: bool) {
+    /// What searching person `j` turns up (`drop_all_items` with `is_being_searched`): the
+    /// weapons they had and their `drop`, put on the ground round their pelvis
+    /// (`find_nice_place_near_person`). There's nothing more on them from then on.
+    fn empty_pockets(&mut self, j: usize, level: &Level) -> Vec<Item> {
+        let p = &mut self.people[j];
+        p.searched = true;
+        let kinds: Vec<u8> = [p.weapon.item(), p.melee.item(), p.drop.take()].into_iter().flatten().collect();
+        (p.weapon, p.melee) = (Weapon::None, Weapon::None);
+        let hips = p.fig.hips();
+        kinds.into_iter().enumerate().map(|(n, kind)| {
+            let a = n as f32 * 2.4;
+            let (x, z) = (hips.x + 24.0 * a.sin(), hips.z + 24.0 * a.cos());
+            let y = level.ground.surface(&level.map, x, z, hips.y + 32.0);
+            Item { way: 0, kind, pos: Vec3::new(x, y, z) }
+        }).collect()
+    }
+
+    pub(crate) fn searching(&mut self, dt: f32, held: bool, level: &Level) {
         let Some(mut s) = self.search.take() else { return };
         let standing = self.player.is_some_and(|p| matches!(self.people[p].state, State::Move));
         if !held || !standing || self.outcome.is_some() {
@@ -291,13 +321,19 @@ impl Game {
         let before = s.time;
         s.time += dt;
         if before < Search::FOUND && s.time >= Search::FOUND {
-            let (found, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.hidden).into_iter().partition(|(ob, _)| *ob == s.ob);
-            self.hidden = kept;
+            let found: Vec<Item> = match s.what {
+                Searched::Prop(ob) => {
+                    let (found, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.hidden).into_iter().partition(|(o, _)| *o == ob);
+                    self.hidden = kept;
+                    found.into_iter().map(|(_, it)| it).collect()
+                }
+                Searched::Body(j) => self.empty_pockets(j, level),
+            };
             if !found.is_empty() {
                 let at = self.player().map_or(Vec3::ZERO, |p| p.fig.pos);
                 self.sounds.push((Sfx::Found, at));
             }
-            self.items.extend(found.into_iter().map(|(_, it)| it));
+            self.items.extend(found);
         }
         if s.time < Search::DONE {
             self.search = Some(s);
@@ -408,4 +444,32 @@ impl Game {
             None => Mood::Calm,
         }
     }
+}
+
+/// A `SPECIAL_*` item type as the `IT_*` one the items here use: the reverse of
+/// `ELEV_load_level`'s table (elev.cpp:1054). None for nothing, or a type with no item.
+pub(crate) fn special_item(special: u8) -> Option<u8> {
+    Some(match special {
+        1 => 1,   // key
+        2 => 2,   // pistol
+        3 => 3,   // health
+        5 => 4,   // shotgun
+        6 => 5,   // knife
+        7 => 23,  // explosives
+        8 => 22,  // grenade
+        9 => 6,   // AK47
+        10 => 7,  // mine
+        12 => 8,  // baseball bat
+        13 => 10, // pistol ammo
+        14 => 11, // shotgun ammo
+        15 => 12, // AK47 ammo
+        16 => 13, // keycard
+        17 => 14, // file
+        18 => 15, // floppy disk
+        19 => 16, // crowbar
+        20 => 19, // video
+        21 => 20, // gloves
+        22 => 21, // weed-away
+        _ => return None,
+    })
 }

@@ -628,6 +628,10 @@ pub struct Person {
     pub weapon: Weapon,
     /// A knife or bat carried (drawn or not).
     pub melee: Weapon,
+    /// The item (`IT_*`) they give up when searched, besides their weapons (`drop`).
+    pub drop: Option<u8>,
+    /// Searched already (`FLAG_PERSON_SEARCHED`): nothing more to find on them.
+    pub searched: bool,
     /// Guns carried (bit per `Weapon::GUNS` slot), and rounds for each.
     pub guns: u8,
     pub ammo: [u32; 4],
@@ -745,7 +749,7 @@ impl Person {
         Person {
             fig, way, player, kind, ai: 0, bent: 0, ko_moves: 0, health, max_health: health, state: State::Move,
             pace: Pace::Walk,
-            arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
+            arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, colour: 0, group: 0, goal: None, via: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, heard: None,

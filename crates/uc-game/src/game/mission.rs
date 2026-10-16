@@ -49,6 +49,7 @@ impl Game {
                         (p.ai, p.bent, p.ko_moves) = (spec.ai, spec.bent, spec.ko_moves);
                         (p.skill, p.mv, p.weapon) = (spec.skill, spec.mv, Weapon::from_has(spec.has));
                         p.follow = spec.follow;
+                        p.drop = game::special_item(spec.drop);
                         p.fig.clothes = spec.colour & 3;
                         p.fig.jacket = spec.skill / 4;
                         p.other = spec.other;
