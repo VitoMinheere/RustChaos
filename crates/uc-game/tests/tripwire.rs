@@ -3,47 +3,24 @@
 //! all off. Skipped without an install.
 
 use glam::{vec2, vec3, Vec2};
-use uc_game::{Controls, Game};
-use uc_world::{Level, LoadOptions};
+use uc_game::Controls;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::{Run, DT};
 
 /// A guard the alarm of the tripwire at point 46 (by the house's east side) brings out.
 const GUARD: usize = 54;
 /// The security panel (`player_uses_radius`, "Security systems off!").
 const PANEL: usize = 88;
 
-struct Run {
-    level: Level,
-    g: Game,
-    seen: Vec<String>,
-}
-
 fn start() -> Option<Run> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, "estate2", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
-    let mut g = Game::new(&level, true);
-    assert!(g.unsupported().is_empty(), "unsupported: {:?}", g.unsupported());
-    g.skip_cutscene();
-    Some(Run { level, g, seen: Vec::new() })
+    let mut r = common::start("estate2")?;
+    r.g.skip_cutscene();
+    r.stop_at_outcome = false;
+    Some(r)
 }
 
 impl Run {
-    fn play(&mut self, secs: f32, c: Controls) {
-        for _ in 0..(secs / DT).max(1.0) as usize {
-            self.g.skip_cutscene();
-            let p = self.g.player.unwrap();
-            self.g.people[p].health = self.g.people[p].max_health;
-            self.g.update(DT, &c, &self.level);
-            for m in &self.g.messages {
-                if !self.seen.contains(&m.text) {
-                    println!("[{:6.1}s] {}", self.g.time, m.text);
-                    self.seen.push(m.text.clone());
-                }
-            }
-        }
-    }
-
     /// Puts the player on the ground at (x, z), facing along `dir`: the floor under
     /// height `y` (indoors, not on the roof).
     fn put(&mut self, at: Vec2, y: f32, dir: Vec2) {

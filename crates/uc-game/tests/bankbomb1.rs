@@ -5,60 +5,24 @@
 
 use glam::{vec3, Vec3};
 use uc_game::person::ko;
-use uc_game::{Controls, Game, Outcome, State};
+use uc_game::{Controls, Outcome, State};
 use uc_world::character::person as ptype;
-use uc_world::{Level, LoadOptions};
 
-const DT: f32 = 1.0 / 30.0;
-
-struct Run {
-    level: Level,
-    g: Game,
-    seen: Vec<String>,
-    /// Keep Mako on his feet: how well the player fights isn't what these check, and the
-    /// city is full of cops once the first bomb goes off.
-    patch_him_up: bool,
-}
+mod common;
+use common::{Run, DT};
 
 fn start() -> Option<Run> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, "Bankbomb1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
-    let g = Game::new(&level, true);
-    assert!(g.unsupported().is_empty(), "unsupported: {:?}", g.unsupported());
-    Some(Run { level, g, seen: Vec::new(), patch_him_up: false })
+    let mut r = common::start("Bankbomb1")?;
+    // Mako's only kept on his feet where a test asks: the city is full of cops once the
+    // first bomb goes off.
+    r.heal = false;
+    Some(r)
 }
 
 impl Run {
-    /// Where event point `i` is.
-    fn point(&self, i: usize) -> Vec3 {
-        let e = self.level.mission.event_points.iter().find(|e| e.index == i).unwrap();
-        vec3(e.x as f32, e.y as f32, e.z as f32)
-    }
-
     /// The vehicle the event point `way` created, if it is still about.
     fn car(&self, way: usize) -> Option<usize> {
         self.g.vehicles.iter().position(|v| v.way == way && !v.wrecked())
-    }
-
-    /// Plays `secs` seconds with `c` held, printing each new message.
-    fn play(&mut self, secs: f32, c: Controls) {
-        for _ in 0..(secs / DT) as usize {
-            self.g.skip_cutscene();
-            if self.patch_him_up {
-                let i = self.g.player.unwrap();
-                self.g.people[i].health = self.g.people[i].max_health;
-            }
-            self.g.update(DT, &c, &self.level);
-            for m in &self.g.messages {
-                if !self.seen.contains(&m.text) {
-                    println!("[{:6.1}s] {}", self.g.time, m.text);
-                    self.seen.push(m.text.clone());
-                }
-            }
-            if self.g.outcome.is_some() {
-                return;
-            }
-        }
     }
 
     /// Plays `secs` seconds and returns the fastest person `i` ever moved, in world units a
@@ -76,13 +40,6 @@ impl Run {
     /// Presses action for one frame (holding it would get into a car and straight back out).
     fn tap_action(&mut self) {
         self.play(DT, Controls { action: true, ..Default::default() });
-    }
-
-    /// Puts Mako at `p`, on whatever is there.
-    fn stand(&mut self, p: Vec3) {
-        let y = self.level.ground.surface(&self.level.map, p.x, p.z, p.y + 64.0);
-        let i = self.g.player.unwrap();
-        self.g.people[i].fig.pos = vec3(p.x, y, p.z);
     }
 
     /// Gets into the car that event point `way` created, by standing at its door and pressing
@@ -130,7 +87,7 @@ impl Run {
 #[test]
 fn nitro_car_script_runs_to_a_win() {
     let Some(mut r) = start() else { return };
-    r.patch_him_up = true;
+    r.heal = true;
 
     // Mako is a thug, not Darci: the only mission so far where `create_player` says so.
     assert_eq!(r.g.player().unwrap().kind, ptype::THUG_RASTA);

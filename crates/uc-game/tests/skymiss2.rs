@@ -5,71 +5,34 @@
 
 use glam::{vec2, vec3, Vec3};
 use uc_game::person::ko;
-use uc_game::{Controls, Game, Outcome, Weapon};
-use uc_world::{Level, LoadOptions};
+use uc_game::{Controls, Outcome, Weapon};
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::{Run, DT};
 
 /// Whose deaths the script counts: the two groups holding hostages, then the Men In Black.
 const TARGETS: [usize; 8] = [217, 218, 219, 186, 187, 188, 249, 250];
 /// The Wildcat vans.
 const VANS: [usize; 3] = [52, 275, 284];
 
-struct Run {
-    level: Level,
-    g: Game,
-    seen: Vec<String>,
-}
-
 fn start() -> Option<Run> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, "skymiss2", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
-    let g = Game::new(&level, true);
-    assert!(g.unsupported().is_empty(), "unsupported: {:?}", g.unsupported());
-    Some(Run { level, g, seen: Vec::new() })
+    let mut r = common::start("skymiss2")?;
+    // Everyone else hostile is taken off and the player kept whole: the fighting isn't
+    // what's tested.
+    r.each_turn = Some(|g| {
+        for p in g.people.iter_mut() {
+            if p.hostile() && !TARGETS.contains(&p.way) {
+                p.removed = true;
+            }
+            if p.player {
+                p.health = p.max_health;
+            }
+        }
+    });
+    Some(r)
 }
 
 impl Run {
-    fn run(&mut self, secs: f32, c: Controls) {
-        for _ in 0..(secs / DT).max(1.0) as usize {
-            self.g.skip_cutscene();
-            // Everyone else hostile is taken off and the player kept whole: the fighting isn't
-            // what's tested.
-            for p in self.g.people.iter_mut() {
-                if p.hostile() && !TARGETS.contains(&p.way) {
-                    p.removed = true;
-                }
-                if p.player {
-                    p.health = p.max_health;
-                }
-            }
-            self.g.update(DT, &c, &self.level);
-            for m in &self.g.messages {
-                if !self.seen.contains(&m.text) {
-                    println!("[{:6.1}s] {}", self.g.time, m.text);
-                    self.seen.push(m.text.clone());
-                }
-            }
-            if self.g.outcome.is_some() {
-                return;
-            }
-        }
-    }
-
-    fn until(&mut self, secs: f32, done: impl Fn(&Run) -> bool) -> bool {
-        for _ in 0..(secs / 0.25) as usize {
-            if done(self) {
-                return true;
-            }
-            self.run(0.25, Controls::default());
-        }
-        done(self)
-    }
-
-    fn said(&self, text: &str) -> bool {
-        self.seen.iter().any(|m| m.contains(text))
-    }
-
     fn kill(&mut self, way: usize) {
         let i = self.g.people.iter().position(|p| p.way == way && !p.removed).unwrap_or_else(|| panic!("nobody from point {way}"));
         let from = self.g.people[i].fig.pos + vec3(50.0, 0.0, 0.0);
@@ -114,7 +77,7 @@ fn stern_revenge_starts_with_a_shotgun() {
 #[test]
 fn stern_revenge_runs_to_a_win() {
     let Some(mut r) = start() else { return };
-    r.run(1.0, Controls::default());
+    r.play(1.0, Controls::default());
 
     // The two groups holding hostages, and the Men In Black who come after them.
     for way in [217, 218, 219, 186, 187, 188] {
@@ -135,19 +98,19 @@ fn stern_revenge_runs_to_a_win() {
         // Its driver getting in is nearer to aim at than the van: wait till he's in.
         assert!(r.until(10.0, |r| !r.g.people.iter().any(|p| matches!(p.state, uc_game::State::Enter { vehicle } if vehicle == k))), "van {way}'s driver never got in");
         r.line_up(k);
-        r.run(0.5, Controls::default());
+        r.play(0.5, Controls::default());
         assert_eq!(r.g.aiming.vehicle, Some(k), "the gun isn't on van {way}");
         for _ in 0..20 {
             if r.g.vehicles[k].wrecked() {
                 break;
             }
-            r.run(DT, Controls { punch: true, ..Default::default() });
-            r.run(0.6, Controls::default());
+            r.play(DT, Controls { punch: true, ..Default::default() });
+            r.play(0.6, Controls::default());
         }
         assert!(r.g.vehicles[k].wrecked(), "van {way} still has {} health", r.g.vehicles[k].health);
     }
     assert!(r.until(10.0, |r| r.said("That's blown THEM all to Hell")), "{:?}", r.seen);
-    r.run(3.0, Controls::default());
+    r.play(3.0, Controls::default());
     println!("outcome {:?} at {:.1}s", r.g.outcome, r.g.time);
     assert_eq!(r.g.outcome, Some(Outcome::Won));
 }
