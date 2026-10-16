@@ -6,12 +6,22 @@ use crate::*;
 /// RTA, The Jump, Seek Sneak and Seize, Assassin and The Fallen.
 pub(crate) const SNIPER_AT_START: [&str; 6] = ["train11", "police1", "police2", "Stealtst1", "Gangorder1", "MIB"];
 
-/// What a person on the AI's legs can do: walk, climb a fence (which the walker does by
-/// itself on meeting one), and drop off an edge (`MAV_ACTION_FALL_OFF`: the original's people
-/// may do all Darci can, `MAV_CAPS_DARCI`, pcom.cpp:1957; jumping, pulling up and ladders
-/// aren't done here yet).
-const WALKER: u8 = uc_world::mav::caps(uc_world::mav::GOTO) | uc_world::mav::caps(uc_world::mav::CLIMB_OVER)
-    | uc_world::mav::caps(uc_world::mav::FALL_OFF);
+/// What person `p` may do on a route: everything Darci can (walk, jump, pull up, climb
+/// fences and ladders, drop off edges), but for `PCOM_BENT_RESTRICTED` people, and for
+/// civilians wandering or running scared from somewhere a civilian may wander, who only walk
+/// (pcom.cpp:1957).
+fn caps_of(p: &Person, wand: &wand::Wander) -> u8 {
+    let walk = uc_world::mav::caps(uc_world::mav::GOTO);
+    if p.bent & person::BENT_RESTRICTED != 0 {
+        return walk;
+    }
+    let wandering = (p.mv == person::MOVE_WANDER && !p.aggro()) || p.scared.is_some();
+    let (x, z) = ((p.fig.pos.x / 256.0) as i32, (p.fig.pos.z / 256.0) as i32);
+    if p.ai == person::AI_CIV && wandering && wand.is_wander(x, z) {
+        return walk;
+    }
+    uc_world::mav::CAPS_DARCI
+}
 
 /// How long a route is kept while its walker stays in the same square, though where they're
 /// going moves (the original plans again only on reaching the route's next square).
@@ -26,6 +36,8 @@ pub(crate) struct Route {
     dest: Option<(u8, u8)>,
     first: Option<(u8, u8)>,
     drop: Option<(u8, u8)>,
+    /// A jump, pull-up or ladder to do first (`MAV_ACTION_*`), in direction `MAV_DIR_*`.
+    leap: Option<(u8, u8)>,
     at: f32,
 }
 
@@ -94,6 +106,7 @@ impl Game {
     /// fences ([`WALKER`]).
     pub(crate) fn find_ways(&mut self, level: &Level) {
         for i in 0..self.people.len() {
+            self.people[i].leap = None;
             let p = &self.people[i];
             if p.player || p.removed || p.is_dead() || p.is_down() {
                 self.people[i].via = None;
@@ -173,7 +186,8 @@ impl Game {
             Some(&r) if r.from == a && (r.to == b || self.time - r.at < REPLAN) => r,
             _ => {
                 let mut rng = self.rngs.mav;
-                let (act, _) = self.routes.mav.route(a, b, WALKER, &mut || rand(&mut rng));
+                let caps = caps_of(&self.people[i], &self.streets.wand);
+                let (act, _) = self.routes.mav.route(a, b, caps, &mut || rand(&mut rng));
                 self.rngs.mav = rng;
                 // Over a fence: straight at it, and the walker climbs it.
                 let walk = act.action == uc_world::mav::GOTO && act.dest != a;
@@ -182,7 +196,9 @@ impl Game {
                     let (dx, dz) = uc_world::mav::DIRS[act.dir as usize & 3];
                     ((a.0 as i32 + dx).clamp(0, 127) as u8, (a.1 as i32 + dz).clamp(0, 127) as u8)
                 });
-                let r = Route { from: a, to: b, dest, first, drop, at: self.time };
+                use uc_world::mav::{JUMP, JUMPPULL, JUMPPULL2, LADDER_UP, PULLUP};
+                let leap = matches!(act.action, JUMP | JUMPPULL | JUMPPULL2 | PULLUP | LADDER_UP).then_some((act.action, act.dir));
+                let r = Route { from: a, to: b, dest, first, drop, leap, at: self.time };
                 self.routes.ways.insert(i, r);
                 r
             }
@@ -191,6 +207,29 @@ impl Game {
         let middle = |s: (u8, u8)| Vec3::new(s.0 as f32 * 256.0 + 128.0, from.y, s.1 as f32 * 256.0 + 128.0);
         if let Some(over) = route.drop {
             return Some(middle(over));
+        }
+        // A jump or a pull-up: to the edge of the square the way it goes, and jump there
+        // (the walker grabs a ledge too high to land on, and pulls up by itself). A ladder:
+        // to its foot, and walk into it.
+        if let Some((action, dir)) = route.leap {
+            let (dx, dz) = uc_world::mav::DIRS[dir as usize & 3];
+            let d = Vec2::new(dx as f32, dz as f32);
+            let mid = middle(a);
+            let edge = mid + Vec3::new(d.x, 0.0, d.y) * 112.0;
+            if action == uc_world::mav::LADDER_UP {
+                let ladder = level.ground.ladders.iter()
+                    .filter(|l| l.out.dot(-d) > 0.7 && (l.foot - Vec2::new(edge.x, edge.z)).length() < 256.0)
+                    .min_by(|p, q| (p.foot - Vec2::new(from.x, from.z)).length().total_cmp(&(q.foot - Vec2::new(from.x, from.z)).length()));
+                if let Some(l) = ladder {
+                    let foot = l.foot + l.out * 60.0;
+                    let at = Vec3::new(foot.x, from.y, foot.y);
+                    self.people[i].leap = Some((at, -l.out, false));
+                    return Some(at);
+                }
+                return Some(edge);
+            }
+            self.people[i].leap = Some((edge, d, true));
+            return Some(edge);
         }
         let dest = middle(dest?);
         // A body's width: the line from each side of them as well as the middle.

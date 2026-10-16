@@ -52,6 +52,21 @@ impl Person {
     pub fn think(&mut self, me: usize, snaps: &[Snap], ground: &Ground, dt: f32,
                  rand: &mut impl FnMut() -> u32) -> Controls {
         let mut c = self.decide(me, snaps, ground, dt, rand);
+        // At a route's jump: run at the edge and jump; at a ladder, walk into it.
+        if let Some((at, dir, jump)) = self.leap {
+            let near = flat(at, self.fig.pos).length() < 64.0;
+            // Even once they're as good as at the edge, where they'd stop walking.
+            let going = self.goal.is_some() || self.via.is_some();
+            if near && going && matches!(self.state, State::Move) {
+                c.wish = dir;
+                (c.run, c.jump) = (jump, jump);
+            }
+        }
+        // On a ladder: up it and off the top, rather than hang about halfway (routes only
+        // ever go up ladders, `MAV_ACTION_LADDER_UP`).
+        if let State::Climb { ladder, .. } = self.state {
+            c.wish = -ground.ladders[ladder].out;
+        }
         // "MIB are too cool to run anywhere" (Person.cpp:19913).
         if self.is_mib() {
             (c.run, c.sprint) = (false, false);
