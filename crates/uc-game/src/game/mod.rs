@@ -30,3 +30,4 @@ pub mod grenades;
 mod litter;
 mod cheats;
 pub mod endless;
+pub mod beat;

@@ -6,8 +6,9 @@ use crate::*;
 impl Game {
     /// Navigation beacons: (label, position), hiding those whose target is down or gone.
     pub fn beacons(&self) -> Vec<(String, Vec3)> {
-        let Some(s) = &self.script else { return Vec::new() };
-        s.beacons()
+        let mut out = self.beat_beacons();
+        let Some(s) = &self.script else { return out };
+        out.extend(s.beacons()
             .into_iter()
             .filter_map(|b| match b.track {
                 Some(way) if self.creature_by_way.contains_key(&way) => {
@@ -20,7 +21,8 @@ impl Game {
                 }
                 None => Some((b.label, b.pos)),
             })
-            .collect()
+        );
+        out
     }
 
     /// This frame's people meshes, cars, items and effects. `eye` is where the camera is

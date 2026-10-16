@@ -109,7 +109,7 @@ impl World {
             let (badges, sides) = self.tally();
             let (nb, ns) = (self.goals.badges.len(), self.goals.sides.len());
             // Not in an endless run: its map's mission isn't being played.
-            if nb + ns > 0 && self.game.endless().is_none() {
+            if nb + ns > 0 && self.game.endless().is_none() && self.game.beat().is_none() {
                 let text = format!("  BADGES {badges}/{nb}   SIDE {sides}/{ns}");
                 let all = badges == nb && sides == ns;
                 o.text(x, by + bh + 4.0 * s, s, if all { [255, 210, 70, 255] } else { [190, 190, 180, 200] }, &text);
@@ -326,8 +326,39 @@ impl World {
             o.text(w / 2.0 - Overlay::text_width(&score, s) / 2.0, 26.0 * s, s, white, &score);
         }
 
+        // A shift: its clock, the score and the tally, and what's on.
+        if let Some(b) = self.game.beat() {
+            let gold = [255, 210, 70, 255];
+            let left = b.shift.max(0.0) as u32;
+            let line = format!("SHIFT {}:{:02}   SCORE {}", left / 60, left % 60, b.score);
+            let big = s * 2.0;
+            o.text(w / 2.0 - Overlay::text_width(&line, big) / 2.0, 8.0 * s, big, gold, &line);
+            let tally = format!("HANDLED {}   MISSED {}", b.handled, b.missed);
+            o.text(w / 2.0 - Overlay::text_width(&tally, s) / 2.0, 26.0 * s, s, white, &tally);
+            for (k, inc) in b.incidents.iter().enumerate() {
+                let t = format!("{}  {:.0}s", inc.kind.label().to_uppercase(), inc.left.max(0.0));
+                let col = if inc.left < 20.0 { [255, 120, 100, 255] } else { white };
+                o.text(w / 2.0 - Overlay::text_width(&t, s) / 2.0, 38.0 * s + k as f32 * 10.0 * s, s, col, &t);
+            }
+        }
+
         // Outcome.
-        if let (Some(e), Some(Outcome::Lost(why))) = (self.game.endless(), &self.game.outcome) {
+        if let (Some(b), Some(out)) = (self.game.beat(), &self.game.outcome) {
+            let (title, col) = match out {
+                Outcome::Won => ("SHIFT OVER".to_string(), [120, 230, 120, 255]),
+                Outcome::Lost(why) => (format!("SHIFT LOST: {}", why.to_uppercase()), [240, 90, 70, 255]),
+            };
+            let best = match self.endless_recorded {
+                Some((true, _)) => "A new best!".to_string(),
+                Some((false, Some((sc, n)))) => format!("Best {sc} ({n} handled)"),
+                _ => String::new(),
+            };
+            let sub = format!("Handled {}   Missed {}   Score {}   {best}   R: again   Esc: menu", b.handled, b.missed, b.score);
+            let big = s * 3.0;
+            o.rect(0.0, h * 0.33, w, 50.0 * s, [0, 0, 0, 160]);
+            o.text(w / 2.0 - Overlay::text_width(&title, big) / 2.0, h * 0.33 + 8.0 * s, big, col, &title);
+            o.text(w / 2.0 - Overlay::text_width(&sub, s) / 2.0, h * 0.33 + 36.0 * s, s, white, &sub);
+        } else if let (Some(e), Some(Outcome::Lost(why))) = (self.game.endless(), &self.game.outcome) {
             let title = format!("RUN OVER: WAVE {}", e.wave);
             let best = match self.endless_recorded {
                 Some((true, _)) => "A new best!".to_string(),
