@@ -38,6 +38,8 @@ pub struct Progress {
     done: BTreeMap<String, Done>,
     /// The chief's warnings so far about civilian casualties (`DarciDeadCivWarnings`).
     civ_warnings: u8,
+    /// The best endless run on each map: (score, wave reached).
+    endless: BTreeMap<String, (i64, u32)>,
     path: Option<PathBuf>,
 }
 
@@ -60,6 +62,10 @@ impl Progress {
         let path = Progress::default_path();
         let text = path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
         let civ_warnings = text.lines().find_map(|l| l.strip_prefix("@civ_warnings ")?.trim().parse().ok()).unwrap_or(0);
+        let endless = text.lines().filter_map(|l| {
+            let mut f = l.strip_prefix("@endless ")?.split_whitespace();
+            Some((f.next()?.to_string(), (f.next()?.parse().ok()?, f.next()?.parse().ok()?)))
+        }).collect();
         let done = text
             .lines()
             .filter(|l| !l.starts_with('@'))
@@ -81,7 +87,7 @@ impl Progress {
                 Some((mission, d))
             })
             .collect();
-        Progress { done, civ_warnings, path }
+        Progress { done, civ_warnings, endless, path }
     }
 
     /// Another mission ended with too many civilian casualties: the chief's warnings before
@@ -91,6 +97,22 @@ impl Progress {
         self.civ_warnings = before.saturating_add(1);
         self.save();
         before
+    }
+
+    /// The best endless run on `map`: (score, wave).
+    pub fn best_endless(&self, map: &str) -> Option<(i64, u32)> {
+        self.endless.get(&map.to_ascii_lowercase()).copied()
+    }
+
+    /// Records an endless run on `map`; whether it's a new best.
+    pub fn record_endless(&mut self, map: &str, score: i64, wave: u32) -> bool {
+        let e = self.endless.entry(map.to_ascii_lowercase()).or_insert((i64::MIN, 0));
+        let best = score > e.0;
+        if best {
+            *e = (score, wave);
+        }
+        self.save();
+        best
     }
 
     pub fn get(&self, mission: &str) -> Option<&Done> {
@@ -138,6 +160,7 @@ impl Progress {
                 format!("{m} {:.1} b={} s={}{legacy}\n", d.best, join(&d.badges), join(&d.sides))
             })
             .chain((self.civ_warnings > 0).then(|| format!("@civ_warnings {}\n", self.civ_warnings)))
+            .chain(self.endless.iter().map(|(m, (s, w))| format!("@endless {m} {s} {w}\n")))
             .collect();
         let saved = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| std::fs::write(path, text));
         if let Err(e) = saved {

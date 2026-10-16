@@ -4,6 +4,7 @@
 use crate::checklist;
 use crate::progress::{clock, Progress};
 use uc_game::goals::Goals;
+use std::collections::BTreeMap;
 use std::path::Path;
 use uc_formats::txc::Texture;
 use uc_render::Overlay;
@@ -34,11 +35,13 @@ pub enum Screen {
     Title,
     Main,
     Missions,
+    /// Endless mode's maps.
+    Endless,
 }
 
 /// The main menu's items (`raw_menu_data`, frontend.cpp:376): the ones there's something
 /// behind here.
-pub const MAIN: [&str; 2] = ["START", "EXIT"];
+pub const MAIN: [&str; 3] = ["START", "ENDLESS", "EXIT"];
 
 /// The menus' look, by how far through the game (`menu_theme`, set in
 /// `FRONTEND_MissionHierarchy`, frontend.cpp:3337): leaves for the first eight missions done,
@@ -82,6 +85,11 @@ pub struct Menu {
     pub selected: usize,
     /// A mission chosen, to load on the next frame (after "Loading" is on screen).
     pub loading: Option<usize>,
+    /// Endless mode's maps: a mission on each (to load it by), and what's shown for it.
+    pub maps: Vec<(String, String)>,
+    pub map_selected: usize,
+    /// A map chosen for an endless run, to load on the next frame.
+    pub loading_endless: Option<usize>,
     /// Missions completed so far.
     pub progress: Progress,
 }
@@ -90,6 +98,7 @@ impl Menu {
     /// Reads the mission list.
     pub fn new(game: &Path) -> Menu {
         let mut entries: Vec<Entry> = Vec::new();
+        let mut maps: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
         for (mission, title, briefing) in missions(game) {
             let playable = PLAYABLE.iter().any(|p| p.eq_ignore_ascii_case(&mission));
             let goals = uc_formats::resolve(game, &format!("levels\\{mission}.ucm"))
@@ -97,11 +106,25 @@ impl Menu {
                 .and_then(|b| uc_formats::ucm::Mission::parse(&b).ok())
                 .map(|m| uc_game::goals::goals(&m))
                 .unwrap_or_default();
+            let map = uc_formats::resolve(game, &format!("levels\\{mission}.ucm"))
+                .and_then(|p| std::fs::read(p).ok())
+                .and_then(|b| uc_formats::ucm::Mission::parse(&b).ok())
+                .map(|m| m.map.to_ascii_lowercase());
+            if let Some(map) = map.filter(|m| !m.is_empty()) {
+                maps.entry(map).or_default().push((mission.clone(), title.clone()));
+            }
             entries.push(Entry { mission, title, briefing, playable, goals });
         }
         let progress = Progress::load();
         let theme = Theme::of(entries.iter().filter(|e| progress.completed(&e.mission)).count());
-        Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress }
+        // One endless map for each map the missions use, called after its missions.
+        let maps = maps.into_iter().map(|(map, ms)| {
+            let names: Vec<&str> = ms.iter().take(3).map(|m| m.1.as_str()).collect();
+            let more = if ms.len() > 3 { ", ..." } else { "" };
+            let stem = map.rsplit(['\\', '/']).next().unwrap_or(&map).trim_end_matches(".iam").to_string();
+            (ms[0].0.clone(), format!("{stem}: {}{more}", names.join(", ")))
+        }).collect();
+        Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, map_selected: 0, loading_endless: None }
     }
 
     /// The image behind the current screen, from the install's `data\` (`menu_back_names`,
@@ -111,7 +134,7 @@ impl Menu {
         let w = self.theme.word();
         match self.screen {
             Screen::Title | Screen::Main => format!("data\\TITLE {}1.TGA", w.to_ascii_uppercase()),
-            Screen::Missions => format!("data\\map {w} darci.tga"),
+            Screen::Missions | Screen::Endless => format!("data\\map {w} darci.tga"),
         }
     }
 
@@ -199,11 +222,54 @@ impl Menu {
         self.selected = (self.selected + 1) % self.entries.len().max(1);
     }
 
+    /// Endless mode's maps: the list, and the best run on the one chosen.
+    fn endless_overlay(&self, o: &mut Overlay, w: f32, h: f32, s: f32) {
+        o.backdrop(0.0, 0.0, w, h, [255, 255, 255, 255]);
+        self.kibble(o, w, h, s);
+        o.rect(0.0, 0.0, w * 0.55, h, [0, 0, 0, 170]);
+        let (white, gold) = ([235, 235, 225, 255], [255, 210, 70, 255]);
+        let x = 20.0 * s;
+        o.text(x, 16.0 * s, s * 3.0, gold, "ENDLESS");
+        o.text(x, 44.0 * s, s, [200, 200, 190, 220], "Waves of thugs until you drop. Up/Down choose a map   Enter play   Esc back");
+        if let Some(i) = self.loading_endless {
+            let text = format!("LOADING {}...", self.maps[i].1.to_uppercase());
+            o.text(w / 2.0 - Overlay::text_width(&text, s * 2.0) / 2.0, h * 0.5, s * 2.0, white, &text);
+            return;
+        }
+        let line = 11.0 * s;
+        let top = 64.0 * s;
+        let rows = (((h - top - 40.0 * s) / line) as usize).max(3);
+        let first = self.map_selected.saturating_sub(rows / 2).min(self.maps.len().saturating_sub(rows));
+        for (k, (mission, label)) in self.maps.iter().enumerate().skip(first).take(rows) {
+            let y = top + (k - first) as f32 * line;
+            if k == self.map_selected {
+                o.rect(x - 4.0 * s, y - 2.0 * s, w * 0.55 - x - 8.0 * s, line, [200, 150, 40, 200]);
+            }
+            o.text(x, y, s, white, label);
+            if let Some((score, wave)) = self.progress.best_endless(mission) {
+                let tag = format!("BEST {score} (WAVE {wave})");
+                o.text(w * 0.55 - Overlay::text_width(&tag, s) - 16.0 * s, y, s, gold, &tag);
+            }
+        }
+    }
+
+    pub fn map_up(&mut self) {
+        self.map_selected = (self.map_selected + self.maps.len().max(1) - 1) % self.maps.len().max(1);
+    }
+
+    pub fn map_down(&mut self) {
+        self.map_selected = (self.map_selected + 1) % self.maps.len().max(1);
+    }
+
     /// The menu as an overlay for a window of `size`.
     pub fn overlay(&self, size: (u32, u32)) -> Overlay {
         let mut o = Overlay::new();
         let (w, h) = (size.0 as f32, size.1 as f32);
         let s = (h / 360.0).round().max(1.0);
+        if self.screen == Screen::Endless {
+            self.endless_overlay(&mut o, w, h, s);
+            return o;
+        }
         if self.screen != Screen::Missions {
             self.front(&mut o, w, h, s);
             return o;
