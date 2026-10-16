@@ -66,6 +66,34 @@ pub struct Level {
     /// map's objects. They're left out of the scenery and of what people walk into.
     pub barrel_props: Vec<usize>,
     overrides: Option<PathBuf>,
+    /// The prim texture pages that see through (`textype.txt`'s T, M, A or D, or the page
+    /// after an I), counted from [`PRIM_PAGES`].
+    see_through_prims: std::collections::BTreeSet<u32>,
+}
+
+/// Where the prims' texture pages start (`POLY_load_texture_flags(..., 11 * 64)`,
+/// texture.cpp:712).
+pub const PRIM_PAGES: u32 = 11 * 64;
+
+/// The pages `textype.txt` makes see-through (`POLY_load_texture_flags`,
+/// polyrenderstate.cpp:82): 'T' black is transparent, 'M' the alpha channel, 'A' additive,
+/// 'D' alpha masked; and 'I' makes the next page a transparent self-illumination map. The
+/// rest are drawn solid, whatever their alpha channel holds.
+pub fn see_through_pages(text: &str) -> std::collections::BTreeSet<u32> {
+    let mut out = std::collections::BTreeSet::new();
+    for line in text.lines() {
+        let Some(rest) = line.trim().strip_prefix("Page ") else { continue };
+        let Some((n, flags)) = rest.split_once(':') else { continue };
+        let Ok(n) = n.trim().parse::<u32>() else { continue };
+        let flags = flags.to_ascii_uppercase();
+        if flags.contains(['T', 'M', 'A', 'D']) {
+            out.insert(n);
+        }
+        if flags.contains('I') {
+            out.insert(n + 1);
+        }
+    }
+    out
 }
 
 fn read(game: &Path, rel: &str) -> Result<Vec<u8>, String> {
@@ -194,6 +222,9 @@ impl Level {
         Ok(Level {
             game: game.to_path_buf(), name: mission_name.to_string(), mission, map, clump, styles, lighting,
             ground, spawn, sky, people, overrides: opt.overrides.clone(), platforms, barrel_props,
+            see_through_prims: resolve(game, "server\\textures\\shared\\prims\\textype.txt")
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .map_or_else(Default::default, |t| see_through_pages(&t)),
             item_prims: ITEM_PRIMS.iter().map(|&(_, id)| id).chain(EXTRA_PRIMS)
                 .filter_map(|id| Some((id, load_prim(game, id)?))).collect(),
             weapon_prims: (256..=263).filter_map(|id| Some((id, load_prim(game, id)?))).collect(),
@@ -212,7 +243,17 @@ impl Level {
                 return Some((t, true));
             }
         }
-        self.clump.texture(page).ok().flatten().map(|t| (t, false))
+        let mut t = self.clump.texture(page).ok().flatten()?;
+        // A prim page `textype.txt` doesn't make see-through is drawn solid, as the original
+        // only alpha-tests pages it flags (polyrenderstate.cpp:1525). The mine's (#85) has an
+        // alpha channel that's mostly clear, which would otherwise hide most of it.
+        if page >= PRIM_PAGES && t.has_alpha && !self.see_through_prims.contains(&(page - PRIM_PAGES)) {
+            t.has_alpha = false;
+            for px in t.rgba.chunks_mut(4) {
+                px[3] = 255;
+            }
+        }
+        Some((t, false))
     }
 
     /// The floor squares on the sea, which [`Level::build`] leaves out for the game to draw
@@ -605,5 +646,17 @@ fn build_details(b: &mut Builder, map: &Map, sh: &Shader) {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod see_through_tests {
+    use super::*;
+
+    #[test]
+    fn textype_flags_pick_the_see_through_pages() {
+        let t = "# comment\nPage 000: T\nPage 022: M\nPage 025: MS\nPage 030: W\nPage 040: I\nPage 050: S\n";
+        let s = see_through_pages(t);
+        assert_eq!(s.into_iter().collect::<Vec<_>>(), vec![0, 22, 25, 41]);
     }
 }
