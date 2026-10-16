@@ -1,15 +1,22 @@
 //! Beat Cop (#130): a shift on a district with no mission script. Dispatch calls in
 //! incidents one or two at a time (a mugging, an armed suspect, a dumped weapon, a gang
 //! fight, a wanted man running), each with a beacon and a time limit; handling them scores
-//! and brings the crime rate down, missing them puts it up. The shift ends after
-//! [`SHIFT`] seconds (a win), or when the crime rate reaches 100 or the player goes down.
-//! Everything comes from the shift's seed.
+//! and brings the crime rate down, missing them puts it up. The shift ends when its time's
+//! up (a win; one of [`SHIFTS`], or open-ended), or when the crime rate reaches 100 or the
+//! player goes down. Everything comes from the shift's seed.
 
 use crate::*;
 use uc_world::character::person as ptype;
 
-/// A shift, in seconds.
-pub const SHIFT: f32 = 20.0 * 60.0;
+/// The shift lengths on offer, in minutes; `None` is open-ended, until the player drops.
+pub const SHIFTS: [Option<u32>; 5] = [Some(5), Some(10), Some(15), Some(20), None];
+/// The shift length a new player gets.
+pub const DEFAULT_SHIFT: Option<u32> = Some(10);
+
+/// A shift length as the menu and HUD say it: "10 MIN", or "OPEN-ENDED".
+pub fn shift_name(minutes: Option<u32>) -> String {
+    minutes.map_or("OPEN-ENDED".to_string(), |m| format!("{m} MIN"))
+}
 /// How far round the start incidents happen, in squares, and no nearer the player than
 /// this when they're called in.
 const BEAT: f32 = 20.0;
@@ -104,8 +111,10 @@ pub struct Incident {
 #[derive(Debug, Clone)]
 pub struct Beat {
     pub seed: u32,
-    /// Seconds left of the shift.
-    pub shift: f32,
+    /// Seconds left of the shift; `None` when it's open-ended.
+    pub shift: Option<f32>,
+    /// Seconds on duty so far.
+    pub on: f32,
     pub score: i64,
     pub handled: u32,
     pub missed: u32,
@@ -131,10 +140,10 @@ pub fn summary(b: &Beat) -> String {
 }
 
 impl Game {
-    /// Starts a shift on `level` with `seed`, round `centre` (world xz; the start if none):
-    /// no mission script, the city's crowd and
+    /// Starts a shift of `minutes` (open-ended if `None`) on `level` with `seed`, round
+    /// `centre` (world xz; the start if none): no mission script, the city's crowd and
     /// traffic as usual, the crime rate on the HUD, the first call a few seconds in.
-    pub fn new_beat(level: &Level, seed: u32, centre: Option<Vec2>) -> Game {
+    pub fn new_beat(level: &Level, seed: u32, centre: Option<Vec2>, minutes: Option<u32>) -> Game {
         let mut g = Game::new(level, false);
         if let Some(c) = centre {
             let y = level.ground.surface(&level.map, c.x, c.y, level.ground.surface(&level.map, c.x, c.y, 0.0) + 128.0);
@@ -145,7 +154,7 @@ impl Game {
         g.show_crime_rate = true;
         g.crime_rate = 40;
         g.beat = Some(Beat {
-            seed, shift: SHIFT, score: 0, handled: 0, missed: 0, incidents: Vec::new(), rng: seed | 1,
+            seed, shift: minutes.map(|m| m as f32 * 60.0), on: 0.0, score: 0, handled: 0, missed: 0, incidents: Vec::new(), rng: seed | 1,
             next: 4.0, next_way: FIRST_WAY, spots, red_marks: 0,
         });
         g
@@ -174,8 +183,11 @@ impl Game {
             b.score -= 200 * (self.red_marks - b.red_marks) as i64;
             b.red_marks = self.red_marks;
         }
-        b.shift -= dt;
-        if b.shift <= 0.0 {
+        b.on += dt;
+        if let Some(left) = &mut b.shift {
+            *left -= dt;
+        }
+        if b.shift.is_some_and(|left| left <= 0.0) {
             self.messages.push(Message { text: summary(b), left: 10.0, face: Some(talk::face::RADIO), filmed: false });
             self.finish(Outcome::Won);
             return;

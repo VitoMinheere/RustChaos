@@ -2,7 +2,7 @@
 //! screens.
 
 use crate::checklist;
-use crate::progress::{clock, Progress};
+use crate::progress::{self, clock, Progress};
 use uc_game::goals::Goals;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -255,12 +255,16 @@ impl Menu {
         let (white, gold) = ([235, 235, 225, 255], [255, 210, 70, 255]);
         let x = 20.0 * s;
         let (title, what) = if self.for_beat {
-            ("BEAT COP", "A twenty-minute shift: deal with what dispatch calls in.")
+            ("BEAT COP", "A shift: deal with what dispatch calls in. Left/Right shift length")
         } else {
             ("ENDLESS", "Waves of thugs until you drop.")
         };
         o.text(x, 16.0 * s, s * 3.0, gold, title);
-        o.text(x, 44.0 * s, s, [200, 200, 190, 220], &format!("{what} Up/Down choose a map   Enter play   Esc back"));
+        o.text(x, 44.0 * s, s, [200, 200, 190, 220], &format!("{what}   Up/Down choose a map   Enter play   Esc back"));
+        if self.for_beat {
+            let len = format!("SHIFT: < {} >", uc_game::game::beat::shift_name(self.progress.shift()));
+            o.text(x + Overlay::text_width(title, s * 3.0) + 16.0 * s, 24.0 * s, s * 1.5, white, &len);
+        }
         if let Some(i) = self.loading_endless {
             let text = format!("LOADING {}...", self.maps[i].1.to_uppercase());
             o.text(w / 2.0 - Overlay::text_width(&text, s * 2.0) / 2.0, h * 0.5, s * 2.0, white, &text);
@@ -276,7 +280,11 @@ impl Menu {
                 o.rect(x - 4.0 * s, y - 2.0 * s, w * 0.55 - x - 8.0 * s, line, [200, 150, 40, 200]);
             }
             o.text(x, y, s, white, label);
-            let best = if self.for_beat { self.progress.best_endless(&format!("beat:{label}")) } else { self.progress.best_endless(label) };
+            let best = if self.for_beat {
+                self.progress.best_endless(&progress::beat_key(label, self.progress.shift()))
+            } else {
+                self.progress.best_endless(label)
+            };
             if let Some((score, wave)) = best {
                 let tag = if self.for_beat { format!("BEST {score} ({wave} HANDLED)") } else { format!("BEST {score} (WAVE {wave})") };
                 o.text(w * 0.55 - Overlay::text_width(&tag, s) - 16.0 * s, y, s, gold, &tag);

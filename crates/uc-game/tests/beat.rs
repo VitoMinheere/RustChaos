@@ -12,7 +12,7 @@ use common::DT;
 
 fn start(seed: u32) -> Option<(Level, Game)> {
     let level = common::load("police1")?;
-    let g = Game::new_beat(&level, seed, None);
+    let g = Game::new_beat(&level, seed, None, Some(20));
     Some((level, g))
 }
 
@@ -135,7 +135,21 @@ fn a_mugger_goes_for_his_victim() {
 #[test]
 fn the_shift_ends() {
     let Some((level, mut g)) = start(11) else { return };
-    g.beat_mut().unwrap().shift = 2.0;
+    g.beat_mut().unwrap().shift = Some(2.0);
     run(&mut g, &level, 3.0);
     assert_eq!(g.outcome, Some(Outcome::Won));
+}
+
+/// The shift lengths: five minutes runs out after five minutes; an open-ended one doesn't.
+#[test]
+fn shift_lengths() {
+    let Some(level) = common::load("police1") else { return };
+    let g = Game::new_beat(&level, 11, None, Some(5));
+    assert_eq!(g.beat().unwrap().shift, Some(300.0));
+    let mut g = Game::new_beat(&level, 11, None, None);
+    assert_eq!(g.beat().unwrap().shift, None);
+    g.beat_mut().unwrap().on = 3600.0;
+    run(&mut g, &level, 3.0);
+    assert_eq!(g.outcome, None, "an open-ended shift ended on the clock");
+    assert!(g.beat().unwrap().on > 3600.0);
 }

@@ -44,7 +44,19 @@ pub struct Progress {
     endless: BTreeMap<String, (i64, u32)>,
     /// The difficulty chosen in the menu.
     difficulty: uc_game::Difficulty,
+    /// The Beat Cop shift length chosen in the menu, in minutes (`None` open-ended).
+    shift: Option<u32>,
     path: Option<PathBuf>,
+}
+
+/// An endless or Beat Cop record's key: lower case, and one word (the file splits on spaces).
+fn key(map: &str) -> String {
+    map.to_ascii_lowercase().replace(' ', "_")
+}
+
+/// The key a Beat Cop shift's best score is kept under: one per map and shift length.
+pub fn beat_key(label: &str, minutes: Option<u32>) -> String {
+    format!("beat{}:{label}", minutes.map_or("open".to_string(), |m| m.to_string()))
 }
 
 fn list(s: &str) -> BTreeSet<usize> {
@@ -95,7 +107,9 @@ impl Progress {
             .collect();
         let difficulty = text.lines().find_map(|l| l.strip_prefix("@difficulty ")?.trim().parse::<usize>().ok())
             .and_then(|n| uc_game::Difficulty::ALL.get(n).copied()).unwrap_or_default();
-        Progress { done, civ_warnings, endless, difficulty, path }
+        let shift = text.lines().find_map(|l| l.strip_prefix("@shift ")?.trim().parse::<u32>().ok())
+            .map_or(uc_game::game::beat::DEFAULT_SHIFT, |m| (m > 0).then_some(m));
+        Progress { done, civ_warnings, endless, difficulty, shift, path }
     }
 
     /// Another mission ended with too many civilian casualties: the chief's warnings before
@@ -116,14 +130,23 @@ impl Progress {
         self.save();
     }
 
+    pub fn shift(&self) -> Option<u32> {
+        self.shift
+    }
+
+    pub fn set_shift(&mut self, minutes: Option<u32>) {
+        self.shift = minutes;
+        self.save();
+    }
+
     /// The best endless run on `map`: (score, wave).
     pub fn best_endless(&self, map: &str) -> Option<(i64, u32)> {
-        self.endless.get(&map.to_ascii_lowercase()).copied()
+        self.endless.get(&key(map)).copied()
     }
 
     /// Records an endless run on `map`; whether it's a new best.
     pub fn record_endless(&mut self, map: &str, score: i64, wave: u32) -> bool {
-        let e = self.endless.entry(map.to_ascii_lowercase()).or_insert((i64::MIN, 0));
+        let e = self.endless.entry(key(map)).or_insert((i64::MIN, 0));
         let best = score > e.0;
         if best {
             *e = (score, wave);
@@ -183,6 +206,7 @@ impl Progress {
             })
             .chain((self.civ_warnings > 0).then(|| format!("@civ_warnings {}\n", self.civ_warnings)))
             .chain(self.endless.iter().map(|(m, (s, w))| format!("@endless {m} {s} {w}\n")))
+            .chain((self.shift != uc_game::game::beat::DEFAULT_SHIFT).then(|| format!("@shift {}\n", self.shift.unwrap_or(0))))
             .chain((self.difficulty != uc_game::Difficulty::Normal).then(|| {
                 let n = uc_game::Difficulty::ALL.iter().position(|&d| d == self.difficulty).unwrap_or(1);
                 format!("@difficulty {n}\n")
@@ -238,5 +262,17 @@ mod tests {
         p.record("police1", 500.0, &none, &none, Hard);
         p.record("police1", 400.0, &none, &none, Normal);
         assert_eq!(p.get("police1").unwrap().hardest, Hard);
+    }
+
+    /// Beat Cop bests are kept per shift length, and a map label with spaces in is one key.
+    #[test]
+    fn shift_bests_are_kept_apart() {
+        let mut p = Progress::default();
+        let (five, open) = (beat_key("West District: the park", Some(5)), beat_key("West District: the park", None));
+        p.record_endless(&five, 900, 4);
+        p.record_endless(&open, 300, 2);
+        assert_eq!(p.best_endless(&five), Some((900, 4)));
+        assert_eq!(p.best_endless(&open), Some((300, 2)));
+        assert!(!key(&five).contains(' '));
     }
 }

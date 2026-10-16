@@ -329,8 +329,12 @@ impl World {
         // A shift: its clock, the score and the tally, and what's on.
         if let Some(b) = self.game.beat() {
             let gold = [255, 210, 70, 255];
-            let left = b.shift.max(0.0) as u32;
-            let line = format!("SHIFT {}:{:02}   SCORE {}", left / 60, left % 60, b.score);
+            // Time left, or for an open-ended shift the time on duty.
+            let (what, secs) = match b.shift {
+                Some(left) => ("SHIFT", left.max(0.0) as u32),
+                None => ("ON DUTY", b.on as u32),
+            };
+            let line = format!("{what} {}:{:02}   SCORE {}", secs / 60, secs % 60, b.score);
             let big = s * 2.0;
             o.text(w / 2.0 - Overlay::text_width(&line, big) / 2.0, 8.0 * s, big, gold, &line);
             let tally = format!("HANDLED {}   MISSED {}", b.handled, b.missed);

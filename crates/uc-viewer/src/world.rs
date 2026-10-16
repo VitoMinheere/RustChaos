@@ -32,7 +32,7 @@ fn new_game(level: &Level, args: &Args) -> Game {
     let (centre, radius) = args.arena;
     let centre = centre.map(|(x, z)| glam::vec2(x * 256.0, z * 256.0));
     if args.beat {
-        return Game::new_beat(level, seed, centre);
+        return Game::new_beat(level, seed, centre, args.shift);
     }
     Game::new_endless(level, seed, centre, radius)
 }

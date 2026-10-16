@@ -14,6 +14,7 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --mute            no sound or music
   --endless         endless mode on the mission's map: waves of thugs (with --seed N to repeat a run)
   --beat           a Beat Cop shift on the mission's map: incidents over the radio (--seed, --arena too)
+  --shift MINUTES  the shift's length (default 10), or endless for an open-ended one
   --arena X,Z,R     the endless arena: its middle in squares and its radius (default: 10 round the start)
   --windowed        in a window (default: full screen; F11 or Alt+Enter switches)
   --weapon W        start holding a weapon (knife, bat, pistol, shotgun, ak)
@@ -64,6 +65,8 @@ pub(crate) struct Args {
     pub(crate) endless: bool,
     /// A Beat Cop shift on the mission's map (#130).
     pub(crate) beat: bool,
+    /// The shift's length in minutes; `None` open-ended.
+    pub(crate) shift: Option<u32>,
     pub(crate) seed: Option<u32>,
     /// The endless arena: its middle in squares (the start if none) and its radius.
     pub(crate) arena: (Option<(f32, f32)>, f32),
@@ -102,6 +105,7 @@ pub(crate) fn parse_args() -> Result<Args, String> {
         mute: false,
         endless: false,
         beat: false,
+        shift: uc_game::game::beat::DEFAULT_SHIFT,
         seed: None,
         arena: (None, 10.0),
         arena_name: None,
@@ -131,6 +135,13 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             "--mute" => a.mute = true,
             "--endless" => a.endless = true,
             "--beat" => a.beat = true,
+            "--shift" => {
+                let v = value()?;
+                a.shift = match v.as_str() {
+                    "endless" | "open" | "0" => None,
+                    n => Some(n.parse().map_err(|e| format!("--shift: {e}"))?),
+                };
+            }
             "--arena" => {
                 let v = parse_floats(&value()?, 3, "--arena")?;
                 a.arena = (Some((v[0], v[1])), v[2]);

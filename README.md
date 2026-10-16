@@ -134,14 +134,14 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 Downed thugs often carry health or ammo, so search them. Arrests score more than knockouts, and innocents hurt cost points. The run ends when Darci goes down, or when the crime rate, which rises while thugs are left standing, reaches 100. The same seed gives the same waves, and each map keeps its best score.
 
-**Beat Cop:** BEAT COP in the main menu, then a map, or `--mission NAME --beat [--seed N]`. A twenty-minute shift with no mission script: dispatch calls in incidents, each with a beacon and a time limit:
+**Beat Cop:** BEAT COP in the main menu, then a map, or `--mission NAME --beat [--shift MINUTES|endless] [--seed N]`. A shift of 5, 10 (the default), 15 or 20 minutes, or an open-ended one (Left/Right on the map list picks it), with no mission script: dispatch calls in incidents, each with a beacon and a time limit:
 - a mugging;
 - an armed suspect;
 - a gun dumped in a bin;
 - a gang fight;
 - a wanted man who runs when he sees you.
 
-Handling one scores, with arrests worth extra, and brings the crime rate down. Missing one puts it up. The shift ends after twenty minutes, or early if the crime rate reaches 100. The best score is kept per map.
+Handling one scores, with arrests worth extra, and brings the crime rate down. Missing one puts it up. The shift ends when its time is up, or early if the crime rate reaches 100; an open-ended one only ends that way. The best score is kept per map and shift length.
 
 **Difficulty:** DIFFICULTY in the main menu switches between Easy, Normal and Hard. It changes:
 - enemy skill;
