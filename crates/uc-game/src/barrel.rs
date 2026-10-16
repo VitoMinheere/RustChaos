@@ -9,6 +9,9 @@
 //! It runs a turn (a twentieth of a second) at a time, in the original's units: positions
 //! in 256ths of a world unit.
 
+// The index loops follow the original's, over x, y and z and over other barrels.
+#![allow(clippy::needless_range_loop)]
+
 use crate::Barrel;
 use glam::{Vec2, Vec3};
 

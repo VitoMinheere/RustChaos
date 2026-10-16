@@ -1432,7 +1432,7 @@ impl Person {
     fn step_crouch(&mut self, phase: u8, c: &Controls, ground: &Ground, map: &Map, dt: f32) {
         let moving = c.wish.length_squared() > 0.01;
         match phase {
-            0 | 1 | 2 if !c.sprint && !c.crouch => {
+            0..=2 if !c.sprint && !c.crouch => {
                 let a = match self.weapon {
                     _ if !self.gun_out() => anim::CROUTCH_GETUP,
                     Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper => anim::UNCROUTCH_AK,
@@ -1465,11 +1465,9 @@ impl Person {
                 self.fig.restart(anim::IDLE_CROUTCH, Play::Once);
                 self.state = State::Crouch { phase: 1 };
             }
-            3 => {
-                if self.fig.finished() {
-                    self.state = State::Move;
-                    self.idle(false);
-                }
+            3 if self.fig.finished() => {
+                self.state = State::Move;
+                self.idle(false);
             }
             _ => {}
         }

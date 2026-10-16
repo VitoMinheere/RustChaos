@@ -104,7 +104,7 @@ impl Bike {
         let (x, z) = (x as i64, z as i64);
         let ground = |x: i64, z: i64| road.height(x as f32, z as f32) as i64;
         let back = [x << 8, (ground(x, z) + WHEEL_RADIUS + WHEEL_SUS) << 8, z << 8];
-        let (fx, fz) = (x + (sin(yaw) * WHEEL_APART >> 16), z + (cos(yaw) * WHEEL_APART >> 16));
+        let (fx, fz) = (x + ((sin(yaw) * WHEEL_APART) >> 16), z + ((cos(yaw) * WHEEL_APART) >> 16));
         let front = [fx << 8, (ground(fx, fz) + WHEEL_RADIUS + WHEEL_SUS) << 8, fz << 8];
         Bike {
             way, yaw: yaw & 2047, pitch: 0, mode: Mode::Parked, on_ground_front: true, on_ground_back: true,
@@ -179,12 +179,12 @@ impl Bike {
                 self.back_d[2] = 0;
             } else {
                 // Drive the back wheel, and stop it sliding sideways over the ground.
-                self.back_d[0] += ((self.accel * vx >> 8) * (friction + 256)) >> 13;
-                self.back_d[2] += ((self.accel * vz >> 8) * (friction + 256)) >> 13;
+                self.back_d[0] += (((self.accel * vx) >> 8) * (friction + 256)) >> 13;
+                self.back_d[2] += (((self.accel * vz) >> 8) * (friction + 256)) >> 13;
                 let (radx, radz) = (-vz, vx);
-                let dprod = (mul64(radx, self.back_d[0]) + mul64(radz, self.back_d[2])) * friction >> 8;
-                self.back_d[0] -= radx * dprod >> 16;
-                self.back_d[2] -= radz * dprod >> 16;
+                let dprod = ((mul64(radx, self.back_d[0]) + mul64(radz, self.back_d[2])) * friction) >> 8;
+                self.back_d[0] -= (radx * dprod) >> 16;
+                self.back_d[2] -= (radz * dprod) >> 16;
             }
         }
         // Move the back wheel, out of any wall.
@@ -224,7 +224,7 @@ impl Bike {
         let (dx, dz) = (self.front[0] - self.back[0], self.front[2] - self.back[2]);
         let dist = qdist2(dx.abs(), dz.abs());
         let ddist = (WHEEL_APART << 8) - dist;
-        let along = ddist * (256 - friction) >> 12;
+        let along = (ddist * (256 - friction)) >> 12;
         self.front[0] -= dx * along / ((dist >> 4) + 1);
         self.front[2] -= dz * along / ((dist >> 4) + 1);
         let before = Vec2::new(self.front[0] as f32, self.front[2] as f32) / 256.0;
@@ -236,7 +236,7 @@ impl Bike {
             }
             // Steer away from the wall.
             let (ax, az) = ((at.x - before.x) as i64, (at.y - before.y) as i64);
-            let (bx, bz) = ((before.x * 256.0) as i64 - self.back[0] >> 8, (before.y * 256.0) as i64 - self.back[2] >> 8);
+            let (bx, bz) = (((before.x * 256.0) as i64 - self.back[0]) >> 8, ((before.y * 256.0) as i64 - self.back[2]) >> 8);
             if qdist2(ax.abs(), az.abs()) > 128 {
                 if ax * bz - az * bx >= 0 {
                     if self.steer < 100 {

@@ -255,9 +255,9 @@ impl Game {
     }
 
     /// The sea (`AENG_lower` at a `MAV_SPARE_FLAG_WATER` point, aeng.cpp:7628): each water
-    /// point rises and falls by up to 16 units, `(COS((x << 8) + sea_offset / 2) + SIN((z << 8)
-    /// + sea_offset / 2 + 700)) >> 13`, a wave rolling across the squares as `sea_offset`
-    /// counts the milliseconds.
+    /// point rises and falls by up to 16 units,
+    /// `(COS((x << 8) + sea_offset / 2) + SIN((z << 8) + sea_offset / 2 + 700)) >> 13`, a wave
+    /// rolling across the squares as `sea_offset` counts the milliseconds.
     pub fn draw_sea(&self, out: &mut BTreeMap<u32, Batch>) {
         let offset = (self.time * 1000.0) as i64 / 2;
         let turn = |a: i64| (a & 2047) as f32 * std::f32::consts::TAU / 2048.0;

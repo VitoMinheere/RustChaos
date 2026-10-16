@@ -290,10 +290,10 @@ impl Dirt {
                     }
                     done += 1;
                     let mut dist = (self.random() & 0x7f) + 150;
-                    dist = dist * dist >> 8;
+                    dist = (dist * dist) >> 8;
                     let angle = self.random() & 2047;
-                    let lx = self.trees[t].x + (sin(angle) * dist >> 16);
-                    let lz = self.trees[t].z + (cos(angle) * dist >> 16);
+                    let lx = self.trees[t].x + ((sin(angle) * dist) >> 16);
+                    let lz = self.trees[t].z + ((cos(angle) * dist) >> 16);
                     let (mx, mz) = (lx >> 8, lz >> 8);
                     if (0..128).contains(&mx) && (0..128).contains(&mz) && !floor.hidden(mx, mz) {
                         let mut leaf = Piece::new(Kind::Leaf, lx, floor.height(lx, lz), lz);
@@ -321,7 +321,7 @@ impl Dirt {
             let angle = self.random() & 2047;
             let dist = if self.first > 0 {
                 let d = (self.random() & 0xff) + (self.random() & 0xff) + (self.random() & 0xff) + (self.random() & 0xff);
-                (0x3af - d) * radius >> 10
+                ((0x3af - d) * radius) >> 10
             } else {
                 let mut d = radius - (self.random() & 0xff) - 0x80;
                 if self.ground == Ground::Snow {
@@ -498,8 +498,8 @@ impl Dirt {
                 Kind::Leaf | Kind::Snow => {
                     let push = 256 - dist * 256 / strength;
                     if push != 0 {
-                        let pushx = (dx * 32 / dist + dgx) * push >> 12;
-                        let pushz = (dz * 32 / dist + dgz) * push >> 12;
+                        let pushx = ((dx * 32 / dist + dgx) * push) >> 12;
+                        let pushz = ((dz * 32 / dist + dgz) * push) >> 12;
                         let pushy = (pushx.abs() + pushz.abs()) << 1;
                         d.dpitch += (self.random() & 0x3f) - 0x1f;
                         d.droll += (self.random() & 0x3f) - 0x1f;

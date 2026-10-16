@@ -110,7 +110,7 @@ impl Game {
     /// there (`PCOM_set_person_move_runaway`, pcom.cpp:2466). A place whose way starts off
     /// towards the danger is tried again, twice. Returns the next leg.
     fn run_away(&mut self, i: usize, at: Vec3, level: &Level) -> Option<Vec3> {
-        let s = self.people[i].scared.clone()?;
+        let s = self.people[i].scared?;
         let danger = s.at;
         let arrived = s.goal.is_none_or(|g| Vec2::new(g.x - at.x, g.z - at.z).length() < 1.5 * 256.0);
         if !arrived {

@@ -290,8 +290,8 @@ impl Mav {
             return true;
         }
         let over = 0x4000 / dist;
-        dx = dx * over >> 8;
-        dz = dz * over >> 8;
+        dx = (dx * over) >> 8;
+        dz = (dz * over) >> 8;
         let (mut lx, mut lz) = (ax, az);
         let (mut x, mut z) = ((ax << 8) + 0x80, (az << 8) + 0x80);
         let goto = |x: i32, z: i32, dir: usize| on_map(x, z) && self.opt(x, z, dir) & caps(GOTO) != 0;
