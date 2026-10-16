@@ -162,6 +162,8 @@ impl Weapon {
 
 /// `PCOM_BENT_ROBOT`: ignores everything and everyone.
 pub const BENT_ROBOT: u8 = 1 << 5;
+/// `PCOM_BENT_RESTRICTED`: won't climb, jump and so on, on a route.
+pub const BENT_RESTRICTED: u8 = 1 << 6;
 /// `PCOM_BENT_FIGHT_BACK`: hits back when set on.
 pub const BENT_FIGHT_BACK: u8 = 1 << 3;
 /// `PCOM_BENT_PLAYERKILL`: only the player can hurt them.
@@ -689,6 +691,9 @@ pub struct Person {
     /// Where to head for on the way to whoever they're fighting, when there's no walking
     /// straight there (set by the game each frame from the navigation map).
     pub via: Option<Vec3>,
+    /// On a route, what to do at its next edge (set by the game each frame): where, which
+    /// way, and whether to jump there (a gap or a ledge) or walk on (into a ladder).
+    pub leap: Option<(Vec3, Vec2, bool)>,
     pub pace: Pace,
     /// Getting out of a car's way: run this way for this many seconds.
     pub dodge: Option<(Vec2, f32)>,
@@ -751,7 +756,7 @@ impl Person {
             pace: Pace::Walk,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
-            invulnerable: false, foe: None, colour: 0, group: 0, goal: None, via: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
+            invulnerable: false, foe: None, colour: 0, group: 0, goal: None, via: None, leap: None, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, heard: None,
         }
     }

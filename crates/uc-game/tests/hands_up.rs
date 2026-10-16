@@ -63,10 +63,11 @@ fn a_passer_by_puts_their_hands_up() {
         run(&mut g, &level, 1.0);
     }
     assert!(matches!(g.people[i].state, State::HandsUp { .. }));
-    // Aimed elsewhere, after the twenty seconds: down again.
+    // Aimed elsewhere, after the twenty seconds: down again (and off, running scared, maybe
+    // jumping, off the pavement).
     g.people[p].weapon = Weapon::None;
     run(&mut g, &level, 0.5);
-    assert!(matches!(g.people[i].state, State::Move), "{:?}", g.people[i].state);
+    assert!(!matches!(g.people[i].state, State::HandsUp { .. }), "{:?}", g.people[i].state);
 }
 
 #[test]
