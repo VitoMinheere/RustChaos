@@ -912,13 +912,13 @@ impl Person {
         self.idle(false);
     }
 
-    /// Goes for `by` (`PCOM_set_person_ai_navtokill`): those who fight anyway notice them at
-    /// once; anyone else guilty takes up the fight as a gang member would.
     /// Stops going for anyone (capture the flag's bot getting on with the game).
     pub(crate) fn calm_down(&mut self) {
         self.aggro = false;
     }
 
+    /// Goes for `by` (`PCOM_set_person_ai_navtokill`): those who fight anyway notice them at
+    /// once; anyone else guilty takes up the fight as a gang member would.
     pub fn go_for(&mut self) {
         if !self.fights() {
             self.ai = AI_GANG;
@@ -947,7 +947,10 @@ impl Person {
 
     /// Attacks the player on sight (`PCOM_AI_GANG`, `_GUARD`, `_BULLY`, fight-test dummies...).
     pub fn hostile(&self) -> bool {
-        !self.player && self.bent & BENT_ROBOT == 0 && matches!(self.ai, 2 | 3 | 4 | 6 | 12 | 13 | 17 | 18 | 19 | 21)
+        // A robot ignores everything, but an assassin still goes for its mark (`PCOM_AI_ASSASIN`
+        // and `_SHOOT_DEAD` in `PCOM_process_person` don't look at `PCOM_BENT_ROBOT`): The
+        // Fallen's Wildcat holding Pete at gunpoint is one.
+        !self.player && (matches!(self.ai, 3 | 21) || self.bent & BENT_ROBOT == 0 && matches!(self.ai, 2 | 4 | 6 | 12 | 13 | 17 | 18 | 19))
     }
 
     /// Closes in on its `foe` and swings: anyone hostile to the player, and a bodyguard who

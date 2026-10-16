@@ -314,3 +314,32 @@ fn a_downed_man_in_black_levitates_then_goes_up() {
     run(&mut g, 3.0);
     assert!(g.sparks.is_empty(), "{} bolts still there", g.sparks.len());
 }
+
+/// Pete is held at gunpoint at Scarper's Cove, and once he's begged for his life the script
+/// makes the Wildcat his assassin (point 76), a robot one: he shoots Pete, and the clue comes
+/// out (#86).
+#[test]
+fn the_wildcat_shoots_pete() {
+    let Some(mut r) = start() else { return };
+    r.play(3.0, Controls::default());
+    r.talk_until(13, 21, 60.0);
+    r.play(15.0, Controls::default());
+    r.take_clue(39, 7);
+    r.stand(r.point(65));
+    r.wait_for(67, 90.0);
+    r.play(3.0, Controls::default());
+    let (pete, wildcat) = (r.who(67), r.who(68));
+    assert!(!r.g.people[pete].is_dead(), "shot before Darci came");
+    r.look_at(pete, 5.0 * 256.0);
+    let mut shot = false;
+    for _ in 0..(40.0 / DT) as usize {
+        r.g.update(DT, &Controls::default(), &r.level);
+        if r.g.people[pete].is_dead() {
+            shot = true;
+            break;
+        }
+    }
+    assert!(shot, "the Wildcat never shot Pete");
+    assert_eq!(r.g.people[pete].hurt_by, Some(wildcat), "somebody else got him");
+    assert!(r.until_active(226, 10.0), "no clue from Pete");
+}

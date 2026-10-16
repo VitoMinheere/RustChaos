@@ -1084,6 +1084,16 @@ impl Game {
             p.take_hit(from, 10_000, person::ko::KNOCKDOWN, false, false, Weapon::Pistol);
         }
         let darci = player.map(|p| self.people[p].fig.pos);
+        // "Assasins change once they've killed their targets" (pcom.cpp:11078): to a gang
+        // member wandering about.
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            if matches!(p.ai, 3 | 21) && p.other != 0 && self.by_way.get(&p.other).is_some_and(|&f| self.people[f].is_dead()) {
+                let p = &mut self.people[i];
+                (p.ai, p.mv) = (person::AI_GANG, person::MOVE_WANDER);
+                p.calm_down();
+            }
+        }
         for i in 0..self.people.len() {
             let p = &self.people[i];
             let foe = match (p.ai, p.other) {
