@@ -44,6 +44,8 @@ pub(crate) struct World {
     pub(crate) civ_warning: Option<String>,
     /// The in-game menu, while it's up.
     pub(crate) pause: Option<Pause>,
+    /// The developer console, and the free camera's teleport.
+    pub(crate) console: Console,
 }
 
 impl World {
@@ -86,6 +88,7 @@ impl World {
             checklist: false,
             pause: None,
             civ_warning: None,
+            console: Console::default(),
         })
     }
 

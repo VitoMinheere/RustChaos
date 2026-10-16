@@ -999,6 +999,12 @@ impl Person {
 
     /// Back on their feet somewhere else, as if new: one of the city's extra people moved
     /// on by `PCOM_do_regen`, which clears being knocked out or arrested.
+    /// On her feet and doing nothing, wherever she was (after a teleport).
+    pub fn stand_still(&mut self) {
+        self.state = State::Move;
+        self.idle(false);
+    }
+
     pub fn respawn(&mut self, pos: Vec3) {
         self.fig.pos = pos;
         self.state = State::Move;

@@ -39,6 +39,8 @@ pub(crate) struct Input {
     pub(crate) mouse: Vec2,
     pub(crate) wheel: f32,
     pub(crate) pad: Pad,
+    /// Text typed since the last frame, for the console.
+    pub(crate) typed: String,
     /// The window has the keyboard and mouse.
     pub(crate) focused: bool,
     /// The cursor is captured now.
