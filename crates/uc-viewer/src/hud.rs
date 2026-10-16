@@ -1,5 +1,6 @@
 //! The HUD drawn over the game: health, weapons, messages, the map, sights and the rest.
 
+use uc_formats::units::radians;
 use crate::*;
 
 /// The gun sights (`PANEL_draw_gun_sight`, DDEngine/Source/panel.cpp:728): four strokes
@@ -24,7 +25,7 @@ pub(crate) fn draw_sights(o: &mut Overlay, sights: &[uc_game::Sight], cam: &Came
         let dot = (30.0 * k * px).clamp(2.0, 12.0);
         let acc = s.accuracy.clamp(0.0, 100.0);
         let colour = [(255.0 - acc) as u8, acc as u8, 0, 140];
-        let a = acc * std::f32::consts::TAU / 2048.0;
+        let a = radians(acc);
         for angle in [a, -a, std::f32::consts::PI + a, std::f32::consts::PI - a] {
             let dir = vec2(angle.cos(), angle.sin());
             let n = ((r_out - r_in) / dot).ceil().max(1.0) as usize;

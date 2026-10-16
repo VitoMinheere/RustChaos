@@ -6,6 +6,7 @@
 //! Heights are in 64ths of a world unit's 64 (`MAV_height`: a quarter of a block a step),
 //! squares are map squares, and directions are `MAV_DIR_*`: -x, +x, -z, +z.
 
+use uc_formats::units::radians;
 use crate::ground::Ground;
 use crate::level::Level;
 use glam::{vec2, Vec2};
@@ -454,7 +455,7 @@ fn heights(map: &Map, level: &Level) -> Vec<i8> {
         let (lo, hi) = crate::level::prim_bounds(&prim);
         let mid = vec2(lo.x + hi.x, lo.z + hi.z) / 2.0;
         for o in map.objects.iter().filter(|o| o.prim == 41) {
-            let a = o.yaw as f32 * std::f32::consts::TAU / 2048.0;
+            let a = radians(o.yaw as f32);
             let (s, c) = a.sin_cos();
             let (rx, rz) = (o.x as f32 + c * mid.x + s * mid.y, o.z as f32 - s * mid.x + c * mid.y);
             let (mx, mz) = ((rx / 256.0).floor() as i32, (rz / 256.0).floor() as i32);

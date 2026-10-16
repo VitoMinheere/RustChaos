@@ -3,6 +3,7 @@
 //! The city's extra civilians stroll from one of these squares to the next, and appear on
 //! one when they're made or brought back near the player.
 
+use uc_formats::units::radians;
 use glam::{vec2, Vec2, Vec3};
 use std::collections::HashMap;
 use std::path::Path;
@@ -132,7 +133,7 @@ impl Wander {
     /// `WAND_find_good_start_point`: near the spot `dist` ahead of the player, give or take
     /// an eighth of a turn, so the people brought back appear where they're about to be seen.
     pub fn start_ahead(&self, player: Vec3, facing: Vec2, dist: f32, rand: &mut impl FnMut() -> u32) -> Option<Vec2> {
-        let turn = ((rand() & 511) as f32 - 256.0) * std::f32::consts::TAU / 2048.0;
+        let turn = radians((rand() & 511) as f32 - 256.0);
         let dir = Vec2::from_angle(turn).rotate(facing);
         let at = vec2(player.x, player.z) + dir * dist;
         self.start_near((at.x as i32) >> 8, (at.y as i32) >> 8, 1)
