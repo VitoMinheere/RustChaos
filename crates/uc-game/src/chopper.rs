@@ -137,7 +137,7 @@ impl Chopper {
         (self.y - (250 << 8)) - sky.map_height(self.x as f32 / 256.0, self.z as f32 / 256.0) as i32
     }
 
-    fn set_state(&mut self, state: State, player: Option<usize>, sky: &impl Sky) {
+    fn set_state(&mut self, state: State, sky: &impl Sky) {
         self.counter = 0;
         match state {
             State::Takeoff => self.since_takeoff = 0,
@@ -145,7 +145,7 @@ impl Chopper {
                 self.pick_up_victim(sky);
                 if self.target.is_none() {
                     // "Tracking failed, no target".
-                    return self.set_state(State::Idle, player, sky);
+                    return self.set_state(State::Idle, sky);
                 }
             }
             State::Homing => self.target = None,
@@ -291,12 +291,12 @@ impl Chopper {
             State::Idle => {
                 self.damp();
                 if self.victim.is_some() {
-                    self.set_state(State::Tracking, player, sky);
+                    self.set_state(State::Tracking, sky);
                 } else if near(darci, DETECTION_RADIUS) {
                     if self.target.is_none() {
                         self.target = player.map(Target::Person);
                     }
-                    self.set_state(State::Tracking, player, sky);
+                    self.set_state(State::Tracking, sky);
                 }
             }
             State::Takeoff => {
@@ -313,7 +313,7 @@ impl Chopper {
                         self.light += 5;
                     }
                 } else {
-                    self.set_state(State::Idle, player, sky);
+                    self.set_state(State::Idle, sky);
                 }
             }
             State::Landing => {
@@ -336,20 +336,20 @@ impl Chopper {
                     if self.rotorspeed > 0 {
                         self.rotorspeed -= 1;
                     } else {
-                        self.set_state(State::Landed, player, sky);
+                        self.set_state(State::Landed, sky);
                     }
                 }
             }
             State::Landed => {
                 if self.victim.is_some() || near(darci, DETECTION_RADIUS) {
-                    self.set_state(State::Takeoff, player, sky);
+                    self.set_state(State::Takeoff, sky);
                 }
             }
             State::Tracking => {
                 self.pick_up_victim(sky);
                 let Some(t) = self.target_pos(sky) else {
                     // Its target is gone: back home.
-                    return self.set_state(State::Homing, player, sky);
+                    return self.set_state(State::Homing, sky);
                 };
                 self.predict_altitude(sky);
                 self.home(((t.x * 256.0) as i32, (t.z * 256.0) as i32), sky);
@@ -357,7 +357,7 @@ impl Chopper {
                 if let Some(Target::Person(i)) = self.target {
                     let (hx, hz) = ((self.x - self.home.0) as i64 >> 8, (self.z - self.home.2) as i64 >> 8);
                     if sky.is_player(i) && hx * hx + hz * hz > HARDWIRED_RADIUS * HARDWIRED_RADIUS {
-                        self.set_state(State::Homing, player, sky);
+                        self.set_state(State::Homing, sky);
                     }
                 }
             }
@@ -368,7 +368,7 @@ impl Chopper {
                 let (hx, hz) = ((self.x - self.home.0) as i64 >> 8, (self.z - self.home.2) as i64 >> 8);
                 if hx * hx + hz * hz <= IGNORAMUS_RADIUS * IGNORAMUS_RADIUS && near(darci, DETECTION_RADIUS) {
                     self.target = player.map(Target::Person);
-                    self.set_state(State::Tracking, player, sky);
+                    self.set_state(State::Tracking, sky);
                 }
             }
         }
@@ -412,7 +412,7 @@ impl Chopper {
         }
         let from = (self.x >> 8, self.z >> 8);
         [self.rotors & 2047, (self.rotors + 1024) & 2047]
-            .map(|r| (from, ((self.x + (mag * sin(r) >> 10)) >> 8, (self.z + (mag * cos(r) >> 10)) >> 8)))
+            .map(|r| (from, ((self.x + ((mag * sin(r)) >> 10)) >> 8, (self.z + ((mag * cos(r)) >> 10)) >> 8)))
             .to_vec()
     }
 }

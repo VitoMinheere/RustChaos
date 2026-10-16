@@ -22,7 +22,7 @@ impl Sky for World<'_> {
 
     fn person(&self, i: usize) -> Option<Vec3> {
         let p = self.game.people.get(i)?;
-        (!p.removed).then(|| p.fig.pos)
+        (!p.removed).then_some(p.fig.pos)
     }
 
     fn is_player(&self, i: usize) -> bool {

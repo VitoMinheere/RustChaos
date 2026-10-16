@@ -1546,10 +1546,8 @@ impl App {
             }
             self.input.pressed.remove(&KeyCode::Escape);
         }
-        if self.world.as_ref().is_some_and(|w| w.pause.is_some()) {
-            if self.pause_frame(dt) {
-                return;
-            }
+        if self.world.as_ref().is_some_and(|w| w.pause.is_some()) && self.pause_frame(dt) {
+            return;
         }
         let won = self.world.as_ref().is_some_and(|w| w.game.outcome == Some(Outcome::Won));
         if won && (self.input.hit(KeyCode::Enter) || self.input.pad.hit(Button::Start)) {

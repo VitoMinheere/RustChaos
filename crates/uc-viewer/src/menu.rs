@@ -150,7 +150,7 @@ impl Menu {
         o.text(w / 2.0 - Overlay::text_width(title, big) / 2.0, h * 0.18, big, gold, title);
         if self.screen == Screen::Title {
             let any = "PRESS ANY KEY";
-            if (self.since.elapsed().as_secs_f32() * 2.0) as u32 % 2 == 0 {
+            if ((self.since.elapsed().as_secs_f32() * 2.0) as u32).is_multiple_of(2) {
                 o.text(w / 2.0 - Overlay::text_width(any, s * 2.0) / 2.0, h * 0.8, s * 2.0, white, any);
             }
             return;
