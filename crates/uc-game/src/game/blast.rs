@@ -109,6 +109,7 @@ impl Game {
             if let Blame::Person(by) = by {
                 self.people[i].hurt_by = Some(by);
             }
+            let hit = self.hurt(i, hit);
             self.people[i].take_hit(at, hit, ko, false, false, Weapon::None);
         }
     }

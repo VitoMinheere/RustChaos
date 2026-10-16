@@ -34,6 +34,7 @@ impl Game {
                     }
                     let was_down = self.people[victim].is_down();
                     self.people[victim].hurt_by = Some(attacker);
+                    let damage = self.hurt(victim, damage);
                     self.people[victim].take_hit(from, damage, ko, high, low, weapon);
                     if !was_down && self.people[victim].is_down() && Some(attacker) == self.player {
                         let kind = self.people[attacker].kind;
@@ -152,6 +153,7 @@ impl Game {
                     if (self.rand() % 1000) as f32 / 1000.0 < chance {
                         let was_down = self.people[victim].is_down();
                         self.people[victim].hurt_by = Some(attacker);
+                        let damage = self.hurt(victim, damage);
                         self.people[victim].take_hit(from, damage, ko, true, false, weapon);
                         if !was_down && self.people[victim].is_down() && Some(attacker) == self.player {
                             let kind = self.people[attacker].kind;

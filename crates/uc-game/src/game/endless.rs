@@ -234,10 +234,10 @@ impl Game {
         let weapon = if boss { Weapon::Ak47 } else { arms[(e.rand() as usize) % arms.len()] };
         // Something to find on them: health or ammo, less often as the waves go on.
         let find = e.rand() % 100;
-        let health_chance = 30u32.saturating_sub(n);
+        let health_chance = (30 - n as i32 + self.difficulty().finds()).max(0) as u32;
         let drop = if find < health_chance {
             Some(3)
-        } else if find < health_chance + 25 {
+        } else if find < health_chance + (25 + self.difficulty().finds()).max(0) as u32 {
             match weapon {
                 Weapon::Shotgun => Some(11),
                 Weapon::Ak47 => Some(12),
@@ -263,6 +263,8 @@ impl Game {
             p.health = p.max_health;
         }
         p.go_for();
+        let change = self.difficulty().skill_change();
+        self.tune(i, change);
         e.foes.push(Foe { person: i, counted: false });
         true
     }

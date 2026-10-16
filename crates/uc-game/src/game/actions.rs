@@ -319,7 +319,7 @@ impl Game {
             return;
         }
         let before = s.time;
-        s.time += dt;
+        s.time += dt * self.difficulty().searching();
         if before < Search::FOUND && s.time >= Search::FOUND {
             let found: Vec<Item> = match s.what {
                 Searched::Prop(ob) => {

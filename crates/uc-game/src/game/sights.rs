@@ -47,7 +47,7 @@ impl Game {
             _ => false,
         };
         let floor = if moving { 600.0 } else { 0.0 };
-        self.aiming.gun.1 = (self.aiming.gun.1 - benefit * 20.0 * dt).max(floor);
+        self.aiming.gun.1 = (self.aiming.gun.1 - benefit * 20.0 * dt * self.difficulty().steadying()).max(floor);
     }
 
     fn aim_point(&self, aim: Aim) -> Vec3 {
