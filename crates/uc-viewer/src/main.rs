@@ -275,7 +275,7 @@ impl App {
             w.game.skip_cutscene();
             controls.jump = false;
         }
-        w.game.update(dt, &controls, &w.level);
+        w.game.update(dt * w.console.time_scale.unwrap_or(1.0), &controls, &w.level);
     }
 
     /// Loads mission `name` and starts playing it.

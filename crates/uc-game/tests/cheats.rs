@@ -1,5 +1,6 @@
-//! The developer console's commands and the cheats (#106): teleports, the nearest event
-//! point, ending the mission, playing as Roper, the full kit. Skipped without an install.
+//! The developer console's commands and the cheats (#106, #147): teleports, the nearest
+//! event point, ending the mission, playing as Roper, the full kit, god mode, unlimited
+//! ammo, give, kill, freeze and the crime rate. Skipped without an install.
 
 use glam::vec3;
 use uc_game::{Controls, Game, Outcome, State, Weapon};
@@ -79,5 +80,81 @@ fn play_as_roper_where_his_body_is_loaded() {
     if r.level.people.as_ref().is_some_and(|p| p.roper.is_none()) {
         assert!(!r.g.play_as(ptype::ROPER, &r.level));
         assert_eq!(r.g.player().unwrap().kind, ptype::DARCI);
+    }
+}
+
+/// `god`: blows land but take nothing off her.
+#[test]
+fn god_mode_takes_no_damage() {
+    let Some(mut r) = common::start("police1") else { return };
+    r.heal = false;
+    r.play(1.0, Controls::default());
+    r.g.cheats.god = true;
+    r.play(0.1, Controls::default());
+    let p = r.g.player.unwrap();
+    let full = r.g.people[p].max_health;
+    let from = r.g.people[p].fig.pos + vec3(50.0, 0.0, 0.0);
+    r.g.people[p].take_hit(from, 1000, 0, false, false, Weapon::None);
+    r.play(0.5, Controls::default());
+    assert_eq!(r.g.people[p].health, full);
+    assert!(!r.g.people[p].knocked_out);
+    // Off again, blows land.
+    r.g.cheats.god = false;
+    r.play(0.1, Controls::default());
+    r.g.people[p].take_hit(from, 10, 0, false, false, Weapon::None);
+    assert!(r.g.people[p].health < full);
+}
+
+/// `give` and `ammo`: a shotgun in her hands, and its rounds never run down.
+#[test]
+fn give_and_unlimited_ammo() {
+    let Some(mut r) = common::start("police1") else { return };
+    r.play(1.0, Controls::default());
+    assert!(r.g.give("shotgun"));
+    assert!(!r.g.give("banana"));
+    let p = r.g.player.unwrap();
+    assert_eq!(r.g.people[p].weapon, Weapon::Shotgun);
+    r.g.cheats.ammo = true;
+    for _ in 0..10 {
+        r.play(0.1, Controls { punch: true, ..Default::default() });
+        r.play(0.4, Controls::default());
+    }
+    assert!(r.g.people[p].rounds().unwrap() >= 240, "ran down to {:?}", r.g.people[p].rounds());
+    assert!(r.g.give("grenades"));
+    assert_eq!(r.g.people[p].grenades, 3);
+}
+
+/// `kill`: everyone after her goes down; `kill near` only those close.
+#[test]
+fn kill_knocks_out_the_enemies() {
+    let Some(level) = common::load("police1") else { return };
+    let mut g = Game::new_endless(&level, 5, Some(glam::vec2(8827.0, 10274.0)), 9.0);
+    for _ in 0..(8.0 / common::DT) as usize {
+        g.update(common::DT, &Controls::default(), &level);
+    }
+    let up = |g: &Game| g.people.iter().filter(|p| !p.player && !p.removed && !p.is_down() && p.hostile()).count();
+    assert!(up(&g) > 0);
+    assert_eq!(g.knock_out_enemies(Some(1.0)), 0, "none is that close");
+    let n = g.knock_out_enemies(None);
+    assert!(n > 0 && up(&g) == 0, "{n} knocked out, {} still up", up(&g));
+}
+
+/// `freeze`: nobody else moves.
+#[test]
+fn freeze_stops_everyone_else() {
+    let Some(level) = common::load("police1") else { return };
+    let mut g = Game::new_endless(&level, 5, Some(glam::vec2(8827.0, 10274.0)), 9.0);
+    for _ in 0..(8.0 / common::DT) as usize {
+        g.update(common::DT, &Controls::default(), &level);
+    }
+    g.cheats.freeze = true;
+    g.update(common::DT, &Controls::default(), &level);
+    let me = g.player.unwrap();
+    let at: Vec<_> = g.people.iter().map(|p| p.fig.pos).collect();
+    for _ in 0..(3.0 / common::DT) as usize {
+        g.update(common::DT, &Controls::default(), &level);
+    }
+    for (k, p) in g.people.iter().enumerate().filter(|(k, p)| *k != me && p.hostile() && !p.removed) {
+        assert!((p.fig.pos - at[k]).length() < 32.0, "{k} moved {:.0}", (p.fig.pos - at[k]).length());
     }
 }
