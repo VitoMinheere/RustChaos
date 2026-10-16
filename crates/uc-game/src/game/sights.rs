@@ -19,7 +19,7 @@ pub struct Sight {
 impl Game {
     /// What the player's gun is on.
     fn aimed(&self) -> Option<Aim> {
-        match (self.target, self.aim_creature, self.aim_barrel, self.aim_mine, self.aim_vehicle) {
+        match (self.target, self.aiming.creature, self.aiming.barrel, self.aiming.mine, self.aiming.vehicle) {
             (Some(t), ..) => Some(Aim::Person(t)),
             (None, Some(k), ..) => Some(Aim::Creature(k)),
             (None, None, Some(k), ..) => Some(Aim::Barrel(k)),
@@ -35,8 +35,8 @@ impl Game {
     /// but never steadier than a moving target allows.
     pub(crate) fn steady_aim(&mut self, dt: f32) {
         let aim = self.aimed().filter(|_| self.player().is_some_and(|p| p.weapon.is_gun()));
-        if aim != self.gun_aim.0 {
-            self.gun_aim = (aim, MAX_GUN_AIM);
+        if aim != self.aiming.gun.0 {
+            self.aiming.gun = (aim, MAX_GUN_AIM);
             return;
         }
         let (Some(aim), Some(me)) = (aim, self.player().map(|p| p.fig.pos)) else { return };
@@ -47,7 +47,7 @@ impl Game {
             _ => false,
         };
         let floor = if moving { 600.0 } else { 0.0 };
-        self.gun_aim.1 = (self.gun_aim.1 - benefit * 20.0 * dt).max(floor);
+        self.aiming.gun.1 = (self.aiming.gun.1 - benefit * 20.0 * dt).max(floor);
     }
 
     fn aim_point(&self, aim: Aim) -> Vec3 {
@@ -71,14 +71,14 @@ impl Game {
     /// her (the nearest to firing).
     pub fn gun_sights(&self) -> Vec<Sight> {
         let mut out = Vec::new();
-        if let Some(aim) = self.gun_aim.0 {
+        if let Some(aim) = self.aiming.gun.0 {
             let scale = match aim {
                 Aim::Person(_) => 256.0,
                 Aim::Creature(_) | Aim::Mine(_) => 128.0,
                 Aim::Barrel(_) => 200.0,
                 Aim::Vehicle(_) => 400.0,
             };
-            out.push(Sight { at: self.aim_point(aim), accuracy: self.gun_aim.1 * 100.0 / MAX_GUN_AIM, scale });
+            out.push(Sight { at: self.aim_point(aim), accuracy: self.aiming.gun.1 * 100.0 / MAX_GUN_AIM, scale });
         }
         if let Some(pi) = self.player {
             let soonest = self.people.iter()

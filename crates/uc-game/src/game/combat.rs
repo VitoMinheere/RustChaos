@@ -9,7 +9,7 @@ impl Game {
             // Whether the player has ever fired, hit or miss: the original raises
             // `GF_PLAYER_FIRED_GUN` where the shot leaves the gun, not where it lands.
             if let Event::Shot { attacker, .. } = &e {
-                self.player_fired |= Some(*attacker) == self.player;
+                self.tally.player_fired |= Some(*attacker) == self.player;
                 self.gunshot(*attacker);
             }
             match e {
@@ -41,8 +41,8 @@ impl Game {
                     }
                     self.drop_weapon(victim);
                 }
-                Event::Shot { attacker, victim: None, weapon } if Some(attacker) == self.player && self.aim_creature.is_some() => {
-                    let k = self.aim_creature.unwrap();
+                Event::Shot { attacker, victim: None, weapon } if Some(attacker) == self.player && self.aiming.creature.is_some() => {
+                    let k = self.aiming.creature.unwrap();
                     let (from, at) = (self.people[attacker].fig.pos, self.creatures[k].middle());
                     let eye = Vec3::new(0.0, 140.0, 0.0);
                     if !level.ground.line_of_sight(from + eye, at) {
@@ -68,8 +68,8 @@ impl Game {
                     }
                 }
                 // A shot at a mine sets it off (Person.cpp:6474).
-                Event::Shot { attacker, victim: None, .. } if Some(attacker) == self.player && self.aim_mine.is_some() => {
-                    let k = self.aim_mine.unwrap();
+                Event::Shot { attacker, victim: None, .. } if Some(attacker) == self.player && self.aiming.mine.is_some() => {
+                    let k = self.aiming.mine.unwrap();
                     let (from, at) = (self.people[attacker].fig.pos, self.mines[k].pos + Vec3::new(0.0, 8.0, 0.0));
                     let eye = Vec3::new(0.0, 140.0, 0.0);
                     if !level.ground.line_of_sight(from + eye, at) {
@@ -81,8 +81,8 @@ impl Game {
                         self.set_off_mine(k, level);
                     }
                 }
-                Event::Shot { attacker, victim: None, weapon } if Some(attacker) == self.player && self.aim_vehicle.is_some() => {
-                    let k = self.aim_vehicle.unwrap();
+                Event::Shot { attacker, victim: None, weapon } if Some(attacker) == self.player && self.aiming.vehicle.is_some() => {
+                    let k = self.aiming.vehicle.unwrap();
                     let (from, at) = (self.people[attacker].fig.pos, self.vehicles[k].pos + Vec3::new(0.0, 64.0, 0.0));
                     let eye = Vec3::new(0.0, 140.0, 0.0);
                     if !level.ground.line_of_sight(from + eye, at) {
@@ -100,8 +100,8 @@ impl Game {
                         self.vehicles[k].reduce_health(damage);
                     }
                 }
-                Event::Shot { attacker, victim: None, .. } if Some(attacker) == self.player && self.aim_barrel.is_some() => {
-                    let k = self.aim_barrel.unwrap();
+                Event::Shot { attacker, victim: None, .. } if Some(attacker) == self.player && self.aiming.barrel.is_some() => {
+                    let k = self.aiming.barrel.unwrap();
                     let (from, at) = (self.people[attacker].fig.pos, self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0));
                     let eye = Vec3::new(0.0, 140.0, 0.0);
                     if !level.ground.line_of_sight(from + eye, at) {

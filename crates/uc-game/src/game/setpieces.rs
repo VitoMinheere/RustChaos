@@ -12,9 +12,9 @@ impl Game {
         let tops: Vec<Option<(Vec2, Vec2, f32, f32)>> = self.plat_prims.iter()
             .map(|prim| prim.as_ref().map(|prim| plat::top_box(&prim.points)))
             .collect();
-        self.plat_clock += dt;
-        while self.plat_clock >= plat::TICK {
-            self.plat_clock -= plat::TICK;
+        self.clocks.plat += dt;
+        while self.clocks.plat >= plat::TICK {
+            self.clocks.plat -= plat::TICK;
             let Some(script) = self.script.take() else { break };
             for (k, t) in tops.iter().enumerate() {
                 let Some((_, _, bot, top)) = *t else { continue };
@@ -220,11 +220,11 @@ impl Game {
             p.take_hit(from, 30, person::ko::KNOCKDOWN, false, false, Weapon::None);
             self.sounds.push((Sfx::Explosion, from));
         }
-        self.fence_spark_clock -= dt;
-        if self.fence_spark_clock > 0.0 {
+        self.clocks.fence_spark -= dt;
+        if self.clocks.fence_spark > 0.0 {
             return;
         }
-        self.fence_spark_clock = 32.0 / 20.0;
+        self.clocks.fence_spark = 32.0 / 20.0;
         let fences: Vec<(Vec2, Vec2, f32)> = level.ground.fences.iter().zip(&level.ground.fence_buildings)
             .filter(|(_, b)| self.electrified.contains(b))
             .map(|(w, _)| (Vec2::from(w.a), Vec2::from(w.b), w.y0))

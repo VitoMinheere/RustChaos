@@ -70,8 +70,8 @@ impl Game {
         }
         m.gone = true;
         let at = m.pos;
-        if self.aim_mine == Some(k) {
-            self.aim_mine = None;
+        if self.aiming.mine == Some(k) {
+            self.aiming.mine = None;
         }
         self.pyro.burst(at, pyro::FIREBOMB | pyro::DUST, 256.0);
         self.sounds.push((Sfx::Explosion, at));

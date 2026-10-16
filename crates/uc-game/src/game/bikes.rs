@@ -47,9 +47,9 @@ impl Game {
         if self.bikes.is_empty() {
             return;
         }
-        self.bike_clock += dt;
-        while self.bike_clock >= bike::TICK {
-            self.bike_clock -= bike::TICK;
+        self.clocks.bike += dt;
+        while self.clocks.bike >= bike::TICK {
+            self.clocks.bike -= bike::TICK;
             for (b, _) in &mut self.bikes {
                 b.tick(&Level2(level));
             }

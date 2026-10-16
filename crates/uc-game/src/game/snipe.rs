@@ -143,7 +143,7 @@ impl Game {
         p.fig.angle = facing;
         p.cues.push(Sfx::Shot(Weapon::Sniper));
         p.flash = 0.07;
-        self.player_fired = true;
+        self.tally.player_fired = true;
         self.gunshot(pi);
         let me = self.people[pi].fig.pos;
         let angle = (facing * 2048.0 / std::f32::consts::TAU) as i64 & 2047;

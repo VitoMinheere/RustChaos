@@ -105,14 +105,14 @@ fn the_balrog_comes_and_goes_down_to_bullets() {
     for _ in 0..1200 {
         r.set_down(spot);
         r.play(0.25, Controls { punch: true, ..Default::default() });
-        aimed += r.g.aim_creature.is_some() as u32;
+        aimed += r.g.aiming.creature.is_some() as u32;
         r.play(0.25, Controls::default());
         if r.g.outcome.is_some() {
             break;
         }
     }
     println!("aimed {aimed} times; health {health} -> {}, state {:?}, outcome {:?}, aim {:?}, weapon {:?}, rounds {:?}, darci {:?}",
-             r.g.creatures[0].health, r.g.creatures[0].state, r.g.outcome, r.g.aim_creature,
+             r.g.creatures[0].health, r.g.creatures[0].state, r.g.outcome, r.g.aiming.creature,
              r.g.people[me].weapon, r.g.people[me].rounds(), r.g.people[me].state);
     assert!(r.g.creatures[0].dead, "he should be dead");
     assert_eq!(r.g.outcome, Some(Outcome::Won), "{:?}", r.seen);

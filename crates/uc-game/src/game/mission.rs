@@ -2,6 +2,23 @@
 
 use crate::*;
 
+/// What the script and the crime rate have counted already, so nothing counts twice.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Tally {
+    /// The `create_item` points whose item the player has picked up (`EWAY_FLAG_GOTITEM`,
+    /// which the `specific_item_held` trigger watches).
+    pub(crate) taken: BTreeSet<usize>,
+    /// Cops already counted towards the script's tally of them.
+    pub(crate) dead_cops: BTreeSet<usize>,
+    /// Deaths and arrests already counted towards the crime rate.
+    pub(crate) crimes: BTreeSet<usize>,
+    /// The player has fired a gun. `GF_PLAYER_FIRED_GUN` is set once and never cleared, so a
+    /// mission that cares only ever asks whether it has happened at all.
+    pub(crate) player_fired: bool,
+    /// Cars already blown up, so each goes up once.
+    pub(crate) blown: BTreeSet<usize>,
+}
+
 /// Officer Training's (`train11`) pistol at the shooting range: point 29.
 const TRAINING_PISTOL: usize = 29;
 
@@ -64,7 +81,7 @@ impl Game {
                     if let Some(v) = self.veh_by_way.remove(&way) {
                         let at = self.vehicles[v].pos;
                         self.vehicles[v].health = 0;
-                        self.blown.insert(v);
+                        self.tally.blown.insert(v);
                         if let Some(d) = self.vehicles[v].driver.take() {
                             self.people[d].state = State::Move;
                             self.people[d].fig.pos = at;
@@ -267,11 +284,11 @@ impl Game {
             .people
             .iter()
             .enumerate()
-            .filter(|(i, p)| p.kind == ptype::COP && p.knocked_out && !self.dead_cops.contains(i))
+            .filter(|(i, p)| p.kind == ptype::COP && p.knocked_out && !self.tally.dead_cops.contains(i))
             .map(|(i, _)| i)
             .collect();
         for i in newly {
-            self.dead_cops.insert(i);
+            self.tally.dead_cops.insert(i);
             if let Some(s) = self.script.as_mut() {
                 s.note_cop_killed();
             }
@@ -290,10 +307,10 @@ impl Game {
             let arrested = p.arrested || matches!(p.state, State::Cuffed);
             // A passer-by the crowd brings back (`respawn`) counts again next time.
             if !(p.knocked_out || arrested) {
-                self.crimes.remove(&i);
+                self.tally.crimes.remove(&i);
                 continue;
             }
-            if p.player || !self.crimes.insert(i) {
+            if p.player || !self.tally.crimes.insert(i) {
                 continue;
             }
             if arrested {
@@ -362,7 +379,7 @@ impl Game {
         (p.goal, p.foe) = (None, None);
         self.player = Some(new);
         self.player_name = player_name(&level.mission.mission_name, p.kind);
-        (self.target, self.aim_creature) = (None, None);
+        (self.target, self.aiming.creature) = (None, None);
     }
 }
 
@@ -495,10 +512,10 @@ impl script::Query for Game {
     }
 
     fn got_item(&self, way: usize) -> bool {
-        self.taken.contains(&way)
+        self.tally.taken.contains(&way)
     }
 
     fn player_fired(&self) -> bool {
-        self.player_fired
+        self.tally.player_fired
     }
 }

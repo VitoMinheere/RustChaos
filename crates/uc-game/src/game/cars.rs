@@ -2,6 +2,27 @@
 
 use crate::*;
 
+/// The streets: the roads cars wander along, who's driving them, the pavements the city's
+/// extra people walk and what they say when spoken to.
+pub(crate) struct Streets {
+    pub(crate) roads: road::Roads,
+    /// What each person at the wheel is doing, by person.
+    pub(crate) drivers: HashMap<usize, Driving>,
+    pub(crate) wand: wand::Wander,
+    pub(crate) chatter: city::Chatter,
+}
+
+impl Streets {
+    pub(crate) fn new(level: &Level) -> Streets {
+        Streets {
+            roads: road::Roads::new(&level.map, &level.mission.map),
+            drivers: HashMap::new(),
+            wand: wand::Wander::new(&level.map, &level.game),
+            chatter: city::Chatter::load(level),
+        }
+    }
+}
+
 impl Game {
     /// The car a driver out of one goes for (`PCOM_set_person_ai_findcar`): the nearest that
     /// nobody is driving, isn't wrecked and isn't locked, measured x plus z.
@@ -73,7 +94,7 @@ impl Game {
             let door = self.vehicles[vi].door();
             if Vec2::new(p.fig.pos.x - door.x, p.fig.pos.z - door.y).length() < 150.0 {
                 self.enter_car(i, vi, level);
-                self.drivers.insert(i, Driving::default());
+                self.streets.drivers.insert(i, Driving::default());
             }
         }
     }
@@ -89,18 +110,18 @@ impl Game {
         let (at, speed, yaw, y) = (Vec2::new(v.pos.x, v.pos.z), v.speed, v.yaw, v.pos.y);
         let stop = if speed.abs() > 30.0 { Drive { throttle: -speed.signum(), ..Default::default() } } else { Drive::default() };
         let (mv, bent) = (self.people[pi].mv, self.people[pi].bent);
-        let mut st = self.drivers.get(&pi).copied().unwrap_or_default();
-        if mv != 4 || self.roads.nodes.len() < 2 {
+        let mut st = self.streets.drivers.get(&pi).copied().unwrap_or_default();
+        if mv != 4 || self.streets.roads.nodes.len() < 2 {
             st.road = None;
-            self.drivers.insert(pi, st);
+            self.streets.drivers.insert(pi, st);
             return stop;
         }
         // Onto the nearest road, going the way of the lane it's in.
         let (n1, n2) = match st.road {
             Some(r) => r,
             None => {
-                let Some((mut a, mut b)) = self.roads.find(at) else { return stop };
-                if self.roads.signed_dist(a, b, at) < 0.0 {
+                let Some((mut a, mut b)) = self.streets.roads.find(at) else { return stop };
+                if self.streets.roads.signed_dist(a, b, at) < 0.0 {
                     std::mem::swap(&mut a, &mut b);
                 }
                 st.next = 0;
@@ -109,14 +130,14 @@ impl Game {
         };
         // Near the junction: pick the next road, and turn into it (a left turn a little later).
         let mut road = (n1, n2);
-        let to_end = creature::qdist2(self.roads.dest(n1, n2) - at);
+        let to_end = creature::qdist2(self.streets.roads.dest(n1, n2) - at);
         if to_end < TURN {
             if st.next == 0 {
-                let mut rng = self.rng;
-                st.next = self.roads.whereto_now(n1, n2, &mut || rand(&mut rng));
-                self.rng = rng;
+                let mut rng = self.rngs.main;
+                st.next = self.streets.roads.whereto_now(n1, n2, &mut || rand(&mut rng));
+                self.rngs.main = rng;
             }
-            let late = if st.next != 0 && self.roads.bend(n1, n2, st.next) < 0 { 256.0 } else { 0.0 };
+            let late = if st.next != 0 && self.streets.roads.bend(n1, n2, st.next) < 0 { 256.0 } else { 0.0 };
             if st.next != 0 && to_end + late < TURN {
                 road = (n2, st.next);
                 st.next = 0;
@@ -127,10 +148,10 @@ impl Game {
         st.road = Some(road);
         // Head for the far end of the road, or back into the lane first if well out of it.
         let (n1, n2) = road;
-        let mut dest = self.roads.dest(n1, n2);
+        let mut dest = self.streets.roads.dest(n1, n2);
         let reversing = st.reversing > 0.0;
-        if !reversing && (384.0 - self.roads.signed_dist(n1, n2, at)).abs() > 128.0 {
-            let (r1, r2) = (self.roads.pos(n1), self.roads.pos(n2));
+        if !reversing && (384.0 - self.streets.roads.signed_dist(n1, n2, at)).abs() > 128.0 {
+            let (r1, r2) = (self.streets.roads.pos(n1), self.streets.roads.pos(n2));
             let ab = r2 - r1;
             let t = ((at - r1).dot(ab) / ab.length_squared().max(1.0)).clamp(0.0, 1.0);
             let sign = |v: f32| if v > 0.0 { 1.0 } else if v < 0.0 { -1.0 } else { 0.0 };
@@ -160,7 +181,7 @@ impl Game {
             j != pi && !o.removed && !matches!(o.state, State::InCar { .. }) && (o.fig.pos.y - y).abs() < 150.0
                 && r.dot(fwd) > 0.0 && r.dot(fwd) < 250.0 + speed.max(0.0) * 0.5 && r.dot(side).abs() < 170.0
         });
-        self.drivers.insert(pi, st);
+        self.streets.drivers.insert(pi, st);
         if blocked && want > 0.0 {
             return stop;
         }
@@ -194,7 +215,7 @@ impl Game {
                         p.state = State::Move;
                         p.fig.pos = Vec3::new(door.x, y, door.y);
                         p.cues.push(Sfx::CarDoor);
-                        self.drivers.remove(&pi);
+                        self.streets.drivers.remove(&pi);
                     }
                 } else {
                     *d = Some((pi, self.npc_drive(vi, pi, dt)));
@@ -222,7 +243,7 @@ impl Game {
                     smashed = hit;
                 }
                 // Ran into something: back off and come round (`PCOM_MOVE_SUBSTATE_3PTURN`).
-                if let Some(dr) = npc.and_then(|(pi, _)| self.drivers.get_mut(&pi)) {
+                if let Some(dr) = npc.and_then(|(pi, _)| self.streets.drivers.get_mut(&pi)) {
                     if dr.reversing <= 0.0 {
                         dr.reversing = 1.5;
                     }
@@ -293,14 +314,14 @@ impl Game {
             // body; here as two spheres, at its nose and its tail).
             if v.speed.abs() > 60.0 {
                 let ends = [v.place(Vec3::new(0.0, 60.0, 100.0)), v.place(Vec3::new(0.0, 60.0, -100.0))];
-                let mut seed = self.barrel_rng;
+                let mut seed = self.rngs.barrel;
                 for at in ends {
                     for k in barrel::hit_with_sphere(&mut self.barrels, at, 0x60 as f32, &mut || rand(&mut seed)) {
                         let at = self.barrels[k].pos;
                         self.sounds.push((Sfx::Cone, at));
                     }
                 }
-                self.barrel_rng = seed;
+                self.rngs.barrel = seed;
             }
         }
     }
@@ -318,14 +339,14 @@ impl Game {
     /// (`PYRO_FLAGS_WAVE`) is only drawn, so there's no shockwave and no chain of cars.
     pub(crate) fn wreck_cars(&mut self) {
         for v in 0..self.vehicles.len() {
-            if !self.vehicles[v].wrecked() || !self.blown.insert(v) {
+            if !self.vehicles[v].wrecked() || !self.tally.blown.insert(v) {
                 continue;
             }
             let at = self.vehicles[v].pos;
             self.pyro.burst(at + Vec3::new(0.0, 48.0, 0.0), pyro::FIREBOMB, 256.0);
             self.sounds.push((Sfx::Explosion, at));
-            if self.aim_vehicle == Some(v) {
-                self.aim_vehicle = None;
+            if self.aiming.vehicle == Some(v) {
+                self.aiming.vehicle = None;
             }
             if let Some(d) = self.vehicles[v].driver.take() {
                 let p = &mut self.people[d];

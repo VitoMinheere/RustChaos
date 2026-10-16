@@ -85,7 +85,7 @@ fn a_mine_can_be_shot() {
     me.give(Weapon::Pistol);
     me.weapon = Weapon::Pistol;
     run(&mut g, &level, 0.5, Controls::default());
-    assert_eq!(g.aim_mine, Some(k), "the gun isn't on it");
+    assert_eq!(g.aiming.mine, Some(k), "the gun isn't on it");
     for _ in 0..10 {
         if g.mines[k].gone {
             break;

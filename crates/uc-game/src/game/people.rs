@@ -29,6 +29,18 @@ pub(crate) struct Route {
     at: f32,
 }
 
+/// Route-finding: the navigation map (`MAV_precalculate`) and each person's last route.
+pub(crate) struct Routes {
+    pub(crate) mav: uc_world::mav::Mav,
+    pub(crate) ways: HashMap<usize, Route>,
+}
+
+impl Routes {
+    pub(crate) fn new(level: &Level) -> Routes {
+        Routes { mav: uc_world::mav::Mav::new(level), ways: HashMap::new() }
+    }
+}
+
 impl Game {
     pub(crate) fn spawn(&mut self, level: &Level, kind: u8, player: bool, way: usize, pos: Vec3, angle: f32) -> Option<usize> {
         let variant = self.rand();
@@ -121,7 +133,7 @@ impl Game {
         for _ in 0..3 {
             let (dx, dz) = (at.x - danger.x, at.z - danger.z);
             let dist = dx.abs() + dz.abs() + 1.0;
-            let mut r = || (rand(&mut self.mav_rng) & 0x7ff) as f32 - 0x400 as f32;
+            let mut r = || (rand(&mut self.rngs.mav) & 0x7ff) as f32 - 0x400 as f32;
             let mut gx = at.x + dx * 8192.0 / dist + r();
             let mut gz = at.z + dz * 8192.0 / dist + r();
             // Stay on the map, bouncing off its edges.
@@ -129,7 +141,7 @@ impl Game {
             if gx > size { gx = 2.0 * size - gx; }
             if gz > size { gz = 2.0 * size - gz; }
             let goal = Vec3::new(gx, at.y, gz);
-            self.ways.remove(&i);
+            self.routes.ways.remove(&i);
             let leg = self.leg(i, at, goal, level);
             let dest = leg.unwrap_or(goal);
             let flat = |a: Vec3, b: Vec3| Vec2::new(a.x - b.x, a.z - b.z).length();
@@ -154,15 +166,15 @@ impl Game {
     fn leg(&mut self, i: usize, from: Vec3, to: Vec3, level: &Level) -> Option<Vec3> {
         let sq = |v: Vec3| ((v.x / 256.0).clamp(0.0, 127.0) as u8, (v.z / 256.0).clamp(0.0, 127.0) as u8);
         let (a, b) = (sq(from), sq(to));
-        if a == b || self.mav.can_walk(a, b) {
+        if a == b || self.routes.mav.can_walk(a, b) {
             return None;
         }
-        let route = match self.ways.get(&i) {
+        let route = match self.routes.ways.get(&i) {
             Some(&r) if r.from == a && (r.to == b || self.time - r.at < REPLAN) => r,
             _ => {
-                let mut rng = self.mav_rng;
-                let (act, _) = self.mav.route(a, b, WALKER, &mut || rand(&mut rng));
-                self.mav_rng = rng;
+                let mut rng = self.rngs.mav;
+                let (act, _) = self.routes.mav.route(a, b, WALKER, &mut || rand(&mut rng));
+                self.rngs.mav = rng;
                 // Over a fence: straight at it, and the walker climbs it.
                 let walk = act.action == uc_world::mav::GOTO && act.dest != a;
                 let (dest, first) = if walk { (Some(act.dest), Some(act.first)) } else { (None, None) };
@@ -171,7 +183,7 @@ impl Game {
                     ((a.0 as i32 + dx).clamp(0, 127) as u8, (a.1 as i32 + dz).clamp(0, 127) as u8)
                 });
                 let r = Route { from: a, to: b, dest, first, drop, at: self.time };
-                self.ways.insert(i, r);
+                self.routes.ways.insert(i, r);
                 r
             }
         };
