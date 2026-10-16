@@ -1,0 +1,343 @@
+//! Fighting: attacks, the slide, shooting, grapples and the takedown, and taking hits.
+
+use super::*;
+
+impl Person {
+    /// Crouching and crawling. Letting go of action stands her up; pushing a direction
+    /// crawls that way at the original's velocity 15 to walking's 16, on all fours (or on
+    /// her belly with a gun drawn: `ANIM_SNIPER_CRAWL`); stopping goes back to crouching.
+    /// The takedown from behind (`find_best_grapple` trying `grapples[0]`, combat.cpp:181:
+    /// `{ANIM_PISTOL_WHIP, 75, 65, 1024, 0, 1}`, the player's only): someone 10 to 140 off, in
+    /// front of her, with their back to her (facing her way within 160 of 2048), and not
+    /// one of the Men in Black, Roper, or a fight-test dummy (combat.cpp:752, 777). Whipped,
+    /// they go down out cold whatever their health. Returns whether she did it.
+    pub(super) fn takedown(&mut self, me: usize, snaps: &[Snap], events: &mut Vec<Event>) -> bool {
+        use uc_world::character::person as ptype;
+        let f = self.fig.facing();
+        let back_to_her = (160.0 / 2048.0 * std::f32::consts::TAU).cos();
+        let t = snaps.iter().enumerate().filter(|&(j, s)| {
+            let d = flat(s.pos, self.fig.pos);
+            j != me && s.present && s.standing && !s.player && !s.in_car && !s.dummy
+                && !matches!(s.kind, ptype::MIB1 | ptype::MIB2 | ptype::MIB3 | ptype::ROPER)
+                && (10.0..140.0).contains(&d.length()) && (s.pos.y - self.fig.pos.y).abs() < 50.0
+                && f.dot(d.normalize_or_zero()) > 0.7 && s.facing.dot(f) > back_to_her
+        }).min_by(|a, b| flat(a.1.pos, self.fig.pos).length().total_cmp(&flat(b.1.pos, self.fig.pos).length()))
+            .map(|(j, _)| j);
+        let Some(t) = t else { return false };
+        if !self.fig.restart(anim::PISTOL_WHIP, Play::Once) {
+            return false;
+        }
+        self.fig.angle = uc_world::character::angle_of(flat(snaps[t].pos, self.fig.pos));
+        self.state = State::Grapple { victim: t, grab: Grab::PistolWhip, hit: false, timer: 0.0, frame: None };
+        events.push(Event::Grab { attacker: me, victim: t, grab: Grab::PistolWhip });
+        true
+    }
+
+    pub(super) fn start_attack(&mut self, me: usize, mv: Move, events: &mut Vec<Event>) {
+        self.fig.restart(mv.def().anim, Play::Once);
+        self.state = State::Attack { mv, hit: false, queued: None };
+        self.cues.push(Sfx::Swing);
+        events.push(if mv.is_punch() { Event::Punch { attacker: me } } else { Event::Kick { attacker: me } });
+    }
+
+    /// `step` in [`State::Shoot`].
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn step_shoot(&mut self, target: Option<usize>, mut shots: u32, me: usize, c: &Controls, snaps: &[Snap], ground: &Ground, map: &Map, dt: f32, events: &mut Vec<Event>) {
+        let target = target.filter(|&t| snaps[t].present && !snaps[t].down);
+        if let Some(t) = target {
+            self.fig.turn_towards(flat(snaps[t].pos, self.fig.pos), 12.0, dt);
+        } else if let Some(at) = c.aim {
+            self.fig.turn_towards(flat(at, self.fig.pos), 12.0, dt);
+        }
+        let w = self.weapon;
+        if w == Weapon::Ak47 {
+            // Automatic: a round each time round the firing loop, while the trigger is
+            // held (the AI fires bursts of three).
+            let more = if self.player { c.fire } else { shots < 3 };
+            if self.fig.loops() >= shots as f32 {
+                if more && self.fire_round(me, target, events) {
+                    shots += 1;
+                } else {
+                    self.state = State::Move;
+                    self.idle(false);
+                    return;
+                }
+            }
+        } else if shots == 0 && self.fig.progress() > 0.25 {
+            shots = 1;
+            self.fire_round(me, target, events);
+        } else if shots > 0 && (self.fig.finished() || (c.punch && self.fig.progress() > 0.6)) {
+            // Done (or fire again straight away).
+            self.state = State::Move;
+            self.idle(false);
+            if c.punch {
+                self.step_move(me, c, snaps, ground, map, dt, events);
+            }
+            return;
+        }
+        self.state = State::Shoot { target, shots };
+    }
+
+    /// `step` in [`State::Attack`].
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn step_attack(&mut self, mv: Move, mut hit: bool, mut queued: Option<Move>, me: usize, c: &Controls, snaps: &[Snap], ground: &Ground, map: &Map, dt: f32, events: &mut Vec<Event>) {
+        let def = mv.def();
+        let p = self.fig.progress();
+        if !hit && p >= def.hit_at {
+            hit = true;
+            let dir = match def.dir {
+                Dir::Front => self.fig.facing(),
+                Dir::Back => -self.fig.facing(),
+                Dir::Left => { let f = self.fig.facing(); vec2(f.y, -f.x) }
+                Dir::Right => { let f = self.fig.facing(); vec2(-f.y, f.x) }
+            };
+            for (j, s) in snaps.iter().enumerate() {
+                if j == me || !s.standing || !self.opponents(j, s) || (s.pos.y - self.fig.pos.y).abs() > 100.0 {
+                    continue;
+                }
+                let d = flat(s.pos, self.fig.pos);
+                if d.length() < def.reach && d.normalize_or_zero().dot(dir) > 0.5 {
+                    // The AI hits less hard, more so the less skilled.
+                    let damage = if self.player { def.damage } else { def.damage * (8 + self.skill as i32) / 30 };
+                    let weapon = if matches!(mv, Move::Knife1 | Move::Knife2 | Move::Knife3 | Move::Bat1 | Move::Bat2) { self.weapon } else { Weapon::None };
+                    events.push(Event::Hit { attacker: me, victim: j, damage, ko: def.ko, high: def.high, low: false, weapon });
+                }
+            }
+        }
+        // Combos: the same button again in the second half of the move continues the
+        // combo; the other button (or the same one after a finisher) starts afresh.
+        if queued.is_none() && p > 0.4 && (c.punch || c.kick) {
+            let same = if mv.is_punch() { c.punch } else { c.kick };
+            queued = match (same, def.next) {
+                (true, Some(next)) => Some(next),
+                _ if c.punch => Some(Move::punch_with(self.weapon)),
+                _ => Some(Move::Kick1),
+            };
+        }
+        self.state = State::Attack { mv, hit, queued };
+        if self.fig.finished() {
+            match queued {
+                // A punch while walking at someone close is a grab, not another punch.
+                Some(Move::Punch1) if c.wish.length_squared() > 0.25 => {
+                    self.state = State::Move;
+                    let c = Controls { punch: true, kick: false, ..*c };
+                    self.step_move(me, &c, snaps, ground, map, dt, events);
+                }
+                Some(next) => self.start_attack(me, next, events),
+                None => {
+                    self.state = State::Move;
+                    self.idle(self.nearest_opponent(me, snaps, FIGHT_RANGE).is_some());
+                }
+            }
+        }
+    }
+
+    /// `step` in [`State::Slide`].
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn step_slide(&mut self, mut phase: u8, mut speed: f32, mut hit: u64, me: usize, snaps: &[Snap], ground: &Ground, map: &Map, dt: f32, events: &mut Vec<Event>) {
+        let f = self.fig.facing();
+        if phase < 2 {
+            for (j, s) in snaps.iter().enumerate() {
+                if j == me || j >= 64 || hit & (1 << j) != 0 || !s.standing || !self.opponents(j, s) {
+                    continue;
+                }
+                let d = flat(s.pos, self.fig.pos);
+                if d.length() < 110.0 && d.normalize_or_zero().dot(f) > 0.3 {
+                    hit |= 1 << j;
+                    events.push(Event::Hit { attacker: me, victim: j, damage: 30, ko: ko::SLIDE, high: false, low: true, weapon: Weapon::None });
+                }
+            }
+        }
+        speed = (speed - 500.0 * dt).max(0.0);
+        if !self.walk(f * speed * dt, ground, map, self.player) {
+            self.fall(f * speed);
+            return;
+        }
+        match phase {
+            0 if self.fig.finished() => {
+                phase = 1;
+                self.fig.play(anim::SLIDER_HOLD, Play::Loop);
+            }
+            1 if speed < 120.0 => {
+                phase = 2;
+                self.fig.restart(anim::SLIDER_END, Play::Once);
+            }
+            2 if self.fig.finished() => {
+                self.state = State::Move;
+                self.idle(false);
+                return;
+            }
+            _ => {}
+        }
+        self.state = State::Slide { phase, speed, hit };
+    }
+
+    /// `step` in [`State::Down`].
+    pub(super) fn step_down(&mut self, ground: &Ground, map: &Map, dt: f32) {
+        // Knocked down, not out: get up after a while (unless arrested meanwhile).
+        self.down_timer += dt;
+        let lying = matches!(self.fig.anim(), anim::KD_FRONT_LAND | anim::KD_BACK_LAND);
+        if !self.knocked_out && !self.out_cold && lying && self.fig.finished() && self.down_timer > 2.5 {
+            self.fig.restart_locked(anim::QUICK_GET_UP, Play::Once);
+            self.fig.lift = 0.0;
+            self.state = State::GetUp;
+            return;
+        }
+        // A knockdown is two animations: the fall, then hitting the floor (on the back
+        // if knocked over from the front). Chain them keeping the hips in place.
+        let land = match self.fig.anim() {
+            anim::KD_FRONT_MID | anim::KD_FRONT_LOW | anim::HIT_FRONT_HI => Some(anim::KD_BACK_LAND),
+            anim::KD_BACK_MID | anim::KD_BACK_LOW => Some(anim::KD_FRONT_LAND),
+            _ => None,
+        };
+        if let (Some(a), true) = (land, self.fig.finished()) {
+            self.fig.restart_locked(a, Play::Once);
+            let p = self.fig.pos;
+            self.fig.pos.y = ground.surface(map, p.x, p.z, p.y);
+        }
+    }
+
+    /// `step` in [`State::Grapple`].
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn step_grapple(&mut self, victim: usize, grab: Grab, mut hit: bool, mut timer: f32, frame: Option<usize>, me: usize, c: &Controls, snaps: &[Snap], dt: f32, events: &mut Vec<Event>) {
+        let v = snaps[victim];
+        if !v.present {
+            self.state = State::Move;
+            return;
+        }
+        timer += dt;
+        let next = match grab {
+            Grab::Grab if self.fig.finished() => Some(Grab::Hold),
+            Grab::Hold if c.punch => Some(Grab::Knee1),
+            Grab::Hold if c.kick => Some(Grab::Throw),
+            Grab::Knee1 if c.punch && self.fig.progress() > 0.4 => Some(Grab::Knee2),
+            Grab::Knee1 if self.fig.finished() => Some(Grab::Hold),
+            _ => None,
+        };
+        if grab == Grab::Hold && timer > 5.0 {
+            // The victim wriggles free.
+            events.push(Event::Release { victim });
+            self.state = State::Move;
+            self.idle(true);
+            return;
+        }
+        if let Some(g) = next {
+            if g != Grab::Hold {
+                self.fig.restart(g.anims().0, Play::Once);
+                events.push(Event::GrabMove { victim, grab: g });
+                events.push(if g == Grab::Throw { Event::Kick { attacker: me } } else { Event::Punch { attacker: me } });
+            }
+            self.state = State::Grapple { victim, grab: g, hit: false, timer: 0.0, frame };
+            return;
+        }
+        if matches!(grab, Grab::Knee2 | Grab::Throw) {
+            if !hit && self.fig.progress() > 0.55 {
+                hit = true;
+                events.push(Event::Hit { attacker: me, victim, damage: 60, ko: ko::GRAPPLE, high: false, low: false, weapon: Weapon::None });
+            }
+            if self.fig.finished() {
+                self.state = State::Move;
+                self.idle(true);
+                return;
+            }
+        }
+        self.state = State::Grapple { victim, grab, hit, timer, frame };
+    }
+
+    /// Fires one round from the gun in hand; false when it's empty.
+    pub(super) fn fire_round(&mut self, me: usize, target: Option<usize>, events: &mut Vec<Event>) -> bool {
+        let Some(s) = self.weapon.slot() else { return false };
+        if self.player {
+            if self.ammo[s] == 0 {
+                self.cues.push(Sfx::Click);
+                return false;
+            }
+            self.ammo[s] -= 1;
+        }
+        self.cues.push(Sfx::Shot(self.weapon));
+        self.flash = 0.07;
+        events.push(Event::Shot { attacker: me, victim: target, weapon: self.weapon });
+        true
+    }
+
+    /// Takes a blow from someone at `from`. Fight-test dummies only go down to the moves in
+    /// their `ko_moves`; everyone else loses health.
+    #[allow(clippy::too_many_arguments)]
+    pub fn take_hit(&mut self, from: Vec3, damage: i32, ko_flag: u8, high: bool, low: bool, weapon: Weapon) {
+        // The injured lie as the dead do (`STATE_DEAD`): nothing more happens to them.
+        if self.removed || self.invulnerable || self.is_down()
+            || matches!(self.state, State::InCar { .. } | State::Injured | State::Carried { .. })
+        {
+            return;
+        }
+        let front = flat(from, self.fig.pos).dot(self.fig.facing()) > 0.0;
+        // A guard stops blows from the front; weapons still hurt a little.
+        let blocking = matches!(self.state, State::Block) && !weapon.is_gun();
+        if blocking && front && !low {
+            self.cues.push(Sfx::Block);
+            if weapon != Weapon::None {
+                self.health -= damage / 4;
+            }
+            if self.health > 0 {
+                return;
+            }
+        }
+        // Any sort of come-on, and a taunt is over: they go for whoever it was.
+        self.taunt = None;
+        let damage = if blocking { damage / 4 } else { damage };
+        // Fight-test dummies only go down to their moves; everyone else loses health, and
+        // finishing moves knock them down even with some left.
+        let (knocked_out, knocked_down) = if self.is_dummy() {
+            let ko = self.ko_moves & ko_flag != 0;
+            (ko, ko)
+        } else {
+            self.health -= damage;
+            (self.health <= 0, self.health <= 0 || ko_flag & ko::FINISHERS != 0)
+        };
+        if self.ai == 16 {
+            self.ai = 6; // a cornered fleer fights back
+        }
+        // A civilian set on runs (`PCOM_attack_happened`'s `goto flee`).
+        if !knocked_out {
+            self.scare(None, from);
+        }
+        self.aggro = true;
+        self.attack_timer = self.attack_timer.max(0.8);
+        // A bullet landing makes no thump of its own: all the original adds is a spark
+        // (`PYRO_hitspang`), and it keeps the ricochets for shots that miss. The gun going
+        // off and the victim's own voice carry it, so a shot mustn't sound like a punch.
+        if !weapon.is_gun() {
+            self.cues.push(match weapon {
+                Weapon::Knife => Sfx::Stab,
+                Weapon::Bat => Sfx::BatHit,
+                _ => Sfx::Hit { heavy: knocked_down || damage >= 25 },
+            });
+        }
+        self.cues.push(if knocked_out { Sfx::KnockedOut { kind: self.kind } } else { Sfx::Hurt { kind: self.kind } });
+        if knocked_down {
+            if knocked_out {
+                self.health = 0;
+                self.knocked_out = true;
+            }
+            self.down_timer = 0.0;
+            self.state = State::Down;
+            let a = match (front, low) {
+                (true, true) => anim::KD_FRONT_LOW,
+                (false, true) => anim::KD_BACK_LOW,
+                (true, false) => anim::KD_FRONT_MID,
+                (false, false) => anim::KD_BACK_MID,
+            };
+            self.fig.restart(a, Play::Once);
+        } else {
+            self.state = State::Hurt;
+            let a = match (front, high) {
+                (true, true) => anim::HIT_FRONT_HI,
+                (true, false) => anim::HIT_FRONT_MID,
+                (false, true) => anim::HIT_BACK_HI,
+                (false, false) => anim::HIT_BACK_MID,
+            };
+            self.fig.restart(a, Play::Once);
+            self.fig.set_speed(if self.player { 1.8 } else { 1.2 });
+        }
+    }
+}
