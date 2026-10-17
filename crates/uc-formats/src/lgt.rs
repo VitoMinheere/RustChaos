@@ -31,7 +31,7 @@ pub struct Lighting {
 }
 
 /// The ambient light direction the engine always uses ("These constants crop up everywhere!").
-const AMB_NORM: [f32; 3] = [110.0, -148.0, -177.0];
+pub const AMB_NORM: [f32; 3] = [110.0, -148.0, -177.0];
 
 impl Lighting {
     pub fn parse(data: &[u8]) -> Result<Lighting> {

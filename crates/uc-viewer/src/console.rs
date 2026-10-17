@@ -7,7 +7,7 @@ use crate::*;
 
 const HELP: &str = "telw N (to event point N)  tels / telr (store / return)  wpt (nearest point)  \
 win  lose  restart  roper  darci  kit  boo  pos  god  ammo  freeze  give WHAT  kill [near]  \
-crime N  time X  wave N  bonus  telb N  car  call WHAT  autopilot";
+crime N  time X  wave N  bonus  telb N  car  call WHAT  autopilot  crinkles";
 
 #[derive(Default)]
 pub(crate) struct Console {
@@ -216,6 +216,11 @@ impl World {
                 self.console.say(if on { "Darci's on autopilot: bot against bot" } else { "autopilot: only in capture the flag" });
             }
             "pos" => self.console.show_pos = !self.console.show_pos,
+            // Walls in relief up close (Controls.cpp:450).
+            "crinkles" => {
+                self.crinkles = !self.crinkles;
+                self.console.say(if self.crinkles { "Crinkles on" } else { "Crinkles off" });
+            }
             _ => self.console.say(format!("Unknown command '{name}': try help")),
         }
     }

@@ -59,3 +59,34 @@ fn capflag_fences_are_chain_link() {
     assert!(level.clump.texture(284).unwrap().is_some_and(|t| t.has_alpha), "no see-through chain link");
     let geo = level.build();
     assert!(geo.pages().contains(&284), "the chain link isn't drawn");}
+
+/// Walls with a crinkle are raised near the camera and nowhere else, quickly enough to do
+/// every frame (#113).
+#[test]
+fn crinkles_raise_near_walls() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let level = Level::load(&game, "police1", &LoadOptions { fullbright: false, character: false, overrides: None }).unwrap();
+    let geo = level.build();
+    let relief = geo.relief();
+    assert!(!geo.crinkles.is_empty() && geo.crinkled_count() > 1000, "{} crinkled wall triangles", geo.crinkled_count());
+    // From high above, nothing is near enough to raise.
+    let mut out = std::collections::BTreeMap::new();
+    assert_eq!(relief.draw(glam::vec3(64.0, 100.0, 64.0), &mut out), 0);
+    // At head height in the middle of every chunk with a crinkle: the worst frame and the
+    // average.
+    let t = std::time::Instant::now();
+    let (mut most, mut tris, mut total) = (0, 0, 0);
+    for ch in &relief.chunks {
+        let mid = (ch.min + ch.max) / 2.0;
+        let mut out = std::collections::BTreeMap::new();
+        let n = relief.draw(glam::vec3(mid.x, ch.min.y + 0.7, mid.z), &mut out);
+        total += n;
+        if n > most {
+            (most, tris) = (n, out.values().map(|b| b.indices.len() / 3).sum());
+        }
+    }
+    let ms = t.elapsed().as_secs_f64() * 1000.0 / relief.chunks.len() as f64;
+    eprintln!("{} chunks with crinkles: at most {most} quads raised ({tris} triangles), {:.0} on average, {ms:.3} ms a frame",
+              relief.chunks.len(), total as f64 / relief.chunks.len() as f64);
+    assert!(most > 0);
+}

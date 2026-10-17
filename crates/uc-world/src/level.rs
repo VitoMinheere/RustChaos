@@ -1,6 +1,7 @@
 //! Loading a mission's level from an install and turning it into geometry.
 
 use uc_formats::units::radians;
+use crate::crinkle::ReliefQuad;
 use crate::geometry::{Builder, Layer, WorldGeometry, UNIT, UNTEXTURED};
 use glam::{vec3, Vec3};
 use std::collections::HashMap;
@@ -14,7 +15,7 @@ use uc_formats::iam::{facet_type, flags, Map, KERB_HEIGHT, MAP_SIZE};
 use uc_formats::lgt::{Lighter, Lighting};
 use uc_formats::prm::Prim;
 use uc_formats::tma::StyleTable;
-use uc_formats::txc::{Clump, Texture};
+use uc_formats::txc::{entry_page, Clump, Texture};
 use uc_formats::ucm::{waypoint, Mission};
 use uc_formats::resolve;
 
@@ -165,7 +166,8 @@ fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> Clum
     let mut others = Vec::new();
     for (rank, name) in donors {
         if let Some(c) = read(game, &format!("clumps\\{name}.txc")).ok().and_then(|b| Clump::parse(b).ok()) {
-            clump.fill_from(&c, |p| rank < 2 || (rank == 2 && !own_world) || !world_page(p));
+            // A page's crinkle is taken along with the page.
+            clump.fill_from(&c, |id| rank < 2 || (rank == 2 && !own_world) || !world_page(entry_page(id)));
             if rank >= 2 {
                 others.push(c);
             }
@@ -317,6 +319,9 @@ impl Level {
         let mut b = Builder::default();
         build_floor(&mut b, &self.map, &sh, |p| !ids.contains(&p));
         build_roof_faces(&mut b, &self.map, &sh);
+        // Each page's crinkle, as an index into `crinkles`.
+        let mut crinkles = Vec::new();
+        let mut crinkle_of: HashMap<u32, Option<u32>> = HashMap::new();
         if let Some(styles) = &self.styles {
             let refence = fence_page(&self.mission.map);
             for i in 1..self.map.facets.len() {
@@ -325,14 +330,22 @@ impl Level {
                 for q in facet::wall_quads(&self.map, styles, i) {
                     let p = q.corners.map(|c| vec3(c[0], c[1], c[2]) / UNIT);
                     let page = refence.filter(|_| fence).unwrap_or(q.page);
-                    b.batch(p[0], Layer::Walls, page).quad(p, q.uv, sh.quad(&p));
+                    let crinkle = *crinkle_of.entry(page).or_insert_with(|| {
+                        let c = self.clump.crinkle(page).ok().flatten()?;
+                        crinkles.push(c);
+                        Some(crinkles.len() as u32 - 1)
+                    });
+                    match crinkle {
+                        Some(crinkle) => b.crinkled(ReliefQuad { corners: p, uv: q.uv, colour: sh.quad(&p), page, crinkle }),
+                        None => b.batch(p[0], Layer::Walls, page).quad(p, q.uv, sh.quad(&p)),
+                    }
                 }
             }
         }
         let moving: std::collections::BTreeSet<usize> = self.platforms.iter().map(|&(_, ob)| ob).chain(self.barrel_props.iter().copied()).collect();
         build_props(&mut b, &self.map, &self.game, &sh, &moving);
         build_details(&mut b, &self.map, &sh);
-        b.finish()
+        WorldGeometry { crinkles, ..b.finish() }
     }
 }
 

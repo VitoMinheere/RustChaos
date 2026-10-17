@@ -1,6 +1,7 @@
 //! `.txc` texture clumps: `FileClump` (fallen/DDLibrary/Source/FileClump.cpp:12) holding
 //! textures compressed by `TGA_write_compressed`/`WriteSquished` (fallen/DDLibrary/Source/Tga.cpp).
-//! The clump id is the texture page number.
+//! The clump id is the texture page number. A page's crinkle, if it has one, is at
+//! [`CRINKLE_BASE`] + page.
 
 use crate::reader::{Reader, Result};
 use std::collections::BTreeMap;
@@ -71,12 +72,83 @@ impl Clump {
         self.entries.get(&id).map(|&(o, n)| &self.data[o..o + n])
     }
 
+    /// The crinkle of texture page `page`, if it has one (`TEXTURE_load_page`,
+    /// DDEngine/Source/texture.cpp:1057). Only pages below 512 can have one.
+    pub fn crinkle(&self, page: u32) -> Result<Option<Crinkle>> {
+        if page >= CRINKLE_PAGES {
+            return Ok(None);
+        }
+        match self.raw(CRINKLE_BASE + page) {
+            Some(blob) => Crinkle::parse(blob).map(Some),
+            None => Ok(None),
+        }
+    }
+
     /// Decodes entry `id`. Returns `Ok(None)` if it is absent or not an image (width 0).
     pub fn texture(&self, id: u32) -> Result<Option<Texture>> {
         match self.raw(id) {
             Some(blob) => decode(blob),
             None => Ok(None),
         }
+    }
+}
+
+/// The clump id of page 0's crinkle: `TEXTURE_MAX_TEXTURES` (texture.cpp:1057).
+pub const CRINKLE_BASE: u32 = 1568;
+/// Pages below this can have a crinkle (`64 * 8`, texture.cpp:1028 and facet.cpp:1718).
+pub const CRINKLE_PAGES: u32 = 512;
+
+/// The texture page an entry belongs to: itself, or the page whose crinkle it is.
+pub fn entry_page(id: u32) -> u32 {
+    if (CRINKLE_BASE..CRINKLE_BASE + CRINKLE_PAGES).contains(&id) { id - CRINKLE_BASE } else { id }
+}
+
+/// A crinkle: relief that stands in for a flat wall quad up close (DDEngine/Source/Crinkle.cpp).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Crinkle {
+    pub points: Vec<CrinklePoint>,
+    pub faces: Vec<[u16; 3]>,
+}
+
+/// One point of a crinkle (`CRINKLE_Point`, Crinkle.cpp:54).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CrinklePoint {
+    /// Across the quad from corner 0 towards corner 1, 0 to 1.
+    pub u: f32,
+    /// Across the quad from corner 0 towards corner 2, 0 to 1.
+    pub v: f32,
+    /// How far the point stands out of the wall.
+    pub out: f32,
+    /// How much of each corner's colour it takes, out of 128.
+    pub w: [u8; 4],
+}
+
+impl Crinkle {
+    /// `CRINKLE_read_bin` (Crinkle.cpp:365): `num_points`, `num_faces` and two stale
+    /// pointers, then the points and the faces.
+    pub fn parse(blob: &[u8]) -> Result<Crinkle> {
+        let mut r = Reader::new(blob);
+        let (np, nf) = (r.i32()?, r.i32()?);
+        r.skip(8)?;
+        if np < 0 || nf < 0 || np as usize * 16 + nf as usize * 6 > r.remaining() {
+            return r.error(format!("crinkle of {np} points and {nf} faces doesn't fit"));
+        }
+        let f32 = |r: &mut Reader| r.u32().map(f32::from_bits);
+        let mut points = Vec::with_capacity(np as usize);
+        for _ in 0..np {
+            let (u, v, out) = (f32(&mut r)?, f32(&mut r)?, f32(&mut r)?);
+            let w = [r.u8()?, r.u8()?, r.u8()?, r.u8()?];
+            points.push(CrinklePoint { u, v, out, w });
+        }
+        let mut faces = Vec::with_capacity(nf as usize);
+        for _ in 0..nf {
+            let f = [r.u16()?, r.u16()?, r.u16()?];
+            if f.iter().any(|&i| i as usize >= points.len()) {
+                return r.error("crinkle face points past its points");
+            }
+            faces.push(f);
+        }
+        Ok(Crinkle { points, faces })
     }
 }
 

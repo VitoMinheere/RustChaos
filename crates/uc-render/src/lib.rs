@@ -71,6 +71,9 @@ pub struct Settings {
     pub fog: Option<(f32, f32)>,
     /// Which layers to draw.
     pub layers: Vec<Layer>,
+    /// Crinkles are on: the walls with one in chunks near the camera are left out, for the
+    /// dynamic batches to draw raised (`uc_world::Relief::draw`).
+    pub crinkles: bool,
 }
 
 /// Draw statistics for the last frame.
@@ -84,6 +87,8 @@ pub struct Stats {
 
 struct DrawRange {
     layer: Layer,
+    /// A wall with a crinkle, drawn flat.
+    crinkled: bool,
     page: u32,
     first: u32,
     count: u32,
@@ -524,12 +529,13 @@ impl Renderer {
         self.chunks.clear();
         for c in &geo.chunks {
             let mut ranges = Vec::new();
-            for (&(layer, page), b) in &c.batches {
+            let crinkled = c.crinkled.iter().map(|(&page, b)| (Layer::Walls, true, page, b));
+            for (layer, crinkled, page, b) in c.batches.iter().map(|(&(l, p), b)| (l, false, p, b)).chain(crinkled) {
                 let base = vertices.len() as u32;
                 let first = indices.len() as u32;
                 vertices.extend_from_slice(&b.vertices);
                 indices.extend(b.indices.iter().map(|i| i + base));
-                ranges.push(DrawRange { layer, page, first, count: b.indices.len() as u32 });
+                ranges.push(DrawRange { layer, crinkled, page, first, count: b.indices.len() as u32 });
             }
             self.chunks.push(ChunkDraws { min: c.min, max: c.max, ranges });
         }
@@ -786,8 +792,9 @@ impl Renderer {
                         continue;
                     }
                     stats.chunks_drawn += 1;
+                    let raised = s.crinkles && uc_world::crinkle::near(cam.pos, c.min, c.max);
                     for r in &c.ranges {
-                        if !s.layers.contains(&r.layer) {
+                        if !s.layers.contains(&r.layer) || (raised && r.crinkled) {
                             continue;
                         }
                         let bg = if r.page == UNTEXTURED { &self.white } else { self.textures.get(&r.page).unwrap_or(&self.white) };
