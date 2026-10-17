@@ -37,8 +37,10 @@ impl Game {
         for p in self.people.iter().filter(|p| !p.removed && !matches!(p.state, State::InCar { .. }) && !(scoped && p.player)) {
             p.fig.append_batches(&mut out, lighter.as_ref());
             shadow(&mut out, p, level);
-            // The weapon in hand, and a muzzle flash just after a shot.
-            if let Some((held, part, flash)) = p.weapon.held().filter(|_| !p.weapon.is_gun() || p.gun_out()) {
+            // The weapon in hand, and a muzzle flash just after a shot. The Men in Black's own
+            // mesh has their gun built into the left arm, so no AK-47 is drawn for them.
+            let built_in = p.is_mib() && p.weapon.is_gun();
+            if let Some((held, part, flash)) = p.weapon.held().filter(|_| !built_in && (!p.weapon.is_gun() || p.gun_out())) {
                 if let Some((rot, at)) = p.fig.part_world(part) {
                     let flash = flash.filter(|_| p.flash > 0.0);
                     for id in std::iter::once(held).chain(flash) {

@@ -158,6 +158,10 @@ const MISSION_FLAG_SHOW_CRIMERATE: i32 = 1 << 1;
 const CRUISE: f32 = 1100.0;
 /// A driver looks for a car this far away (`PCOM_set_person_ai_findcar`: 0xc00, x plus z).
 const FIND_CAR: f32 = 3072.0;
+/// How far (squares) a bodyguard looks out for whoever is going for the person they guard,
+/// and goes for something to arm themselves with. The original's sphere is `0x800`, eight;
+/// half again keeps them in it as a fight moves about.
+pub(crate) const GUARDS: f32 = 12.0;
 
 /// Someone at the wheel who isn't the player (`pcom_move_state` and its arguments).
 #[derive(Debug, Clone, Copy, Default)]
@@ -1077,6 +1081,7 @@ impl Game {
         // crash cops in RTA had shot the drunk long before she got there.
         self.walk_goals();
         self.run_ctf(dt, level);
+        self.arm_bodyguards(level);
         self.find_ways(level);
         self.city_life(dt, level);
         self.board_cars(level);
@@ -1130,7 +1135,7 @@ impl Game {
                         .filter(|(j, o)| {
                             *j != i && o.hostile() && o.aggro() && !o.is_dead()
                                 && (o.foe == client || o.foe == Some(i))
-                                && (o.fig.pos - p.fig.pos).length() < 8.0 * 256.0
+                                && (o.fig.pos - p.fig.pos).length() < GUARDS * 256.0
                                 && level.ground.line_of_sight(p.fig.pos + eye, o.fig.pos + eye)
                         })
                         .min_by(|a, b| {

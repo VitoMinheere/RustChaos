@@ -309,8 +309,23 @@ fn a_downed_man_in_black_levitates_then_goes_up() {
     assert!(run(&mut g, 3.0), "no lightning round him");
     let risen = g.people[m].fig.pos.y - low;
     assert!(risen > 60.0, "only rose {risen:.0}");
-    run(&mut g, 4.0);
+    // Darci beside him as he goes up: the blast (0x300 across, 200 at the middle) catches her.
+    let me = g.player.unwrap();
+    let beside = g.people[m].fig.pos + vec3(200.0, 0.0, 0.0);
+    let y = level.ground.surface(&level.map, beside.x, beside.z, g.people[me].fig.pos.y + 64.0);
+    assert!(g.teleport(vec3(beside.x, y, beside.z), &level));
+    g.cheats.freeze = true;
+    g.people[me].health = g.people[me].max_health;
+    for _ in 0..(4.0 / DT) as usize {
+        g.update(DT, &Controls::default(), &level);
+        if g.people[m].blown_up {
+            break;
+        }
+    }
     assert!(g.people[m].removed && g.people[m].blown_up, "never went up");
+    assert!(g.people[me].health < g.people[me].max_health, "the blast never touched her");
+    assert!(g.pyro.puffs.len() >= 20, "hardly anything to see: {} puffs", g.pyro.puffs.len());
+    g.cheats.freeze = false;
     run(&mut g, 3.0);
     assert!(g.sparks.is_empty(), "{} bolts still there", g.sparks.len());
 }

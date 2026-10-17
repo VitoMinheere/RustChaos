@@ -970,7 +970,7 @@ impl Person {
         }
         match self.ai {
             // A bodyguard's sphere for someone going for their client (`0x800`).
-            AI_BODYGUARD => 8.0 * 256.0,
+            AI_BODYGUARD => crate::GUARDS * 256.0,
             2 => 4.0 * 256.0,
             6 | 13 => 5.0 * 256.0,
             4 | 18 | 19 => 8.0 * 256.0,

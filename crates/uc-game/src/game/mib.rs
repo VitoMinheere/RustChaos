@@ -53,12 +53,13 @@ impl Game {
         self.sparks.push(Spark { from: Vec3::new(x, ground, z), to: hips, left: 25.0 / 20.0 });
     }
 
-    /// The body goes up (Person.cpp:17546): a white flash, smoke, ten bolts of lightning from
+    /// The body goes up (Person.cpp:17546): a white bloom, pale clouds climbing, ten bolts of lightning from
     /// a thousand up down to the ground around it, `S_MIB_EXPLODE`, a shockwave of 0x300 for
     /// 200, a gust through the litter, and it's gone.
     fn mib_goes_up(&mut self, i: usize, level: &Level) {
         let at = self.people[i].body_pos() + Vec3::new(0.0, 40.0, 0.0);
-        self.pyro.burst(at, pyro::FLASH | pyro::DUST, 120.0);
+        self.pyro.lightning_strike(at);
+        self.pyro.burst(at, pyro::DUST, 400.0);
         for _ in 0..10 {
             let mut off = || (self.rand() & 0x3f) as f32 - 0x1f as f32;
             let (x, z) = (at.x + off(), at.z + off());
