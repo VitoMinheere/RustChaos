@@ -1,6 +1,7 @@
 //! The level's moving parts: platforms, warehouses, tripwires and steam vents.
 
 use crate::*;
+use uc_world::ground::Wmove;
 
 impl Game {
     /// Platforms move on the original's ticks, carrying whoever stands on them and killing
@@ -22,7 +23,7 @@ impl Game {
                 // Who is standing on it, before it goes.
                 let riders: Vec<usize> = self.people.iter().enumerate()
                     .filter(|(_, p)| !p.removed && !matches!(p.state, State::InCar { .. }))
-                    .filter(|(_, p)| (p.fig.pos.y - (before.y + top)).abs() < 16.0 && level.ground.over_platform(k, p.fig.pos.x, p.fig.pos.z, 0.0))
+                    .filter(|(_, p)| (p.fig.pos.y - (before.y + top)).abs() < 16.0 && level.ground.over_moving(k, p.fig.pos.x, p.fig.pos.z, 0.0))
                     .map(|(i, _)| i)
                     .collect();
                 let by = self.platforms[k].tick(&Route(&script));
@@ -39,7 +40,7 @@ impl Game {
                 let under = (self.platforms[k].pos.y + bot - 0x80 as f32, self.platforms[k].pos.y + bot - 0x40 as f32);
                 for i in 0..self.people.len() {
                     let p = &self.people[i];
-                    if p.removed || p.is_dead() || riders.contains(&i) || !level.ground.over_platform(k, p.fig.pos.x, p.fig.pos.z, 10.0) {
+                    if p.removed || p.is_dead() || riders.contains(&i) || !level.ground.over_moving(k, p.fig.pos.x, p.fig.pos.z, 10.0) {
                         continue;
                     }
                     let y = p.fig.pos.y;
@@ -55,16 +56,70 @@ impl Game {
                 }
             }
             self.script = Some(script);
-            self.sync_platforms(level);
+            self.sync_wmove(level);
         }
     }
 
-    /// Tells the ground where the platforms' tops are now.
-    pub(crate) fn sync_platforms(&self, level: &Level) {
-        level.ground.set_platforms(self.platforms.iter().zip(&self.plat_prims).filter_map(|(p, prim)| {
-            let (lo, hi, _, top) = plat::top_box(&prim.as_ref()?.points);
-            Some((Vec2::new(p.pos.x, p.pos.z), p.yaw, lo, hi, p.pos.y + top))
-        }));
+    /// Tells the ground where the moving faces are now (`WMOVE_process`): the platforms' tops,
+    /// one each, then the vehicles'.
+    pub(crate) fn sync_wmove(&self, level: &Level) {
+        let plats = self.platforms.iter().zip(&self.plat_prims).map(|(p, prim)| {
+            // (A platform without a prim still has its place, at the bottom of the world.)
+            let (lo, hi, _, top) = prim.as_ref().map_or((Vec2::ZERO, Vec2::ZERO, 0.0, f32::MIN), |prim| plat::top_box(&prim.points));
+            Wmove::flat(Vec2::new(p.pos.x, p.pos.z), p.yaw, lo, hi, p.pos.y + top)
+        });
+        let cars = (0..self.vehicles.len()).flat_map(|vi| self.vehicle_tops(vi, level));
+        level.ground.set_moving(plats.chain(cars).collect::<Vec<_>>());
+    }
+
+    /// Who is standing on one of `faces` (`OnFace` a `WMOVE` face): (person, face, how far
+    /// along it, feet above it).
+    pub(crate) fn riders(&self, faces: &[Wmove]) -> Vec<(usize, usize, Vec2, f32)> {
+        let mut out = Vec::new();
+        for (i, p) in self.people.iter().enumerate() {
+            if p.removed || matches!(p.state, State::InCar { .. } | State::Enter { .. }) {
+                continue;
+            }
+            let at = p.fig.pos;
+            let on = faces.iter().enumerate().find_map(|(f, face)| {
+                let along = face.along(at.x, at.z)?;
+                let dy = at.y - face.height(at.x, at.z, 0.0)?;
+                (dy.abs() < 16.0).then_some((i, f, along, dy))
+            });
+            out.extend(on);
+        }
+        out
+    }
+
+    /// Takes riders along with the faces they're on as those move from `before` to `after`
+    /// (`WMOVE_relative_pos`, wmove.cpp:726, as `Person.cpp:4239` uses it): to the same place
+    /// on the face, turned as much as it has.
+    pub(crate) fn carry(&mut self, riders: &[(usize, usize, Vec2, f32)], before: &[Wmove], after: &[Wmove]) {
+        for &(i, f, along, dy) in riders {
+            let (Some(was), Some(now)) = (before.get(f), after.get(f)) else { continue };
+            // "Stop sliding up off the face."
+            let dy = if dy.abs() < 2.0 { 0.0 } else { dy };
+            let to = now.at(along) + Vec3::new(0.0, dy, 0.0);
+            let turn = (now.angle() - was.angle() + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+            let p = &mut self.people[i];
+            // Not if it's jumped more than a square.
+            if (to.x - p.fig.pos.x).abs() <= 256.0 {
+                p.fig.pos.x = to.x;
+            }
+            if (to.z - p.fig.pos.z).abs() <= 256.0 {
+                p.fig.pos.z = to.z;
+            }
+            p.fig.pos.y = to.y;
+            p.fig.angle += turn;
+        }
+    }
+
+    /// The walkable faces on top of vehicle `vi`, where it is now.
+    pub(crate) fn vehicle_tops(&self, vi: usize, level: &Level) -> Vec<Wmove> {
+        let v = &self.vehicles[vi];
+        let (body, wheel, ..) = vehicle::TYPES[v.kind as usize];
+        let Some(body) = level.item_prims.get(&body) else { return Vec::new() };
+        v.tops(body, vehicle::wheel_radius(level.item_prims.get(&wheel))).collect()
     }
 
     /// Whether the player has gone into a warehouse or come out of one. The ambience is the

@@ -1,4 +1,4 @@
-//! The creatures' own clock: Bane, the Balrog, gargoyles and bats.
+//! The creatures' own clock: Bane, the Balrog, gargoyles and bats, and the dogs.
 
 use crate::*;
 
@@ -6,7 +6,7 @@ impl Game {
     /// The creatures go about their business on the original's own 20 ticks a second, and
     /// their fireballs fly.
     pub(crate) fn run_creatures(&mut self, dt: f32, level: &Level, frozen: bool) {
-        if self.creatures.is_empty() && self.fireballs.is_empty() {
+        if self.creatures.is_empty() && self.fireballs.is_empty() && self.dogs.is_empty() {
             return;
         }
         // The Balrog burns as he goes (`PYRO_IMMOLATE` on him).
@@ -46,6 +46,7 @@ impl Game {
         let around = creature::Around {
             people: &seen, player: self.player, floor: &floor, terrain: &terrain, clear: &clear, slide: &slide, frozen,
         };
+        self.dog_tick(&around);
         let mut acts = Vec::new();
         let mut rng = self.rngs.creature;
         for (k, c) in self.creatures.iter_mut().enumerate() {

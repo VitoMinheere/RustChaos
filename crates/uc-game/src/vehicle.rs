@@ -6,7 +6,8 @@
 
 use glam::{vec2, vec3, Vec2, Vec3};
 use uc_formats::iam::Map;
-use uc_world::ground::Ground;
+use uc_formats::prm::Prim;
+use uc_world::ground::{Ground, Wmove};
 
 /// `VEH_TYPE_*` (fallen/Headers/vehicle.h) and their meshes from `veh_info`
 /// (fallen/Source/vehicle.cpp): (body prim, wheel prim, wheel x, front wheel z, rear wheel z).
@@ -36,6 +37,31 @@ pub const TYPES: [(u8, u8, f32, f32, f32); 9] = [
 /// How far a wheel's middle is above a car body's origin (see [`TYPES`]): the spring at rest,
 /// 51 less its length of 107, from a body drawn 64 down.
 pub const WHEEL_ABOVE_BODY: f32 = 8.0;
+
+/// The points of each type's walkable faces in its body prim, three to a face: the corner
+/// and its two neighbours (`tri_vehicle`, `WMOVE_get_pos`, fallen/Source/wmove.cpp:216). A
+/// van has its roof; a car its bonnet, windscreen, roof, back window and boot. The taxi and
+/// the sedan use the car's points, the meat wagon the jeep's and the Wildcat van the van's,
+/// as the original does.
+///
+/// Two of the original's lists don't fit the shipped meshes. Its police car points
+/// (`tri_police`: 28, 29, 50 and on) land on the wheel arches and the lights, low down the
+/// sides, but the police body has the car's points in the car's order, so it uses the car's.
+/// Its ambulance points (119 to 121) are past the end of the body's 96, so the original read
+/// whatever came after; here it has the roof of its box (61, 62, 67).
+const TOPS: [&[[usize; 3]]; 9] = [VAN, CAR, CAR, CAR, AMBULANCE, JEEP, JEEP, CAR, VAN];
+const VAN: &[[usize; 3]] = &[[1, 2, 21]];
+const CAR: &[[usize; 3]] = &[[33, 11, 34], [34, 12, 35], [35, 13, 37], [37, 15, 38], [38, 16, 39]];
+const AMBULANCE: &[[usize; 3]] = &[[61, 62, 67]];
+const JEEP: &[[usize; 3]] = &[[14, 33, 2], [2, 4, 11], [11, 30, 9], [9, 28, 19]];
+
+/// The radius of a wheel prim, which it rides on (38 if it's missing).
+pub fn wheel_radius(wheel: Option<&Prim>) -> f32 {
+    wheel.map_or(38.0, |prim| {
+        let (lo, hi) = uc_world::level::prim_bounds(prim);
+        (hi.y - lo.y) / 2.0
+    })
+}
 
 /// What it takes to get into a car: the special the original keeps as the vehicle's `key`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -289,7 +315,7 @@ impl Vehicle {
         let (wx, fz, rz) = (TYPES[self.kind as usize].2, TYPES[self.kind as usize].3, TYPES[self.kind as usize].4);
         let h = |x: f32, z: f32| {
             let p = self.to_world_at(new_mid, x, z);
-            ground.surface(map, p.x, p.y, self.pos.y + 60.0)
+            ground.road(map, p.x, p.y, self.pos.y + 60.0)
         };
         let (fl, fr, rl, rr) = (h(-wx, fz), h(wx, fz), h(-wx, rz), h(wx, rz));
         let new_y = (fl + fr + rl + rr) * 0.25;
@@ -314,6 +340,25 @@ impl Vehicle {
         let v = vec3(v.x, cp * v.y + sp * v.z, -sp * v.y + cp * v.z);
         let (s, c) = self.yaw.sin_cos();
         self.pos + vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z)
+    }
+
+    /// Car body prim space to world, as the body is drawn: the meshes are modelled nose
+    /// towards -z, and the body sits `lift` up so the wheels are where the original has them.
+    pub fn body_point(&self, p: Vec3, lift: f32) -> Vec3 {
+        self.place(vec3(-p.x, p.y + lift, -p.z))
+    }
+
+    /// The walkable faces on top of the car (`WMOVE_get_pos`, `CLASS_VEHICLE`), from its body
+    /// prim and wheel radius. Every type has them on the PC: `WMOVE_create` keeps them to the
+    /// vans only for the PlayStation.
+    pub fn tops(&self, body: &Prim, wheel: f32) -> impl Iterator<Item = Wmove> + '_ {
+        let lift = wheel - WHEEL_ABOVE_BODY;
+        let points: Vec<Vec3> = body.points.iter().map(|p| self.body_point(vec3(p[0] as f32, p[1] as f32, p[2] as f32), lift)).collect();
+        TOPS[self.kind as usize].iter().filter_map(move |t| {
+            let [o, a, b] = t.map(|i| points.get(i).copied());
+            let o = o?;
+            Some(Wmove { o, a: a? - o, b: b? - o, vehicle: true })
+        })
     }
 
     /// Whether world point `p` (xz) is within the car's footprint, grown by `margin`.

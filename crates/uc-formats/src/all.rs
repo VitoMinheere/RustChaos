@@ -157,6 +157,16 @@ impl AnimChunk {
         self.bodies.get(body)?.parts.get(offset)
     }
 
+    /// How many elements the keyframes really hold each: the smallest step between one
+    /// keyframe's first element and the next's. `DOG2.all` says 28 (its meshes) but holds
+    /// 15, so reading 28 runs into the next keyframe.
+    pub fn frame_stride(&self) -> Option<usize> {
+        let mut firsts: Vec<usize> = self.keyframes.iter().filter_map(|k| k.first_element).collect();
+        firsts.sort_unstable();
+        firsts.dedup();
+        firsts.windows(2).map(|w| w[1] - w[0]).min()
+    }
+
     /// The elements of keyframe `frame`, one per part.
     pub fn pose(&self, frame: usize) -> Option<&[Element]> {
         let first = self.keyframes.get(frame)?.first_element?;

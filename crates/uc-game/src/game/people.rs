@@ -27,6 +27,13 @@ fn caps_of(p: &Person, wand: &wand::Wander) -> u8 {
 /// going moves (the original plans again only on reaching the route's next square).
 const REPLAN: f32 = 1.0;
 
+/// How long a route is kept at most: then it's planned again, in case its walker is stuck
+/// (`pcom_move_counter > PCOM_get_duration(20)`, pcom.cpp:12452).
+const RENAV: f32 = 2.0;
+
+/// How near the middle of the square a walk goes to counts as there (`PCOM_ARRIVE_DIST`).
+const ARRIVE: f32 = 64.0;
+
 /// A person's last route: (from square, to square), the furthest square to walk to and the
 /// first square along it, or the square over an edge to drop into; and when it was made.
 #[derive(Debug, Clone, Copy)]
@@ -63,9 +70,9 @@ impl Game {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn spawn_variant(&mut self, level: &Level, kind: u8, player: bool, way: usize, pos: Vec3, angle: f32, variant: u32) -> Option<usize> {
         let people = level.people.as_ref()?;
-        // Points can sit a little under the surface they're on (The Jump's jumper is 64 below
-        // his ledge): look from half a storey up.
-        let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 128.0);
+        // On the surface nearest the point (`create_person`, Person.cpp:761). Points can sit a
+        // little under the surface they're on: The Jump's jumper is 64 below his ledge.
+        let y = level.ground.spawn_height(&level.map, pos.x, pos.z, pos.y);
         let fig = people.figure(kind, variant, Vec3::new(pos.x, y, pos.z), angle)?;
         self.people.push(Person::new(fig, kind, player, way));
         let i = self.people.len() - 1;
@@ -179,15 +186,29 @@ impl Game {
     /// that can be walked to, or of the route's first square if a body's width of line from
     /// where they stand to that one catches a wall (the corner of a building). A person's
     /// route is kept until they change square, or where they're going does and it's a second
-    /// old. A route that starts with a drop off an edge heads straight for the square over it.
+    /// old, or it's two seconds old. A route that starts with a drop off an edge heads
+    /// straight for the square over it.
+    ///
+    /// Someone who has just stepped into the square they were walking to keeps on for its
+    /// middle before going on (round a corner, rather than straight at the wall or the lamp
+    /// post on it).
     fn leg(&mut self, i: usize, from: Vec3, to: Vec3, level: &Level) -> Option<Vec3> {
         let sq = |v: Vec3| ((v.x / 256.0).clamp(0.0, 127.0) as u8, (v.z / 256.0).clamp(0.0, 127.0) as u8);
         let (a, b) = (sq(from), sq(to));
+        let middle = |s: (u8, u8)| Vec3::new(s.0 as f32 * 256.0 + 128.0, from.y, s.1 as f32 * 256.0 + 128.0);
+        // Arrived only within `PCOM_ARRIVE_DIST` of the middle of the walk's square
+        // (`PCOM_process_movement`, pcom.cpp:12340).
+        if let Some(r) = self.routes.ways.get(&i) {
+            let walking = r.drop.is_none() && r.leap.is_none() && r.dest == Some(a) && a != b;
+            if walking && self.time - r.at < RENAV && Vec2::new(from.x - middle(a).x, from.z - middle(a).z).length() >= ARRIVE {
+                return Some(middle(a));
+            }
+        }
         if a == b || self.routes.mav.can_walk(a, b) {
             return None;
         }
         let route = match self.routes.ways.get(&i) {
-            Some(&r) if r.from == a && (r.to == b || self.time - r.at < REPLAN) => r,
+            Some(&r) if r.from == a && (r.to == b || self.time - r.at < REPLAN) && self.time - r.at < RENAV => r,
             _ => {
                 let mut rng = self.rngs.mav;
                 let caps = caps_of(&self.people[i], &self.streets.wand);
@@ -213,7 +234,6 @@ impl Game {
             }
         };
         let (dest, first) = (route.dest, route.first);
-        let middle = |s: (u8, u8)| Vec3::new(s.0 as f32 * 256.0 + 128.0, from.y, s.1 as f32 * 256.0 + 128.0);
         if let Some(over) = route.drop {
             return Some(middle(over));
         }
