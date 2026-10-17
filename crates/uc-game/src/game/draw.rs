@@ -285,6 +285,7 @@ impl Game {
                 [puff.colour(); 4],
             );
         }
+        self.draw_pow(&mut out, eye);
         self.draw_balloons(&mut out, level, eye);
         self.trips.batches(&mut out);
         self.sky(&mut out, level, eye);
@@ -295,6 +296,28 @@ impl Game {
         self.draw_bikes(&mut out, level);
         self.draw_sea(&mut out);
         out
+    }
+
+    /// The POW sprites (`AENG_draw_pows`, aeng.cpp:4302): each a square of `explode1.tga`
+    /// facing the camera, showing its frame, drawn furthest first. The original sizes them
+    /// on screen, 650 times the point's perspective `Z`: at 640 x 480, with the lens of 4 and
+    /// the 22 squares it draws to, that's about 60 units each way from the middle.
+    fn draw_pow(&self, out: &mut BTreeMap<u32, Batch>, eye: Vec3) {
+        const HALF: f32 = 60.0;
+        let mut sprites: Vec<(Vec3, u8)> = self.pow.sprites().collect();
+        sprites.sort_by(|a, b| (b.0 - eye).length_squared().total_cmp(&(a.0 - eye).length_squared()));
+        for (pos, frame) in sprites {
+            let away = pos - eye;
+            let right = away.cross(Vec3::Y).normalize_or(Vec3::X) * HALF;
+            let up = right.cross(away).normalize_or(Vec3::Y) * HALF;
+            let (u, v) = ((frame & 3) as f32 / 4.0, (frame >> 2) as f32 / 4.0);
+            let corner = |x: f32, y: f32| (pos + right * x + up * y) / uc_world::UNIT;
+            out.entry(uc_world::EXPLODE_PAGE).or_default().quad(
+                [corner(-1.0, 1.0), corner(1.0, 1.0), corner(-1.0, -1.0), corner(1.0, -1.0)],
+                [[u, v], [u + 0.25, v], [u, v + 0.25], [u + 0.25, v + 0.25]],
+                [[255; 4]; 4],
+            );
+        }
     }
 
     /// The sea (`AENG_lower` at a `MAV_SPARE_FLAG_WATER` point, aeng.cpp:7628): each water
@@ -396,7 +419,7 @@ impl Game {
     pub fn pages(level: &Level) -> Vec<u32> {
         let Some(people) = &level.people else { return Vec::new() };
         // The leaves, rubbish and snowflakes the dirt is drawn with.
-        let mut out = vec![uc_world::SKY_PAGE, uc_world::MOON_PAGE, uc_world::level::LEAF_PAGE, uc_world::level::RUBBISH_PAGE, uc_world::level::SNOWFLAKE_PAGE];
+        let mut out = vec![uc_world::SKY_PAGE, uc_world::MOON_PAGE, uc_world::EXPLODE_PAGE, uc_world::level::LEAF_PAGE, uc_world::level::RUBBISH_PAGE, uc_world::level::SNOWFLAKE_PAGE];
         // And the footprints and tyre tracks.
         out.extend(uc_world::DECAL_PAGES);
         // The sea's floor, which the level leaves to the game.

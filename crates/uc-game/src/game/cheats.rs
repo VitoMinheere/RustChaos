@@ -189,4 +189,12 @@ impl Game {
             self.sounds.push((Sfx::Explosion, at));
         }
     }
+
+    /// `pow`: a POW bang a square in front of the player, to look at (see [`crate::pow`]).
+    pub fn pow_test(&mut self) {
+        if let Some((at, f)) = self.player().map(|p| (p.fig.pos, p.facing_dir())) {
+            self.pow.test_key(at, Vec3::new(f.x, 0.0, f.y));
+            self.sounds.push((Sfx::Explosion, at));
+        }
+    }
 }

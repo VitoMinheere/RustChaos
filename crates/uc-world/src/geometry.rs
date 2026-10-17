@@ -27,6 +27,10 @@ pub const MIST: u32 = u32::MAX - 3;
 pub const SKY_PAGE: u32 = 22 * 64 + 10;
 /// `TEXTURE_page_moon` (`TEXTURE_NUM_STANDARD + 1`): `moon.tga`, added over the sky.
 pub const MOON_PAGE: u32 = 22 * 64 + 1;
+/// `TEXTURE_page_explode1` (`TEXTURE_NUM_STANDARD + 48`): `explode1.tga`, sixteen frames of
+/// fire in a 4 x 4 grid. Batches with this page are blended over the scene by the texture's
+/// alpha, with no depth writes (`POLY_PAGE_EXPLODE1`, polyrenderstate.cpp:1280).
+pub const EXPLODE_PAGE: u32 = 22 * 64 + 48;
 /// `TEXTURE_page_footprint` (`TEXTURE_NUM_STANDARD + 37`): `footprint.tga`, a left print in
 /// its left half.
 pub const FOOTPRINT_PAGE: u32 = 22 * 64 + 37;

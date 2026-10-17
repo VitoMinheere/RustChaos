@@ -73,6 +73,16 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     return vec4<f32>(c, 1.0);
 }
 
+// Sprites of fire (`POLY_PAGE_EXPLODE1`): the texture times the vertex colour, blended by
+// its alpha, fading into the fog.
+@fragment
+fn fs_sprite(in: VOut) -> @location(0) vec4<f32> {
+    let t = textureSample(tex, samp, in.uv) * in.color;
+    let d = distance(in.world, g.cam_pos.xyz);
+    let f = clamp((d - g.fog.x) / max(g.fog.y - g.fog.x, 0.001), 0.0, 1.0) * g.fog.z;
+    return vec4<f32>(mix(t.rgb, g.fog_color.rgb, f), t.a);
+}
+
 // Explosions: the same round blob, added to what's behind it rather than blended over it,
 // so fire and dust brighten the scene. The falloff is squared, which the soft blob of a
 // shadow doesn't want but a flame does: it keeps a hot middle instead of a wide haze.
