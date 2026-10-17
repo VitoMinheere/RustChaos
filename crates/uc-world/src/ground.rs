@@ -401,6 +401,24 @@ impl Ground {
         best
     }
 
+    /// Where a person made at (x, y, z) stands (`find_face_for_this_pos`, walkable.cpp:466, as
+    /// `create_person` calls it, Person.cpp:761). Of the roofs and walkable tops at (x, z) no
+    /// more than 0xa0 above `y`, the nearest to `y`, above or below. With none, the ground.
+    /// The original leaves someone more than 0x50 off the ground where they are, to fall;
+    /// here they're put on it.
+    pub fn spawn_height(&self, map: &Map, x: f32, z: f32, y: f32) -> f32 {
+        let key = ((x / 256.0).floor() as i32, (z / 256.0).floor() as i32);
+        let p = vec2(x, z);
+        let moving = self.moving.borrow();
+        let tops = self.prop_tops.get(&key).into_iter().flatten().chain(moving.iter())
+            .filter(|t| t.contains(p)).map(|t| t.top);
+        let tris = self.prop_tris.get(&key).into_iter().flatten().filter_map(|t| height_in(t, x, z));
+        self.roof_height(x, z).into_iter().chain(tops).chain(tris)
+            .filter(|&h| h - y <= 160.0)
+            .min_by(|a, b| (a - y).abs().total_cmp(&(b - y).abs()))
+            .unwrap_or_else(|| map.ground_height(x, z))
+    }
+
     /// Moves a circle of `radius` at feet height `y` from `from` by `delta`, sliding along
     /// walls. Walls only block if they reach above a step over the person's feet.
     pub fn slide(&self, from: Vec2, y: f32, delta: Vec2, radius: f32) -> Vec2 {
