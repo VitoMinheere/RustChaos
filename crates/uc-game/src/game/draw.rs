@@ -285,6 +285,7 @@ impl Game {
                 [puff.colour(); 4],
             );
         }
+        self.draw_balloons(&mut out, level, eye);
         self.trips.batches(&mut out);
         self.sky(&mut out, level, eye);
         self.draw_choppers(&mut out, level);

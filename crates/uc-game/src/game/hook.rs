@@ -224,8 +224,8 @@ impl Game {
     }
 }
 
-/// Her hand, where the line is held.
-fn hand(p: &Person) -> Vec3 {
+/// Her left hand (`SUB_OBJECT_LEFT_HAND`), where the line is held, and a balloon's string.
+pub(crate) fn hand(p: &Person) -> Vec3 {
     p.fig.part_world(7).map_or(p.fig.pos + Vec3::new(0.0, 120.0, 0.0), |(_, at)| at)
 }
 

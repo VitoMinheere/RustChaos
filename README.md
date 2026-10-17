@@ -218,6 +218,8 @@ Guns can aim at the Balrog and gargoyles, and a bar under the clock shows the he
 
 **Peeing:** a mission can set someone relieving themselves against a wall (`make_person_pee`), a stream of drops from the pelvis as `DIRT_new_water` throws them, falling until they reach the ground. Semtex and Transmission Terminated have one. RTA and Arms Breaker ask for it too, but their point comes before the one that makes the person, so it finds nobody, and in the original nobody is ever seen at it either.
 
+**Balloons:** Gun Hunt and Grim Gardens each give a civilian a balloon to hold (`civ_balloon`). It's a short string from their left hand, floating up and pulled along after them as `balloon.cpp` has it: straight up when they stand, trailing behind when they walk, and pushed off walls. Knocked down or killed, or running scared, they let go, and it floats off out of sight. Jump with a hand near a loose one's string and Darci catches it. The shipped game only ever draws the loose ones (the held ones are compiled out); here the held ones are drawn too. The balloon's own mesh isn't in the shipped files, so it's a simple egg shape, coloured as the original colours them (the first yellow).
+
 **Doors:** a door is shut and solid until a mission opens it, which is the only way one ever opens — the original has no walking into them and no "use" on them either, and `DOOR_open`'s only caller is the mission script.
 
 **Falls:** landing hard hurts, and a fall of more than about five storeys kills, Darci included (as in the original).
@@ -309,6 +311,7 @@ With an install present, the tests check:
 - Seek, Sneak and Seize runs to its win, and neither half of it counts alone;
 - Insane Assault runs to its win by shooting the Balrog, and he takes damage at an eighth; Day Of Reckoning's gargoyle wakes and takes off, and its Bane draws up the bodies and can't be hurt; bats make nothing;
 - Grim Gardens' lift rises with Darci standing on it;
+- the balloons in Gun Hunt and Grim Gardens stay over their holders' hands, and float away when let go;
 - Cop Killers hands the player to Roper, and Darci is left unhurtable; RTA's mugger's shout is filmed with both faces, holds Darci still and can be skipped through; dispatch's messages carry the radio's face;
 - every `warefx` point is inside a warehouse and gives it its ambience, and Darci is indoors under a warehouse's roof but not on it;
 - steam vents keep to their routines and scald, and a trap that stays on for good never blows;
