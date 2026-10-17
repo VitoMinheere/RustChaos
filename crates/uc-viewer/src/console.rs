@@ -145,7 +145,7 @@ impl World {
             }
             "give" => match arg.map(str::to_ascii_lowercase) {
                 Some(what) if self.game.give(&what) => self.console.say(format!("Given {what}")),
-                _ => self.console.say("give pistol|shotgun|ak|sniper|knife|bat|grenades|explosives|health|key"),
+                _ => self.console.say("give pistol|shotgun|ak|sniper|knife|bat|grenades|explosives|hook|health|key"),
             },
             "kill" => {
                 let near = arg.is_some_and(|a| a.eq_ignore_ascii_case("near"));

@@ -218,6 +218,38 @@ impl Person {
     }
 
     /// `step` in [`State::Climb`].
+    /// Onto the grappling hook's line at `at`, the foot of the wall, facing `dir` into it,
+    /// to climb up to the edge at `top` and onto the roof at `to` (#109).
+    pub fn climb_rope(&mut self, at: Vec2, dir: Vec2, top: f32, to: Vec3) {
+        let y = self.fig.pos.y;
+        self.fig.pos = vec3(at.x, y, at.y);
+        self.fig.angle = uc_world::character::angle_of(dir);
+        self.fig.lift = 0.0;
+        self.fig.cancel_rise = false;
+        self.fig.restart_now(anim::ON_LADDER, Play::Loop);
+        self.state = State::Rope { at, dir, top, to, y0: y, loops0: self.fig.loops() };
+    }
+
+    /// Up the hook's line as up a ladder ([`Person::step_climb`]): towards the wall climbs,
+    /// away lets go, and at the top she climbs off onto the roof.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn step_rope(&mut self, at: Vec2, dir: Vec2, top: f32, to: Vec3, y0: f32, loops0: f32, c: &Controls) {
+        self.fig.angle = uc_world::character::angle_of(dir);
+        if c.wish.dot(-dir) > 0.7 || c.action {
+            self.fall(-dir * 60.0);
+            return;
+        }
+        // The player climbs while pushing towards the wall; anyone else just climbs.
+        let moving = !self.player || c.wish.dot(dir) > 0.3;
+        self.fig.set_speed(if moving { 1.3 } else { 0.0 });
+        let y = y0 + (self.fig.loops() - loops0) * RUNG_CYCLE;
+        self.fig.pos = vec3(at.x, y, at.y);
+        let off_rise = self.fig.anim_root(anim::OFF_LADDER_TOP, true).map_or(261.0, |r| r.y - self.fig.stand_root().y);
+        if y + off_rise >= top - 24.0 && self.fig.root().y >= 220.0 {
+            self.climb_onto(anim::OFF_LADDER_TOP, to, false);
+        }
+    }
+
     pub(super) fn step_climb(&mut self, ladder: usize, y0: f32, loops0: f32, c: &Controls, ground: &Ground, map: &Map) {
         let l = ground.ladders[ladder];
         self.fig.angle = uc_world::character::angle_of(-l.out);

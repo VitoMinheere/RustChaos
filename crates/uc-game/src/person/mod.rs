@@ -51,6 +51,9 @@ pub enum Weapon {
     Sniper,
     /// Grenades (`SPECIAL_GRENADE`): action primes one, action again throws it.
     Grenade,
+    /// The grappling hook (#109, hook.cpp; switched off in the original): attack throws it,
+    /// and attack again climbs it once it's caught on a roof.
+    Hook,
 }
 
 impl Weapon {
@@ -85,6 +88,7 @@ impl Weapon {
             Weapon::Explosives => Some(crate::EXPLOSIVES),
             Weapon::Sniper => Some(crate::SNIPER),
             Weapon::Grenade => Some(crate::game::grenades::IT_GRENADE),
+            Weapon::Hook => None,
         }
     }
 
@@ -124,6 +128,7 @@ impl Weapon {
             Weapon::Explosives => "EXPLOSIVES",
             Weapon::Sniper => "SNIPER RIFLE",
             Weapon::Grenade => "GRENADE",
+            Weapon::Hook => "GRAPPLING HOOK",
         }
     }
 
@@ -139,7 +144,7 @@ impl Weapon {
             Weapon::Ak47 => Some((260, 7, Some(263))),
             // The AK-47's, drawn longer.
             Weapon::Sniper => Some((260, 7, Some(263))),
-            Weapon::Explosives | Weapon::Grenade => None,
+            Weapon::Explosives | Weapon::Grenade | Weapon::Hook => None,
         }
     }
 
@@ -543,6 +548,13 @@ pub enum State {
     /// Throwing a grenade (`STATE_CANNING`, `SUB_STATE_CANNING_RELEASE`): whether it's left
     /// her hand yet.
     Throw { released: bool },
+    /// The grappling hook: spinning it (`windup`), then letting it go (whether it's gone), or
+    /// winding it back in (`released` with no wind-up).
+    Hook { released: bool, windup: bool },
+    /// Climbing the hook's line up a wall, as up a ladder: standing off it at `at`, facing
+    /// `dir` (into the wall), up to the edge at `top` and onto the roof at `to`. Feet at `y0`
+    /// plus a rung cycle per loop of the animation since `loops0`.
+    Rope { at: Vec2, dir: Vec2, top: f32, to: Vec3, y0: f32, loops0: f32 },
     /// Crouched, for as long as action is held (`set_person_croutch`): phase 0 going down,
     /// 1 down, 2 crawling (`SUB_STATE_CRAWLING`), 3 getting up (`SUB_STATE_IDLE_UNCROUCH`).
     Crouch { phase: u8 },
@@ -572,6 +584,8 @@ pub enum Event {
     Kick { attacker: usize },
     /// The throw's reached the frame where the grenade leaves `thrower`'s hand.
     Throw { thrower: usize },
+    /// The hook's let go from `thrower`'s hand.
+    Hook { thrower: usize },
 }
 
 /// What everyone else needs to know about a person this frame.
@@ -661,6 +675,8 @@ pub struct Person {
     /// Charges carried (the special's `ammo`): four at most.
     /// Grenades carried (`SPECIAL_GRENADE`'s `ammo`).
     pub grenades: u8,
+    /// Carrying the grappling hook.
+    pub hook: bool,
     /// Breath for sprinting (`Genus.Person->Stamina`), the player's only: up to
     /// `max_stamina`, which is 128 and the stamina badges (Person.cpp:4319).
     pub stamina: f32,
@@ -782,7 +798,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, truce: false, colour: 0, group: 0, goal: None, via: None, leap: None, steer: None, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
-            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
+            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }
 
@@ -794,7 +810,9 @@ impl Person {
 
     /// Picks up weapon `w` (a gun comes loaded).
     pub fn give(&mut self, w: Weapon) {
-        if let Some(s) = w.slot() {
+        if w == Weapon::Hook {
+            self.hook = true;
+        } else if let Some(s) = w.slot() {
             self.guns |= 1 << s;
             self.ammo[s] += w.clip();
         } else if w != Weapon::None {
@@ -808,6 +826,9 @@ impl Person {
         }
         if w == Weapon::Grenade {
             return self.grenades > 0;
+        }
+        if w == Weapon::Hook {
+            return self.hook;
         }
         match w.slot() {
             Some(s) => self.guns & (1 << s) != 0,
@@ -836,12 +857,13 @@ impl Person {
             .map(|(s, &g)| (g, Some(self.ammo[s])));
         let charges = (self.explosives > 0).then_some((Weapon::Explosives, Some(self.explosives as u32)));
         let grenades = (self.grenades > 0).then_some((Weapon::Grenade, Some(self.grenades as u32)));
-        melee.into_iter().chain(guns).chain(charges).chain(grenades).filter(|&(w, _)| w != self.weapon).collect()
+        let hook = self.hook.then_some((Weapon::Hook, None));
+        melee.into_iter().chain(guns).chain(charges).chain(grenades).chain(hook).filter(|&(w, _)| w != self.weapon).collect()
     }
 
     /// Puts away what's in hand and takes out the next weapon carried (bare hands last).
     pub fn next_weapon(&mut self) {
-        let carried: Vec<Weapon> = [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Sniper, Weapon::Explosives, Weapon::Grenade]
+        let carried: Vec<Weapon> = [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Sniper, Weapon::Explosives, Weapon::Grenade, Weapon::Hook]
             .into_iter()
             .enumerate()
             .filter(|&(k, w)| self.has(w) && (k == 0 || w != Weapon::None))
@@ -1214,6 +1236,36 @@ impl Person {
                 }
             }
             State::Grapple { victim, grab, hit, timer, frame } => self.step_grapple(victim, grab, hit, timer, frame, me, c, snaps, dt, events),
+            State::Hook { released, windup } => {
+                // The wind-up spins it round her head; then the release (or a grenade's throw),
+                // which lets it go a few frames in. Winding it back in is the pick-up, and nothing to let go.
+                if windup {
+                    if self.fig.finished() {
+                        if self.fig.restart_now(crate::game::hook::RELEASE, Play::Once)
+                            || self.fig.restart_now(crate::game::grenades::ANIM_CAN_RELEASE, Play::Once)
+                        {
+                            self.state = State::Hook { released: false, windup: false };
+                        } else {
+                            events.push(Event::Hook { thrower: me });
+                            self.state = State::Move;
+                            self.idle(false);
+                        }
+                    }
+                } else {
+                    if !released && self.fig.frame().is_some_and(|f| f >= 3) {
+                        events.push(Event::Hook { thrower: me });
+                        self.state = State::Hook { released: true, windup: false };
+                    }
+                    if self.fig.finished() {
+                        if !released {
+                            events.push(Event::Hook { thrower: me });
+                        }
+                        self.state = State::Move;
+                        self.idle(false);
+                    }
+                }
+            }
+            State::Rope { at, dir, top, to, y0, loops0 } => self.step_rope(at, dir, top, to, y0, loops0, c),
             State::Throw { released } => {
                 // The fourth frame lets it go (`FrameIndex == 3`).
                 if !released && self.fig.frame().is_some_and(|f| f >= 3) {
