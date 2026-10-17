@@ -26,6 +26,7 @@ pub mod mist;
 pub mod person;
 pub mod plat;
 pub mod pyro;
+pub mod ribbon;
 pub mod road;
 pub mod script;
 pub mod steam;
@@ -613,6 +614,8 @@ pub struct Game {
     pub tracks: tracks::Tracks,
     /// Each car's wheels where they were at its last skid mark (`oldX`, `oldZ`).
     skid_marks: Vec<Option<[Vec2; 4]>>,
+    /// Strips trailing behind things: the bikes' exhaust.
+    pub ribbons: ribbon::Ribbons,
     /// Steam from the mission's vents.
     pub steam: steam::Steam,
     /// The beams `tripwire` points watch.
@@ -731,6 +734,7 @@ impl Game {
             dirt_marks: Vec::new(),
             tracks: tracks::Tracks::default(),
             skid_marks: Vec::new(),
+            ribbons: ribbon::Ribbons::default(),
             steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
             electrified: BTreeSet::new(),

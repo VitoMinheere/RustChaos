@@ -290,6 +290,7 @@ impl Game {
         self.draw_choppers(&mut out, level);
         self.draw_dirt(&mut out, level);
         self.draw_tracks(&mut out);
+        self.ribbons.draw(&mut out);
         self.draw_bikes(&mut out, level);
         self.draw_sea(&mut out);
         out
@@ -415,6 +416,8 @@ impl Game {
             if let Some(f) = super::bikes::bike_chunk(level).and_then(|c| Figure::anim_prim(c, Vec3::ZERO, 0.0, 1)) {
                 out.extend(f.pages());
             }
+            // And its exhaust.
+            out.push(uc_world::geometry::SMOKER_PAGE);
         }
         for kind in kinds {
             if let Some(f) = creature_chunk(level, kind).and_then(|c| Figure::anim_prim(c, Vec3::ZERO, 0.0, 1)) {

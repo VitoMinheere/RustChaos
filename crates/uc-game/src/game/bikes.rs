@@ -38,7 +38,16 @@ impl Game {
     /// `BIKE_create` for a `VT_BIKE` point: parked where it is, facing its way.
     pub(crate) fn add_bike(&mut self, level: &Level, way: usize, pos: Vec3, angle: f32) {
         let yaw = (angle * 2048.0 / std::f32::consts::TAU) as i64;
-        let bike = Bike::new(way, pos.x, pos.z, yaw, &Level2(level));
+        let mut bike = Bike::new(way, pos.x, pos.z, yaw, &Level2(level));
+        // Two strips of smoke to thicken out the exhaust (bike.cpp:1621): ten points each,
+        // fading in over eight from the oldest, grey, sliding 5 to 12 64ths a turn. The
+        // original's `rand()` for the slide is the bike's own here, so as not to take a
+        // throw from the mission's dice.
+        let mut seed = way as u32;
+        for e in &mut bike.exhaust {
+            let slide = 5 + (crate::rand(&mut seed) & 7) as u8;
+            *e = self.ribbons.alloc(ribbon::FADE | ribbon::SLIDE | ribbon::IALPHA, 10, uc_world::geometry::SMOKER_PAGE, -1, 8, slide, 1, 0, [0x6f; 3]);
+        }
         let fig = bike_chunk(level).and_then(|c| Figure::anim_prim(c, bike.pos(), angle, 1));
         self.bikes.push((bike, fig));
     }
@@ -55,12 +64,23 @@ impl Game {
             for (k, (b, _)) in self.bikes.iter_mut().enumerate() {
                 b.tick_each(&Level2(level), |b| {
                     let (at, d) = b.tyre();
-                    passes.push((k, at, d));
+                    passes.push((k, at, d, b.exhaust, b.exhaust_points()));
                 });
             }
-            for (k, at, d) in passes {
+            for (k, at, d, exhaust, points) in passes {
+                // The exhaust goes on, a pair of points to each ribbon every pass (bike.cpp:824).
+                for (e, pair) in exhaust.iter().zip(points) {
+                    if let Some(e) = *e {
+                        for p in pair {
+                            self.ribbons.extend(e, p);
+                        }
+                    }
+                }
                 self.lay_tyre(level, k, at, d);
             }
+            // `RIBBON_process` (Game.cpp:2550), at the original's twenty turns a second, which
+            // the bikes keep. Nothing else makes ribbons yet.
+            self.ribbons.process();
         }
         for (b, fig) in &mut self.bikes {
             if let Some(f) = fig {
