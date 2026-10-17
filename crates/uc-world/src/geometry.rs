@@ -25,6 +25,17 @@ pub const MIST: u32 = u32::MAX - 3;
 pub const SKY_PAGE: u32 = 22 * 64 + 10;
 /// `TEXTURE_page_moon` (`TEXTURE_NUM_STANDARD + 1`): `moon.tga`, added over the sky.
 pub const MOON_PAGE: u32 = 22 * 64 + 1;
+/// `TEXTURE_page_footprint` (`TEXTURE_NUM_STANDARD + 37`): `footprint.tga`, a left print in
+/// its left half.
+pub const FOOTPRINT_PAGE: u32 = 22 * 64 + 37;
+/// `TEXTURE_page_tyretrack` (`TEXTURE_NUM_STANDARD + 33`): `tyremark.tga`, a car's skid.
+pub const TYREMARK_PAGE: u32 = 22 * 64 + 33;
+/// `TEXTURE_page_tyretrack_alpha` (`TEXTURE_NUM_STANDARD + 60`): `tyremark_alpha.tga`, a
+/// muddy tyre's track.
+pub const TYRETRACK_PAGE: u32 = 22 * 64 + 60;
+/// Pages drawn as marks on the ground: blended over it by their alpha times the vertex
+/// alpha, tinted by the vertex colour (`POLY_PAGE_FOOTPRINT`, `_TYRESKID`, `_TYRETRACK`).
+pub const DECAL_PAGES: [u32; 3] = [FOOTPRINT_PAGE, TYREMARK_PAGE, TYRETRACK_PAGE];
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]

@@ -51,8 +51,15 @@ impl Game {
         self.clocks.bike += dt;
         while self.clocks.bike >= bike::TICK {
             self.clocks.bike -= bike::TICK;
-            for (b, _) in &mut self.bikes {
-                b.tick(&Level2(level));
+            let mut passes = Vec::new();
+            for (k, (b, _)) in self.bikes.iter_mut().enumerate() {
+                b.tick_each(&Level2(level), |b| {
+                    let (at, d) = b.tyre();
+                    passes.push((k, at, d));
+                });
+            }
+            for (k, at, d) in passes {
+                self.lay_tyre(level, k, at, d);
             }
         }
         for (b, fig) in &mut self.bikes {

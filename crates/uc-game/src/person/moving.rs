@@ -1,6 +1,7 @@
 //! Getting about on foot: walking, running and sprinting, crouching and crawling, jumping, falling and landing.
 
 use super::*;
+use crate::tracks::Foot;
 
 /// How close Darci has to be to kick between the legs (`dist < 100`, Person.cpp:9909), a
 /// little more as our fighters stand a touch further apart.
@@ -153,6 +154,12 @@ impl Person {
         let phase = self.fig.loops().floor() + self.fig.progress();
         if walking && (phase * 2.0).floor() != (self.step_phase * 2.0).floor() {
             self.cues.push(Sfx::Footstep { player: self.player });
+            // Walking and running leave prints, the right foot then the left (Person.cpp:15457),
+            // but not the steps of a fight.
+            if matches!(self.fig.anim(), anim::WALK | anim::RUN | anim::PISTOL_JOG | anim::AK_JOG) {
+                let right = (phase * 2.0).floor() as i64 & 1 == 0;
+                self.footfall = Some(if right { Foot::Right } else { Foot::Left });
+            }
         }
         self.step_phase = phase;
         if let State::Climb { ladder, y0, loops0 } = self.state {
@@ -245,6 +252,8 @@ impl Person {
             self.fig.lift = (floor - p.y).max(0.0);
             self.state = State::Land { vel };
             self.cues.push(Sfx::Land);
+            // Both feet come down (`person_splash(p_person, -1)`).
+            self.footfall = Some(Foot::Both);
             self.fig.restart(if running { anim::LAND_RIGHT } else { anim::LAND_VERT }, Play::Once);
             self.fig.set_speed(if running { 1.5 } else { 2.0 });
             // Landing hard hurts, and from high enough kills (fallen/Source/Darci.cpp).

@@ -40,6 +40,17 @@ fn fs_shadow(in: VOut) -> @location(0) vec4<f32> {
     return vec4<f32>(in.color.rgb, t.a * in.color.a * (1.0 - f));
 }
 
+// Marks on the ground (`POLY_PAGE_FOOTPRINT`, `_TYRETRACK`, `_TYRESKID`): the texture times
+// the vertex colour, alpha the texture's times the vertex's (`D3DTBLEND_MODULATEALPHA`), going
+// into the fog as the ground under them does.
+@fragment
+fn fs_decal(in: VOut) -> @location(0) vec4<f32> {
+    let t = textureSample(tex, samp, in.uv);
+    let d = distance(in.world, g.cam_pos.xyz);
+    let f = clamp((d - g.fog.x) / max(g.fog.y - g.fog.x, 0.001), 0.0, 1.0) * g.fog.z;
+    return vec4<f32>(mix(t.rgb * in.color.rgb, g.fog_color.rgb, f), t.a * in.color.a);
+}
+
 // The sky behind everything and the moon added over it (`POLY_PAGE_SKY`, `_MOON`): the
 // texture times the vertex colour, with no fog.
 @fragment

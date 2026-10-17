@@ -289,6 +289,7 @@ impl Game {
         self.sky(&mut out, level, eye);
         self.draw_choppers(&mut out, level);
         self.draw_dirt(&mut out, level);
+        self.draw_tracks(&mut out);
         self.draw_bikes(&mut out, level);
         self.draw_sea(&mut out);
         out
@@ -394,6 +395,8 @@ impl Game {
         let Some(people) = &level.people else { return Vec::new() };
         // The leaves, rubbish and snowflakes the dirt is drawn with.
         let mut out = vec![uc_world::SKY_PAGE, uc_world::MOON_PAGE, uc_world::level::LEAF_PAGE, uc_world::level::RUBBISH_PAGE, uc_world::level::SNOWFLAKE_PAGE];
+        // And the footprints and tyre tracks.
+        out.extend(uc_world::DECAL_PAGES);
         // The sea's floor, which the level leaves to the game.
         out.extend(level.sea().iter().map(|s| s.page));
         // The platforms' props, which the level leaves to the game.

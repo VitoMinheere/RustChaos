@@ -96,6 +96,8 @@ pub struct Bike {
     slide: i64,
     /// Who is riding it (a person index).
     pub driver: Option<usize>,
+    /// What's on the back tyre, and how fresh (`tyrelast`, [`crate::tracks`]).
+    pub tyre_last: u16,
 }
 
 impl Bike {
@@ -110,7 +112,7 @@ impl Bike {
             way, yaw: yaw & 2047, pitch: 0, mode: Mode::Parked, on_ground_front: true, on_ground_back: true,
             accel: 0, steer: 0, back, back_d: [0; 3], front, front_dy: 0,
             wheel_y_back: back[1] - (WHEEL_SUS << 8), wheel_y_front: front[1] - (WHEEL_SUS << 8),
-            wheel_dy_back: 0, wheel_dy_front: 0, wheel_rot_front: 0, wheel_rot_back: 0, slide: 0, driver: None,
+            wheel_dy_back: 0, wheel_dy_front: 0, wheel_rot_front: 0, wheel_rot_back: 0, slide: 0, driver: None, tyre_last: 0,
         }
     }
 
@@ -158,10 +160,22 @@ impl Bike {
 
     /// `BIKE_process_normal`, one turn (twice over while it's being ridden).
     pub fn tick(&mut self, road: &impl Road) {
+        self.tick_each(road, |_| {});
+    }
+
+    /// [`Bike::tick`], calling `each` after every pass.
+    pub fn tick_each(&mut self, road: &impl Road, mut each: impl FnMut(&Bike)) {
         let passes = if self.mode == Mode::Driving { 2 } else { 1 };
         for _ in 0..passes {
             self.pass(road);
+            each(self);
         }
+    }
+
+    /// The back wheel (world units), and how far it went in the last pass (`back_dx >> 8`).
+    pub fn tyre(&self) -> (Vec3, Vec3) {
+        let w = |p: [i64; 3]| Vec3::new(p[0] as f32, p[1] as f32, p[2] as f32) / 256.0;
+        (w(self.back), w([self.back_d[0], 0, self.back_d[2]]))
     }
 
     fn pass(&mut self, road: &impl Road) {
