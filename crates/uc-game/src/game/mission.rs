@@ -64,6 +64,10 @@ impl Game {
                         p.give(p.weapon);
                         let change = self.difficulty().skill_change();
                         self.tune(i, change);
+                        // `PCOM_create_person` (pcom.cpp:5645).
+                        if spec.has & script::HAS_BALLOON != 0 {
+                            self.give_balloon(i);
+                        }
                     }
                 }
                 Command::Adjust { way, ai, bent, ko_moves, other, mv, follow, colour, group } => {

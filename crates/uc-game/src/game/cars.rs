@@ -228,6 +228,14 @@ impl Game {
             }
         }
         for (vi, npc) in npc.into_iter().enumerate() {
+            // Who's riding on top, to take along (`WMOVE`), and who's up there or coming down
+            // onto it, for it to leave alone.
+            let tops = self.vehicle_tops(vi, level);
+            let riders = self.riders(&tops);
+            let aboard: Vec<usize> = self.people.iter().enumerate()
+                .filter(|(_, p)| tops.iter().any(|f| f.height(p.fig.pos.x, p.fig.pos.z, 0.0).is_some_and(|h| p.fig.pos.y > h - 16.0)))
+                .map(|(i, _)| i)
+                .collect();
             let v = &mut self.vehicles[vi];
             let d = if v.driver.is_some() && v.driver == player { input.drive } else { npc.map_or(Drive::default(), |(_, d)| d) };
             let sliding = v.slip.abs() > 300.0;
@@ -269,6 +277,8 @@ impl Game {
             if let Some(i) = smashed {
                 self.damage_prop(level, i);
             }
+            let after = self.vehicle_tops(vi, level);
+            self.carry(&riders, &tops, &after);
             let v = self.vehicles[vi].clone();
             // (Not someone still getting in: they're at the door.)
             if let Some(d) = v.driver.filter(|&d| matches!(self.people[d].state, State::InCar { .. })) {
@@ -283,7 +293,7 @@ impl Game {
             if v.speed.abs() > 150.0 {
                 let heading = fwd * v.speed.signum();
                 for (i, p) in self.people.iter_mut().enumerate() {
-                    if p.player || Some(i) == v.driver || p.removed || p.is_down() || p.dodge.is_some()
+                    if p.player || Some(i) == v.driver || p.removed || p.is_down() || p.dodge.is_some() || aboard.contains(&i)
                         || !matches!(p.state, State::Move) || (p.fig.pos.y - v.pos.y).abs() > 150.0
                     {
                         continue;
@@ -299,7 +309,7 @@ impl Game {
             }
             // People in the way.
             for (i, p) in self.people.iter_mut().enumerate() {
-                if Some(i) == v.driver || p.removed || matches!(p.state, State::InCar { .. }) || (p.fig.pos.y - v.pos.y).abs() > 150.0 {
+                if Some(i) == v.driver || p.removed || matches!(p.state, State::InCar { .. }) || (p.fig.pos.y - v.pos.y).abs() > 150.0 || aboard.contains(&i) {
                     continue;
                 }
                 let at = Vec2::new(p.fig.pos.x, p.fig.pos.z);
@@ -329,6 +339,7 @@ impl Game {
                 self.rngs.barrel = seed;
             }
         }
+        self.sync_wmove(level);
     }
 
     /// The car the player is driving.

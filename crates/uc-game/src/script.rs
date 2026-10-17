@@ -87,6 +87,9 @@ pub struct ThingState {
     pub speed: f32,
 }
 
+/// `HAS_BALLOON`: an enemy holding a balloon (fallen/Headers/Mission.h).
+pub const HAS_BALLOON: u8 = 1 << 4;
+
 /// An enemy as an event point describes it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EnemySpec {
@@ -100,7 +103,8 @@ pub struct EnemySpec {
     pub ko_moves: u8,
     /// 0..15: how well they fight.
     pub skill: u8,
-    /// `HAS_*` weapons (fallen/Headers/Mission.h): 1 pistol, 0x20 knife, 0x40 bat.
+    /// `HAS_*` weapons (fallen/Headers/Mission.h): 1 pistol, 0x20 knife, 0x40 bat; and
+    /// [`HAS_BALLOON`].
     pub has: u8,
     /// What they give up when searched, as a `SPECIAL_*` type (0 for nothing): `Data[8]`'s
     /// highest bit set, plus one (`ee.drop`, elev.cpp:915).
@@ -321,9 +325,11 @@ fn enemy_person(et: i32) -> u8 {
     }
 }
 
-/// Weapons that come with an enemy type (`ET_GANG_RASTA_PISTOL` and so on).
+/// Weapons that come with an enemy type (`ET_GANG_RASTA_PISTOL` and so on), and the balloon
+/// that comes with `ET_CIV_BALLOON` (elev.cpp:771).
 fn enemy_has(et: i32) -> u8 {
     match et {
+        2 => HAS_BALLOON,
         9 | 13 => 1,
         10 | 14 => 2,
         11 | 15 => 4,
