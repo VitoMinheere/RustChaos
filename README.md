@@ -172,6 +172,7 @@ Normal is the original's tuning.
 - `roper` and `darci`: play on as the other, where the mission has Roper's body;
 - `kit`: the full kit;
 - `boo`: an explosion to look at;
+- `pow`: one of the PlayStation's explosions (POW) in front of her, the next size each time, to look at (the PC game never makes them);
 - `pos`: the position readout;
 - `god`: Darci takes no damage (again to turn it off; the same for `ammo` and `freeze`);
 - `ammo`: her guns, grenades and explosives never run out;

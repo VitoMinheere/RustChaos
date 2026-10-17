@@ -6,7 +6,7 @@
 use crate::*;
 
 const HELP: &str = "telw N (to event point N)  tels / telr (store / return)  wpt (nearest point)  \
-win  lose  restart  roper  darci  kit  boo  pos  god  ammo  freeze  give WHAT  kill [near]  \
+win  lose  restart  roper  darci  kit  boo  pow  pos  god  ammo  freeze  give WHAT  kill [near]  \
 crime N  time X  wave N  bonus  telb N  car  call WHAT  autopilot";
 
 #[derive(Default)]
@@ -131,6 +131,7 @@ impl World {
                 self.console.say("Full kit");
             }
             "boo" => self.game.boo(),
+            "pow" => self.game.pow_test(),
             "god" => {
                 self.game.cheats.god = !self.game.cheats.god;
                 self.console.say(if self.game.cheats.god { "God mode on" } else { "God mode off" });

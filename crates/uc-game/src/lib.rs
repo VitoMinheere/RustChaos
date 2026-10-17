@@ -25,6 +25,7 @@ pub mod goals;
 pub mod mist;
 pub mod person;
 pub mod plat;
+pub mod pow;
 pub mod pyro;
 pub mod road;
 pub mod script;
@@ -598,6 +599,8 @@ pub struct Game {
     pub search: Option<Search>,
     /// Explosions and fires burning.
     pub pyro: Pyro,
+    /// The PlayStation's explosions (`POW_*`), which only the console sets off.
+    pub pow: pow::Pow,
     /// Sheets of ground mist the mission has laid down.
     pub mists: Mists,
     /// Drops in the air.
@@ -719,6 +722,7 @@ impl Game {
             hidden: Vec::new(),
             search: None,
             pyro: Pyro::default(),
+            pow: pow::Pow::default(),
             mists: Mists::default(),
             drops: dirt::Drops::default(),
             sea: level.sea(),
@@ -990,6 +994,7 @@ impl Game {
         let pressed = input.punch || input.kick || input.jump || input.action;
         self.update_scenes(dt, level, pressed);
         self.pyro.update(dt);
+        self.pow.update(dt);
         if self.outcome.is_none() {
             self.charges(dt, level);
         }
