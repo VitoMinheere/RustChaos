@@ -96,6 +96,10 @@ pub struct Bike {
     slide: i64,
     /// Who is riding it (a person index).
     pub driver: Option<usize>,
+    /// What's on the back tyre, and how fresh (`tyrelast`, [`crate::tracks`]).
+    pub tyre_last: u16,
+    /// Its two exhaust ribbons (`ribbon`, `ribbon2`, [`crate::ribbon`]).
+    pub exhaust: [Option<usize>; 2],
 }
 
 impl Bike {
@@ -110,7 +114,8 @@ impl Bike {
             way, yaw: yaw & 2047, pitch: 0, mode: Mode::Parked, on_ground_front: true, on_ground_back: true,
             accel: 0, steer: 0, back, back_d: [0; 3], front, front_dy: 0,
             wheel_y_back: back[1] - (WHEEL_SUS << 8), wheel_y_front: front[1] - (WHEEL_SUS << 8),
-            wheel_dy_back: 0, wheel_dy_front: 0, wheel_rot_front: 0, wheel_rot_back: 0, slide: 0, driver: None,
+            wheel_dy_back: 0, wheel_dy_front: 0, wheel_rot_front: 0, wheel_rot_back: 0, slide: 0, driver: None, tyre_last: 0,
+            exhaust: [None; 2],
         }
     }
 
@@ -158,10 +163,40 @@ impl Bike {
 
     /// `BIKE_process_normal`, one turn (twice over while it's being ridden).
     pub fn tick(&mut self, road: &impl Road) {
+        self.tick_each(road, |_| {});
+    }
+
+    /// [`Bike::tick`], calling `each` after every pass.
+    pub fn tick_each(&mut self, road: &impl Road, mut each: impl FnMut(&Bike)) {
         let passes = if self.mode == Mode::Driving { 2 } else { 1 };
         for _ in 0..passes {
             self.pass(road);
+            each(self);
         }
+    }
+
+    /// The back wheel (world units), and how far it went in the last pass (`back_dx >> 8`).
+    pub fn tyre(&self) -> (Vec3, Vec3) {
+        let w = |p: [i64; 3]| Vec3::new(p[0] as f32, p[1] as f32, p[2] as f32) / 256.0;
+        (w(self.back), w([self.back_d[0], 0, self.back_d[2]]))
+    }
+
+    /// Where the exhaust's ribbons go on to (bike.cpp:824): from (0, 30, 20) in the bike's
+    /// own frame, 20 behind it, a point 35 below and one 35 above for the first, and 30 to
+    /// either side for the second. World units, a pair for each.
+    pub fn exhaust_points(&self) -> [[Vec3; 2]; 2] {
+        // `FMATRIX_calc(yaw, -pitch, roll)`, transposed: the bike's own x, y and z (back)
+        // in the world.
+        let f = |a: i64| sin(a) as f32 / 65536.0;
+        let (sy, cy) = (f(self.yaw), f(self.yaw + 512));
+        let (sp, cp) = (f(-self.pitch), f(-self.pitch + 512));
+        let (sr, cr) = (f(self.roll()), f(self.roll() + 512));
+        let x = Vec3::new(cy * cr + sy * sp * sr, -cp * sr, -sy * cr + cy * sp * sr);
+        let y = Vec3::new(cy * sr - sy * sp * cr, cp * cr, -sy * sr - cy * sp * cr);
+        let z = Vec3::new(sy * cp, sp, cy * cp);
+        let at = |lx: f32| self.pos() + x * lx + y * 30.0 + z * 20.0;
+        let up = Vec3::new(0.0, 35.0, 0.0);
+        [[at(0.0) - up, at(0.0) + up], [at(-30.0), at(30.0)]]
     }
 
     fn pass(&mut self, road: &impl Road) {

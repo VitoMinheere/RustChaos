@@ -6,8 +6,7 @@
 use crate::*;
 
 const HELP: &str = "telw N (to event point N)  tels / telr (store / return)  wpt (nearest point)  \
-win  lose  restart  roper  darci  kit  boo  pow  pos  god  ammo  freeze  give WHAT  kill [near]  \
-crime N  time X  wave N  bonus  telb N  car  call WHAT  autopilot";
+win  lose  restart  roper  darci  kit  boo  pow  pos  god  ammo  freeze  give WHAT  kill [near]  \ncrime N  time X  wave N  bonus  telb N  car  dog  call WHAT  autopilot  crinkles";
 
 #[derive(Default)]
 pub(crate) struct Console {
@@ -196,6 +195,11 @@ impl World {
                 },
                 None => self.console.say("telb N: teleport to bonus objective N (see bonus)"),
             },
+            // `spawn dog` too.
+            "dog" | "spawn" if name == "dog" || arg.is_some_and(|a| a.eq_ignore_ascii_case("dog")) => {
+                let made = self.game.spawn_dog_ahead(&self.level);
+                self.console.say(if made { "A dog, just ahead" } else { "No dog: only on foot, and only with DOG2.all" });
+            }
             "car" => {
                 let made = self.game.spawn_car(&self.level);
                 self.console.say(if made { "A car, just ahead" } else { "Only on foot" });
@@ -217,6 +221,11 @@ impl World {
                 self.console.say(if on { "Darci's on autopilot: bot against bot" } else { "autopilot: only in capture the flag" });
             }
             "pos" => self.console.show_pos = !self.console.show_pos,
+            // Walls in relief up close (Controls.cpp:450).
+            "crinkles" => {
+                self.crinkles = !self.crinkles;
+                self.console.say(if self.crinkles { "Crinkles on" } else { "Crinkles off" });
+            }
             _ => self.console.say(format!("Unknown command '{name}': try help")),
         }
     }

@@ -108,6 +108,28 @@ fn police1_clump_decodes_completely() {
     assert!(images > 800, "only {images} images");
 }
 
+/// Two crinkles whose sizes were checked by hand, and every crinkle in the install parses.
+#[test]
+fn crinkles_read_from_the_clumps() {
+    let Some(g) = game() else { return };
+    let clump = |name: &str| Clump::parse(fs::read(resolve(&g, &format!("clumps\\{name}.txc")).unwrap()).unwrap()).unwrap();
+    let size = |c: &uc_formats::txc::Crinkle| (c.points.len(), c.faces.len());
+    assert_eq!(clump("baalrog3").crinkle(1).unwrap().as_ref().map(size), Some((20, 22)));
+    assert_eq!(clump("ftutor1").crinkle(12).unwrap().as_ref().map(size), Some((12, 18)));
+    let mut n = 0;
+    for f in files(&g.join("clumps"), "txc") {
+        let c = Clump::parse(fs::read(&f).unwrap()).unwrap();
+        for page in 0..uc_formats::txc::CRINKLE_PAGES {
+            if let Some(k) = c.crinkle(page).unwrap_or_else(|e| panic!("{} page {page}: {e}", f.display())) {
+                assert!(k.points.iter().all(|p| (-0.01..=1.01).contains(&p.u) && (-0.01..=1.01).contains(&p.v)));
+                n += 1;
+            }
+        }
+    }
+    eprintln!("{n} crinkles");
+    assert!(n > 2000, "only {n} crinkles");
+}
+
 #[test]
 fn police_station_walls_find_their_textures() {
     let Some(g) = game() else { return };

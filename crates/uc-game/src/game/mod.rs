@@ -3,6 +3,7 @@
 
 mod blast;
 mod creatures;
+mod dogs;
 mod setpieces;
 mod people;
 pub(crate) use people::Routes;
@@ -28,9 +29,11 @@ mod barrels;
 pub mod mines;
 pub mod grenades;
 pub mod hook;
+pub mod balloons;
 pub mod ctf;
 pub mod stats;
 mod litter;
+mod trail;
 pub mod cheats;
 pub mod endless;
 pub mod beat;

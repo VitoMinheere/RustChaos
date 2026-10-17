@@ -196,6 +196,19 @@ pub struct Model {
     pub chunk: Arc<AnimChunk>,
     pub body: usize,
     pub person: usize,
+    /// Part i is the body's mesh i, as an anim prim's are (`object_offset = i` in
+    /// `ANIM_obj_draw`, figure.cpp:8225), not looked up in the person types' table.
+    pub in_order: bool,
+}
+
+impl Model {
+    /// The mesh drawn for animation element `part`.
+    pub fn mesh(&self, part: usize) -> Option<&uc_formats::prm::Prim> {
+        if self.in_order {
+            return self.chunk.bodies.get(self.body)?.parts.get(part);
+        }
+        self.chunk.part_mesh(self.body, self.person, part)
+    }
 }
 
 /// `PERSON_*` types (fallen/Headers/person.h).
@@ -259,17 +272,17 @@ impl People {
         let t = t.min(person::MIB3);
         let body = person::MESH[t as usize];
         if person::uses_darci_meshes(t) {
-            return Model { chunk: self.darci.clone(), body, person: 0 };
+            return Model { chunk: self.darci.clone(), body, person: 0, in_order: false };
         }
         // Roper's own body, which is the only one in his file. Without it he'd be a thug.
         if let (person::ROPER, Some(r)) = (t, &self.roper) {
-            return Model { chunk: r.clone(), body: 0, person: 0 };
+            return Model { chunk: r.clone(), body: 0, person: 0, in_order: false };
         }
         if let (Some(tr), true) = (&self.trainer, body <= 2) {
-            return Model { chunk: tr.clone(), body: 0, person: 0 };
+            return Model { chunk: tr.clone(), body: 0, person: 0, in_order: false };
         }
         let person = if t == person::CIV { 6 + (variant % 4) as usize } else { 0 };
-        Model { chunk: self.thug.clone(), body, person }
+        Model { chunk: self.thug.clone(), body, person, in_order: false }
     }
 
     pub fn figure(&self, t: u8, variant: u32, pos: Vec3, angle: f32) -> Option<Figure> {
@@ -431,6 +444,10 @@ pub struct Figure {
     pub clothes: u8,
     /// A gang member's jacket shows how good a fighter they are: skill / 4 (0-3).
     pub jacket: u8,
+    /// The colour of the faces with no texture (`POLY_FLAG_TEXTURED` not set), which are then
+    /// drawn untextured in it, lit. Only the dog (#110) has such faces: their palette index
+    /// (`Col2`) is into `tex01.pal`, which didn't ship. None draws every face textured.
+    pub plain: Option<[u8; 3]>,
     animator: Animator,
 }
 
@@ -498,7 +515,7 @@ pub fn angle_of(d: Vec2) -> f32 {
 impl Figure {
     pub fn new(model: Model, anims: Arc<AnimChunk>, pos: Vec3, angle: f32) -> Option<Figure> {
         let animator = Animator::new(&anims, anim::STAND_READY)?;
-        let mut f = Figure { model, anims, pos, angle, lift: 0.0, cancel_rise: false, pin_root: false, clothes: 0, jacket: 0, animator };
+        let mut f = Figure { model, anims, pos, angle, lift: 0.0, cancel_rise: false, pin_root: false, clothes: 0, jacket: 0, plain: None, animator };
         f.play(anim::BREATHE, Play::Loop);
         Some(f)
     }
@@ -637,8 +654,8 @@ impl Figure {
     /// Balrog, Bane, gargoyles: `anim%03d.all`), starting on animation `id`.
     pub fn anim_prim(chunk: Arc<AnimChunk>, pos: Vec3, angle: f32, id: usize) -> Option<Figure> {
         let animator = Animator::new(&chunk, id)?;
-        let model = Model { chunk: chunk.clone(), body: 0, person: 0 };
-        let mut f = Figure { model, anims: chunk, pos, angle, lift: 0.0, cancel_rise: false, pin_root: false, clothes: 0, jacket: 0, animator };
+        let model = Model { chunk: chunk.clone(), body: 0, person: 0, in_order: true };
+        let mut f = Figure { model, anims: chunk, pos, angle, lift: 0.0, cancel_rise: false, pin_root: false, clothes: 0, jacket: 0, plain: None, animator };
         f.animator.play = if f.loops_round(id) { Play::Loop } else { Play::Once };
         Some(f)
     }
@@ -671,8 +688,9 @@ impl Figure {
     pub fn pages(&self) -> Vec<u32> {
         let m = &self.model;
         (0..self.anims.element_count)
-            .filter_map(|part| m.chunk.part_mesh(m.body, m.person, part))
+            .filter_map(|part| m.mesh(part))
             .flat_map(|mesh| mesh.faces.iter())
+            .filter(|f| self.plain.is_none() || f.textured())
             .flat_map(|f| {
                 let p = f.texture().0;
                 (0..4).flat_map(move |c| [jacket_page(p, c), clothes_page(p, c)])
@@ -706,7 +724,7 @@ impl Figure {
         let pos = self.drawn_pos();
         let m = &self.model;
         for (part, (rot, off)) in pose.iter().enumerate() {
-            let Some(mesh) = m.chunk.part_mesh(m.body, m.person, part) else { continue };
+            let Some(mesh) = m.mesh(part) else { continue };
             let world: Vec<Vec3> = mesh
                 .points
                 .iter()
@@ -717,12 +735,24 @@ impl Figure {
                 let page = clothes_page(jacket_page(page, self.jacket), self.clothes);
                 let pts: Vec<Vec3> = f.points.iter().map(|&i| world[i as usize]).collect();
                 let n = (pts[1] - pts[0]).cross(pts[2] - pts[0]);
-                let col = match lighter {
+                let mut col = match lighter {
                     Some(l) => {
                         let [cr, cg, cb] = l.light(chest.to_array(), n.to_array());
                         [(cr * 255.0) as u8, (cg * 255.0) as u8, (cb * 255.0) as u8, 255]
                     }
                     None => [255; 4],
+                };
+                let plain = self.plain.filter(|_| !f.textured());
+                let page = match plain {
+                    Some(tint) => {
+                        // Palette entry 0, on the flat faces, is taken to be black: drawn darker.
+                        let k = if f.colour == 0 { 0.4 } else { 1.0 };
+                        for i in 0..3 {
+                            col[i] = (col[i] as f32 * tint[i] as f32 / 255.0 * k) as u8;
+                        }
+                        crate::UNTEXTURED
+                    }
+                    None => page,
                 };
                 let b = out.entry(page).or_default();
                 if pts.len() == 4 {

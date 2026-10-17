@@ -14,7 +14,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
 use std::collections::{BTreeMap, HashMap};
 use uc_formats::txc::Texture;
-use uc_world::{Batch, Layer, Vertex, WorldGeometry, EXPLODE_PAGE, GLOW, MIST, MOON_PAGE, SHADOW, SKY_PAGE, UNTEXTURED};
+use uc_world::{Batch, Layer, Vertex, WorldGeometry, ADDITIVE_PAGES, DECAL_PAGES, EXPLODE_PAGE, GLOW, MIST, MOON_PAGE, SHADOW, SKY_PAGE, UNTEXTURED};
 use wgpu::util::DeviceExt;
 
 pub use overlay::Overlay;
@@ -71,6 +71,9 @@ pub struct Settings {
     pub fog: Option<(f32, f32)>,
     /// Which layers to draw.
     pub layers: Vec<Layer>,
+    /// Crinkles are on: the walls with one in chunks near the camera are left out, for the
+    /// dynamic batches to draw raised (`uc_world::Relief::draw`).
+    pub crinkles: bool,
 }
 
 /// Draw statistics for the last frame.
@@ -84,6 +87,8 @@ pub struct Stats {
 
 struct DrawRange {
     layer: Layer,
+    /// A wall with a crinkle, drawn flat.
+    crinkled: bool,
     page: u32,
     first: u32,
     count: u32,
@@ -113,7 +118,9 @@ pub struct Renderer {
     textures: HashMap<u32, wgpu::BindGroup>,
     white: wgpu::BindGroup,
     shadow_pipeline: wgpu::RenderPipeline,
+    decal_pipeline: wgpu::RenderPipeline,
     glow_pipeline: wgpu::RenderPipeline,
+    additive_pipeline: wgpu::RenderPipeline,
     sprite_pipeline: wgpu::RenderPipeline,
     sky_pipeline: wgpu::RenderPipeline,
     moon_pipeline: wgpu::RenderPipeline,
@@ -311,6 +318,43 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        // Marks on the ground (footprints, tyre tracks): the page's own texture blended the
+        // same way, tinted by the vertex colour.
+        let decal_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("decal pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4],
+                })],
+            },
+            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                stencil: Default::default(),
+                bias: wgpu::DepthBiasState { constant: -8, slope_scale: -1.0, clamp: 0.0 },
+            }),
+            multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_decal"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         // Explosions: the same round blobs added to the scene instead of blended over it.
         let glow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("glow pipeline"),
@@ -337,6 +381,51 @@ impl Renderer {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_glow"),
+                compilation_options: Default::default(),
+                // The shader premultiplies by the alpha it works out, so both factors are one.
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent::OVER,
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        // Ribbons of smoke (`POLY_PAGE_SMOKER`): their page's texture added to the scene the same
+        // way, the texture wrapping.
+        let additive_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("additive pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4],
+                })],
+            },
+            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_additive"),
                 compilation_options: Default::default(),
                 // The shader premultiplies by the alpha it works out, so both factors are one.
                 targets: &[Some(wgpu::ColorTargetState {
@@ -529,7 +618,7 @@ impl Renderer {
         let font = make_texture_levels(&device, &queue, &tex_layout, &font_sampler, &font_tex, 1);
         Renderer {
             device, queue, format, pipeline, globals_buf, globals_bg, tex_layout, sampler,
-            textures: HashMap::new(), white, shadow_pipeline, glow_pipeline, sprite_pipeline, sky_pipeline, moon_pipeline, shadow_tex, mist_tex,
+            textures: HashMap::new(), white, shadow_pipeline, decal_pipeline, glow_pipeline, additive_pipeline, sprite_pipeline, sky_pipeline, moon_pipeline, shadow_tex, mist_tex,
             statics: None, chunks: Vec::new(), dynamic: None, targets: None,
             overlay_pipeline, screen_buf, screen_bg, font, overlay_buf: None, backdrop: None, minimap: None, faces: [None, None], stats: Stats::default(),
         }
@@ -562,12 +651,13 @@ impl Renderer {
         self.chunks.clear();
         for c in &geo.chunks {
             let mut ranges = Vec::new();
-            for (&(layer, page), b) in &c.batches {
+            let crinkled = c.crinkled.iter().map(|(&page, b)| (Layer::Walls, true, page, b));
+            for (layer, crinkled, page, b) in c.batches.iter().map(|(&(l, p), b)| (l, false, p, b)).chain(crinkled) {
                 let base = vertices.len() as u32;
                 let first = indices.len() as u32;
                 vertices.extend_from_slice(&b.vertices);
                 indices.extend(b.indices.iter().map(|i| i + base));
-                ranges.push(DrawRange { layer, page, first, count: b.indices.len() as u32 });
+                ranges.push(DrawRange { layer, crinkled, page, first, count: b.indices.len() as u32 });
             }
             self.chunks.push(ChunkDraws { min: c.min, max: c.max, ranges });
         }
@@ -824,8 +914,9 @@ impl Renderer {
                         continue;
                     }
                     stats.chunks_drawn += 1;
+                    let raised = s.crinkles && uc_world::crinkle::near(cam.pos, c.min, c.max);
                     for r in &c.ranges {
-                        if !s.layers.contains(&r.layer) {
+                        if !s.layers.contains(&r.layer) || (raised && r.crinkled) {
                             continue;
                         }
                         let bg = if r.page == UNTEXTURED { &self.white } else { self.textures.get(&r.page).unwrap_or(&self.white) };
@@ -839,8 +930,17 @@ impl Renderer {
             if let (Some((vb, ib, _, _)), false) = (&self.dynamic, dyn_ranges.is_empty()) {
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                for &(page, first, count) in dyn_ranges.iter().filter(|r| !matches!(r.0, SHADOW | GLOW | MIST | SKY_PAGE | MOON_PAGE | EXPLODE_PAGE)) {
+                for &(page, first, count) in dyn_ranges.iter().filter(|r| !matches!(r.0, SHADOW | GLOW | MIST | SKY_PAGE | MOON_PAGE | EXPLODE_PAGE) && !DECAL_PAGES.contains(&r.0) && !ADDITIVE_PAGES.contains(&r.0)) {
                     pass.set_bind_group(1, self.textures.get(&page).unwrap_or(&self.white), &[]);
+                    pass.draw_indexed(first..first + count, 0, 0..1);
+                    stats.draw_calls += 1;
+                    stats.triangles += count as usize / 3;
+                }
+                // Marks on the ground, over it and under everything blended.
+                for &(page, first, count) in dyn_ranges.iter().filter(|r| DECAL_PAGES.contains(&r.0)) {
+                    let Some(tex) = self.textures.get(&page) else { continue };
+                    pass.set_pipeline(&self.decal_pipeline);
+                    pass.set_bind_group(1, tex, &[]);
                     pass.draw_indexed(first..first + count, 0, 0..1);
                     stats.draw_calls += 1;
                     stats.triangles += count as usize / 3;
@@ -859,6 +959,15 @@ impl Renderer {
                         stats.draw_calls += 1;
                         stats.triangles += count as usize / 3;
                     }
+                }
+                // Ribbons of smoke, added on top.
+                for &(page, first, count) in dyn_ranges.iter().filter(|r| ADDITIVE_PAGES.contains(&r.0)) {
+                    let Some(tex) = self.textures.get(&page) else { continue };
+                    pass.set_pipeline(&self.additive_pipeline);
+                    pass.set_bind_group(1, tex, &[]);
+                    pass.draw_indexed(first..first + count, 0, 0..1);
+                    stats.draw_calls += 1;
+                    stats.triangles += count as usize / 3;
                 }
                 // Then the sprites of fire, over the rest, in the order they came.
                 for &(_, first, count) in dyn_ranges.iter().filter(|r| r.0 == EXPLODE_PAGE) {

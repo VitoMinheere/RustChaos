@@ -1,9 +1,11 @@
 //! Renderer-independent geometry: vertices grouped by chunk, layer and texture page.
 //! Positions are in "square units": 1.0 = one map square = 256 world units.
 
+use crate::crinkle::{Relief, ReliefChunk, ReliefQuad};
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 use std::collections::{BTreeMap, BTreeSet};
+use uc_formats::txc::Crinkle;
 
 /// World units per square unit.
 pub const UNIT: f32 = 256.0;
@@ -29,6 +31,23 @@ pub const MOON_PAGE: u32 = 22 * 64 + 1;
 /// fire in a 4 x 4 grid. Batches with this page are blended over the scene by the texture's
 /// alpha, with no depth writes (`POLY_PAGE_EXPLODE1`, polyrenderstate.cpp:1280).
 pub const EXPLODE_PAGE: u32 = 22 * 64 + 48;
+/// `TEXTURE_page_footprint` (`TEXTURE_NUM_STANDARD + 37`): `footprint.tga`, a left print in
+/// its left half.
+pub const FOOTPRINT_PAGE: u32 = 22 * 64 + 37;
+/// `TEXTURE_page_tyretrack` (`TEXTURE_NUM_STANDARD + 33`): `tyremark.tga`, a car's skid.
+pub const TYREMARK_PAGE: u32 = 22 * 64 + 33;
+/// `TEXTURE_page_tyretrack_alpha` (`TEXTURE_NUM_STANDARD + 60`): `tyremark_alpha.tga`, a
+/// muddy tyre's track.
+pub const TYRETRACK_PAGE: u32 = 22 * 64 + 60;
+/// Pages drawn as marks on the ground: blended over it by their alpha times the vertex
+/// alpha, tinted by the vertex colour (`POLY_PAGE_FOOTPRINT`, `_TYRESKID`, `_TYRETRACK`).
+pub const DECAL_PAGES: [u32; 3] = [FOOTPRINT_PAGE, TYREMARK_PAGE, TYRETRACK_PAGE];
+/// `TEXTURE_page_smoker` (`TEXTURE_NUM_STANDARD + 40`): `smoker2.tga`, the bike's exhaust.
+pub const SMOKER_PAGE: u32 = 22 * 64 + 40;
+/// Pages added to the scene rather than blended over it: the texture times the vertex colour
+/// times the vertex alpha, with the texture wrapping (`POLY_PAGE_SMOKER`: `D3DBLEND_SRCALPHA`
+/// to `D3DBLEND_ONE`, which `RS_AlphaPremult` makes one to one).
+pub const ADDITIVE_PAGES: [u32; 1] = [SMOKER_PAGE];
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
@@ -85,16 +104,27 @@ pub struct Chunk {
     pub min: Vec3,
     pub max: Vec3,
     pub batches: BTreeMap<(Layer, u32), Batch>,
+    /// Walls with a crinkle, drawn flat, by page. They're part of [`Layer::Walls`], but near
+    /// the camera they're left out for [`Relief::draw`] to draw instead.
+    pub crinkled: BTreeMap<u32, Batch>,
+    /// Those walls' quads, to raise.
+    pub reliefs: Vec<ReliefQuad>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct WorldGeometry {
     pub chunks: Vec<Chunk>,
+    /// The crinkles [`ReliefQuad::crinkle`] refers to.
+    pub crinkles: Vec<Crinkle>,
 }
 
 impl WorldGeometry {
     pub fn pages(&self) -> BTreeSet<u32> {
-        self.chunks.iter().flat_map(|c| c.batches.keys().map(|k| k.1)).filter(|&p| p != UNTEXTURED).collect()
+        self.chunks
+            .iter()
+            .flat_map(|c| c.batches.keys().map(|k| k.1).chain(c.crinkled.keys().copied()))
+            .filter(|&p| p != UNTEXTURED)
+            .collect()
     }
 
     pub fn count(&self, layer: Layer) -> usize {
@@ -103,36 +133,71 @@ impl WorldGeometry {
             .flat_map(|c| c.batches.iter())
             .filter(|((l, _), _)| *l == layer)
             .map(|(_, b)| b.indices.len() / 3)
-            .sum()
+            .sum::<usize>()
+            + if layer == Layer::Walls { self.crinkled_count() } else { 0 }
+    }
+
+    /// Triangles in the walls with a crinkle, drawn flat.
+    pub fn crinkled_count(&self) -> usize {
+        self.chunks.iter().flat_map(|c| c.crinkled.values()).map(|b| b.indices.len() / 3).sum()
+    }
+
+    /// The walls with a crinkle, to keep for drawing them raised.
+    pub fn relief(&self) -> Relief {
+        let chunks = self
+            .chunks
+            .iter()
+            .filter(|c| !c.reliefs.is_empty())
+            .map(|c| ReliefChunk { min: c.min, max: c.max, quads: c.reliefs.clone() })
+            .collect();
+        Relief { crinkles: self.crinkles.clone(), chunks }
     }
 }
 
 /// Collects primitives into chunks by the position of their first vertex.
 #[derive(Default)]
 pub struct Builder {
-    chunks: BTreeMap<(i32, i32), BTreeMap<(Layer, u32), Batch>>,
+    chunks: BTreeMap<(i32, i32), Parts>,
+}
+
+#[derive(Default)]
+struct Parts {
+    batches: BTreeMap<(Layer, u32), Batch>,
+    crinkled: BTreeMap<u32, Batch>,
+    reliefs: Vec<ReliefQuad>,
 }
 
 impl Builder {
-    pub fn batch(&mut self, at: Vec3, layer: Layer, page: u32) -> &mut Batch {
+    fn parts(&mut self, at: Vec3) -> &mut Parts {
         let key = ((at.x / CHUNK_SQUARES).floor() as i32, (at.z / CHUNK_SQUARES).floor() as i32);
-        self.chunks.entry(key).or_default().entry((layer, page)).or_default()
+        self.chunks.entry(key).or_default()
+    }
+
+    pub fn batch(&mut self, at: Vec3, layer: Layer, page: u32) -> &mut Batch {
+        self.parts(at).batches.entry((layer, page)).or_default()
+    }
+
+    /// A wall quad with a crinkle: drawn flat, and kept to raise.
+    pub fn crinkled(&mut self, q: ReliefQuad) {
+        let parts = self.parts(q.corners[0]);
+        parts.crinkled.entry(q.page).or_default().quad(q.corners, q.uv, q.colour);
+        parts.reliefs.push(q);
     }
 
     pub fn finish(self) -> WorldGeometry {
         let chunks = self
             .chunks
             .into_values()
-            .filter(|b| !b.is_empty())
-            .map(|batches| {
+            .filter(|p| !p.batches.is_empty() || !p.crinkled.is_empty())
+            .map(|Parts { batches, crinkled, reliefs }| {
                 let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-                for v in batches.values().flat_map(|b| &b.vertices) {
+                for v in batches.values().chain(crinkled.values()).flat_map(|b| &b.vertices) {
                     min = min.min(Vec3::from(v.pos));
                     max = max.max(Vec3::from(v.pos));
                 }
-                Chunk { min, max, batches }
+                Chunk { min, max, batches, crinkled, reliefs }
             })
             .collect();
-        WorldGeometry { chunks }
+        WorldGeometry { chunks, crinkles: Vec::new() }
     }
 }

@@ -38,6 +38,21 @@ const NAMED_ARENAS: [(&str, &str, f32, f32, f32); 1] = [
     ("disturb1", "West District: the park", 34.5, 40.1, 9.0),
 ];
 
+/// Beat Cop's districts: (mission, name). Only city streets with a crowd and traffic; the
+/// crowd and cars come with the mission (`fake_civs`, `fake_cars`), not the map, so each is
+/// the mission on its map with the most of both. Central Park, Skyline, Banes Estate and the
+/// like have no traffic, and the training grounds neither.
+const BEAT_DISTRICTS: [(&str, &str); 8] = [
+    ("police1", "West District"),       // 15 people, 7 cars
+    ("Gangorder1", "Gangland"),         // 15, 7
+    ("e3", "Southside Beach"),          // 13, 7
+    ("wstores1", "Rio Canal"),          // 13, 6
+    ("botanicc", "Botanical Gardens"),  // 10, 7
+    ("bball2", "Baseball Ground"),      // 15, 6
+    ("factory1", "Television Centre"),  // 14, 6
+    ("Baalrog3", "West Block"),         // 6, 4
+];
+
 /// The front end's screens (fallen/Source/frontend.cpp): the title (`FE_TITLESCREEN`), the
 /// main menu (`FE_MAINMENU`) and the missions (the original's map screen, `FE_MAPSCREEN`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +115,8 @@ pub struct Menu {
     /// Endless mode's arenas: a mission on the map (to load it by), what's shown for it,
     /// and the arena (its middle in squares, the mission's start if none, and radius).
     pub maps: Vec<Arena>,
+    /// Beat Cop's districts, the same way.
+    pub beats: Vec<Arena>,
     pub map_selected: usize,
     /// A map chosen for an endless run, to load on the next frame.
     pub loading_endless: Option<usize>,
@@ -147,7 +164,17 @@ impl Menu {
             }
         }
         let maps = arenas;
-        Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false }
+        let beats = BEAT_DISTRICTS
+            .iter()
+            .filter(|(m, _)| entries.iter().any(|e| e.mission.eq_ignore_ascii_case(m)))
+            .map(|&(m, name)| (m.to_string(), name.to_string(), None, 10.0))
+            .collect();
+        Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false }
+    }
+
+    /// The map list on show: Beat Cop's districts or endless mode's arenas.
+    pub fn arenas(&self) -> &[Arena] {
+        if self.for_beat { &self.beats } else { &self.maps }
     }
 
     /// The image behind the current screen, from the install's `data\` (`menu_back_names`,
@@ -258,27 +285,27 @@ impl Menu {
         o.rect(0.0, 0.0, w * 0.55, h, [0, 0, 0, 170]);
         let (white, gold) = ([235, 235, 225, 255], [255, 210, 70, 255]);
         let x = 20.0 * s;
-        let (title, what) = if self.for_beat {
-            ("BEAT COP", "A shift: deal with what dispatch calls in. Left/Right shift length")
+        let (title, what, pick) = if self.for_beat {
+            ("BEAT COP", "A shift: deal with what dispatch calls in. Left/Right shift length", "district")
         } else {
-            ("ENDLESS", "Waves of thugs until you drop.")
+            ("ENDLESS", "Waves of thugs until you drop.", "map")
         };
         o.text(x, 16.0 * s, s * 3.0, gold, title);
-        o.text(x, 44.0 * s, s, [200, 200, 190, 220], &format!("{what}   Up/Down choose a map   Enter play   Esc back"));
+        o.text(x, 44.0 * s, s, [200, 200, 190, 220], &format!("{what}   Up/Down choose a {pick}   Enter play   Esc back"));
         if self.for_beat {
             let len = format!("SHIFT: < {} >", uc_game::game::beat::shift_name(self.progress.shift()));
             o.text(x + Overlay::text_width(title, s * 3.0) + 16.0 * s, 24.0 * s, s * 1.5, white, &len);
         }
         if let Some(i) = self.loading_endless {
-            let text = format!("LOADING {}...", self.maps[i].1.to_uppercase());
+            let text = format!("LOADING {}...", self.arenas()[i].1.to_uppercase());
             o.text(w / 2.0 - Overlay::text_width(&text, s * 2.0) / 2.0, h * 0.5, s * 2.0, white, &text);
             return;
         }
         let line = 11.0 * s;
         let top = 64.0 * s;
         let rows = (((h - top - 40.0 * s) / line) as usize).max(3);
-        let first = self.map_selected.saturating_sub(rows / 2).min(self.maps.len().saturating_sub(rows));
-        for (k, (_, label, _, _)) in self.maps.iter().enumerate().skip(first).take(rows) {
+        let first = self.map_selected.saturating_sub(rows / 2).min(self.arenas().len().saturating_sub(rows));
+        for (k, (_, label, _, _)) in self.arenas().iter().enumerate().skip(first).take(rows) {
             let y = top + (k - first) as f32 * line;
             if k == self.map_selected {
                 o.rect(x - 4.0 * s, y - 2.0 * s, w * 0.55 - x - 8.0 * s, line, [200, 150, 40, 200]);
@@ -364,11 +391,12 @@ impl Menu {
     }
 
     pub fn map_up(&mut self) {
-        self.map_selected = (self.map_selected + self.maps.len().max(1) - 1) % self.maps.len().max(1);
+        let n = self.arenas().len().max(1);
+        self.map_selected = (self.map_selected + n - 1) % n;
     }
 
     pub fn map_down(&mut self) {
-        self.map_selected = (self.map_selected + 1) % self.maps.len().max(1);
+        self.map_selected = (self.map_selected + 1) % self.arenas().len().max(1);
     }
 
     /// The menu as an overlay for a window of `size`.
