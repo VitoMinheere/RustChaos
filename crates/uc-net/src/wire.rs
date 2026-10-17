@@ -12,12 +12,14 @@ mod tag {
     pub const CHOOSE: u8 = 2;
     pub const INPUT: u8 = 3;
     pub const HASH: u8 = 4;
+    pub const PONG: u8 = 5;
     pub const WELCOME: u8 = 10;
     pub const REFUSED: u8 = 11;
     pub const LOBBY: u8 = 12;
     pub const START: u8 = 13;
     pub const TURN: u8 = 14;
     pub const NOTICE: u8 = 15;
+    pub const PING: u8 = 16;
 }
 
 struct Out(Vec<u8>);
@@ -124,6 +126,14 @@ pub(crate) fn encode(m: &Msg) -> Vec<u8> {
             o.u32(*turn);
             o.u64(*hash);
         }
+        Msg::Pong { id } => {
+            o.u8(tag::PONG);
+            o.u32(*id);
+        }
+        Msg::Ping { id } => {
+            o.u8(tag::PING);
+            o.u32(*id);
+        }
         Msg::Welcome { seat } => {
             o.u8(tag::WELCOME);
             o.u8(*seat);
@@ -139,9 +149,10 @@ pub(crate) fn encode(m: &Msg) -> Vec<u8> {
                 o.str(n);
             }
         }
-        Msg::Start { game, setup } => {
+        Msg::Start { game, delay, setup } => {
             o.u8(tag::START);
             o.u32(*game);
+            o.u8(*delay);
             o.setup(setup);
         }
         Msg::Turn { turn, inputs } => {
@@ -175,7 +186,9 @@ pub(crate) fn decode(b: &[u8]) -> io::Result<Msg> {
             let n = i.u8()?;
             Msg::Lobby { names: (0..n).map(|_| i.str()).collect::<io::Result<_>>()? }
         }
-        tag::START => Msg::Start { game: i.u32()?, setup: i.setup()? },
+        tag::START => Msg::Start { game: i.u32()?, delay: i.u8()?, setup: i.setup()? },
+        tag::PONG => Msg::Pong { id: i.u32()? },
+        tag::PING => Msg::Ping { id: i.u32()? },
         tag::TURN => {
             let turn = i.u32()?;
             let n = i.u8()?;
@@ -221,7 +234,9 @@ mod tests {
             Msg::Welcome { seat: 1 },
             Msg::Refused { why: "full".into() },
             Msg::Lobby { names: vec!["A".into(), String::new()] },
-            Msg::Start { game: 3, setup },
+            Msg::Start { game: 3, delay: 4, setup },
+            Msg::Ping { id: 9 },
+            Msg::Pong { id: 9 },
             Msg::Turn { turn: 5, inputs: vec![input, Input::default()] },
             Msg::Notice { text: "Roper left".into() },
         ];

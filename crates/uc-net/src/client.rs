@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// Connected to a server.
@@ -14,9 +15,12 @@ pub struct Client {
     pub seat: usize,
     /// Who's in, by seat.
     pub names: Vec<String>,
-    stream: TcpStream,
+    /// Written to by this end and by the reader, which answers the server's pings at once.
+    stream: Arc<Mutex<TcpStream>>,
     rx: Receiver<io::Result<Msg>>,
     game: u32,
+    /// The game's input delay, in turns.
+    delay: u32,
     start: Option<Setup>,
     turns: BTreeMap<u32, Vec<Input>>,
     notices: Vec<String>,
@@ -54,15 +58,23 @@ impl Client {
         };
         stream.set_read_timeout(None).map_err(|e| e.to_string())?;
         let mut reader = stream.try_clone().map_err(|e| e.to_string())?;
+        let stream = Arc::new(Mutex::new(stream));
+        let pong = stream.clone();
         let (tx, rx) = mpsc::channel();
         std::thread::Builder::new().name("co-op client".into()).spawn(move || loop {
             let m = read_msg(&mut reader);
+            // Answered here, not when the game next looks, for the server to time the
+            // network and not the frame rate.
+            if let Ok(Msg::Ping { id }) = m {
+                let _ = write_msg(&mut *pong.lock().unwrap(), &Msg::Pong { id });
+                continue;
+            }
             let end = m.is_err();
             if tx.send(m).is_err() || end {
                 return;
             }
         }).map_err(|e| e.to_string())?;
-        Ok(Client { seat, names: Vec::new(), stream, rx, game: 0, start: None, turns: BTreeMap::new(), notices: Vec::new(), closed: None })
+        Ok(Client { seat, names: Vec::new(), stream, rx, game: 0, delay: DELAY, start: None, turns: BTreeMap::new(), notices: Vec::new(), closed: None })
     }
 
     /// Takes in everything the server has sent.
@@ -71,8 +83,8 @@ impl Client {
             match self.rx.try_recv() {
                 Ok(Ok(m)) => match m {
                     Msg::Lobby { names } => self.names = names,
-                    Msg::Start { game, setup } => {
-                        self.game = game;
+                    Msg::Start { game, delay, setup } => {
+                        (self.game, self.delay) = (game, delay as u32);
                         self.turns.clear();
                         self.start = Some(setup);
                     }
@@ -97,7 +109,7 @@ impl Client {
 
     fn send(&mut self, m: &Msg) {
         if self.closed.is_none() {
-            if let Err(e) = write_msg(&mut self.stream, m) {
+            if let Err(e) = write_msg(&mut *self.stream.lock().unwrap(), m) {
                 self.closed = Some(format!("the connection broke: {e}"));
             }
         }
@@ -126,6 +138,11 @@ impl Client {
     /// Every seat's input for `turn`, if it's in.
     pub fn take_turn(&mut self, turn: u32) -> Option<Vec<Input>> {
         self.turns.remove(&turn)
+    }
+
+    /// The game's input delay, in turns.
+    pub fn delay(&self) -> u32 {
+        self.delay
     }
 
     /// Turns in and not yet played.
@@ -168,7 +185,7 @@ impl Lockstep {
 
     /// One frame of `dt` seconds with this player's `input`: plays every turn that's due
     /// and in, with `play(turn, inputs, hash)`, which gives back the game's state hash when
-    /// `hash` asks for it. After each, this player's input goes for the turn `DELAY` on.
+    /// `hash` asks for it. After each, this player's input goes for the turn the delay on.
     /// When turns pile up (this machine fell behind), it plays faster to catch up. The turns
     /// played.
     pub fn frame(&mut self, client: &mut Client, dt: f32, input: Input, mut play: impl FnMut(u32, &[Input], bool) -> Option<u64>) -> usize {
@@ -180,9 +197,10 @@ impl Lockstep {
         self.pending = self.pending.then(&input);
         self.clock += dt;
         let (mut n, mut stalled) = (0, false);
-        // Up to `DELAY` turns are always on their way: more than that in, and this machine
-        // has fallen behind.
-        while n < MOST && (self.clock >= TURN || client.queued() > DELAY as usize + 2) {
+        // Up to the delay's turns are always on their way: more than that in, and this
+        // machine has fallen behind.
+        let delay = client.delay();
+        while n < MOST && (self.clock >= TURN || client.queued() > delay as usize + 2) {
             let Some(inputs) = client.take_turn(self.turn) else {
                 stalled = true;
                 break;
@@ -193,7 +211,7 @@ impl Lockstep {
                 client.send_hash(self.turn, h);
             }
             let sent = self.pending;
-            client.send_input(self.turn + DELAY, sent);
+            client.send_input(self.turn + delay, sent);
             // Pressed once is played once; what's held stays held.
             self.pending = Input { buttons: sent.buttons & !button::PRESSES, ..sent };
             self.clock = (self.clock - TURN).max(0.0);

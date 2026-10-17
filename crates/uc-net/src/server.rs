@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 /// A connection, as the server numbers them.
 pub type Conn = u32;
@@ -28,7 +29,14 @@ struct Seat {
     name: String,
     /// Left during the game: their player stands still from then on.
     gone: bool,
+    /// Their last few round trips (ms), the latest last.
+    rtts: Vec<u64>,
 }
+
+/// Round trips kept for each player.
+const RTTS: usize = 5;
+/// Milliseconds between pings.
+const PING_EVERY: u64 = 500;
 
 /// A session's logic, with no sockets of its own.
 #[derive(Debug, Default)]
@@ -43,6 +51,11 @@ pub struct Server {
     /// Hashes in for each turn, and whether the games have parted already.
     hashes: BTreeMap<u32, Vec<Option<u64>>>,
     parted: bool,
+    /// The time now (ms), the pings out (id: to whom, when), and when they last went.
+    now: u64,
+    pings: BTreeMap<u32, (Conn, u64)>,
+    ping_id: u32,
+    last_ping: u64,
 }
 
 /// How far ahead of the turn being gathered a client may send: a few seconds.
@@ -63,6 +76,39 @@ impl Server {
 
     fn full(&self) -> bool {
         self.seats.iter().all(|s| s.is_some())
+    }
+
+    /// The time, in milliseconds from anywhere: what round trips are timed by.
+    pub fn set_time(&mut self, ms: u64) {
+        self.now = ms;
+    }
+
+    fn ping(&mut self, conn: Conn, out: &mut Vec<Out>) {
+        self.ping_id += 1;
+        self.pings.insert(self.ping_id, (conn, self.now));
+        out.push(Out::To(conn, Msg::Ping { id: self.ping_id }));
+    }
+
+    /// Now and then: a ping for everyone in, to keep their round trips up to date.
+    pub fn tick(&mut self) -> Vec<Out> {
+        let mut out = Vec::new();
+        if self.now >= self.last_ping + PING_EVERY {
+            self.last_ping = self.now;
+            let conns: Vec<Conn> = self.seats.iter().flatten().filter(|s| !s.gone).map(|s| s.conn).collect();
+            for c in conns {
+                self.ping(c, &mut out);
+            }
+            // Pings nobody answered.
+            let now = self.now;
+            self.pings.retain(|_, &mut (_, at)| now < at + 10_000);
+        }
+        out
+    }
+
+    /// The slowest round trip of the players in (ms), each by the slowest of their last few;
+    /// `None` until everyone's has been timed at least once.
+    fn slowest(&self) -> Option<u64> {
+        self.seats.iter().flatten().filter(|s| !s.gone).map(|s| s.rtts.iter().max().copied()).try_fold(0, |a, r| Some(a.max(r?)))
     }
 
     /// Whether a game is being played.
@@ -100,8 +146,10 @@ impl Server {
                 let s = self.seats.iter().position(|s| s.is_none()).unwrap();
                 let name = if name.trim().is_empty() { format!("Player {}", s + 1) } else { name };
                 out.push(Out::Log(format!("{name} is in, seat {}", s + 1)));
-                self.seats[s] = Some(Seat { conn, name, gone: false });
+                self.seats[s] = Some(Seat { conn, name, gone: false, rtts: Vec::new() });
                 out.push(Out::To(conn, Msg::Welcome { seat: s as u8 }));
+                // Timed at once: the game can't start until it has been.
+                self.ping(conn, &mut out);
                 out.push(Out::All(self.lobby()));
                 if let Some(setup) = self.setup.clone() {
                     out.push(Out::To(conn, Msg::Notice { text: format!("The host has chosen {}", setup.mission) }));
@@ -146,6 +194,18 @@ impl Server {
                 }
                 // Old turns nobody will finish (a seat that left meanwhile).
                 self.hashes.retain(|&t, _| t + 10 * HASH_EVERY > turn);
+            }
+            (Msg::Pong { id }, Some(s)) => {
+                if let Some((_, at)) = self.pings.remove(&id).filter(|&(c, _)| c == conn) {
+                    let rtts = &mut self.seats[s].as_mut().unwrap().rtts;
+                    rtts.push(self.now.saturating_sub(at));
+                    if rtts.len() > RTTS {
+                        rtts.remove(0);
+                    }
+                    if self.game == 0 {
+                        self.start_if_ready(&mut out);
+                    }
+                }
             }
             // Anything else (input for a game that's over, a guest choosing) is dropped.
             _ => {}
@@ -197,13 +257,15 @@ impl Server {
         if !self.full() || self.seats.iter().flatten().any(|s| s.gone) {
             return;
         }
+        let Some(rtt) = self.slowest() else { return };
+        let delay = delay_for(rtt);
         self.game += 1;
         (self.next, self.parted) = (0, false);
         self.inputs.clear();
         self.hashes.clear();
-        out.push(Out::Log(format!("game {} starts: {}", self.game, setup.mission)));
-        out.push(Out::All(Msg::Start { game: self.game, setup }));
-        for _ in 0..DELAY {
+        out.push(Out::Log(format!("game {} starts: {}, the slowest round trip {rtt} ms, so a delay of {delay} turns", self.game, setup.mission)));
+        out.push(Out::All(Msg::Start { game: self.game, delay: delay as u8, setup }));
+        for _ in 0..delay {
             out.push(Out::All(Msg::Turn { turn: self.next, inputs: vec![Input::default(); SEATS] }));
             self.next += 1;
         }
@@ -265,21 +327,30 @@ pub fn serve(listener: TcpListener, log: bool) -> io::Result<()> {
     if log {
         println!("co-op server on {} (build {BUILD})", listener.local_addr()?);
     }
-    for e in rx {
-        let out = match e {
-            Event::Joined(conn, stream) => {
+    let start = Instant::now();
+    loop {
+        let e = match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(e) => Some(e),
+            Err(mpsc::RecvTimeoutError::Timeout) => None,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        };
+        server.set_time(start.elapsed().as_millis() as u64);
+        let mut out = server.tick();
+        out.extend(match e {
+            None => Vec::new(),
+            Some(Event::Joined(conn, stream)) => {
                 if log {
                     println!("connection {conn} from {}", stream.peer_addr().map_or("?".into(), |a| a.to_string()));
                 }
                 conns.insert(conn, stream);
-                continue;
+                Vec::new()
             }
-            Event::Msg(conn, m) => server.handle(conn, m),
-            Event::Left(conn) => {
+            Some(Event::Msg(conn, m)) => server.handle(conn, m),
+            Some(Event::Left(conn)) => {
                 conns.remove(&conn);
                 server.left(conn)
             }
-        };
+        });
         let mut dead = Vec::new();
         for o in out {
             match o {
@@ -349,15 +420,39 @@ mod tests {
         sent(out).into_iter().filter_map(|m| match m { Msg::Turn { turn, .. } => Some(*turn), _ => None }).collect()
     }
 
+    /// The answers to the pings in `out` from `conn`, `ms` later.
+    fn pong(s: &mut Server, conn: Conn, out: &[Out], ms: u64) -> Vec<Out> {
+        s.set_time(s.now + ms);
+        let ids: Vec<u32> = out.iter().filter_map(|o| match o { Out::To(c, Msg::Ping { id }) if *c == conn => Some(*id), _ => None }).collect();
+        ids.into_iter().flat_map(|id| s.handle(conn, Msg::Pong { id })).collect()
+    }
+
     /// Two players in, the host's choice made: the game starts with its first turns out.
     fn started() -> Server {
         let mut s = Server::new();
-        s.handle(1, hello("Darci"));
+        let out = s.handle(1, hello("Darci"));
+        pong(&mut s, 1, &out, 0);
         s.handle(1, Msg::Choose(setup()));
         let out = s.handle(2, hello("Roper"));
-        assert!(sent(&out).iter().any(|m| matches!(m, Msg::Start { game: 1, .. })));
+        // Not before Roper's round trip has been timed.
+        assert!(!sent(&out).iter().any(|m| matches!(m, Msg::Start { .. })));
+        let out = pong(&mut s, 2, &out, 0);
+        assert!(sent(&out).iter().any(|m| matches!(m, Msg::Start { game: 1, delay: 3, .. })));
         assert_eq!(turns(&out), (0..DELAY).collect::<Vec<_>>());
         s
+    }
+
+    #[test]
+    fn a_slow_round_trip_makes_a_longer_delay() {
+        let mut s = Server::new();
+        let out = s.handle(1, hello("Darci"));
+        pong(&mut s, 1, &out, 1);
+        s.handle(1, Msg::Choose(setup()));
+        let out = s.handle(2, hello("Roper"));
+        let out = pong(&mut s, 2, &out, 150);
+        // 150 ms and the margin: 190 ms, six turns.
+        assert!(sent(&out).iter().any(|m| matches!(m, Msg::Start { delay: 6, .. })), "{out:?}");
+        assert_eq!(turns(&out), (0..6).collect::<Vec<_>>());
     }
 
     fn input(n: u16) -> Input {
@@ -442,5 +537,6 @@ mod tests {
         assert!(!s.playing());
         let out = s.handle(3, hello("Darci"));
         assert!(sent(&out).iter().any(|m| matches!(m, Msg::Welcome { seat: 0 })));
+        assert!(sent(&out).iter().any(|m| matches!(m, Msg::Ping { .. })));
     }
 }

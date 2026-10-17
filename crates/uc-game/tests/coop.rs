@@ -203,3 +203,21 @@ fn enemies_go_for_the_nearer_player() {
     assert_eq!(r.g.people[e].foe, Some(roper));
 }
 
+
+/// Roper gets into a car with action, as Darci does, and drives it on his own input.
+#[test]
+fn roper_drives_a_car() {
+    let Some((mut r, roper)) = Run::coop("police1") else { return };
+    r.step(30, &[Controls::default(), Controls::default()]);
+    let Some(car) = r.g.vehicles.iter().position(|v| v.driver.is_none() && !v.wrecked()) else { return };
+    let door = r.g.vehicles[car].door();
+    let y = r.level.ground.surface(&r.level.map, door.x, door.y, r.g.vehicles[car].pos.y + 64.0);
+    r.g.people[roper].fig.pos = vec3(door.x, y, door.y);
+    r.step(1, &[Controls::default(), Controls { action: true, ..Default::default() }]);
+    r.step(60, &[Controls::default(), Controls::default()]);
+    assert!(matches!(r.g.people[roper].state, uc_game::State::InCar { vehicle } if vehicle == car), "{:?}", r.g.people[roper].state);
+    let at = r.g.vehicles[car].pos;
+    let gas = Controls { drive: uc_game::Drive { throttle: 1.0, ..Default::default() }, ..Default::default() };
+    r.step(60, &[Controls::default(), gas]);
+    assert!((r.g.vehicles[car].pos - at).length() > 100.0, "the car went {}", (r.g.vehicles[car].pos - at).length());
+}

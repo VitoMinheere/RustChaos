@@ -40,8 +40,20 @@ pub const PORT: u16 = 7777;
 /// Seats in a session: Darci and Roper.
 pub const SEATS: usize = 2;
 
-/// Turns between a player's input and the turn it's played on: 100 ms at 30 turns a second.
+/// The fewest turns between a player's input and the turn it's played on: 100 ms at 30 turns
+/// a second. A game's own delay ([`Msg::Start`]) is longer when a player's round trip to the
+/// server is: long enough for an input to get there and the turn back, with some to spare.
 pub const DELAY: u32 = 3;
+
+/// The most: a third of a second. Past that the game slows down rather than stalls.
+pub const MOST_DELAY: u32 = 10;
+
+/// The input delay for players whose slowest round trip to the server is `rtt_ms`: that and a
+/// margin for the odd slow packet, in turns.
+pub fn delay_for(rtt_ms: u64) -> u32 {
+    let turns = ((rtt_ms + 40) as f32 / (1000.0 / 30.0)).ceil() as u32;
+    turns.clamp(DELAY, MOST_DELAY)
+}
 
 /// Turns between state hashes: once a second.
 pub const HASH_EVERY: u32 = 30;
@@ -58,6 +70,8 @@ pub enum Msg {
     Input { game: u32, turn: u32, input: Input },
     /// Client: its game's state hash after a turn.
     Hash { game: u32, turn: u32, hash: u64 },
+    /// Client: the answer to [`Msg::Ping`], straight away.
+    Pong { id: u32 },
     /// Server: in, at this seat.
     Welcome { seat: u8 },
     /// Server: not let in, and why.
@@ -65,12 +79,15 @@ pub enum Msg {
     /// Server: who's in, by seat (empty for a free seat).
     Lobby { names: Vec<String> },
     /// Server: start the mission, as game number `game` (anything still on its way from the
-    /// game before is for that one). Turn 0 follows.
-    Start { game: u32, setup: Setup },
+    /// game before is for that one), each input going for the turn `delay` turns on. Turn 0
+    /// follows.
+    Start { game: u32, delay: u8, setup: Setup },
     /// Server: every seat's input for a turn, seat 0 first.
     Turn { turn: u32, inputs: Vec<Input> },
     /// Server: something to show the players (someone left, the games have parted).
     Notice { text: String },
+    /// Server: to time the round trip by.
+    Ping { id: u32 },
 }
 
 /// What a session plays.

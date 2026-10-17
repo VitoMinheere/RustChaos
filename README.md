@@ -29,6 +29,8 @@ No game data is included; everything is read from your install.
 | `uc-audio` | Sound from your install: a WAV decoder (PCM and IMA ADPCM, which every voice line uses), positional sound effects, music that crossfades between the original's dynamic tracks, and mission voice lines (`talk2\<mission>.ucm<n>.wav`, by each message's speech number). Built on `rodio`. | `uc-formats` |
 | `uc-render` | wgpu renderer: mipmapped textures, alpha cut-outs, distance fog, 4× MSAA, frustum culling per 8×8-square chunk, soft blobs for shadows and smoke and added ones for fire, offscreen rendering for screenshots. | `uc-world`, `wgpu` |
 | `uc-viewer` | The app (winit): plays a mission with a HUD, sound and gamepad support, or explores a level; free camera; headless screenshots. | all of the above |
+| `uc-net` | Co-op's lockstep session: the messages over TCP, the server's logic (each turn's inputs gathered and sent out, state hashes compared), the client, and the turn pacing with the input delay. | `uc-game` |
+| `uc-server` | The headless co-op server; `--bot` plays a mission with made-up inputs, for testing. | `uc-net` |
 | `uc-tools` | `uc` command-line tool: missions to and from JSON. | `uc-formats` |
 
 ## Build
@@ -278,7 +280,24 @@ The HUD shows Darci's health, the weapon in hand and its rounds, enemy health ba
 - `--no-crinkles`: flat walls up close. By default, as in the shipped game, walls with a crinkle (doors, windows, ledges) stand out in relief within about ten squares of the camera. The console's `crinkles` switches them.
 - `--linear`: smooth texture magnification instead of crisp pixels.
 - `--no-character`: leave people out.
+- `--host [PORT]`, `--join HOST[:PORT]`, `--name NAME`: co-op (below).
 - `--screenshot FILE`: render one frame **without opening a window** (the menu, unless `--mission` is given). Combine with `--size WxH` and `--sim SECS` (play for a while, skipping fly-bys, punching and kicking first, then look at the nearest enemy) or `--sim-walk SECS` / `--sim-run SECS` (testing aids).
+
+## Co-op
+
+Two players play a story mission together over the network: the host is the mission's own player (Darci, usually), and the other player is **Roper**, next to her from the start (#182, `docs/COOP.md`).
+
+- **Hosting:** CO-OP, then HOST in the menu, or `--host` on the command line. The lobby shows the address to join at. Choose the mission there, or give it with `--mission`.
+- **Joining:** CO-OP, then JOIN and type the host's address, or `--join 192.168.1.20`. The port is 7777 unless the host picked another (`--host 7800`, `--join 192.168.1.20:7800`).
+- **The same build:** both players need the same build (the same git commit). A different one is turned away at the door.
+- **Firewall:** the host's firewall has to let the game in on the port. Windows asks the first time; allow private networks. From another network, forward the port to the host, or use a VPN such as Tailscale.
+- **In the game:**
+  - Enemies go for whichever of you is nearer, and either of you sets off the mission's triggers.
+  - Knocked out, Roper is back on his feet next to Darci a few seconds later. The mission is lost when Darci is, as alone.
+  - The host's R (or RESTART) starts over for both, and Enter after a win plays the next mission.
+  - The pause menu doesn't stop the game: your player stands still while it's up.
+  - Leaving the mission leaves the game: your player stands still for the other.
+- **The server on its own:** `cargo run --release -p uc-server -- --port 7777` runs one with no window and no game data; both players then join it.
 
 ## Missions as JSON
 

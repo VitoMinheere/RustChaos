@@ -320,6 +320,7 @@ impl App {
                 self.menu = None;
                 self.capture_cursor(self.want_cursor());
                 if let Some(c) = self.coop.as_mut() {
+                    println!("co-op: playing {} as seat {}, with an input delay of {} turns", setup.mission, seat + 1, c.client.delay());
                     c.lock = uc_net::client::Lockstep::new();
                     c.setup = Some(setup);
                 }
