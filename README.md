@@ -274,6 +274,7 @@ The HUD shows Darci's health, the weapon in hand and its rounds, enemy health ba
 - `--cam X,Y,Z,YAW,PITCH`: start in the free camera (map squares; degrees).
 - `--fog START,END` or `--no-fog`: distance fog in map squares (default 20,40).
 - `--fullbright`: no baked lighting.
+- `--no-crinkles`: flat walls up close. By default, as in the shipped game, walls with a crinkle (doors, windows, ledges) stand out in relief within about ten squares of the camera. The console's `crinkles` switches them.
 - `--linear`: smooth texture magnification instead of crisp pixels.
 - `--no-character`: leave people out.
 - `--screenshot FILE`: render one frame **without opening a window** (the menu, unless `--mission` is given). Combine with `--size WxH` and `--sim SECS` (play for a while, skipping fly-bys, punching and kicking first, then look at the nearest enemy) or `--sim-walk SECS` / `--sim-run SECS` (testing aids).

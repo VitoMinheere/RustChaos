@@ -81,6 +81,11 @@ pub(crate) struct World {
     pub(crate) popups: Vec<(String, f32)>,
     /// Seconds to the next look for achievements earned.
     ach_clock: f32,
+    /// The walls with a crinkle, from the last upload.
+    pub(crate) relief: Relief,
+    /// Crinkles are on (`--no-crinkles` starts with them off; the console's `crinkles`
+    /// switches them, as in the original, Controls.cpp:450).
+    pub(crate) crinkles: bool,
 }
 
 impl World {
@@ -104,6 +109,7 @@ impl World {
             .find(|m| m.0.eq_ignore_ascii_case(&level.name))
             .map_or((level.name.clone(), String::new()), |m| (m.1, m.2));
         let objectives = checklist::split_briefing(&briefing).1;
+        let crinkles = args.crinkles;
         Ok(World {
             fly: FlyCam::from(start),
             orbit: Orbit::behind(angle),
@@ -129,6 +135,8 @@ impl World {
             stats_saved: false,
             popups: Vec::new(),
             ach_clock: 1.0,
+            relief: Relief::default(),
+            crinkles,
         })
     }
 
@@ -186,8 +194,10 @@ impl World {
     pub(crate) fn settings(&self) -> Settings {
         // No floor (`GF_NO_FLOOR`): the street under Gunston Tower isn't drawn
         // (`AENG_draw`, aeng.cpp:9287); the roofs still are.
-        let layers = self.layers.iter().copied().filter(|&l| !(self.game.no_floor && l == Layer::Floor)).collect();
-        Settings { sky: self.level.sky, fog: self.args.fog, layers }
+        let layers: Vec<Layer> = self.layers.iter().copied().filter(|&l| !(self.game.no_floor && l == Layer::Floor)).collect();
+        // The raised walls come with the dynamic batches, which only the character layer draws.
+        let crinkles = self.crinkles && layers.contains(&Layer::Character);
+        Settings { sky: self.level.sky, fog: self.args.fog, layers, crinkles }
     }
 
     pub(crate) fn eye(&self) -> Option<Vec3> {
@@ -255,13 +265,17 @@ impl World {
         let cam = self.camera();
         let mut out = self.game.batches(&self.level, cam.pos * uc_world::UNIT);
         self.game.rain(&self.level, cam.pos * uc_world::UNIT, cam.target - cam.pos, &mut out);
+        if self.crinkles && self.layers.contains(&Layer::Walls) {
+            self.relief.draw(cam.pos, &mut out);
+        }
         out
     }
 
     /// Builds the level and uploads it to the renderer.
-    pub(crate) fn upload(&self, r: &mut Renderer) {
+    pub(crate) fn upload(&mut self, r: &mut Renderer) {
         let t = Instant::now();
         let geo = self.level.build();
+        self.relief = geo.relief();
         let (textures, overridden) = r.upload_world(&geo, &Game::pages(&self.level), |p| self.level.texture(p));
         // The minimap: the whole city from straight above (8 pixels a square), north up.
         let n = 1024;
@@ -273,7 +287,7 @@ impl World {
         let mut sea = BTreeMap::new();
         self.game.draw_sea(&mut sea);
         let shot = |r: &mut Renderer, cam: &Camera| {
-            r.render_to_image((n, n), cam, &Settings { sky: self.level.sky, fog: None, layers: layers.clone() }, &sea, &Overlay::new())
+            r.render_to_image((n, n), cam, &Settings { sky: self.level.sky, fog: None, layers: layers.clone(), crinkles: false }, &sea, &Overlay::new())
         };
         let mut rgba = shot(r, &top);
         // Warehouse roofs (and some ceilings) are black from above, as on PC: there, show the
@@ -296,8 +310,9 @@ impl World {
             }
         }
         println!(
-            "{}: {} floor, {} roof, {} wall, {} prop, {} detail triangles in {} chunks; {} textures ({} from overrides); {} lights; built in {:.2}s",
+            "{}: {} floor, {} roof, {} wall ({} with crinkles, {} kinds), {} prop, {} detail triangles in {} chunks; {} textures ({} from overrides); {} lights; built in {:.2}s",
             self.level.name, geo.count(Layer::Floor), geo.count(Layer::Roofs), geo.count(Layer::Walls),
+            geo.crinkled_count(), geo.crinkles.len(),
             geo.count(Layer::Props), geo.count(Layer::Detail), geo.chunks.len(), textures, overridden,
             self.level.lighting.as_ref().map_or(0, |l| l.lights.len()), t.elapsed().as_secs_f32()
         );

@@ -4,7 +4,7 @@ use crate::*;
 
 pub(crate) const USAGE: &str = "\
 uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DIR] [--linear] [--fullbright]
-          [--fog START,END | --no-fog] [--no-character] [--cam X,Y,Z,YAW,PITCH] [--dogs N]
+          [--fog START,END | --no-fog] [--no-crinkles] [--no-character] [--cam X,Y,Z,YAW,PITCH] [--dogs N]
           [--screenshot FILE [--size WxH] [--sim-walk SECS | --sim-run SECS | --sim SECS]]
           [--dump-pages DIR]
 
@@ -24,6 +24,8 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --linear          smooth texture magnification (default: crisp nearest-neighbour)
   --fullbright      ignore the level's baked lighting
   --fog START,END   distance fog in map squares (default 20,40); --no-fog disables it
+  --no-crinkles     flat walls up close (default: walls with a crinkle stand out in relief,
+                    as the shipped config.ini has it; the console's crinkles switches them)
   --no-character    no people; start in the free camera
   --cam ...         start in the free camera: position in map squares, yaw/pitch in degrees
   --screenshot FILE render one frame offscreen to FILE (PNG) and exit, without a window
@@ -82,6 +84,8 @@ pub(crate) struct Args {
     pub(crate) linear: bool,
     pub(crate) fullbright: bool,
     pub(crate) fog: Option<(f32, f32)>,
+    /// Walls with a crinkle stand out in relief up close (#113).
+    pub(crate) crinkles: bool,
     pub(crate) no_character: bool,
     pub(crate) cam: Option<[f32; 5]>,
     pub(crate) screenshot: Option<PathBuf>,
@@ -119,6 +123,7 @@ pub(crate) fn parse_args() -> Result<Args, String> {
         linear: false,
         fullbright: false,
         fog: Some((20.0, 40.0)),
+        crinkles: true,
         no_character: false,
         cam: None,
         screenshot: None,
@@ -172,6 +177,7 @@ pub(crate) fn parse_args() -> Result<Args, String> {
                 let v = parse_floats(&value()?, 2, "--fog")?;
                 a.fog = Some((v[0], v[1]));
             }
+            "--no-crinkles" => a.crinkles = false,
             "--no-character" => a.no_character = true,
             "--screenshot" => a.screenshot = Some(PathBuf::from(value()?)),
             "--size" => {

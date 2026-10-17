@@ -37,7 +37,7 @@ use uc_audio::weather::{Place, Weather, World as Wtype};
 use uc_audio::{Audio, Listener};
 use uc_game::{Controls, Game, Mood, Outcome};
 use uc_render::{wgpu, Camera, Overlay, Renderer, Settings};
-use uc_world::{Batch, Layer, Level, LoadOptions};
+use uc_world::{Batch, Layer, Level, LoadOptions, Relief};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, MouseScrollDelta, WindowEvent};
@@ -110,7 +110,7 @@ impl App {
         surface.configure(&device, &config);
         let mut renderer = Renderer::new(device, queue, config.format, !self.args.linear);
         self.backdrop = String::new();
-        if let Some(w) = &self.world {
+        if let Some(w) = &mut self.world {
             w.upload(&mut renderer);
         }
         self.gfx = Some(Gfx { window, surface, config, renderer });
@@ -287,7 +287,7 @@ impl App {
         let mut args = self.args.clone();
         args.mission = name.to_string();
         match World::load(args) {
-            Ok(w) => {
+            Ok(mut w) => {
                 if let Some(g) = self.gfx.as_mut() {
                     g.renderer.clear_textures();
                     w.upload(&mut g.renderer);
