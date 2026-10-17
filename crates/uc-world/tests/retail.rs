@@ -49,3 +49,13 @@ fn one_shot_animations_finish() {
     assert_eq!(level.ground.ladders.len(), 3);
     assert_eq!(level.ground.surface(&level.map, 55.6 * 256.0, 55.0 * 256.0, 640.0), 640.0);
 }
+
+/// Capflag1's fences, whose own styles come out as windows and doors, are drawn with the
+/// downtown missions' chain link, which its borrowed textures have.
+#[test]
+fn capflag_fences_are_chain_link() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let level = Level::load(&game, "Capflag1", &LoadOptions { fullbright: true, character: false, overrides: None }).unwrap();
+    assert!(level.clump.texture(284).unwrap().is_some_and(|t| t.has_alpha), "no see-through chain link");
+    let geo = level.build();
+    assert!(geo.pages().contains(&284), "the chain link isn't drawn");}

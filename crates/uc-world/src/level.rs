@@ -117,6 +117,17 @@ fn world_page(p: u32) -> bool {
     p < 64 * 4 || (64 * 8..64 * 9).contains(&p)
 }
 
+/// Maps whose climbable fences come out as the wrong picture, and the page they're drawn
+/// with instead. `multi1.iam` (Capflag1, the network game's map) has no clump of its own,
+/// and its fences' styles point at world 3's window and door pages: they take the chain
+/// link the downtown missions' fences use (RTA's 284, a shared page every world has).
+const REFENCED: [(&str, u32); 1] = [("data\\multi1.iam", 284)];
+
+/// The page the fences of `map_file` are drawn with instead of their own, if any.
+fn fence_page(map_file: &str) -> Option<u32> {
+    REFENCED.iter().find(|(m, _)| m.eq_ignore_ascii_case(map_file)).map(|&(_, p)| p)
+}
+
 /// The world whose textures stand in for a world no shipped mission uses (`freeoncd1.iam`
 /// and `training1.iam` are world 2): the city of RTA and the other downtown missions.
 const STAND_IN_WORLD: i32 = 3;
@@ -307,10 +318,14 @@ impl Level {
         build_floor(&mut b, &self.map, &sh, |p| !ids.contains(&p));
         build_roof_faces(&mut b, &self.map, &sh);
         if let Some(styles) = &self.styles {
+            let refence = fence_page(&self.mission.map);
             for i in 1..self.map.facets.len() {
+                let kind = self.map.facets[i].kind;
+                let fence = matches!(kind, uc_formats::iam::facet_type::FENCE | uc_formats::iam::facet_type::FENCE_FLAT);
                 for q in facet::wall_quads(&self.map, styles, i) {
                     let p = q.corners.map(|c| vec3(c[0], c[1], c[2]) / UNIT);
-                    b.batch(p[0], Layer::Walls, q.page).quad(p, q.uv, sh.quad(&p));
+                    let page = refence.filter(|_| fence).unwrap_or(q.page);
+                    b.batch(p[0], Layer::Walls, page).quad(p, q.uv, sh.quad(&p));
                 }
             }
         }

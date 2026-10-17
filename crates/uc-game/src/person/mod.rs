@@ -712,6 +712,9 @@ pub struct Person {
     /// Who the AI fights (a person index), set by the game each frame: an assassin's mark,
     /// otherwise the player.
     pub foe: Option<usize>,
+    /// Won't start a fight with their foe on seeing them (a capture-the-flag bot breaking
+    /// off one), though a blow still makes them fight back.
+    pub(crate) truce: bool,
     /// `pcom_colour` and `pcom_group`: patrols follow the event points of their colour
     /// and group.
     pub colour: u8,
@@ -794,7 +797,7 @@ impl Person {
             pace: Pace::Walk,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
-            invulnerable: false, foe: None, colour: 0, group: 0, goal: None, via: None, leap: None, steer: None, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
+            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, goal: None, via: None, leap: None, steer: None, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }
@@ -989,7 +992,7 @@ impl Person {
         }
         match self.ai {
             // A bodyguard's sphere for someone going for their client (`0x800`).
-            AI_BODYGUARD => 8.0 * 256.0,
+            AI_BODYGUARD => crate::GUARDS * 256.0,
             2 => 4.0 * 256.0,
             6 | 13 => 5.0 * 256.0,
             4 | 18 | 19 => 8.0 * 256.0,

@@ -343,9 +343,55 @@ impl Game {
         }
     }
 
+    /// The player's bodyguards with no gun go for one someone dropped, lying near, in sight
+    /// and on their level, while there's nobody to fight (a bat or knife if their hands are
+    /// empty), and pick it up. Only the player's, and only what's dropped: what the mission
+    /// put down is the player's to find (Gang Order 2's Wildcat would otherwise leave the
+    /// base for the shotgun by it), and anyone else's bodyguards stay at their post.
+    pub(crate) fn arm_bodyguards(&mut self, level: &Level) {
+        let eye = Vec3::new(0.0, 120.0, 0.0);
+        let Some(me) = self.player else { return };
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            if p.ai != person::AI_BODYGUARD || p.player || p.removed || p.is_down() || p.is_dead() || p.aggro() || p.weapon.is_gun() {
+                continue;
+            }
+            let client = if p.other == 0 { Some(me) } else { self.by_way.get(&p.other).copied() };
+            if client != Some(me) {
+                continue;
+            }
+            if !matches!(p.state, State::Move) {
+                continue;
+            }
+            let at = p.fig.pos;
+            let flat = |v: Vec3| Vec2::new(v.x - at.x, v.z - at.z).length();
+            let near = self.items.iter()
+                .filter(|it| it.way == 0 && matches!(it.kind, 2 | 4 | 5 | 6 | 8 | SNIPER) && wanted(p, it.kind))
+                .filter(|it| (it.pos.y - at.y).abs() < 100.0 && flat(it.pos) < crate::GUARDS * 256.0)
+                // (Close to, a post or a bin can be in the way of the eye: no matter.)
+                .filter(|it| flat(it.pos) < 256.0 || level.ground.line_of_sight(at + eye, it.pos + eye))
+                .min_by(|a, b| flat(a.pos).total_cmp(&flat(b.pos)))
+                .map(|it| it.pos);
+            if let Some(to) = near {
+                let p = &mut self.people[i];
+                p.goal = Some(to);
+                p.pace = person::Pace::Run;
+                self.pick_up_for(i);
+            }
+        }
+    }
+
     /// The player walks over items: health heals, weapons and ammo are picked up.
     pub(crate) fn pick_up(&mut self) {
-        let Some(pi) = self.player else { return };
+        if let Some(pi) = self.player {
+            self.pick_up_for(pi);
+        }
+    }
+
+    /// Person `pi` walks over items. Anyone but the player (a capture-the-flag bot) only
+    /// takes health, weapons and ammo.
+    pub(crate) fn pick_up_for(&mut self, pi: usize) {
+        let player = Some(pi) == self.player;
         let p = &self.people[pi];
         if !matches!(p.state, State::Move | State::Land { .. }) {
             return;
@@ -360,6 +406,9 @@ impl Game {
         };
         let Some(i) = self.items.iter().position(near) else { return };
         let (kind, way) = (self.items[i].kind, self.items[i].way);
+        if !player && !matches!(kind, 2..=6 | 8 | 10..=12 | SNIPER) {
+            return;
+        }
         let p = &mut self.people[pi];
         let took = match kind {
             3 if p.health < p.max_health => {
@@ -384,7 +433,8 @@ impl Game {
             2 | 4 | 6 | SNIPER => {
                 let w = Weapon::from_item(kind).unwrap();
                 p.give(w);
-                if p.weapon == Weapon::None {
+                // The AI draws it over a bat or knife.
+                if p.weapon == Weapon::None || (!player && !p.weapon.is_gun()) {
                     p.weapon = w;
                 }
                 true
@@ -475,4 +525,17 @@ pub(crate) fn special_item(special: u8) -> Option<u8> {
         22 => 21, // weed-away
         _ => return None,
     })
+}
+
+/// What someone the AI drives would pick up (a capture-the-flag bot, a bodyguard): health
+/// when hurt, a gun when they have none, a bat or knife when their hands are empty, and
+/// rounds for the gun they have.
+pub(crate) fn wanted(p: &Person, kind: u8) -> bool {
+    match kind {
+        3 => p.health < p.max_health * 3 / 4,
+        2 | 4 | 6 | SNIPER => !p.weapon.is_gun(),
+        5 | 8 => p.weapon == Weapon::None,
+        10..=12 => p.weapon == Weapon::GUNS[(kind - 10) as usize],
+        _ => false,
+    }
 }

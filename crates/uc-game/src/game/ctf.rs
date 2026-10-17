@@ -10,9 +10,16 @@ use uc_formats::ucm::{trigger, waypoint};
 
 /// Seconds down before coming back at home.
 const RESPAWN: f32 = 4.0;
-/// Within this of Darci (world units, and in sight) the bot fights her; past twice it, it
-/// gets on with the game.
+/// Within this of the other player (world units, and in sight) a bot fights them; past
+/// twice it, it gets on with the game. Whoever has its disk is chased from further.
 const FIGHT: f32 = 5.0 * 256.0;
+/// How far out of its way a bot goes for something lying about (world units).
+const FETCH: f32 = 6.0 * 256.0;
+/// Seconds a bot fights before breaking off for the disk (or home) again, and seconds it
+/// then keeps going before it'll fight again: the game's won by the disk, not by
+/// a brawl, and two bots who block as well as each other would otherwise fight for good.
+const BRAWL: f32 = 8.0;
+const BREAK_OFF: f32 = 6.0;
 
 /// A seat's places, from the script: the disk to reach and home, each with its radius.
 #[derive(Debug, Clone, Copy)]
@@ -33,25 +40,48 @@ pub struct Seat {
 pub struct Ctf {
     pub player: Seat,
     pub bot: Seat,
-    /// The bot.
+    /// The bot, and Darci.
     pub bot_person: usize,
+    pub player_person: usize,
     /// The `end_game_win` points that are the bot's seat's win.
     bot_wins: Vec<usize>,
-    /// The bot's ways about the map (the navigation map misses some of this map's walls):
-    /// the squares that can be walked to from its start, and the next square from each
-    /// towards Darci's disk and towards its home.
+    /// The squares that can be walked to from the bot's start (the navigation map misses
+    /// some of this map's walls).
     grid: game::endless::Grid,
+    /// The AI playing each seat, Darci's then the bot's: the bot's always, Darci's only on
+    /// autopilot ([`Game::autopilot`]), the seat a second player would otherwise take.
+    brains: [Option<Brain>; 2],
+}
+
+/// A bot's ways about the map, the next square from each towards its disk and towards its
+/// home; where it was when it last got anywhere, and the seconds since; and a sidestep it's
+/// taking to get unstuck, with the seconds left of it.
+#[derive(Debug, Clone)]
+struct Brain {
     to_disk: Option<Ways>,
     to_home: Option<Ways>,
-    /// Where the bot was when it last got anywhere, and the seconds since; and a sidestep
-    /// it's taking to get unstuck, with the seconds left of it.
     last: Vec3,
     still: f32,
     detour: Option<(Vec3, f32)>,
     detours: u32,
+    /// Seconds into this fight, and seconds left of breaking off from one.
+    brawl: f32,
+    away: f32,
+}
+
+impl Brain {
+    fn new(grid: &game::endless::Grid, seat: &Seat, at: Vec3) -> Brain {
+        let to_disk = game::endless::towards(grid, seat.disk);
+        let to_home = game::endless::towards(grid, seat.home);
+        Brain { to_disk, to_home, last: at, still: 0.0, detour: None, detours: 0, brawl: 0.0, away: 0.0 }
+    }
 }
 
 type Ways = std::collections::BTreeMap<(i32, i32), (i32, i32)>;
+
+fn near_flat(a: Vec3, b: Vec3) -> f32 {
+    Vec2::new(a.x - b.x, a.z - b.z).length()
+}
 
 /// Whether `level` is a game for two players (two `create_player` points).
 pub fn two_players(level: &Level) -> bool {
@@ -109,9 +139,8 @@ impl Game {
         let player_start = self.people[me].fig.pos;
         if let (Some(player), Some(bot)) = (seat(level, player_way, player_start), seat(level, way, pos)) {
             let grid = game::endless::arena(level, pos, 128.0 * 256.0);
-            let to_disk = game::endless::towards(&grid, bot.disk);
-            let to_home = game::endless::towards(&grid, bot.home);
-            self.ctf = Some(Ctf { player, bot, bot_person: i, bot_wins: wins_for(level, way), grid, to_disk, to_home, last: pos, still: 0.0, detour: None, detours: 0 });
+            let brains = [None, Some(Brain::new(&grid, &bot, pos))];
+            self.ctf = Some(Ctf { player, bot, bot_person: i, player_person: me, bot_wins: wins_for(level, way), grid, brains });
         }
         Some(i)
     }
@@ -126,16 +155,40 @@ impl Game {
         self.ctf.as_ref().is_some_and(|c| c.bot_wins.contains(&way))
     }
 
+    /// Darci's seat played by the AI as well: bot against bot (#133), the seat a second
+    /// player would take filled. The camera stays on her.
+    pub fn autopilot(&mut self) -> bool {
+        let Some(c) = self.ctf.as_mut() else { return false };
+        let me = c.player_person;
+        c.brains[0] = Some(Brain::new(&c.grid, &c.player, self.people[me].fig.pos));
+        let skill = self.people[c.bot_person].skill;
+        let p = &mut self.people[me];
+        p.player = false;
+        p.ai = person::AI_GANG;
+        p.mv = 1;
+        p.skill = skill;
+        true
+    }
+
+    /// Who a seat's player fights: the other seat's. `None` if `i` isn't a bot here.
+    pub(crate) fn ctf_foe(&self, i: usize) -> Option<usize> {
+        let c = self.ctf.as_ref()?;
+        if i == c.bot_person {
+            Some(c.player_person)
+        } else if i == c.player_person && c.brains[0].is_some() {
+            Some(c.bot_person)
+        } else {
+            None
+        }
+    }
+
     /// Every turn: who's reached the other's disk, knocked-out players back at home, and the
-    /// bot's plan: fight Darci when she's near, else go for her disk, or home with it.
+    /// bots' plans: fight the other when they're near, else go for its disk, or home with it,
+    /// picking up what's lying on the way.
     pub(crate) fn run_ctf(&mut self, dt: f32, level: &Level) {
         let Some(mut c) = self.ctf.take() else { return };
-        let Some(me) = self.player else {
-            self.ctf = Some(c);
-            return;
-        };
         let near = |a: Vec3, b: Vec3, r: f32| Vec2::new(a.x - b.x, a.z - b.z).length() < r;
-        for (seat, i) in [(&mut c.player, me), (&mut c.bot, c.bot_person)] {
+        for (seat, i) in [(&mut c.player, c.player_person), (&mut c.bot, c.bot_person)] {
             let p = &mut self.people[i];
             if !seat.has_disk && !p.is_down() && near(p.fig.pos, seat.disk, seat.reach * 0.8) {
                 seat.has_disk = true;
@@ -157,52 +210,91 @@ impl Game {
                 seat.down = 0.0;
             }
         }
-        // The bot.
-        let darci = self.people[me].fig.pos;
-        let darci_down = self.people[me].is_down();
-        let b = &mut self.people[c.bot_person];
-        if !b.is_down() {
-            let eye = Vec3::new(0.0, 120.0, 0.0);
-            let d = (b.fig.pos - darci).length();
-            let sees = d < FIGHT && level.ground.line_of_sight(b.fig.pos + eye, darci + eye);
-            if sees && !darci_down {
-                b.go_for();
-            } else if d > FIGHT * 2.0 || darci_down {
-                b.calm_down();
+        for s in 0..2 {
+            let Some(mut brain) = c.brains[s].take() else { continue };
+            let (me, them, seat, theirs) =
+                if s == 0 { (c.player_person, c.bot_person, c.player, c.bot) } else { (c.bot_person, c.player_person, c.bot, c.player) };
+            self.drive_bot(&mut brain, &c.grid, me, them, &seat, theirs.has_disk, dt, level);
+            // (The player's seat picks up as the player always does.)
+            if s == 1 {
+                self.pick_up_for(me);
             }
-            if !b.aggro() {
-                let (to, ways) = if c.bot.has_disk { (c.bot.home, &c.to_home) } else { (c.bot.disk, &c.to_disk) };
-                let step = ways.as_ref().and_then(|w| game::endless::next_step(&c.grid, w, b.fig.pos, to, level));
-                // Stuck (the navigation map and the walker don't always agree about what's in
-                // the way): a sidestep of a couple of squares, one way then the other, then on.
-                if b.fig.pos.distance(c.last) > 96.0 {
-                    (c.last, c.still) = (b.fig.pos, 0.0);
-                } else {
-                    c.still += dt;
-                }
-                if c.still > 1.5 && c.detour.is_none() {
-                    let ahead = Vec2::new(to.x - b.fig.pos.x, to.z - b.fig.pos.z).normalize_or_zero();
-                    let side = if c.detours.is_multiple_of(2) { Vec2::new(-ahead.y, ahead.x) } else { Vec2::new(ahead.y, -ahead.x) };
-                    let back = -ahead * 0.5;
-                    let d = (side + back).normalize_or_zero() * (2.0 + (c.detours % 3) as f32) * 256.0;
-                    c.detour = Some((b.fig.pos + Vec3::new(d.x, 0.0, d.y), 1.5));
-                    c.detours += 1;
-                    c.still = 0.0;
-                }
-                b.goal = Some(match &mut c.detour {
-                    Some((at, left)) => {
-                        *left -= dt;
-                        *at
-                    }
-                    None => step.unwrap_or(to),
-                });
-                if c.detour.is_some_and(|(_, left)| left <= 0.0) {
-                    c.detour = None;
-                }
-                b.pace = person::Pace::Run;
-            }
+            c.brains[s] = Some(brain);
         }
         self.ctf = Some(c);
+    }
+
+    /// One bot's turn: after the other player when they're near and in sight (from further
+    /// when they have its disk), else to whatever it wants lying nearby, else for the disk or
+    /// home with it.
+    #[allow(clippy::too_many_arguments)]
+    fn drive_bot(&mut self, c: &mut Brain, grid: &game::endless::Grid, me: usize, them: usize, seat: &Seat, they_have_it: bool, dt: f32, level: &Level) {
+        let other = self.people[them].fig.pos;
+        let other_down = self.people[them].is_down();
+        let eye = Vec3::new(0.0, 120.0, 0.0);
+        let b = &self.people[me];
+        if b.is_down() {
+            return;
+        }
+        let at = b.fig.pos;
+        let fight = if they_have_it { FIGHT * 3.0 } else { FIGHT };
+        let d = (at - other).length();
+        let sees = d < fight && level.ground.line_of_sight(at + eye, other + eye);
+        // Something it wants, lying near and in sight.
+        let fetch = self.items.iter()
+            .filter(|it| game::actions::wanted(b, it.kind) && (it.pos.y - at.y).abs() < 100.0 && near_flat(it.pos, at) < FETCH)
+            .filter(|it| level.ground.line_of_sight(at + eye, it.pos + eye))
+            .min_by(|x, y| near_flat(x.pos, at).total_cmp(&near_flat(y.pos, at)))
+            .map(|it| it.pos);
+        let b = &mut self.people[me];
+        c.away = (c.away - dt).max(0.0);
+        c.brawl = if b.aggro() { c.brawl + dt } else { 0.0 };
+        if c.brawl > BRAWL {
+            (c.brawl, c.away) = (0.0, BREAK_OFF);
+            b.calm_down();
+        }
+        // Breaking off, it keeps going whatever it sees (or the AI's own eyes would have it
+        // straight back in the fight), unless it's hit.
+        b.truce = c.away > 0.0;
+        if d > fight * 2.0 || other_down {
+            b.calm_down();
+        } else if sees && !b.truce {
+            b.go_for();
+        }
+        if b.aggro() {
+            return;
+        }
+        let to = if seat.has_disk { seat.home } else { seat.disk };
+        let ways = if seat.has_disk { &c.to_home } else { &c.to_disk };
+        let step = ways.as_ref().and_then(|w| game::endless::next_step(grid, w, at, to, level));
+        // Stuck (the navigation map and the walker don't always agree about what's in the
+        // way): a sidestep of a couple of squares, one way then the other, then on.
+        if at.distance(c.last) > 96.0 {
+            (c.last, c.still) = (at, 0.0);
+        } else {
+            c.still += dt;
+        }
+        if c.still > 1.5 && c.detour.is_none() {
+            let ahead = Vec2::new(to.x - at.x, to.z - at.z).normalize_or_zero();
+            let side = if c.detours.is_multiple_of(2) { Vec2::new(-ahead.y, ahead.x) } else { Vec2::new(ahead.y, -ahead.x) };
+            let back = -ahead * 0.5;
+            let d = (side + back).normalize_or_zero() * (2.0 + (c.detours % 3) as f32) * 256.0;
+            c.detour = Some((at + Vec3::new(d.x, 0.0, d.y), 1.5));
+            c.detours += 1;
+            c.still = 0.0;
+        }
+        b.goal = Some(match (&mut c.detour, fetch) {
+            (Some((at, left)), _) => {
+                *left -= dt;
+                *at
+            }
+            (None, Some(it)) => it,
+            (None, None) => step.unwrap_or(to),
+        });
+        if c.detour.is_some_and(|(_, left)| left <= 0.0) {
+            c.detour = None;
+        }
+        b.pace = person::Pace::Run;
     }
 
     /// The beacons: where Darci's going (the disk, then home), and the bot.

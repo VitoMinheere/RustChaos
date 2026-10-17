@@ -158,6 +158,10 @@ const MISSION_FLAG_SHOW_CRIMERATE: i32 = 1 << 1;
 const CRUISE: f32 = 1100.0;
 /// A driver looks for a car this far away (`PCOM_set_person_ai_findcar`: 0xc00, x plus z).
 const FIND_CAR: f32 = 3072.0;
+/// How far (squares) a bodyguard looks out for whoever is going for the person they guard,
+/// and goes for something to arm themselves with. The original's sphere is `0x800`, eight;
+/// half again keeps them in it as a fight moves about.
+pub(crate) const GUARDS: f32 = 12.0;
 
 /// Someone at the wheel who isn't the player (`pcom_move_state` and its arguments).
 #[derive(Debug, Clone, Copy, Default)]
@@ -168,6 +172,10 @@ struct Driving {
     next: usize,
     /// Seconds left of backing off something the car ran into (`PCOM_MOVE_SUBSTATE_3PTURN`).
     reversing: f32,
+    /// Beat Cop's drunk driver (#130): weaving across the road, and stopping for nobody.
+    drunk: bool,
+    /// Beat Cop's getaway driver: twice the limit, and stopping for nobody.
+    reckless: bool,
 }
 
 /// A camera fly-by in progress.
@@ -1080,6 +1088,7 @@ impl Game {
         // crash cops in RTA had shot the drunk long before she got there.
         self.walk_goals();
         self.run_ctf(dt, level);
+        self.arm_bodyguards(level);
         self.find_ways(level);
         self.city_life(dt, level);
         self.board_cars(level);
@@ -1104,6 +1113,8 @@ impl Game {
         for i in 0..self.people.len() {
             let p = &self.people[i];
             let foe = match (p.ai, p.other) {
+                // Capture the flag: each seat's player fights the other's.
+                _ if self.ctf_foe(i).is_some() => self.ctf_foe(i),
                 (3 | 21, w) if w != 0 => self.by_way.get(&w).copied().filter(|&f| {
                     let mark = &self.people[f];
                     let seen = Some(f) == player || p.aggro()
@@ -1131,7 +1142,7 @@ impl Game {
                         .filter(|(j, o)| {
                             *j != i && o.hostile() && o.aggro() && !o.is_dead()
                                 && (o.foe == client || o.foe == Some(i))
-                                && (o.fig.pos - p.fig.pos).length() < 8.0 * 256.0
+                                && (o.fig.pos - p.fig.pos).length() < GUARDS * 256.0
                                 && level.ground.line_of_sight(p.fig.pos + eye, o.fig.pos + eye)
                         })
                         .min_by(|a, b| {
@@ -1150,7 +1161,7 @@ impl Game {
             self.people[i].invulnerable = away || self.people[i].protected || (self.cheats.god && Some(i) == self.player);
         }
         for i in 0..self.people.len() {
-            let c = if Some(i) == player {
+            let c = if Some(i) == player && self.people[i].player {
                 if self.outcome.is_some() || held || self.search.is_some() { Controls::default() } else { input }
             } else {
                 let mut rng = self.rngs.main;

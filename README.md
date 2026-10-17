@@ -139,7 +139,13 @@ Each wave comes from a different side of the arena, marked with a beacon for its
 - an armed suspect;
 - a gun dumped in a bin;
 - a gang fight;
-- a wanted man who runs when he sees you.
+- a wanted man who runs when he sees you;
+- a drunk driver weaving down the road: get him out of the car (draw a gun, or wreck it), then take him;
+- a getaway car with an armed robber, who fights once he's out of it;
+- a jumper on a roof by a ladder: get up there and stay with them a moment to talk them down;
+- a bomb in the street: stay beside it for three seconds to defuse it before it goes up.
+
+The console's `call` command calls one in at once (`call drunk`, `call bomb` and so on), and `car` puts an empty car in front of you.
 
 Handling one scores, with arrests worth extra, and brings the crime rate down. Missing one puts it up. The shift ends when its time is up, or early if the crime rate reaches 100; an open-ended one only ends that way. The best score is kept per map and shift length.
 
@@ -151,7 +157,7 @@ Handling one scores, with arrests worth extra, and brings the crime rate down. M
 
 Normal is the original's tuning.
 
-**Capture the flag:** CAPTURE THE FLAG in the main menu, or `--mission Capflag1`: the original's two-player network mission on its own map, against Roper as a bot. Each of you has to reach the disk at the other's end of the map and get back home with it; the script announces who's got the disk, and the first home wins. Roper goes for your disk, climbing the fences on the way, and takes it home; he fights you when you're close. Knocked out, either of you comes back at home a few seconds later. Beacons show where you're going and where Roper is. The bot's skill follows the difficulty.
+**Capture the flag:** CAPTURE THE FLAG in the main menu, or `--mission Capflag1`: the original's two-player network mission on its own map, against Roper as a bot. Each of you has to reach the disk at the other's end of the map and get back home with it; the script announces who's got the disk, and the first home wins. Roper goes for your disk, climbing the fences on the way, and takes it home. He fights you when you're close, and from further off once you have his disk, but breaks off after a few seconds to get on with the game, and goes out of his way for health when he's hurt, a gun when he has none, and rounds for the one he has. Knocked out, either of you comes back at home a few seconds later. Beacons show where you're going and where Roper is. The bot's skill follows the difficulty. `autopilot` in the console hands your seat to a bot as well, to watch bot against bot.
 
 **Stats and achievements:** STATS in the main menu shows totals over all play: arrests, takedowns from behind, people searched, red marks; knockouts by fists, by knife or bat and by gun; shots fired and the hit rate; distance on foot, driving and on the bike; zip-wire distance and the longest ride; ladders climbed and falls survived; missions completed, the furthest endless wave and the best Beat Cop shift. Next to them are the achievements, with how far along each one is: Rookie (finish the training), By the Book (win with an arrest, no shots and no red marks), Clean Record (the campaign without a red mark), Silent Partner (25 takedowns), Frisk (search 100 people), High Wire (a 20-square zip-wire ride), Roof Runner (pull yourself up onto a roof), Riot Control (wave 20 in endless mode), Thorough (a mission with everything found) and Hard Boiled (the campaign on Hard). One pops up on screen as it's earned. They're saved with the progress.
 
