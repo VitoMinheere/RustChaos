@@ -163,6 +163,8 @@ Normal is the original's tuning.
 
 **Grappling hook (unreleased):** the original's grappling hook, built and then switched off, with no way to get it in the game; here it comes from the console (`give hook`). With it in hand, attack throws it. It flies and bounces with the original's physics, trailing its line. If it comes down on a roof, or hits a wall just under the top, it catches the edge. Go to the foot of the wall and attack again to climb the line like a ladder (towards the wall climbs, away lets go), off the top onto the roof. Otherwise it's reeled back in. The original never got as far as climbing; and its own wind-up and release animations aren't in the shipped files, so she throws it like a grenade.
 
+**Dogs (unreleased):** the original's dogs, written but never switched on; their model and barks are in the install. Here they're off unless asked for: `dog` in the console puts one a few steps ahead, and `--dogs N` lets N loose round where Darci starts. A dog prowls round where it was let loose, or naps. It chases anyone who comes close, or whom it sees ahead of it further off, walking when near and running when far, and stands barking at them until they move off. It doesn't bite: the original's never did. The model has no textures, and the palette that coloured it didn't ship, so it's plain brown; and only 15 of its 28 pieces are animated, so the others are left out.
+
 **Console and cheats (for play-testing):** `~` or F9 opens the developer console, as F9 did in the original. Type a command and press Enter; Esc closes it. The commands:
 - `telw N`: to event point N;
 - `tels` and `telr`: store Darci's position, and go back to it;
@@ -183,6 +185,7 @@ Normal is the original's tuning.
 - `wave N`: in an endless run, on to wave N;
 - `bonus`: lists the side objectives and badges still to find, and shows them on the minimap in light blue, numbered (again to hide them);
 - `telb N`: to bonus objective N;
+- `dog` (or `spawn dog`): a dog a few steps ahead (unreleased);
 - `help`.
 
 Two more shortcuts:
@@ -263,6 +266,7 @@ The HUD shows Darci's health, the weapon in hand and its rounds, enemy health ba
 - `--mission NAME`: go straight into a mission instead of the menu; `--explore` skips its script.
 - `--mute`: no sound or music.
 - `--weapon knife|bat|pistol|shotgun|ak`: Darci starts holding it.
+- `--dogs N`: N dogs loose round the start (unreleased).
 - `--cam X,Y,Z,YAW,PITCH`: start in the free camera (map squares; degrees).
 - `--fog START,END` or `--no-fog`: distance fog in map squares (default 20,40).
 - `--fullbright`: no baked lighting.

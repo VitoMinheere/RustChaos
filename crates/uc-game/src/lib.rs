@@ -16,6 +16,7 @@
 pub mod bike;
 pub mod chopper;
 pub mod barrel;
+pub mod canid;
 pub mod city;
 pub mod game;
 pub use game::{Aiming, Sight, Snipe};
@@ -348,13 +349,15 @@ struct Rngs {
     mav: u32,
     barrel: u32,
     creature: u32,
+    /// The dogs' (#110).
+    dog: u32,
     /// The city's extra people's.
     city: u32,
 }
 
 impl Default for Rngs {
     fn default() -> Rngs {
-        Rngs { main: 1, mav: 0x3a7, barrel: 0xba44, creature: 0xba7, city: 0xc17 }
+        Rngs { main: 1, mav: 0x3a7, barrel: 0xba44, creature: 0xba7, dog: 0xd06, city: 0xc17 }
     }
 }
 
@@ -464,6 +467,7 @@ struct Before {
     people: Vec<(Vec3, f32)>,
     vehicles: Vec<(Vec3, f32)>,
     creatures: Vec<(Vec3, f32)>,
+    dogs: Vec<(Vec3, f32)>,
     bikes: Vec<Option<(Vec3, f32)>>,
 }
 
@@ -473,6 +477,7 @@ impl Before {
             people: g.people.iter().map(|p| (p.fig.pos, p.fig.angle)).collect(),
             vehicles: g.vehicles.iter().map(|v| (v.pos, v.yaw)).collect(),
             creatures: g.creatures.iter().map(|c| (c.fig.pos, c.fig.angle)).collect(),
+            dogs: g.dogs.iter().map(|d| (d.fig.pos, d.fig.angle)).collect(),
             bikes: g.bikes.iter().map(|(_, f)| f.as_ref().map(|f| (f.pos, f.angle))).collect(),
         }
     }
@@ -576,6 +581,10 @@ pub struct Game {
     indoors: Option<(usize, u8)>,
     /// The mission's creatures (`CLASS_BAT`).
     pub creatures: Vec<creature::Creature>,
+    /// Dogs (#110), an unreleased extra: none unless asked for.
+    pub dogs: Vec<canid::Canid>,
+    /// Their model, once one is made.
+    dog_chunk: Option<std::sync::Arc<uc_formats::all::AnimChunk>>,
     /// Looking through the sniper rifle's scope (`SNIPE_on`).
     snipe: Option<game::Snipe>,
     /// The mission's motorbikes, each with its figure.
@@ -709,6 +718,8 @@ impl Game {
             wares: ware::Wares::new(&level.map),
             indoors: None,
             creatures: Vec::new(),
+            dogs: Vec::new(),
+            dog_chunk: None,
             snipe: None,
             bikes: Vec::new(),
             routes: game::Routes::new(level),
@@ -778,7 +789,7 @@ impl Game {
         self.time.to_bits().hash(&mut h);
         format!("{:?}", self.outcome).hash(&mut h);
         let r = &self.rngs;
-        [r.main, r.mav, r.barrel, r.creature, r.city].hash(&mut h);
+        [r.main, r.mav, r.barrel, r.creature, r.dog, r.city].hash(&mut h);
         for p in &self.people {
             p.removed.hash(&mut h);
             v(&mut h, p.fig.pos);
@@ -794,6 +805,10 @@ impl Game {
         for b in &self.barrels {
             v(&mut h, b.pos);
             b.gone.hash(&mut h);
+        }
+        for d in &self.dogs {
+            v(&mut h, d.fig.pos);
+            format!("{:?}", d.state).hash(&mut h);
         }
         for m in &self.messages {
             m.text.hash(&mut h);
@@ -944,6 +959,11 @@ impl Game {
                 (c.fig.pos, c.fig.angle) = mix(was, is);
             }
         }
+        for (i, d) in self.dogs.iter_mut().enumerate() {
+            if let (Some(&was), Some(&is)) = (b.dogs.get(i), now.dogs.get(i)) {
+                (d.fig.pos, d.fig.angle) = mix(was, is);
+            }
+        }
         for (i, (_, f)) in self.bikes.iter_mut().enumerate() {
             if let (Some(f), Some(Some(was)), Some(Some(is))) = (f.as_mut(), b.bikes.get(i), now.bikes.get(i)) {
                 (f.pos, f.angle) = mix(*was, *is);
@@ -963,6 +983,9 @@ impl Game {
         }
         for (c, &(pos, angle)) in self.creatures.iter_mut().zip(&now.creatures) {
             (c.fig.pos, c.fig.angle) = (pos, angle);
+        }
+        for (d, &(pos, angle)) in self.dogs.iter_mut().zip(&now.dogs) {
+            (d.fig.pos, d.fig.angle) = (pos, angle);
         }
         for ((_, f), was) in self.bikes.iter_mut().zip(&now.bikes) {
             if let (Some(f), Some((pos, angle))) = (f.as_mut(), was) {

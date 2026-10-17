@@ -18,9 +18,16 @@ pub struct Face {
     pub texture_page: u8,
     pub draw_flags: u8,
     pub face_flags: u16,
+    /// `Col2`: a palette index, the colour of a face without a texture.
+    pub colour: u16,
 }
 
 impl Face {
+    /// Whether the face has a texture (`POLY_FLAG_TEXTURED`, Game.h:160).
+    pub fn textured(&self) -> bool {
+        self.draw_flags & 2 != 0
+    }
+
     /// Texture page and normalised UVs, following `TEXTURE_fix_prim_textures`
     /// (DDEngine/Source/texture.cpp:2481). UVs on disk address a 256x256 sheet split into
     /// an 8x8 grid of 32-pixel cells; the cell the face sits in picks the page.
@@ -135,8 +142,9 @@ pub(crate) fn face(r: &mut Reader, n: usize, start_point: u16) -> Result<Face> {
         uv.push([r.u8()?, r.u8()?]);
     }
     r.skip(2 * n)?; // Bright[n] (or colour for building faces)
-    r.skip(4)?; // ThingIndex, Col2
+    r.skip(2)?; // ThingIndex
+    let colour = r.u16()?;
     let face_flags = r.u16()?;
     r.skip(2)?; // Type, ID
-    Ok(Face { points, uv, texture_page, draw_flags, face_flags })
+    Ok(Face { points, uv, texture_page, draw_flags, face_flags, colour })
 }

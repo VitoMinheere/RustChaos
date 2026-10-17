@@ -4,8 +4,9 @@ use crate::*;
 
 /// A mission starts: Darci with the badges of missions completed so far, and `--weapon`.
 /// Sets a new game up for this run: badge stats from earlier missions, the weapon asked for,
-/// and how far the camera sees, beyond which the city's extra people can come and go.
-pub(crate) fn arm(game: &mut Game, args: &Args) {
+/// how far the camera sees, beyond which the city's extra people can come and go, and any
+/// dogs asked for.
+pub(crate) fn arm(game: &mut Game, level: &Level, args: &Args) {
     let weapon = args.weapon;
     if let Some((_, end)) = args.fog {
         game.view_dist = game.view_dist.max(end * 256.0);
@@ -16,6 +17,10 @@ pub(crate) fn arm(game: &mut Game, args: &Args) {
     if let Some(p) = game.player {
         game.people[p].give(weapon);
         game.people[p].weapon = weapon;
+    }
+    if args.dogs > 0 {
+        let n = game.let_dogs_out(level, args.dogs);
+        println!("dogs: {n} of {} let loose", args.dogs);
     }
 }
 
@@ -83,7 +88,7 @@ impl World {
         let opt = LoadOptions { fullbright: args.fullbright, character: !args.no_character, overrides: args.overrides.clone() };
         let level = Level::load(&args.game, &args.mission, &opt)?;
         let mut game = new_game(&level, &args);
-        arm(&mut game, &args);
+        arm(&mut game, &level, &args);
         if !game.unsupported().is_empty() {
             println!("{}: {} event points aren't supported yet and do nothing: {}", level.name,
                      game.unsupported().len(), game.unsupported().join(", "));
@@ -171,7 +176,7 @@ impl World {
         self.result = None;
         self.civ_warning = None;
         self.game = new_game(&self.level, &self.args);
-        arm(&mut self.game, &self.args);
+        arm(&mut self.game, &self.level, &self.args);
         self.endless_recorded = None;
         if let Some(p) = self.game.player() {
             self.orbit = Orbit::behind(p.fig.angle);

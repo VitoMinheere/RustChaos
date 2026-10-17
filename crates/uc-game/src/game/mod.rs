@@ -3,6 +3,7 @@
 
 mod blast;
 mod creatures;
+mod dogs;
 mod setpieces;
 mod people;
 pub(crate) use people::Routes;
