@@ -28,6 +28,7 @@ mod barrels;
 pub mod mines;
 pub mod grenades;
 pub mod hook;
+pub mod balloons;
 pub mod ctf;
 pub mod stats;
 mod litter;

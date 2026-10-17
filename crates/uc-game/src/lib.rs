@@ -368,6 +368,7 @@ struct Clocks {
     barrel: f32,
     creature: f32,
     dirt: f32,
+    balloon: f32,
     /// To the next sparks off the electrified fences.
     fence_spark: f32,
 }
@@ -561,6 +562,8 @@ pub struct Game {
     pub primed: Option<f32>,
     /// Darci's grappling hook, while it's out of her hand (#109).
     pub hook: Option<game::hook::Hook>,
+    /// The balloons, held and let go (`BALLOON_balloon`).
+    pub balloons: Vec<game::balloons::Balloon>,
     /// Explosives set down and waiting to go off.
     pub charges: Vec<Charge>,
     /// The mission's moving platforms, made or still waiting to be.
@@ -695,6 +698,7 @@ impl Game {
             grenades: Vec::new(),
             primed: None,
             hook: None,
+            balloons: Vec::new(),
             charges: Vec::new(),
             platforms: level.platforms.iter().map(|&(way, ob)| {
                 let o = &level.map.objects[ob];
@@ -1185,6 +1189,7 @@ impl Game {
         self.tally_crime();
         self.men_in_black(dt, level);
         self.blow_dirt(dt, level);
+        self.run_balloons(dt, level);
 
         // Capture the flag: knocked out, she comes back at home ([`Game::run_ctf`]).
         if let (Some(p), None, None) = (self.player, &self.outcome, &self.ctf) {
