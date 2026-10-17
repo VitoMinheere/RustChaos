@@ -73,3 +73,64 @@ fn a_knocked_out_player_comes_back_at_home() {
     assert!(glam::vec2(p.fig.pos.x - c.bot.start.x, p.fig.pos.z - c.bot.start.z).length() < 4.0 * 256.0, "not back at home");
     assert_eq!(r.g.outcome, None);
 }
+
+/// Hurt, Roper goes out of his way for a health pack lying near, and is healed by it.
+#[test]
+fn the_bot_picks_up_health() {
+    let Some(mut r) = common::start("Capflag1") else { return };
+    r.play(1.0, Controls::default());
+    let c = r.g.ctf().unwrap().clone();
+    let b = c.bot_person;
+    // Darci out of the way.
+    let aside = Vec3::new(c.player.start.x, c.player.start.y, c.bot.start.z);
+    assert!(r.g.teleport(aside, &r.level));
+    r.g.cheats.freeze = true;
+    r.play(0.5, Controls::default());
+    r.g.cheats.freeze = false;
+    let p = &mut r.g.people[b];
+    p.health = p.max_health / 4;
+    let at = p.fig.pos;
+    // Off to one side of his way, where he can see it.
+    let ahead = glam::vec2(c.bot.disk.x - at.x, c.bot.disk.z - at.z).normalize();
+    let eye = Vec3::new(0.0, 120.0, 0.0);
+    let spot = [1.0f32, -1.0].into_iter()
+        .flat_map(|s| [3.0f32, 2.5, 2.0, 4.0].map(move |n| (ahead.perp() * s + ahead) * n * 256.0 * 0.7))
+        .map(|o| {
+            let y = r.level.ground.surface(&r.level.map, at.x + o.x, at.z + o.y, at.y + 64.0);
+            Vec3::new(at.x + o.x, y, at.z + o.y)
+        })
+        .find(|&v| (v.y - at.y).abs() < 32.0 && r.level.ground.line_of_sight(at + eye, v + eye))
+        .expect("nowhere in sight to put it");
+    r.g.items.push(uc_game::Item { way: 0, kind: 3, pos: spot });
+    let mut healed = false;
+    for _ in 0..(10.0 / common::DT) as usize {
+        r.g.update(common::DT, &Controls::default(), &r.level);
+        if r.g.people[b].health > r.g.people[b].max_health / 4 {
+            healed = true;
+            break;
+        }
+    }
+    assert!(healed, "never fetched it: he's at {:?}", r.g.people[b].fig.pos);
+    assert!(!r.g.items.iter().any(|it| it.kind == 3 && it.way == 0));
+}
+
+/// Bot against bot: both seats played by the AI, until one of them gets the other's disk
+/// home.
+#[test]
+fn bot_against_bot_is_won_by_someone() {
+    let Some(mut r) = common::start("Capflag1") else { return };
+    r.play(1.0, Controls::default());
+    assert!(r.g.autopilot());
+    let mut reached = false;
+    for _ in 0..400 {
+        r.play(1.0, Controls::default());
+        let c = r.g.ctf().unwrap();
+        reached |= c.player.has_disk || c.bot.has_disk;
+        if r.g.outcome.is_some() {
+            break;
+        }
+    }
+    let c = r.g.ctf().unwrap();
+    assert!(reached, "nobody reached a disk: Darci at {:?}, Roper at {:?}", r.g.people[c.player_person].fig.pos, r.g.people[c.bot_person].fig.pos);
+    assert!(r.g.outcome.is_some(), "nobody won (Darci has it: {}, Roper: {})", c.player.has_disk, c.bot.has_disk);
+}

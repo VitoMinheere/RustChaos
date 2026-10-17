@@ -183,7 +183,7 @@ impl Person {
                 return c;
             }
         }
-        if !self.aggro && notices {
+        if !self.aggro && notices && !self.truce {
             self.heard = None;
             self.aggro = true;
             self.cues.push(Sfx::Alert { kind: self.kind });
@@ -228,7 +228,7 @@ impl Person {
             c.block = true;
             return c;
         }
-        let swinging = snaps.iter().any(|s| s.player && s.attacking) && dist < 220.0;
+        let swinging = snaps.iter().enumerate().any(|(j, s)| (s.player || Some(j) == player) && s.attacking) && dist < 220.0;
         if swinging && self.block_timer <= -0.4 && rand() % 100 < self.skill as u32 * 5 {
             self.block_timer = 0.6;
             c.block = true;
@@ -249,12 +249,16 @@ impl Person {
             }
             return c;
         }
-        // Keep out of each other's way: hold back while another opponent is closer to the player.
+        // Keep out of each other's way: hold back while another opponent is closer to the player
+        // (not the one they're fighting, who's hostile too when two of the AI fight).
         let crowded = snaps.iter().enumerate().any(|(j, s)| {
-            j != me && s.standing && s.hostile && flat(p.pos, s.pos).length() + 20.0 < dist
+            j != me && Some(j) != player && s.standing && s.hostile && flat(p.pos, s.pos).length() + 20.0 < dist
                 && flat(s.pos, self.fig.pos).normalize_or_zero().dot(d.normalize_or_zero()) > 0.8
         });
-        if dist > 140.0 && !crowded {
+        // The player comes the rest of the way; another of the AI wouldn't, and from 140 no
+        // punch (130) reaches.
+        let close = if p.player { 140.0 } else { 110.0 };
+        if dist > close && !crowded {
             c.wish = towards;
         } else if dist < 80.0 {
             c.wish = -d / dist.max(1.0) * 0.5;
@@ -262,7 +266,7 @@ impl Person {
         c.run = hunter && dist > 600.0;
         self.attack_timer -= dt;
         // Take turns, like the original's gang attacks: nobody swings while another does.
-        let busy = snaps.iter().enumerate().any(|(j, s)| j != me && s.hostile && s.attacking);
+        let busy = snaps.iter().enumerate().any(|(j, s)| j != me && Some(j) != player && s.hostile && s.attacking);
         if dist < 170.0 && self.attack_timer <= 0.0 && p.standing && !busy {
             // Armed people use their weapon; others punch or kick.
             if self.weapon != Weapon::None || rand().is_multiple_of(2) { c.punch = true } else { c.kick = true }
