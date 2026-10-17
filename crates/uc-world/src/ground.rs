@@ -471,8 +471,8 @@ impl Ground {
         let key = ((x / 256.0).floor() as i32, (z / 256.0).floor() as i32);
         let p = vec2(x, z);
         let moving = self.moving.borrow();
-        let tops = self.prop_tops.get(&key).into_iter().flatten().chain(moving.iter())
-            .filter(|t| t.contains(p)).map(|t| t.top);
+        let tops = self.prop_tops.get(&key).into_iter().flatten().filter(|t| t.contains(p)).map(|t| t.top)
+            .chain(moving.iter().filter(|f| !f.vehicle).filter_map(|f| f.height(x, z, 0.0)));
         let tris = self.prop_tris.get(&key).into_iter().flatten().filter_map(|t| height_in(t, x, z));
         self.roof_height(x, z).into_iter().chain(tops).chain(tris)
             .filter(|&h| h - y <= 160.0)
