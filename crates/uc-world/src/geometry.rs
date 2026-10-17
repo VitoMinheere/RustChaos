@@ -38,6 +38,12 @@ pub const TYRETRACK_PAGE: u32 = 22 * 64 + 60;
 /// Pages drawn as marks on the ground: blended over it by their alpha times the vertex
 /// alpha, tinted by the vertex colour (`POLY_PAGE_FOOTPRINT`, `_TYRESKID`, `_TYRETRACK`).
 pub const DECAL_PAGES: [u32; 3] = [FOOTPRINT_PAGE, TYREMARK_PAGE, TYRETRACK_PAGE];
+/// `TEXTURE_page_smoker` (`TEXTURE_NUM_STANDARD + 40`): `smoker2.tga`, the bike's exhaust.
+pub const SMOKER_PAGE: u32 = 22 * 64 + 40;
+/// Pages added to the scene rather than blended over it: the texture times the vertex colour
+/// times the vertex alpha, with the texture wrapping (`POLY_PAGE_SMOKER`: `D3DBLEND_SRCALPHA`
+/// to `D3DBLEND_ONE`, which `RS_AlphaPremult` makes one to one).
+pub const ADDITIVE_PAGES: [u32; 1] = [SMOKER_PAGE];
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]

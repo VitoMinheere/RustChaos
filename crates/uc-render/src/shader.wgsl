@@ -77,6 +77,19 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
 // so fire and dust brighten the scene. The falloff is squared, which the soft blob of a
 // shadow doesn't want but a flame does: it keeps a hot middle instead of a wide haze.
 // Premultiplied, so both blend factors can be one.
+// Ribbons of smoke (`POLY_PAGE_SMOKER`): the texture times the vertex colour times the vertex
+// alpha (`RS_AlphaPremult`), added to what's behind, less in the fog. The page wraps
+// (`D3DTADDRESS_WRAP`): the coordinates are wrapped here, sampled at the gradients of the
+// unwrapped ones so there's no seam where they wrap.
+@fragment
+fn fs_additive(in: VOut) -> @location(0) vec4<f32> {
+    let t = textureSampleGrad(tex, samp, fract(in.uv), dpdx(in.uv), dpdy(in.uv));
+    let d = distance(in.world, g.cam_pos.xyz);
+    let f = clamp((d - g.fog.x) / max(g.fog.y - g.fog.x, 0.001), 0.0, 1.0) * g.fog.z;
+    let a = in.color.a * (1.0 - f);
+    return vec4<f32>(t.rgb * in.color.rgb * a, a);
+}
+
 @fragment
 fn fs_glow(in: VOut) -> @location(0) vec4<f32> {
     let t = textureSample(tex, samp, in.uv);
