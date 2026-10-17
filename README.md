@@ -134,7 +134,7 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 Each wave comes from a different side of the arena, marked with a beacon for its first seconds. Downed thugs often carry health or ammo, so search them. Arrests score more than knockouts, and innocents hurt cost points. The run ends when Darci goes down, or when the crime rate reaches 100: it only climbs while she keeps out of the fight (hiding or running), not while she's fighting, however slowly. The same seed gives the same waves, and each map keeps its best score.
 
-**Beat Cop:** BEAT COP in the main menu, then a map, or `--mission NAME --beat [--shift MINUTES|endless] [--seed N]`. A shift of 5, 10 (the default), 15 or 20 minutes, or an open-ended one (Left/Right on the map list picks it), with no mission script: dispatch calls in incidents, each with a beacon and a time limit:
+**Beat Cop:** BEAT COP in the main menu, then a district (West District, Gangland, Southside Beach, Rio Canal, Botanical Gardens, Baseball Ground, Television Centre or West Block: the city streets with a crowd and traffic), or `--mission NAME --beat [--shift MINUTES|endless] [--seed N]`. A shift of 5, 10 (the default), 15 or 20 minutes, or an open-ended one (Left/Right on the map list picks it), with no mission script: dispatch calls in incidents, each with a beacon and a time limit:
 - a mugging;
 - an armed suspect;
 - a gun dumped in a bin;
