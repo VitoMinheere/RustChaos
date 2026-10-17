@@ -4,7 +4,7 @@ use crate::*;
 
 pub(crate) const USAGE: &str = "\
 uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DIR] [--linear] [--fullbright]
-          [--fog START,END | --no-fog] [--no-crinkles] [--no-character] [--cam X,Y,Z,YAW,PITCH]
+          [--fog START,END | --no-fog] [--no-crinkles] [--no-character] [--cam X,Y,Z,YAW,PITCH] [--dogs N]
           [--screenshot FILE [--size WxH] [--sim-walk SECS | --sim-run SECS | --sim SECS]]
           [--dump-pages DIR]
 
@@ -18,6 +18,7 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --arena X,Z,R     the endless arena: its middle in squares and its radius (default: 10 round the start)
   --windowed        in a window (default: full screen; F11 or Alt+Enter switches)
   --weapon W        start holding a weapon (knife, bat, pistol, shotgun, ak)
+  --dogs N          let N dogs loose round the start (unreleased: the original never shipped them)
   --overrides DIR   folder of page_NNNN.png files that replace clump textures
   --dump-pages DIR  write every texture this level uses as DIR/page_NNNN.png and exit
   --linear          smooth texture magnification (default: crisp nearest-neighbour)
@@ -77,6 +78,8 @@ pub(crate) struct Args {
     /// In a window rather than full screen.
     pub(crate) windowed: bool,
     pub(crate) weapon: uc_game::Weapon,
+    /// Dogs to let loose round the start (#110).
+    pub(crate) dogs: usize,
     pub(crate) overrides: Option<PathBuf>,
     pub(crate) linear: bool,
     pub(crate) fullbright: bool,
@@ -115,6 +118,7 @@ pub(crate) fn parse_args() -> Result<Args, String> {
         arena_name: None,
         windowed: false,
         weapon: uc_game::Weapon::None,
+        dogs: 0,
         overrides: None,
         linear: false,
         fullbright: false,
@@ -164,6 +168,7 @@ pub(crate) fn parse_args() -> Result<Args, String> {
                     w => return Err(format!("--weapon: unknown weapon {w} (knife, bat, pistol, shotgun, ak)")),
                 }
             }
+            "--dogs" => a.dogs = value()?.parse().map_err(|e| format!("--dogs: {e}"))?,
             "--overrides" => a.overrides = Some(PathBuf::from(value()?)),
             "--linear" => a.linear = true,
             "--fullbright" => a.fullbright = true,

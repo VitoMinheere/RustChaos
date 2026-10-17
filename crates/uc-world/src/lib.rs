@@ -12,5 +12,5 @@ pub mod mav;
 pub use character::{Figure, Model, People, Play};
 pub use crinkle::Relief;
 pub use ground::Ground;
-pub use geometry::{Batch, Chunk, Layer, Vertex, WorldGeometry, GLOW, MIST, MOON_PAGE, SHADOW, SKY_PAGE, UNIT, UNTEXTURED};
+pub use geometry::{Batch, Chunk, Layer, Vertex, WorldGeometry, DECAL_PAGES, GLOW, MIST, MOON_PAGE, SHADOW, SKY_PAGE, UNIT, UNTEXTURED};
 pub use level::{Level, LoadOptions};

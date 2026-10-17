@@ -43,7 +43,7 @@ pub trait World {
 }
 
 /// `QDIST3`: the largest axis plus a quarter of each of the other two.
-fn qdist3(x: i64, y: i64, z: i64) -> i64 {
+pub(crate) fn qdist3(x: i64, y: i64, z: i64) -> i64 {
     let (x, y, z) = (x.abs(), y.abs(), z.abs());
     let m = x.max(y).max(z);
     m + (x + y + z - m) / 4

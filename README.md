@@ -123,6 +123,8 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 **Mist:** some missions lay sheets of ground mist (`create_mist`), low over the street and shimmering where they lie. The original's own `fog.tga` isn't in the retail release, so the sheet is drawn with a cloud generated at startup, as the blob shadows are.
 
+**Footprints and tyre tracks:** walking in the snow (Target UC, Estate of Emergency) leaves dark prints, and walking off grass or gravel leaves muddy ones that fade out over the next thirty-odd steps. Tarmac leaves nothing. The bike leaves a muddy track off grass and gravel, and a car sliding on the handbrake leaves skid marks. The last 300 marks are kept, each fainter as newer ones are laid. No footprints are laid on water.
+
 **Explosions:** a car bomb going off throws out a flash, a fireball, a ring of dust and burning debris, and leaves a fire behind. People within three squares are knocked down or killed, the player included. The `visual_effect` points a mission sets off elsewhere are the same effects without the blast: the original's shockwave for those never fires, thanks to a typo in the 1999 code (`if (ew->ed.subtype=!16)` assigns rather than compares), and this follows it.
 
 **Explosives:** walk over a pack to carry it (four at most). Switch to them with G and press action: a charge goes down at your feet with a five-second fuse, and the blast is five squares across and does 500 at the middle, so run. Blasts damage props as well as people, and a mission can watch for a prop being damaged (`prim_damaged`): Transmission Terminated's transmitter, the supplies in Arms Breaker, Media Trouble's props. Some props blow up when damaged and set off their neighbours. As in the 1999 code, a blast only ever looks at every other prop in each part of the map (its loop steps two at a time), so a prop right next to one that went up can survive. Cars ramming props don't damage them yet.
@@ -134,7 +136,7 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 Each wave comes from a different side of the arena, marked with a beacon for its first seconds. Downed thugs often carry health or ammo, so search them. Arrests score more than knockouts, and innocents hurt cost points. The run ends when Darci goes down, or when the crime rate reaches 100: it only climbs while she keeps out of the fight (hiding or running), not while she's fighting, however slowly. The same seed gives the same waves, and each map keeps its best score.
 
-**Beat Cop:** BEAT COP in the main menu, then a map, or `--mission NAME --beat [--shift MINUTES|endless] [--seed N]`. A shift of 5, 10 (the default), 15 or 20 minutes, or an open-ended one (Left/Right on the map list picks it), with no mission script: dispatch calls in incidents, each with a beacon and a time limit:
+**Beat Cop:** BEAT COP in the main menu, then a district (West District, Gangland, Southside Beach, Rio Canal, Botanical Gardens, Baseball Ground, Television Centre or West Block: the city streets with a crowd and traffic), or `--mission NAME --beat [--shift MINUTES|endless] [--seed N]`. A shift of 5, 10 (the default), 15 or 20 minutes, or an open-ended one (Left/Right on the map list picks it), with no mission script: dispatch calls in incidents, each with a beacon and a time limit:
 - a mugging;
 - an armed suspect;
 - a gun dumped in a bin;
@@ -163,6 +165,8 @@ Normal is the original's tuning.
 
 **Grappling hook (unreleased):** the original's grappling hook, built and then switched off, with no way to get it in the game; here it comes from the console (`give hook`). With it in hand, attack throws it. It flies and bounces with the original's physics, trailing its line. If it comes down on a roof, or hits a wall just under the top, it catches the edge. Go to the foot of the wall and attack again to climb the line like a ladder (towards the wall climbs, away lets go), off the top onto the roof. Otherwise it's reeled back in. The original never got as far as climbing; and its own wind-up and release animations aren't in the shipped files, so she throws it like a grenade.
 
+**Dogs (unreleased):** the original's dogs, written but never switched on; their model and barks are in the install. Here they're off unless asked for: `dog` in the console puts one a few steps ahead, and `--dogs N` lets N loose round where Darci starts. A dog prowls round where it was let loose, or naps. It chases anyone who comes close, or whom it sees ahead of it further off, walking when near and running when far, and stands barking at them until they move off. It doesn't bite: the original's never did. The model has no textures, and the palette that coloured it didn't ship, so it's plain brown; and only 15 of its 28 pieces are animated, so the others are left out.
+
 **Console and cheats (for play-testing):** `~` or F9 opens the developer console, as F9 did in the original. Type a command and press Enter; Esc closes it. The commands:
 - `telw N`: to event point N;
 - `tels` and `telr`: store Darci's position, and go back to it;
@@ -183,6 +187,7 @@ Normal is the original's tuning.
 - `wave N`: in an endless run, on to wave N;
 - `bonus`: lists the side objectives and badges still to find, and shows them on the minimap in light blue, numbered (again to hide them);
 - `telb N`: to bonus objective N;
+- `dog` (or `spawn dog`): a dog a few steps ahead (unreleased);
 - `help`.
 
 Two more shortcuts:
@@ -203,6 +208,8 @@ The original's cheat works too: hold punch, kick, action, jump and right togethe
 
 **Moving platforms:** a mission can set a prop moving (`link_platform`): lifts in Grim Gardens, the rockets of Target UC, the platforms of Day Of Reckoning. Each goes round the points the mission gives it, easing in as it arrives and waiting at each. Stand on one and you ride it; be under one as it comes down and you're crushed. Target UC's rockets trail fire as they go.
 
+**Riding on cars:** every car, van and jeep has walkable faces on top, as on the PC original (`WMOVE`): the roof of a van, the bonnet, roof and boot of a car. Get up on one and you ride along when it drives off, turning with it; walk or jump off when you like.
+
 **Warehouses:** walk into one (the police station is one, and RTA starts you in it) and the city's ambience and wind stop. If the mission has given it an ambience (`warefx`), that plays instead of the music: the station's radio chatter, a Posheeta's or an office's hum, or the club's music in Gatecrasher. The ambience is the one the warehouse had as you came in, as in the original. On its roof you're outside.
 
 **City life:** besides the people a mission makes, the streets have the crowd and traffic it asks for (`fake_civs`, `fake_cars`: RTA has fifteen civilians and seven cars). Civilians stroll the pavements, any square within two of a road, and the zebra crossings (`wand.cpp`). Cars drive the roads in their lanes, picking a way at random at each junction, and stop for anyone in front of them. Neither is ever far from you: once one has been out of sight for a couple of seconds, it's moved to somewhere just out of sight ahead of you (`PCOM_do_regen`), on a pavement or in a lane. People out of sight are those beyond the fog (or the original's 22 squares without it). The crowd runs from gunfire within ten squares, from a gun drawn within six where they can see it, and from being hit, and they don't forget it. In the original the mission's own civilians run too; here they don't yet, since without route-finding someone running can end up stuck behind a wall, and a witness doing that could stall the mission. Walk up to one of the crowd as Darci and press action and they'll say something, a line from the mission's own chatter file (`Text\police11.txt` in RTA, else `citsez.txt`), or from `annoyed.txt` once you've given them a fright. Explosions don't frighten them: in the original only a barrel going up does. Unlike the original, nobody is put down within three squares of another of the crowd: the original takes the first pavement it finds near a spot ahead of you, so while you stand still everyone moved ends up at the same few corners.
@@ -217,6 +224,8 @@ Guns can aim at the Balrog and gargoyles, and a bar under the clock shows the he
 **Steam vents:** some missions set traps (`create_trap`): vents that puff steam forwards, up or down to a routine of their own, on for a beat and off for a few. The steam scalds anyone standing in it, every puff in reach on its own account, so a full column will kill you in a second or two: time your way past. As in the original, a trap that's meant to stay on for good never puffs at all (the point is marked finished the moment it fires, and finished points aren't run), so it's the ones that come and go that you'll see. Assassin, Rat Catch, Grim Gardens, Estate of Emergency, Target UC and Day Of Reckoning have them.
 
 **Peeing:** a mission can set someone relieving themselves against a wall (`make_person_pee`), a stream of drops from the pelvis as `DIRT_new_water` throws them, falling until they reach the ground. Semtex and Transmission Terminated have one. RTA and Arms Breaker ask for it too, but their point comes before the one that makes the person, so it finds nobody, and in the original nobody is ever seen at it either.
+
+**Balloons:** Gun Hunt and Grim Gardens each give a civilian a balloon to hold (`civ_balloon`). It's a short string from their left hand, floating up and pulled along after them as `balloon.cpp` has it: straight up when they stand, trailing behind when they walk, and pushed off walls. Knocked down or killed, or running scared, they let go, and it floats off out of sight. Jump with a hand near a loose one's string and Darci catches it. The shipped game only ever draws the loose ones (the held ones are compiled out); here the held ones are drawn too. The balloon's own mesh isn't in the shipped files, so it's a simple egg shape, coloured as the original colours them (the first yellow).
 
 **Doors:** a door is shut and solid until a mission opens it, which is the only way one ever opens — the original has no walking into them and no "use" on them either, and `DOOR_open`'s only caller is the mission script.
 
@@ -259,6 +268,7 @@ The HUD shows Darci's health, the weapon in hand and its rounds, enemy health ba
 - `--mission NAME`: go straight into a mission instead of the menu; `--explore` skips its script.
 - `--mute`: no sound or music.
 - `--weapon knife|bat|pistol|shotgun|ak`: Darci starts holding it.
+- `--dogs N`: N dogs loose round the start (unreleased).
 - `--cam X,Y,Z,YAW,PITCH`: start in the free camera (map squares; degrees).
 - `--fog START,END` or `--no-fog`: distance fog in map squares (default 20,40).
 - `--fullbright`: no baked lighting.
@@ -310,6 +320,7 @@ With an install present, the tests check:
 - Seek, Sneak and Seize runs to its win, and neither half of it counts alone;
 - Insane Assault runs to its win by shooting the Balrog, and he takes damage at an eighth; Day Of Reckoning's gargoyle wakes and takes off, and its Bane draws up the bodies and can't be hurt; bats make nothing;
 - Grim Gardens' lift rises with Darci standing on it;
+- the balloons in Gun Hunt and Grim Gardens stay over their holders' hands, and float away when let go;
 - Cop Killers hands the player to Roper, and Darci is left unhurtable; RTA's mugger's shout is filmed with both faces, holds Darci still and can be skipped through; dispatch's messages carry the radio's face;
 - every `warefx` point is inside a warehouse and gives it its ambience, and Darci is indoors under a warehouse's roof but not on it;
 - steam vents keep to their routines and scald, and a trap that stays on for good never blows;

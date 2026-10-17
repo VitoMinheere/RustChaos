@@ -341,7 +341,7 @@ impl App {
             return;
         }
         if let Some(i) = m.loading_endless {
-            let (name, label, centre, radius) = m.maps[i].clone();
+            let (name, label, centre, radius) = m.arenas()[i].clone();
             let beat = m.for_beat;
             self.args.endless = !beat;
             self.args.beat = beat;
@@ -378,12 +378,13 @@ impl App {
                 if go {
                     match menu::MAIN[m.main] {
                         "START" => m.screen = menu::Screen::Missions,
+                        // The two lists differ: start each at the top.
                         "ENDLESS" => {
-                            m.for_beat = false;
+                            (m.for_beat, m.map_selected) = (false, 0);
                             m.screen = menu::Screen::Endless;
                         }
                         "BEAT COP" => {
-                            m.for_beat = true;
+                            (m.for_beat, m.map_selected) = (true, 0);
                             m.screen = menu::Screen::Endless;
                         }
                         "CAPTURE THE FLAG" => m.loading_ctf = true,
@@ -438,7 +439,7 @@ impl App {
                 if down {
                     m.map_down();
                 }
-                if go && !m.maps.is_empty() {
+                if go && !m.arenas().is_empty() {
                     m.loading_endless = Some(m.map_selected);
                 }
             }

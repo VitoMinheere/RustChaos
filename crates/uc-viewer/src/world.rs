@@ -4,8 +4,9 @@ use crate::*;
 
 /// A mission starts: Darci with the badges of missions completed so far, and `--weapon`.
 /// Sets a new game up for this run: badge stats from earlier missions, the weapon asked for,
-/// and how far the camera sees, beyond which the city's extra people can come and go.
-pub(crate) fn arm(game: &mut Game, args: &Args) {
+/// how far the camera sees, beyond which the city's extra people can come and go, and any
+/// dogs asked for.
+pub(crate) fn arm(game: &mut Game, level: &Level, args: &Args) {
     let weapon = args.weapon;
     if let Some((_, end)) = args.fog {
         game.view_dist = game.view_dist.max(end * 256.0);
@@ -16,6 +17,10 @@ pub(crate) fn arm(game: &mut Game, args: &Args) {
     if let Some(p) = game.player {
         game.people[p].give(weapon);
         game.people[p].weapon = weapon;
+    }
+    if args.dogs > 0 {
+        let n = game.let_dogs_out(level, args.dogs);
+        println!("dogs: {n} of {} let loose", args.dogs);
     }
 }
 
@@ -88,7 +93,7 @@ impl World {
         let opt = LoadOptions { fullbright: args.fullbright, character: !args.no_character, overrides: args.overrides.clone() };
         let level = Level::load(&args.game, &args.mission, &opt)?;
         let mut game = new_game(&level, &args);
-        arm(&mut game, &args);
+        arm(&mut game, &level, &args);
         if !game.unsupported().is_empty() {
             println!("{}: {} event points aren't supported yet and do nothing: {}", level.name,
                      game.unsupported().len(), game.unsupported().join(", "));
@@ -179,7 +184,7 @@ impl World {
         self.result = None;
         self.civ_warning = None;
         self.game = new_game(&self.level, &self.args);
-        arm(&mut self.game, &self.args);
+        arm(&mut self.game, &self.level, &self.args);
         self.endless_recorded = None;
         if let Some(p) = self.game.player() {
             self.orbit = Orbit::behind(p.fig.angle);
@@ -222,6 +227,7 @@ impl World {
                     orbit.dist = orbit.dist.max(4.0);
                 }
                 let mut cam = orbit.cam(eye);
+                cam.pos = self.clear_of_buildings(eye, cam.pos);
                 // With no floor the camera never goes below 0x280 (fc.cpp:1650).
                 if self.game.no_floor {
                     cam.pos.y = cam.pos.y.max(0x280 as f32 / uc_world::UNIT);
@@ -229,6 +235,29 @@ impl World {
                 cam.camera()
             }
             _ => self.fly.camera(),
+        }
+    }
+
+    /// Brings the follow camera in front of a building that stands between it and `eye`, so
+    /// she stays in view: the line from her to where the camera wants to be is tested a step at
+    /// a time against the city's heights (`MAV_height_los_slow`, mav.cpp:2470), and the camera
+    /// goes where the line first runs into something, as `FC_force_camera_behind` does when it
+    /// finds no clear place (fc.cpp:819). Under a roof (in a warehouse) it's the other way
+    /// round: the camera stays under it. The original first tries swinging the camera round a
+    /// little; here the player steers the orbit, so it only comes in.
+    fn clear_of_buildings(&self, eye: Vec3, want: Vec3) -> Vec3 {
+        let (map, ground, unit) = (&self.level.map, &self.level.ground, uc_world::UNIT);
+        let under = |p: Vec3| ground.map_height(map, p.x * unit, p.z * unit) > p.y * unit;
+        let indoors = under(eye);
+        let (d, len) = (want - eye, (want - eye).length());
+        if len < 1e-3 {
+            return want;
+        }
+        // A sample every eighth of a square, and the camera stops a quarter of a square short.
+        let n = (len * 8.0).ceil() as usize;
+        match (1..=n).map(|i| i as f32 / n as f32).find(|&t| under(eye + d * t) != indoors) {
+            Some(t) => eye + d * ((t * len - 0.25).max(0.1) / len),
+            None => want,
         }
     }
 
