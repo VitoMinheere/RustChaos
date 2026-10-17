@@ -1101,6 +1101,8 @@ impl Game {
         for i in 0..self.people.len() {
             let p = &self.people[i];
             let foe = match (p.ai, p.other) {
+                // Capture the flag: each seat's player fights the other's.
+                _ if self.ctf_foe(i).is_some() => self.ctf_foe(i),
                 (3 | 21, w) if w != 0 => self.by_way.get(&w).copied().filter(|&f| {
                     let mark = &self.people[f];
                     let seen = Some(f) == player || p.aggro()
@@ -1147,7 +1149,7 @@ impl Game {
             self.people[i].invulnerable = away || self.people[i].protected || (self.cheats.god && Some(i) == self.player);
         }
         for i in 0..self.people.len() {
-            let c = if Some(i) == player {
+            let c = if Some(i) == player && self.people[i].player {
                 if self.outcome.is_some() || held || self.search.is_some() { Controls::default() } else { input }
             } else {
                 let mut rng = self.rngs.main;

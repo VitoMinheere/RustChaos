@@ -345,7 +345,15 @@ impl Game {
 
     /// The player walks over items: health heals, weapons and ammo are picked up.
     pub(crate) fn pick_up(&mut self) {
-        let Some(pi) = self.player else { return };
+        if let Some(pi) = self.player {
+            self.pick_up_for(pi);
+        }
+    }
+
+    /// Person `pi` walks over items. Anyone but the player (a capture-the-flag bot) only
+    /// takes health, weapons and ammo.
+    pub(crate) fn pick_up_for(&mut self, pi: usize) {
+        let player = Some(pi) == self.player;
         let p = &self.people[pi];
         if !matches!(p.state, State::Move | State::Land { .. }) {
             return;
@@ -360,6 +368,9 @@ impl Game {
         };
         let Some(i) = self.items.iter().position(near) else { return };
         let (kind, way) = (self.items[i].kind, self.items[i].way);
+        if !player && !matches!(kind, 2..=6 | 8 | 10..=12 | SNIPER) {
+            return;
+        }
         let p = &mut self.people[pi];
         let took = match kind {
             3 if p.health < p.max_health => {
