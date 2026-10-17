@@ -135,6 +135,18 @@ impl Pyro {
         self.rng = rng;
     }
 
+    /// A Man in Black going up (Person.cpp:17575): a big white bloom (`POLY_PAGE_BLOOM1`,
+    /// 255 across) and twenty pale clouds (`POLY_PAGE_SMOKECLOUD2`, `0x7f7fffff`) climbing one
+    /// to five units a tick and drifting, growing from 70 as they fade.
+    pub fn lightning_strike(&mut self, pos: Vec3) {
+        self.puffs.push(Puff { pos, vel: Vec3::ZERO, radius: 60.0, grow: 900.0, age: 0.0, life: 0.6, smoke: false, tint: [255, 255, 255] });
+        for _ in 0..20 {
+            let at = pos + vec3(self.spread(), self.spread(), self.spread()) * 20.0;
+            let vel = vec3(self.spread() * 20.0, 60.0 + 40.0 * self.spread(), self.spread() * 20.0);
+            self.puffs.push(Puff { pos: at, vel, radius: 70.0, grow: 40.0, age: 0.0, life: 3.0, smoke: true, tint: [127, 255, 255] });
+        }
+    }
+
     /// A number in -1..1.
     fn spread(&mut self) -> f32 {
         rand(&mut self.rng) as f32 / 32768.0 - 1.0

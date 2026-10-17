@@ -250,8 +250,9 @@ impl Person {
             return c;
         }
         // Keep out of each other's way: hold back while another opponent is closer to the player
-        // (not the one they're fighting, who's hostile too when two of the AI fight).
-        let crowded = snaps.iter().enumerate().any(|(j, s)| {
+        // (not the one they're fighting, who's hostile too when two of the AI fight). Only
+        // the hostile make way for each other: a bodyguard wades in among them.
+        let crowded = self.hostile() && snaps.iter().enumerate().any(|(j, s)| {
             j != me && Some(j) != player && s.standing && s.hostile && flat(p.pos, s.pos).length() + 20.0 < dist
                 && flat(s.pos, self.fig.pos).normalize_or_zero().dot(d.normalize_or_zero()) > 0.8
         });
@@ -265,12 +266,20 @@ impl Person {
         }
         c.run = hunter && dist > 600.0;
         self.attack_timer -= dt;
-        // Take turns, like the original's gang attacks: nobody swings while another does.
-        let busy = snaps.iter().enumerate().any(|(j, s)| j != me && Some(j) != player && s.hostile && s.attacking);
-        if dist < 170.0 && self.attack_timer <= 0.0 && p.standing && !busy {
+        // Take turns, like the original's gang attacks: nobody swings while another does. A
+        // bodyguard doesn't wait for the gang's turn to be over.
+        let busy = self.hostile() && snaps.iter().enumerate().any(|(j, s)| j != me && Some(j) != player && s.hostile && s.attacking);
+        // Swinging as the player steps in reaches her; another of the AI stays put, so they
+        // wait until a punch would reach.
+        let strike = if p.player { 170.0 } else { 125.0 };
+        if dist < strike && self.attack_timer <= 0.0 && p.standing && !busy {
             // Armed people use their weapon; others punch or kick.
             if self.weapon != Weapon::None || rand().is_multiple_of(2) { c.punch = true } else { c.kick = true }
             self.attack_timer = (1.8 - skill * 0.07).max(0.6) + (rand() % 100) as f32 / 70.0;
+            // A bodyguard keeps at it, half again as often.
+            if self.ai == AI_BODYGUARD {
+                self.attack_timer *= 0.5;
+            }
         }
         c
     }

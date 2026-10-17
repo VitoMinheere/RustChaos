@@ -77,18 +77,6 @@ impl Brain {
     }
 }
 
-/// What a bot would pick up: health when hurt, a gun when it has none, a bat or knife
-/// when its hands are empty, and rounds for the gun it has.
-fn wanted(p: &Person, kind: u8) -> bool {
-    match kind {
-        3 => p.health < p.max_health * 3 / 4,
-        2 | 4 | 6 | SNIPER => !p.weapon.is_gun(),
-        5 | 8 => p.weapon == Weapon::None,
-        10..=12 => p.weapon == Weapon::GUNS[(kind - 10) as usize],
-        _ => false,
-    }
-}
-
 type Ways = std::collections::BTreeMap<(i32, i32), (i32, i32)>;
 
 fn near_flat(a: Vec3, b: Vec3) -> f32 {
@@ -254,7 +242,7 @@ impl Game {
         let sees = d < fight && level.ground.line_of_sight(at + eye, other + eye);
         // Something it wants, lying near and in sight.
         let fetch = self.items.iter()
-            .filter(|it| wanted(b, it.kind) && (it.pos.y - at.y).abs() < 100.0 && near_flat(it.pos, at) < FETCH)
+            .filter(|it| game::actions::wanted(b, it.kind) && (it.pos.y - at.y).abs() < 100.0 && near_flat(it.pos, at) < FETCH)
             .filter(|it| level.ground.line_of_sight(at + eye, it.pos + eye))
             .min_by(|x, y| near_flat(x.pos, at).total_cmp(&near_flat(y.pos, at)))
             .map(|it| it.pos);
