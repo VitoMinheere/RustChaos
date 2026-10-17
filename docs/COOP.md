@@ -53,6 +53,18 @@ lockstep's two weak spots: joining mid-mission, and recovering from a desync.
   - It loads the install (it needs the level data to run the game), hosts a lobby, and runs
     sessions.
   - It runs on Windows and Linux, the same platforms CI tests.
+  - It doesn't depend on `uc-render` or `uc-audio`, so a headless build stays small.
+
+**Both crates stay in this workspace.**
+- **Same code:** the server steps the same `uc-game` as the clients and must reach the same
+  hash. One commit builds both, and the build ID checked at hello is just the git hash.
+- **Changes land together:** a change to `Controls`, the seats or the snapshot format
+  touches the game, the protocol, the server and the viewer at once.
+- **Tests:** CI's cross-platform replay test and the in-memory session tests sit next to
+  the code they guard.
+- **HOST in the viewer:** it runs the server as a library.
+- **The exception:** a server list or a packet relay that never runs the game could live in
+  its own repo later.
 
 ### `uc-viewer`
 - **New menu entries:** CO-OP, then HOST (start a server in the same process and play on it)
