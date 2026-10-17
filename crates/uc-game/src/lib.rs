@@ -536,8 +536,8 @@ pub struct Game {
     convo: Option<Convo>,
     /// A conversation being filmed, for the widescreen panel.
     pub wide: Option<Wide>,
-    /// The player pressed action this frame.
-    used: bool,
+    /// The players who pressed action this turn (one in single player).
+    used: Vec<usize>,
     /// Who the player's gun is aimed at.
     pub target: Option<usize>,
     /// What else the player's gun is pointed at, and how steady it is.
@@ -653,6 +653,10 @@ pub struct Game {
     gun_drawn: bool,
     /// What to call the player, for the HUD.
     player_name: &'static str,
+    /// Co-op (#182): the seats after the first, and the seat whose player-only state is in
+    /// the fields above ([`Game::focus`]).
+    partners: Vec<game::coop::Partner>,
+    focused: usize,
 }
 
 /// What a mission calls the player. The original's panel carries no name at all (it just
@@ -703,7 +707,7 @@ impl Game {
             cutscene: None,
             convo: None,
             wide: None,
-            used: false,
+            used: Vec::new(),
             target: None,
             aiming: Aiming::default(),
             stats: [0; 4],
@@ -764,6 +768,8 @@ impl Game {
             view_dist: city::DRAW_DIST,
             gun_drawn: false,
             player_name: "",
+            partners: Vec::new(),
+            focused: 0,
         };
         if !scripted {
             g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
@@ -890,10 +896,28 @@ impl Game {
                 punch: p.punch, kick: p.kick, action: p.action, jump: p.jump, switch: p.switch,
                 cycle_target: p.cycle_target, scope: p.scope, taunt: p.taunt, ..*input
             };
-            self.before = Before::of(self);
-            self.turn(&c, level);
-            self.turns += 1;
+            let mut inputs = vec![Controls::default(); self.seats()];
+            inputs[0] = c;
+            self.step(&inputs, level);
         }
+    }
+
+    /// One turn, with one `Controls` per seat (seat 0 first; missing seats stand still). What
+    /// a co-op session plays: every machine steps the same turns with the same inputs. The
+    /// seat in focus stays in focus.
+    pub fn step(&mut self, inputs: &[Controls], level: &Level) {
+        let focused = self.focused;
+        self.focus(0);
+        self.before = Before::of(self);
+        self.turn(inputs, level);
+        self.turns += 1;
+        self.focus(focused);
+    }
+
+    /// Where between turns to draw, 0 to 1, for a caller stepping turns itself
+    /// ([`Game::step`]) rather than through [`Game::update`].
+    pub fn set_between(&mut self, t: f32) {
+        self.turn_clock = t.clamp(0.0, 1.0) * TURN;
     }
 
     /// How hard the game is.
@@ -1009,19 +1033,28 @@ impl Game {
         }
     }
 
-    /// One turn of the game with `input`.
-    fn turn(&mut self, input: &Controls, level: &Level) {
+    /// One turn of the game with each seat's input, seat 0 in focus. What's only the
+    /// player's (aiming, using things, grenades, the hook, searching) runs once for each seat,
+    /// with that seat in focus.
+    fn turn(&mut self, inputs: &[Controls], level: &Level) {
         let dt = TURN;
+        let seats = self.seats();
+        let seat_input = |s: usize| inputs.get(s).copied().unwrap_or_default();
         self.time += dt;
         for m in &mut self.messages {
             m.left -= dt;
         }
         self.messages.retain(|m| m.left > 0.0);
-        self.used = input.action;
-        if self.outcome.is_none() {
-            self.update_target(input.cycle_target, level);
-            self.aim_at_people();
+        self.used = (0..seats).filter(|&s| seat_input(s).action).filter_map(|s| self.seat_person(s)).collect();
+        for s in 0..seats {
+            self.focus(s);
+            let c = seat_input(s);
+            if self.outcome.is_none() {
+                self.update_target(c.cycle_target, level);
+                self.aim_at_people();
+            }
         }
+        self.focus(0);
         if self.outcome.is_none() {
             self.run_script(dt, level);
         }
@@ -1029,7 +1062,7 @@ impl Game {
         self.run_beat(dt, level);
         self.run_cheats();
         self.run_stats(level);
-        let pressed = input.punch || input.kick || input.jump || input.action;
+        let pressed = (0..seats).map(seat_input).any(|c| c.punch || c.kick || c.jump || c.action);
         self.update_scenes(dt, level, pressed);
         self.pyro.update(dt);
         self.pow.update(dt);
@@ -1041,8 +1074,17 @@ impl Game {
         self.wreck_cars();
         if self.outcome.is_none() {
             self.run_mines(dt, level);
+            for s in 0..seats {
+                self.focus(s);
+                self.run_primed(dt, level);
+            }
+            self.focus(0);
             self.run_grenades(dt, level);
-            self.run_hook(dt, level);
+            for s in 0..seats {
+                self.focus(s);
+                self.run_hook(dt, level);
+            }
+            self.focus(0);
         }
         self.electric_fences(dt, level);
         self.no_floor_falls();
@@ -1076,40 +1118,49 @@ impl Game {
                 self.sign = None;
             }
         }
-        // Getting in and out of cars and talking to people take the action key first.
-        let mut input = *input;
-        // Through the scope she stands still, and the keys are the scope's.
-        if self.scope(dt, &input) {
-            input = Controls::default();
-        }
-        input.target = self.target;
-        self.steady_aim(dt);
-        input.aim = self.aiming.creature.map(|k| self.creatures[k].middle())
-            .or_else(|| self.aiming.barrel.map(|k| self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0)))
-            .or_else(|| self.aiming.mine.map(|k| self.mines[k].pos))
-            .or_else(|| self.aiming.vehicle.map(|k| self.vehicles[k].pos + Vec3::new(0.0, 64.0, 0.0)));
-        if self.outcome.is_none() && !held && input.action && self.use_something(level) {
-            input.action = false;
-        }
-        // Attack with a grenade in hand primes it, then throws it (`player_activate_in_hand`).
-        if let (true, false, true, Some(pi)) = (self.outcome.is_none(), held, input.punch, self.player) {
-            let p = &self.people[pi];
-            if p.weapon == Weapon::Grenade && p.grenades > 0 {
-                self.use_grenade(pi);
-                input.punch = false;
-            } else if p.weapon == Weapon::Hook && p.hook {
-                self.use_hook(pi);
-                input.punch = false;
+        // Each seat in turn, its player in focus: (who, their controls, searching or not).
+        let mut playing: Vec<(usize, Controls, bool)> = Vec::with_capacity(seats);
+        for s in 0..seats {
+            self.focus(s);
+            // Getting in and out of cars and talking to people take the action key first.
+            let mut input = seat_input(s);
+            // Through the scope she stands still, and the keys are the scope's.
+            if self.scope(dt, &input) {
+                input = Controls::default();
+            }
+            input.target = self.target;
+            self.steady_aim(dt);
+            input.aim = self.aiming.creature.map(|k| self.creatures[k].middle())
+                .or_else(|| self.aiming.barrel.map(|k| self.barrels[k].pos + Vec3::new(0.0, 50.0, 0.0)))
+                .or_else(|| self.aiming.mine.map(|k| self.mines[k].pos))
+                .or_else(|| self.aiming.vehicle.map(|k| self.vehicles[k].pos + Vec3::new(0.0, 64.0, 0.0)));
+            if self.outcome.is_none() && !held && input.action && self.use_something(level) {
+                input.action = false;
+            }
+            // Attack with a grenade in hand primes it, then throws it (`player_activate_in_hand`).
+            if let (true, false, true, Some(pi)) = (self.outcome.is_none(), held, input.punch, self.player) {
+                let p = &self.people[pi];
+                if p.weapon == Weapon::Grenade && p.grenades > 0 {
+                    self.use_grenade(pi);
+                    input.punch = false;
+                } else if p.weapon == Weapon::Hook && p.hook {
+                    self.use_hook(pi);
+                    input.punch = false;
+                }
+            }
+            // Fly-bys that hold the player still hold the car too (it rolls to a stop).
+            if held || self.outcome.is_some() {
+                input.drive = Drive::default();
+            }
+            // Action held: the viewer passes it on as `sprint`.
+            self.searching(dt, input.sprint, level);
+            if let Some(pi) = self.player {
+                playing.push((pi, input, self.search.is_some()));
             }
         }
-        // Fly-bys that hold the player still hold the car too (it rolls to a stop).
-        if held || self.outcome.is_some() {
-            input.drive = Drive::default();
-        }
-        self.drive(dt, &input, level);
-        self.ride(&input, level);
-        // Action held: the viewer passes it on as `sprint`.
-        self.searching(dt, input.sprint, level);
+        let drives: Vec<(usize, Drive)> = playing.iter().map(|&(pi, c, _)| (pi, c.drive)).collect();
+        self.drive(dt, &drives, level);
+        self.ride(&drives, level);
 
         let player = self.player;
         let mut snaps: Vec<_> = self.people.iter().map(|p| p.snap()).collect();
@@ -1194,7 +1245,7 @@ impl Game {
                         })
                         .map(|(j, _)| j)
                 }
-                _ => player,
+                _ => self.nearest_seat(p.fig.pos),
             };
             // Twenty blocks from the player, a bodyguard is out of harm's way.
             let away = p.ai == person::AI_BODYGUARD
@@ -1204,8 +1255,9 @@ impl Game {
             self.people[i].invulnerable = away || self.people[i].protected || (self.cheats.god && Some(i) == self.player);
         }
         for i in 0..self.people.len() {
-            let c = if Some(i) == player && self.people[i].player {
-                if self.outcome.is_some() || held || self.search.is_some() { Controls::default() } else { input }
+            let seat = playing.iter().find(|&&(pi, _, _)| pi == i).filter(|_| self.people[i].player);
+            let c = if let Some(&(_, input, searching)) = seat {
+                if self.outcome.is_some() || held || searching { Controls::default() } else { input }
             } else {
                 let mut rng = self.rngs.main;
                 let mut rand = || { rng = rng.wrapping_mul(69069).wrapping_add(1); rng >> 16 };
@@ -1216,7 +1268,12 @@ impl Game {
             self.people[i].step(i, &c, &snaps, &level.ground, &level.map, dt, &mut events);
         }
         self.apply(events, level);
-        self.pick_up();
+        for s in 0..seats {
+            self.focus(s);
+            self.pick_up();
+        }
+        self.focus(0);
+        self.partners_back_up(dt, level);
         for p in &mut self.people {
             p.advance(dt, &level.ground);
         }

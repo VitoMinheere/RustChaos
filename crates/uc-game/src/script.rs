@@ -27,6 +27,15 @@ use uc_formats::ucm::{on_trigger, trigger, waypoint, EventPoint, Mission};
 /// What the script needs to know about the game.
 pub trait Query {
     fn player_pos(&self) -> Option<Vec3>;
+    /// Where everyone the script counts as "the player" is: in co-op, each seat (#182), as
+    /// the original's triggers watch either player.
+    fn players_pos(&self) -> Vec<Vec3> {
+        self.player_pos().into_iter().collect()
+    }
+    /// Where those of them who pressed "action" this turn are.
+    fn users_pos(&self) -> Vec<Vec3> {
+        if self.player_used() { self.players_pos() } else { Vec::new() }
+    }
     /// The state of the person created by event point `way`, if it exists.
     fn person(&self, way: usize) -> Option<PersonState>;
     /// Where the person or vehicle created by event point `way` is.
@@ -557,11 +566,11 @@ impl Script {
             trigger::DEPENDENCY => self.is_active(r1),
             trigger::BOOLEAN_AND => self.is_active(r1) && self.is_active(r2),
             trigger::BOOLEAN_OR => self.is_active(r1) || self.is_active(r2),
-            trigger::RADIUS => q.player_pos().is_some_and(|p| p.distance(pos) < radius as f32),
-            trigger::CUBOID => q.player_pos().is_some_and(|p| {
+            trigger::RADIUS => q.players_pos().iter().any(|p| p.distance(pos) < radius as f32),
+            trigger::CUBOID => q.players_pos().iter().any(|p| {
                 (p.x - pos.x).abs() <= (radius & 0xFFFF) as f32 && (p.z - pos.z).abs() <= (radius >> 16) as f32
             }),
-            trigger::PLAYER_USES_RADIUS => q.player_used() && q.player_pos().is_some_and(|p| p.distance(pos) < radius as f32),
+            trigger::PLAYER_USES_RADIUS => q.users_pos().iter().any(|p| p.distance(pos) < radius as f32),
             trigger::TIMER => self.time >= hundredths(radius),
             trigger::COUNTDOWN | trigger::VISIBLE_COUNTDOWN => {
                 if r1 != 0 && !self.is_active(r1) {

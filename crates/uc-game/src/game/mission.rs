@@ -407,6 +407,12 @@ impl script::Query for Scene<'_> {
     fn player_pos(&self) -> Option<Vec3> {
         self.game.player_pos()
     }
+    fn players_pos(&self) -> Vec<Vec3> {
+        self.game.players_pos()
+    }
+    fn users_pos(&self) -> Vec<Vec3> {
+        self.game.users_pos()
+    }
     fn person(&self, way: usize) -> Option<script::PersonState> {
         self.game.person(way)
     }
@@ -466,6 +472,14 @@ impl script::Query for Game {
         self.player().map(|p| p.fig.pos)
     }
 
+    fn players_pos(&self) -> Vec<Vec3> {
+        self.seat_people().into_iter().map(|i| self.people[i].fig.pos).collect()
+    }
+
+    fn users_pos(&self) -> Vec<Vec3> {
+        self.used.iter().map(|&i| self.people[i].fig.pos).collect()
+    }
+
     fn person(&self, way: usize) -> Option<script::PersonState> {
         if let Some(&k) = self.creature_by_way.get(&way) {
             let c = &self.creatures[k];
@@ -518,7 +532,7 @@ impl script::Query for Game {
     }
 
     fn player_used(&self) -> bool {
-        self.used
+        !self.used.is_empty()
     }
 
     fn player_grabbing(&self) -> bool {

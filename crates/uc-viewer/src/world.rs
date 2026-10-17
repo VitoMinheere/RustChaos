@@ -86,14 +86,34 @@ pub(crate) struct World {
     /// Crinkles are on (`--no-crinkles` starts with them off; the console's `crinkles`
     /// switches them, as in the original, Controls.cpp:450).
     pub(crate) crinkles: bool,
+    /// Co-op (#182): this player's seat. The game is focused on it.
+    pub(crate) seat: Option<usize>,
 }
 
 impl World {
     pub(crate) fn load(args: Args) -> Result<World, String> {
+        World::load_with(args, None, |level, args| {
+            let mut game = new_game(level, args);
+            arm(&mut game, level, args);
+            game
+        })
+    }
+
+    /// A co-op game's mission, as `setup` has it, played from `seat`. Nothing here may
+    /// change the game but `setup`: every player's machine has to start the same one.
+    pub(crate) fn load_coop(args: Args, setup: &uc_net::Setup, seat: usize) -> Result<World, String> {
+        let args = Args { mission: setup.mission.clone(), explore: false, endless: false, beat: false, dogs: 0, weapon: uc_game::Weapon::None, cam: None, ..args };
+        World::load_with(args, Some(seat), |level, _| {
+            let mut game = setup.game(level);
+            game.focus(seat);
+            game
+        })
+    }
+
+    fn load_with(args: Args, seat: Option<usize>, make: impl FnOnce(&Level, &Args) -> Game) -> Result<World, String> {
         let opt = LoadOptions { fullbright: args.fullbright, character: !args.no_character, overrides: args.overrides.clone() };
         let level = Level::load(&args.game, &args.mission, &opt)?;
-        let mut game = new_game(&level, &args);
-        arm(&mut game, &level, &args);
+        let game = make(&level, &args);
         if !game.unsupported().is_empty() {
             println!("{}: {} event points aren't supported yet and do nothing: {}", level.name,
                      game.unsupported().len(), game.unsupported().join(", "));
@@ -137,6 +157,7 @@ impl World {
             ach_clock: 1.0,
             relief: Relief::default(),
             crinkles,
+            seat,
         })
     }
 

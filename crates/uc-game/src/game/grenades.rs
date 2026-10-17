@@ -78,10 +78,9 @@ impl Game {
         self.grenades.push(Grenade { owner: pi, pos: hand, vel, fuse, pitch: 0.0, warn: 0.0 });
     }
 
-    /// `ProcessGrenades`: a primed grenade still in hand goes off there; thrown ones fall,
-    /// bounce off the ground (losing half their speed upwards) and off buildings (losing half
-    /// across, `under > 0x4000`), settle, and go off when their fuse runs out.
-    pub(crate) fn run_grenades(&mut self, dt: f32, level: &Level) {
+    /// `ProcessGrenades`, for the player in focus: a primed grenade still in hand goes off
+    /// there.
+    pub(crate) fn run_primed(&mut self, dt: f32, level: &Level) {
         if let (Some(t), Some(pi)) = (self.primed, self.player) {
             let t = t - dt;
             if t > 0.0 {
@@ -98,6 +97,12 @@ impl Game {
                 self.grenade_blast(at, pi, level);
             }
         }
+    }
+
+    /// `ProcessGrenades`: thrown grenades fall, bounce off the ground (losing half their speed
+    /// upwards) and off buildings (losing half across, `under > 0x4000`), settle, and go off
+    /// when their fuse runs out.
+    pub(crate) fn run_grenades(&mut self, dt: f32, level: &Level) {
         let mut k = 0;
         while k < self.grenades.len() {
             let g = &mut self.grenades[k];

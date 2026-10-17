@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/uc-formats", "crates/uc-world", "crates/uc-game", "crates/uc-audio", "crates/uc-render", "crates/uc-viewer", "crates/uc-tools"]
+members = ["crates/uc-formats", "crates/uc-world", "crates/uc-game", "crates/uc-audio", "crates/uc-render", "crates/uc-viewer", "crates/uc-tools", "crates/uc-net", "crates/uc-server"]
 
 [workspace.package]
 edition = "2021"

@@ -2199,6 +2199,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "uc-net"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "uc-game",
+ "uc-world",
+]
+
+[[package]]
 name = "uc-render"
 version = "0.1.0"
 dependencies = [
@@ -2209,6 +2218,17 @@ dependencies = [
  "uc-formats",
  "uc-world",
  "wgpu",
+]
+
+[[package]]
+name = "uc-server"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "uc-formats",
+ "uc-game",
+ "uc-net",
+ "uc-world",
 ]
 
 [[package]]
@@ -2230,6 +2250,7 @@ dependencies = [
  "uc-audio",
  "uc-formats",
  "uc-game",
+ "uc-net",
  "uc-render",
  "uc-world",
  "winit",
