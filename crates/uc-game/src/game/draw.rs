@@ -58,15 +58,12 @@ impl Game {
             // A wheel is modelled about its axle, so it rides on its own radius: the vans and
             // the jeep run on a bigger one than the cars do.
             let wheel_prim = level.item_prims.get(&wheel);
-            let radius = wheel_prim.map_or(38.0, |prim| {
-                let (lo, hi) = uc_world::level::prim_bounds(prim);
-                (hi.y - lo.y) / 2.0
-            });
+            let radius = vehicle::wheel_radius(wheel_prim);
             // The meshes are modelled nose towards -z: turn them round to face the way it drives.
             // The body sits so the wheels are where the original has them in it.
             let lift = radius - vehicle::WHEEL_ABOVE_BODY;
             if let Some(prim) = level.item_prims.get(&body) {
-                uc_world::level::prim_batches(prim, |p| v.place(Vec3::new(-p.x, p.y + lift, -p.z)), lighter.as_ref(), &mut out);
+                uc_world::level::prim_batches(prim, |p| v.body_point(p, lift), lighter.as_ref(), &mut out);
             }
             if let Some(prim) = wheel_prim {
                 let (ss, cs) = v.wheel_spin.sin_cos();
@@ -84,7 +81,7 @@ impl Game {
             }
             let corner = |x: f32, z: f32| {
                 let p = v.to_world(x, z);
-                Vec3::new(p.x, level.ground.surface(&level.map, p.x, p.y, v.pos.y + 32.0) + 2.0, p.y) / uc_world::UNIT
+                Vec3::new(p.x, level.ground.road(&level.map, p.x, p.y, v.pos.y + 32.0) + 2.0, p.y) / uc_world::UNIT
             };
             out.entry(uc_world::SHADOW).or_default().quad(
                 [corner(-170.0, -300.0), corner(170.0, -300.0), corner(-170.0, 310.0), corner(170.0, 310.0)],

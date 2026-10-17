@@ -3,7 +3,8 @@
 //! Simpler than the original's walkable-face system (`find_face_for_this_pos`, walkable.cpp):
 //! a person stands on the highest surface at their (x, z) that is at most a step above their
 //! feet. Surfaces are the terrain, flat `ROOF_EXISTS` squares, sloped roof faces and the
-//! tops of walkable props (crates, walkways: `PRIM_FLAG_CONTAINS_WALKABLE_FACES`).
+//! tops of walkable props (crates, walkways: `PRIM_FLAG_CONTAINS_WALKABLE_FACES`), and the
+//! moving faces on platforms and vehicles (`WMOVE`).
 //!
 //! Props block as the original's collision models say (`PRIM_COLLIDE_*`, Editor/Headers/Prim.h):
 //! boxes as their rotated bounding box, cylinders as an octagon, the rest not at all.
@@ -68,25 +69,73 @@ impl PropTop {
     }
 }
 
-impl Ground {
-    /// Where the platforms' tops are now: (where, yaw in radians, the box in the prop's own
-    /// space, the height of the top).
-    pub fn set_platforms(&self, tops: impl IntoIterator<Item = (Vec2, f32, Vec2, Vec2, f32)>) {
-        *self.moving.borrow_mut() = tops.into_iter()
-            .map(|(origin, yaw, lo, hi, top)| {
-                let (s, c) = yaw.sin_cos();
-                PropTop { origin, rot: vec2(c, s), lo, hi, top }
-            })
-            .collect();
+/// A moving walkable face (`WMOVE_Face`, fallen/Source/wmove.cpp): the parallelogram from
+/// `o` along `a` and `b`, as `WMOVE_process` fills in its fourth point. A platform's top is
+/// one, flat; a car or van has one or more on its roof, bonnet and boot, sloping with them.
+#[derive(Debug, Clone, Copy)]
+pub struct Wmove {
+    pub o: Vec3,
+    pub a: Vec3,
+    pub b: Vec3,
+    /// On a vehicle: cars don't drive on these.
+    pub vehicle: bool,
+}
+
+impl Wmove {
+    /// A platform's top (`WMOVE_get_pos`, `CLASS_PLAT`): the box `lo`..`hi` in the prop's own
+    /// space, turned by `yaw` (radians) about `origin`, at height `top`.
+    pub fn flat(origin: Vec2, yaw: f32, lo: Vec2, hi: Vec2, top: f32) -> Wmove {
+        let (s, c) = yaw.sin_cos();
+        let w = |x: f32, z: f32| vec3(origin.x + c * x + s * z, top, origin.y - s * x + c * z);
+        let o = w(lo.x, lo.y);
+        Wmove { o, a: w(hi.x, lo.y) - o, b: w(lo.x, hi.y) - o, vehicle: false }
     }
 
-    /// Whether (x, z) is over platform top `t` (by its place in [`Ground::set_platforms`]),
-    /// `margin` either way.
-    pub fn over_platform(&self, t: usize, x: f32, z: f32, margin: f32) -> bool {
-        self.moving.borrow().get(t).is_some_and(|p| {
-            let grown = PropTop { lo: p.lo - Vec2::splat(margin), hi: p.hi + Vec2::splat(margin), ..*p };
-            grown.contains(vec2(x, z))
-        })
+    /// How far (x, z) is along `a` and along `b`, 0 to 1 over the face (as
+    /// `WMOVE_relative_pos` works it out). `None` for a face on its edge.
+    pub fn along(&self, x: f32, z: f32) -> Option<Vec2> {
+        let (a, b) = (vec2(self.a.x, self.a.z), vec2(self.b.x, self.b.z));
+        let cross = a.perp_dot(b);
+        if cross.abs() < 1e-3 {
+            return None;
+        }
+        let r = vec2(x - self.o.x, z - self.o.z);
+        Some(vec2(r.perp_dot(b) / cross, a.perp_dot(r) / cross))
+    }
+
+    /// The point `along` the face.
+    pub fn at(&self, along: Vec2) -> Vec3 {
+        self.o + self.a * along.x + self.b * along.y
+    }
+
+    /// The face's height at (x, z), if that's over it or within `margin` of it.
+    pub fn height(&self, x: f32, z: f32, margin: f32) -> Option<f32> {
+        let t = self.along(x, z)?;
+        let (ma, mb) = (margin / vec2(self.a.x, self.a.z).length(), margin / vec2(self.b.x, self.b.z).length());
+        (t.x >= -ma && t.x <= 1.0 + ma && t.y >= -mb && t.y <= 1.0 + mb).then(|| self.at(t).y)
+    }
+
+    /// Which way `a` points (radians, as a yaw): how much the face has turned.
+    pub fn angle(&self) -> f32 {
+        self.a.x.atan2(self.a.z)
+    }
+}
+
+impl Ground {
+    /// Where the moving faces are now (`WMOVE_process`): the platforms' tops first, one each in
+    /// order, then the vehicles'.
+    pub fn set_moving(&self, faces: impl IntoIterator<Item = Wmove>) {
+        *self.moving.borrow_mut() = faces.into_iter().collect();
+    }
+
+    /// Moving face `t` (by its place in [`Ground::set_moving`]).
+    pub fn moving(&self, t: usize) -> Option<Wmove> {
+        self.moving.borrow().get(t).copied()
+    }
+
+    /// Whether (x, z) is over moving face `t`, `margin` either way.
+    pub fn over_moving(&self, t: usize, x: f32, z: f32, margin: f32) -> bool {
+        self.moving(t).is_some_and(|f| f.height(x, z, margin).is_some())
     }
 }
 
@@ -165,9 +214,10 @@ pub struct Ground {
     pub fences: Vec<WallSegment>,
     /// The building each fence belongs to (a fence is electrified a building at a time).
     pub fence_buildings: Vec<u16>,
-    /// The tops of moving platforms where they are now (`WMOVE`): the game moves them, and
-    /// they're in a `RefCell` for the same reason the doors' state is in a `Cell`.
-    moving: std::cell::RefCell<Vec<PropTop>>,
+    /// The moving walkable faces where they are now (`WMOVE`), on platforms and vehicles: the
+    /// game moves them, and they're in a `RefCell` for the same reason the doors' state is in
+    /// a `Cell`.
+    moving: std::cell::RefCell<Vec<Wmove>>,
     /// Which of `walls` each prop's collision outline is: (index into the map's objects,
     /// range of walls).
     pub prop_walls: Vec<(usize, std::ops::Range<usize>)>,
@@ -374,6 +424,15 @@ impl Ground {
     /// Height of the surface under feet at (x, y, z): the highest of terrain and roof that is
     /// no more than a step above `y`. Below `y` means the person should fall.
     pub fn surface(&self, map: &Map, x: f32, z: f32, y: f32) -> f32 {
+        self.surface_of(map, x, z, y, true)
+    }
+
+    /// [`Ground::surface`] for a car's wheels: not the tops of the cars, its own or others'.
+    pub fn road(&self, map: &Map, x: f32, z: f32, y: f32) -> f32 {
+        self.surface_of(map, x, z, y, false)
+    }
+
+    fn surface_of(&self, map: &Map, x: f32, z: f32, y: f32, cars: bool) -> f32 {
         let mut best = map.ground_height(x, z);
         if let Some(r) = self.roof_height(x, z) {
             if r <= y + STEP_HEIGHT && r > best {
@@ -386,9 +445,11 @@ impl Ground {
                 best = t.top;
             }
         }
-        for t in self.moving.borrow().iter() {
-            if t.top <= y + STEP_HEIGHT && t.top > best && t.contains(vec2(x, z)) {
-                best = t.top;
+        for f in self.moving.borrow().iter().filter(|f| cars || !f.vehicle) {
+            if let Some(h) = f.height(x, z, 0.0) {
+                if h <= y + STEP_HEIGHT && h > best {
+                    best = h;
+                }
             }
         }
         for t in self.prop_tris.get(&key).into_iter().flatten() {

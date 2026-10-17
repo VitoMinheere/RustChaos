@@ -738,7 +738,7 @@ impl Game {
         if !scripted {
             g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
         }
-        g.sync_platforms(level);
+        g.sync_wmove(level);
         // Run the first tick now so the player exists straight away.
         g.run_script(0.0, level);
         if g.player.is_none() {
