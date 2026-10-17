@@ -169,6 +169,9 @@ impl Game {
         for c in self.creatures.iter().filter(|c| c.fig.pos.y > -1.0e4) {
             c.fig.append_batches(&mut out, lighter.as_ref());
         }
+        for d in &self.dogs {
+            d.fig.append_batches(&mut out, lighter.as_ref());
+        }
         let billboard = |out: &mut BTreeMap<u32, Batch>, page: u32, at: Vec3, r: f32, colour: [u8; 4]| {
             let away = at - eye;
             let right = away.cross(Vec3::Y).normalize_or(Vec3::X) * r;
