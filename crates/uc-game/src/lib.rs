@@ -31,6 +31,7 @@ pub mod road;
 pub mod script;
 pub mod steam;
 pub mod talk;
+pub mod tracks;
 pub mod trip;
 pub mod vehicle;
 pub mod wand;
@@ -620,6 +621,10 @@ pub struct Game {
     pub dirt: dirt::Dirt,
     /// Where each person, then each car, was at the dirt's last turn (NaN for nowhere).
     dirt_marks: Vec<Vec3>,
+    /// Footprints and tyre tracks on the ground.
+    pub tracks: tracks::Tracks,
+    /// Each car's wheels where they were at its last skid mark (`oldX`, `oldZ`).
+    skid_marks: Vec<Option<[Vec2; 4]>>,
     /// Steam from the mission's vents.
     pub steam: steam::Steam,
     /// The beams `tripwire` points watch.
@@ -739,6 +744,8 @@ impl Game {
             sea: level.sea(),
             dirt: Game::new_dirt(level),
             dirt_marks: Vec::new(),
+            tracks: tracks::Tracks::default(),
+            skid_marks: Vec::new(),
             steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
             electrified: BTreeSet::new(),
@@ -1212,6 +1219,7 @@ impl Game {
         self.tally_crime();
         self.men_in_black(dt, level);
         self.blow_dirt(dt, level);
+        self.lay_prints(level);
         self.run_balloons(dt, level);
 
         // Capture the flag: knocked out, she comes back at home ([`Game::run_ctf`]).

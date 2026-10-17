@@ -33,6 +33,7 @@ pub mod balloons;
 pub mod ctf;
 pub mod stats;
 mod litter;
+mod trail;
 pub mod cheats;
 pub mod endless;
 pub mod beat;
