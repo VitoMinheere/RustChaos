@@ -223,12 +223,22 @@ fn enemies_go_for_the_nearer_player() {
 fn roper_drives_a_car() {
     let Some((mut r, roper)) = Run::coop("police1") else { return };
     r.step(30, &[Controls::default(), Controls::default()]);
-    let Some(car) = r.g.vehicles.iter().position(|v| v.driver.is_none() && !v.wrecked()) else { return };
+    // One anybody can open: some of the mission's cars never do, for her either.
+    let Some(car) = r.g.vehicles.iter().position(|v| v.driver.is_none() && !v.wrecked() && !v.locked()) else { return };
     let door = r.g.vehicles[car].door();
     let y = r.level.ground.surface(&r.level.map, door.x, door.y, r.g.vehicles[car].pos.y + 64.0);
     r.g.people[roper].fig.pos = vec3(door.x, y, door.y);
+    // Arriving there can start one of the mission's conversations, which holds him still.
+    for _ in 0..30 * 30 {
+        r.step(1, &[Controls::default(), Controls::default()]);
+        if !r.g.in_conversation() {
+            break;
+        }
+    }
+    r.g.people[roper].fig.pos = vec3(door.x, y, door.y);
     r.step(1, &[Controls::default(), Controls { action: true, ..Default::default() }]);
-    r.step(60, &[Controls::default(), Controls::default()]);
+    // Getting in takes the door's animation, a little over two seconds.
+    r.step(90, &[Controls::default(), Controls::default()]);
     assert!(matches!(r.g.people[roper].state, uc_game::State::InCar { vehicle } if vehicle == car), "{:?}", r.g.people[roper].state);
     let at = r.g.vehicles[car].pos;
     let gas = Controls { drive: uc_game::Drive { throttle: 1.0, ..Default::default() }, ..Default::default() };
