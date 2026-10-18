@@ -88,6 +88,20 @@ fn the_focused_seat_is_who_the_player_is() {
     assert_eq!(r.g.player, Some(darci));
 }
 
+/// The music follows each seat's own player: Darci sprinting is sprint music for her, while
+/// Roper standing about stays calm (he doesn't sprint himself).
+#[test]
+fn each_seat_has_its_own_music() {
+    let Some((mut r, roper)) = Run::coop("police1") else { return };
+    let darci = r.player();
+    let (d, p) = (r.g.people[darci].fig.pos, r.g.people[roper].fig.pos);
+    let sprint = Controls { wish: vec2(d.x - p.x, d.z - p.z).normalize(), run: true, sprint: true, ..Default::default() };
+    r.step(30, &[sprint, Controls::default()]);
+    assert_eq!(r.g.mood(), uc_game::Mood::Sprint);
+    r.g.focus(1);
+    assert_eq!(r.g.mood(), uc_game::Mood::Calm);
+}
+
 /// The inputs at second `t`: walking about, running, fighting, crouching, a shot or two.
 fn input(t: usize) -> Controls {
     let mut c = Controls::default();

@@ -1295,20 +1295,25 @@ impl Game {
                 self.finish(Outcome::Lost(format!("{who} was knocked out")));
             }
         }
-        if let Some(pl) = self.player() {
+        // Each seat's music follows their own player; the boredom clock follows seat 0's.
+        for s in (0..seats).rev() {
+            self.focus(s);
+            let Some(pl) = self.player() else { continue };
             let pos = pl.fig.pos;
             let fighting = matches!(pl.state, State::Attack { .. } | State::Grapple { .. } | State::Hurt)
                 || self.people.iter().any(|p| p.aggro() && (p.fig.pos - pos).length() < 6.0 * 256.0);
             // Really sprinting: out of breath she's only running, whatever is held.
             let sprinting = pl.sprinting;
             self.fight_timer = if fighting { 6.0 } else { (self.fight_timer - dt).max(0.0) };
-            // A fight, a fly-by or a conversation resets it; otherwise it counts up.
-            if fighting || self.cutscene.is_some() || self.in_conversation() {
-                self.bored = 0.0;
-            } else {
-                self.bored += dt;
-            }
             self.sprinting = sprinting;
+            if s == 0 {
+                // A fight, a fly-by or a conversation resets it; otherwise it counts up.
+                if fighting || self.cutscene.is_some() || self.in_conversation() {
+                    self.bored = 0.0;
+                } else {
+                    self.bored += dt;
+                }
+            }
         }
     }
 

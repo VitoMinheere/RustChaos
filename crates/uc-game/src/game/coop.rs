@@ -26,6 +26,8 @@ pub(crate) struct Partner {
     hook: Option<game::hook::Hook>,
     player_name: &'static str,
     gun_drawn: bool,
+    fight_timer: f32,
+    sprinting: bool,
     /// Seconds down.
     down: f32,
 }
@@ -52,6 +54,8 @@ impl Game {
             hook: None,
             player_name: ptype::name(kind),
             gun_drawn: false,
+            fight_timer: 0.0,
+            sprinting: false,
             down: 0.0,
         });
         Some(i)
@@ -111,6 +115,8 @@ impl Game {
         swap(&mut self.hook, &mut s.hook);
         swap(&mut self.player_name, &mut s.player_name);
         swap(&mut self.gun_drawn, &mut s.gun_drawn);
+        swap(&mut self.fight_timer, &mut s.fight_timer);
+        swap(&mut self.sprinting, &mut s.sprinting);
     }
 
     /// Somewhere to stand next to person `i`: a little to their side or behind, on the same
