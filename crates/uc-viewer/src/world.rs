@@ -86,6 +86,16 @@ pub(crate) struct World {
     /// Crinkles are on (`--no-crinkles` starts with them off; the console's `crinkles`
     /// switches them, as in the original, Controls.cpp:450).
     pub(crate) crinkles: bool,
+    /// The race against the best run's ghost, on the missions that have one (#186).
+    pub(crate) race: Option<ghosts::Race>,
+    /// The ghost is shown (B switches it, and it's remembered).
+    pub(crate) ghost_on: bool,
+}
+
+/// The ghost race for a new game of `level`, if it's one of the missions raced (and played
+/// as the mission, not explored or as an endless run).
+fn race(game: &mut Game, level: &Level, args: &Args) -> Option<ghosts::Race> {
+    (ghosts::raced(&level.name) && !args.explore && !args.endless && !args.beat).then(|| ghosts::Race::start(game, &level.name))
 }
 
 impl World {
@@ -110,6 +120,7 @@ impl World {
             .map_or((level.name.clone(), String::new()), |m| (m.1, m.2));
         let objectives = checklist::split_briefing(&briefing).1;
         let crinkles = args.crinkles;
+        let race = race(&mut game, &level, &args);
         Ok(World {
             fly: FlyCam::from(start),
             orbit: Orbit::behind(angle),
@@ -137,6 +148,8 @@ impl World {
             ach_clock: 1.0,
             relief: Relief::default(),
             crinkles,
+            race,
+            ghost_on: progress::Progress::load().ghosts(),
         })
     }
 
@@ -185,6 +198,7 @@ impl World {
         self.civ_warning = None;
         self.game = new_game(&self.level, &self.args);
         arm(&mut self.game, &self.level, &self.args);
+        self.race = race(&mut self.game, &self.level, &self.args);
         self.endless_recorded = None;
         if let Some(p) = self.game.player() {
             self.orbit = Orbit::behind(p.fig.angle);
@@ -267,6 +281,9 @@ impl World {
         self.game.rain(&self.level, cam.pos * uc_world::UNIT, cam.target - cam.pos, &mut out);
         if self.crinkles && self.layers.contains(&Layer::Walls) {
             self.relief.draw(cam.pos, &mut out);
+        }
+        if let (true, Some(best)) = (self.ghost_on, self.race.as_ref().and_then(|r| r.best.as_ref())) {
+            self.game.ghost_batches(best, &self.level, &mut out);
         }
         out
     }

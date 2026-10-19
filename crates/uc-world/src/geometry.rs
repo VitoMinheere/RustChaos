@@ -48,6 +48,15 @@ pub const SMOKER_PAGE: u32 = 22 * 64 + 40;
 /// times the vertex alpha, with the texture wrapping (`POLY_PAGE_SMOKER`: `D3DBLEND_SRCALPHA`
 /// to `D3DBLEND_ONE`, which `RS_AlphaPremult` makes one to one).
 pub const ADDITIVE_PAGES: [u32; 1] = [SMOKER_PAGE];
+/// A ghost (#186): page `GHOST + p` is page `p` drawn see-through, by the vertex alpha, over
+/// the rest of the scene. Real pages are far below it, the special ones above (see
+/// [`ghost_page`]).
+pub const GHOST: u32 = 1 << 30;
+
+/// The page a ghost batch's page `p` is drawn from, if it's one.
+pub fn ghost_page(p: u32) -> Option<u32> {
+    (GHOST..2 * GHOST).contains(&p).then(|| p - GHOST)
+}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
