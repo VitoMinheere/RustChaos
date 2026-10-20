@@ -73,6 +73,29 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     return vec4<f32>(c, 1.0);
 }
 
+// A ghost (#186), first pass: only its depth, so the second shows the nearest of it and not
+// the limbs behind. The texture's cut-outs still cut. (The colour isn't written.)
+@fragment
+fn fs_ghost_depth(in: VOut) -> @location(0) vec4<f32> {
+    if (textureSample(tex, samp, in.uv).a < 0.5) {
+        discard;
+    }
+    return vec4<f32>(0.0);
+}
+
+// A ghost, second pass: the texture times the vertex colour, see-through by the vertex
+// alpha, fading into the fog.
+@fragment
+fn fs_ghost(in: VOut) -> @location(0) vec4<f32> {
+    let t = textureSample(tex, samp, in.uv);
+    if (t.a < 0.5) {
+        discard;
+    }
+    let d = distance(in.world, g.cam_pos.xyz);
+    let f = clamp((d - g.fog.x) / max(g.fog.y - g.fog.x, 0.001), 0.0, 1.0) * g.fog.z;
+    return vec4<f32>(mix(t.rgb * in.color.rgb, g.fog_color.rgb, f), in.color.a * (1.0 - f));
+}
+
 // Sprites of fire (`POLY_PAGE_EXPLODE1`): the texture times the vertex colour, blended by
 // its alpha, fading into the fog.
 @fragment

@@ -54,31 +54,7 @@ impl Game {
         }
         // Cars: body and wheels (front wheels turned by the steering), and a long shadow.
         for v in &self.vehicles {
-            let (body, wheel, wx, fz, rz) = vehicle::TYPES[v.kind as usize];
-            // A wheel is modelled about its axle, so it rides on its own radius: the vans and
-            // the jeep run on a bigger one than the cars do.
-            let wheel_prim = level.item_prims.get(&wheel);
-            let radius = vehicle::wheel_radius(wheel_prim);
-            // The meshes are modelled nose towards -z: turn them round to face the way it drives.
-            // The body sits so the wheels are where the original has them in it.
-            let lift = radius - vehicle::WHEEL_ABOVE_BODY;
-            if let Some(prim) = level.item_prims.get(&body) {
-                uc_world::level::prim_batches(prim, |p| v.body_point(p, lift), lighter.as_ref(), &mut out);
-            }
-            if let Some(prim) = wheel_prim {
-                let (ss, cs) = v.wheel_spin.sin_cos();
-                // Wheel positions mirrored like the body; the ones towards the nose steer.
-                for (x, z, front) in [(wx, -rz, true), (-wx, -rz, true), (wx, -fz, false), (-wx, -fz, false)] {
-                    let (st, ct) = if front { (v.steer * 0.5).sin_cos() } else { (0.0, 1.0) };
-                    let place = |p: Vec3| {
-                        // Spin about the axle (x), then steer about y.
-                        let r = Vec3::new(p.x, cs * p.y - ss * p.z, ss * p.y + cs * p.z);
-                        let r = Vec3::new(ct * r.x - st * r.z, r.y, st * r.x + ct * r.z);
-                        v.place(r + Vec3::new(x, radius, z))
-                    };
-                    uc_world::level::prim_batches(prim, place, lighter.as_ref(), &mut out);
-                }
-            }
+            car(v, level, lighter.as_ref(), &mut out);
             let corner = |x: f32, z: f32| {
                 let p = v.to_world(x, z);
                 Vec3::new(p.x, level.ground.road(&level.map, p.x, p.y, v.pos.y + 32.0) + 2.0, p.y) / uc_world::UNIT
@@ -516,6 +492,35 @@ impl Game {
 
 /// A soft round shadow on the surface under a person, like the original's blob shadows:
 /// fainter the higher they are above it, wider when lying down.
+/// A car's body and wheels (the front wheels turned by the steering).
+pub(crate) fn car(v: &Vehicle, level: &Level, lighter: Option<&uc_formats::lgt::Lighter>, out: &mut BTreeMap<u32, Batch>) {
+    let (body, wheel, wx, fz, rz) = vehicle::TYPES[v.kind as usize];
+    // A wheel is modelled about its axle, so it rides on its own radius: the vans and
+    // the jeep run on a bigger one than the cars do.
+    let wheel_prim = level.item_prims.get(&wheel);
+    let radius = vehicle::wheel_radius(wheel_prim);
+    // The meshes are modelled nose towards -z: turn them round to face the way it drives.
+    // The body sits so the wheels are where the original has them in it.
+    let lift = radius - vehicle::WHEEL_ABOVE_BODY;
+    if let Some(prim) = level.item_prims.get(&body) {
+        uc_world::level::prim_batches(prim, |p| v.body_point(p, lift), lighter, out);
+    }
+    if let Some(prim) = wheel_prim {
+        let (ss, cs) = v.wheel_spin.sin_cos();
+        // Wheel positions mirrored like the body; the ones towards the nose steer.
+        for (x, z, front) in [(wx, -rz, true), (-wx, -rz, true), (wx, -fz, false), (-wx, -fz, false)] {
+            let (st, ct) = if front { (v.steer * 0.5).sin_cos() } else { (0.0, 1.0) };
+            let place = |p: Vec3| {
+                // Spin about the axle (x), then steer about y.
+                let r = Vec3::new(p.x, cs * p.y - ss * p.z, ss * p.y + cs * p.z);
+                let r = Vec3::new(ct * r.x - st * r.z, r.y, st * r.x + ct * r.z);
+                v.place(r + Vec3::new(x, radius, z))
+            };
+            uc_world::level::prim_batches(prim, place, lighter, out);
+        }
+    }
+}
+
 fn shadow(out: &mut BTreeMap<u32, Batch>, p: &Person, level: &Level) {
     // Under the body, which knockdowns carry away from the figure's origin.
     let pos = p.body_pos();

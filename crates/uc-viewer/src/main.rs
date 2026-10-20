@@ -10,6 +10,7 @@ mod audio;
 mod cam;
 mod checklist;
 mod console;
+mod ghosts;
 mod hud;
 mod input;
 mod menu;
@@ -136,6 +137,11 @@ impl App {
             if let (false, Some(eye)) = (w.third_person, w.eye()) {
                 w.fly = w.orbit.cam(eye);
             }
+        }
+        // B: the ghost on or off, on the missions raced against one (#186), and remembered.
+        if inp.hit(KeyCode::KeyB) && w.race.is_some() {
+            w.ghost_on = !w.ghost_on;
+            progress::Progress::load().set_ghosts(w.ghost_on);
         }
         if inp.hit(KeyCode::KeyH) {
             let shown = w.help && (w.game.time < 20.0 || w.help_forced);
@@ -553,6 +559,9 @@ impl App {
             self.update(dt);
         }
         let Some(world) = self.world.as_mut() else { return };
+        if let Some(r) = world.race.as_mut() {
+            r.update(&world.game, dt);
+        }
         // Remember a win (once) for the menu.
         // Won as Darci with more than one innocent dead: the chief's warning, and at the
         // fourth her badge, which loses the mission (Game.cpp:2783, `X_CIVSDEAD_WARNING_*`).
@@ -585,6 +594,9 @@ impl App {
             p.record(&world.level.name, world.game.time, &world.game.found, &sides, world.game.difficulty());
             world.kept = p.get(&world.level.name).cloned().unwrap_or_default();
             world.result = Some((world.game.time, before));
+            if let Some(r) = world.race.as_mut() {
+                r.won(&world.game, &world.level.name);
+            }
             // By the book: an arrest, not a shot fired and no red mark. Thorough: everything
             // in the mission done.
             let s = &mut world.game.record;

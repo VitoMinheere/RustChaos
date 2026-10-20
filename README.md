@@ -76,6 +76,7 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 | Mouse wheel | Zoom | |
 | Ctrl | | Slow |
 | Tab (hold) | The mission's checklist: objectives, side objectives, badges | |
+| B | The ghost on or off, on the missions raced against one | |
 | V | Switch to free camera | Back to Darci |
 | 1 – 6 | Toggle floor / walls / props / roofs / details (cables, ladders) / people | same |
 | H | Hide the controls help | same |
@@ -162,6 +163,8 @@ Handling one scores, with arrests worth extra, and brings the crime rate down. M
 Normal is the original's tuning.
 
 **Capture the flag:** CAPTURE THE FLAG in the main menu, or `--mission Capflag1`: the original's two-player network mission on its own map, against Roper as a bot. Each of you has to reach the disk at the other's end of the map and get back home with it; the script announces who's got the disk, and the first home wins. Roper goes for your disk, climbing the fences on the way, and takes it home. He fights you when you're close, and from further off once you have his disk, but breaks off after a few seconds to get on with the game, and goes out of his way for health when he's hurt, a gun when he has none, and rounds for the one he has. Knocked out, either of you comes back at home a few seconds later. Beacons show where you're going and where Roper is. The bot's skill follows the difficulty. `autopilot` in the console hands your seat to a bot as well, to watch bot against bot.
+
+**Ghost races:** on Physical Training (`assault1`) and the three driving tests (`testdrive1a`, `testdrive2`, `testdrive3`), your best run plays alongside you as a see-through cyan Darci, or squad car, that nothing touches or sees. It fades away when you're right on top of it. Under the clock the HUD shows the ghost's time and, at each checkpoint the mission's script has (a lap marker, a stretch of the course), how far ahead (green) or behind (red) of it you are. A win faster than the ghost replaces it; the first win becomes the first ghost. Ghosts are kept per mission and difficulty in `ghosts\` next to the progress file. A ghost keeps how the run looked, turn by turn (where Darci was, and the two keyframes of her pose; or the car's place, tilt, steering and wheels), not the inputs, so it still plays after the game changes. B switches the ghost off and on, and that's remembered.
 
 **Stats and achievements:** STATS in the main menu shows totals over all play: arrests, takedowns from behind, people searched, red marks; knockouts by fists, by knife or bat and by gun; shots fired and the hit rate; distance on foot, driving and on the bike; zip-wire distance and the longest ride; ladders climbed and falls survived; missions completed, the furthest endless wave and the best Beat Cop shift. Next to them are the achievements, with how far along each one is: Rookie (finish the training), By the Book (win with an arrest, no shots and no red marks), Clean Record (the campaign without a red mark), Silent Partner (25 takedowns), Frisk (search 100 people), High Wire (a 20-square zip-wire ride), Roof Runner (pull yourself up onto a roof), Riot Control (wave 20 in endless mode), Thorough (a mission with everything found) and Hard Boiled (the campaign on Hard). One pops up on screen as it's earned. They're saved with the progress.
 

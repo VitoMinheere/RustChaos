@@ -640,6 +640,24 @@ impl Figure {
         self.animator.progress()
     }
 
+    /// The pose shown: the two keyframes it's between and how far from the first (0..256).
+    /// Keyframes are numbered in the game's own animation data, so they mean the same in
+    /// every build.
+    pub fn keyframes(&self) -> (usize, usize, f32) {
+        let a = &self.animator;
+        (a.cur, a.next, a.tween)
+    }
+
+    /// Shows the pose between keyframes `cur` and `next` (a ghost's, #186). Keyframes the
+    /// animations don't have are left as they were.
+    pub fn show_keyframes(&mut self, cur: usize, next: usize, tween: f32) {
+        let n = self.anims.keyframes.len();
+        if cur < n && next < n {
+            let a = &mut self.animator;
+            (a.cur, a.next, a.tween) = (cur, next, tween.clamp(0.0, 256.0));
+        }
+    }
+
     pub fn advance(&mut self, dt: f32) {
         self.animator.advance(&self.anims, dt);
     }

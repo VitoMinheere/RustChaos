@@ -14,7 +14,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
 use std::collections::{BTreeMap, HashMap};
 use uc_formats::txc::Texture;
-use uc_world::{Batch, Layer, Vertex, WorldGeometry, ADDITIVE_PAGES, DECAL_PAGES, EXPLODE_PAGE, GLOW, MIST, MOON_PAGE, SHADOW, SKY_PAGE, UNTEXTURED};
+use uc_world::{ghost_page, Batch, Layer, Vertex, WorldGeometry, ADDITIVE_PAGES, DECAL_PAGES, EXPLODE_PAGE, GLOW, MIST, MOON_PAGE, SHADOW, SKY_PAGE, UNTEXTURED};
 use wgpu::util::DeviceExt;
 
 pub use overlay::Overlay;
@@ -122,6 +122,8 @@ pub struct Renderer {
     glow_pipeline: wgpu::RenderPipeline,
     additive_pipeline: wgpu::RenderPipeline,
     sprite_pipeline: wgpu::RenderPipeline,
+    ghost_depth_pipeline: wgpu::RenderPipeline,
+    ghost_pipeline: wgpu::RenderPipeline,
     sky_pipeline: wgpu::RenderPipeline,
     moon_pipeline: wgpu::RenderPipeline,
     shadow_tex: wgpu::BindGroup,
@@ -481,6 +483,42 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        // Ghosts (#186), in two passes over the rest of the scene: their depth alone, then
+        // their colour blended by the vertex alpha where they're nearest, so a ghost is one
+        // see-through body rather than every limb through every other.
+        let ghost = |label, entry, depth_write, blend, write_mask| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4],
+                })],
+            },
+            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH,
+                depth_write_enabled: Some(depth_write),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some(entry),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState { format, blend, write_mask })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        let ghost_depth_pipeline = ghost("ghost depth pipeline", "fs_ghost_depth", true, None, wgpu::ColorWrites::empty());
+        let ghost_pipeline = ghost("ghost pipeline", "fs_ghost", false, Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::ColorWrites::ALL);
         // The sky: drawn first, opaque, with no depth test and no fog (`POLY_PAGE_SKY`).
         let sky_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("sky pipeline"),
@@ -618,7 +656,7 @@ impl Renderer {
         let font = make_texture_levels(&device, &queue, &tex_layout, &font_sampler, &font_tex, 1);
         Renderer {
             device, queue, format, pipeline, globals_buf, globals_bg, tex_layout, sampler,
-            textures: HashMap::new(), white, shadow_pipeline, decal_pipeline, glow_pipeline, additive_pipeline, sprite_pipeline, sky_pipeline, moon_pipeline, shadow_tex, mist_tex,
+            textures: HashMap::new(), white, shadow_pipeline, decal_pipeline, glow_pipeline, additive_pipeline, sprite_pipeline, ghost_depth_pipeline, ghost_pipeline, sky_pipeline, moon_pipeline, shadow_tex, mist_tex,
             statics: None, chunks: Vec::new(), dynamic: None, targets: None,
             overlay_pipeline, screen_buf, screen_bg, font, overlay_buf: None, backdrop: None, minimap: None, faces: [None, None], stats: Stats::default(),
         }
@@ -930,7 +968,7 @@ impl Renderer {
             if let (Some((vb, ib, _, _)), false) = (&self.dynamic, dyn_ranges.is_empty()) {
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                for &(page, first, count) in dyn_ranges.iter().filter(|r| !matches!(r.0, SHADOW | GLOW | MIST | SKY_PAGE | MOON_PAGE | EXPLODE_PAGE) && !DECAL_PAGES.contains(&r.0) && !ADDITIVE_PAGES.contains(&r.0)) {
+                for &(page, first, count) in dyn_ranges.iter().filter(|r| !matches!(r.0, SHADOW | GLOW | MIST | SKY_PAGE | MOON_PAGE | EXPLODE_PAGE) && !DECAL_PAGES.contains(&r.0) && !ADDITIVE_PAGES.contains(&r.0) && ghost_page(r.0).is_none()) {
                     pass.set_bind_group(1, self.textures.get(&page).unwrap_or(&self.white), &[]);
                     pass.draw_indexed(first..first + count, 0, 0..1);
                     stats.draw_calls += 1;
@@ -976,6 +1014,17 @@ impl Renderer {
                     pass.draw_indexed(first..first + count, 0, 0..1);
                     stats.draw_calls += 1;
                     stats.triangles += count as usize / 3;
+                }
+                // Ghosts last: their depth, then their colour over what's in front of them.
+                for pipeline in [&self.ghost_depth_pipeline, &self.ghost_pipeline] {
+                    for &(page, first, count) in dyn_ranges.iter() {
+                        let Some(own) = ghost_page(page) else { continue };
+                        pass.set_pipeline(pipeline);
+                        pass.set_bind_group(1, self.textures.get(&own).unwrap_or(&self.white), &[]);
+                        pass.draw_indexed(first..first + count, 0, 0..1);
+                        stats.draw_calls += 1;
+                        stats.triangles += count as usize / 3;
+                    }
                 }
             }
             if overlay_count > 0 {
