@@ -195,11 +195,10 @@ impl Game {
         let turns = self.turns;
         let passed = self.script.as_mut().map_or(Vec::new(), |s| s.take_passed());
         self.passed.extend(passed.iter().map(|&p| (p, turns)));
-        if self.recording.is_some() {
-            let pose = self.pose();
-            let t = self.recording.as_mut().unwrap();
-            t.poses.push(pose);
+        if let Some(mut t) = self.recording.take() {
+            t.poses.push(self.pose());
             t.splits.extend(passed.iter().map(|&p| (p as u32, turns as u32)));
+            self.recording = Some(t);
         }
     }
 
