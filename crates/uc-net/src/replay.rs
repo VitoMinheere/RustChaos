@@ -19,7 +19,7 @@ use uc_game::{Difficulty, Game, Outcome, Weapon, TURN};
 use uc_world::Level;
 
 /// The file's first bytes, with the format's version in the last.
-pub const MAGIC: &[u8; 4] = b"UCR1";
+pub const MAGIC: &[u8; 4] = b"UCR2";
 
 /// The weapons a game can start with, by their number in a file.
 const WEAPONS: [Weapon; 10] = [
@@ -122,6 +122,17 @@ impl Event {
     }
 }
 
+/// How a run went besides its outcome, for a list of replays.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Tally {
+    /// The mission's badges found and side objectives done in this run.
+    pub badges: u8,
+    pub sides: u8,
+    /// An endless run's or Beat Cop shift's score, and the wave reached or incidents handled.
+    pub score: i64,
+    pub count: u32,
+}
+
 /// A saved run.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Replay {
@@ -135,6 +146,7 @@ pub struct Replay {
     pub outcome: String,
     /// The mission clock at the end.
     pub time: f32,
+    pub tally: Tally,
     /// Every turn's input, seat 0 first.
     pub turns: Vec<Vec<Input>>,
     /// The state hash after so many turns.
@@ -186,6 +198,11 @@ impl Replay {
         o.u8(self.seats);
         o.str(&self.outcome);
         o.f32(self.time);
+        let t = &self.tally;
+        o.u8(t.badges);
+        o.u8(t.sides);
+        o.u64(t.score as u64);
+        o.u32(t.count);
         o.u32(self.events.len() as u32);
         for (turn, e) in &self.events {
             o.u32(*turn);
@@ -242,6 +259,7 @@ impl Replay {
         let seats = i.u8()?;
         let outcome = i.str()?;
         let time = i.f32()?;
+        let tally = Tally { badges: i.u8()?, sides: i.u8()?, score: i.u64()? as i64, count: i.u32()? };
         let mut events = Vec::new();
         for _ in 0..i.u32()? {
             let turn = i.u32()?;
@@ -272,7 +290,7 @@ impl Replay {
         if turns.len() != total {
             return Err(bad("fewer turns than it says"));
         }
-        Ok(Replay { start, build, date, seats, outcome, time, turns, hashes, events })
+        Ok(Replay { start, build, date, seats, outcome, time, tally, turns, hashes, events })
     }
 }
 
@@ -290,7 +308,7 @@ impl Recorder {
         let date = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
         let replay = Replay {
             start, build: BUILD.to_string(), date, seats: game.seats() as u8, outcome: String::new(), time: 0.0,
-            turns: Vec::new(), hashes: Vec::new(), events: Vec::new(),
+            tally: Tally::default(), turns: Vec::new(), hashes: Vec::new(), events: Vec::new(),
         };
         Recorder { replay }
     }
@@ -318,7 +336,9 @@ impl Recorder {
         self.replay.turns.len()
     }
 
-    /// The replay, as `game` stands now.
+    /// The replay, as `game` stands now: its outcome, time, and an endless run's or shift's
+    /// score (the badges and side objectives are the caller's to fill in, who knows the
+    /// mission's).
     pub fn finish(&mut self, game: &mut Game) -> Replay {
         self.take(game);
         let mut r = self.replay.clone();
@@ -328,6 +348,12 @@ impl Recorder {
             None => "abandoned".into(),
         };
         r.time = game.time;
+        if let Some(e) = game.endless() {
+            (r.tally.score, r.tally.count) = (e.score, e.wave);
+        }
+        if let Some(b) = game.beat() {
+            (r.tally.score, r.tally.count) = (b.score, b.handled);
+        }
         r
     }
 }
@@ -426,7 +452,7 @@ mod tests {
     fn empty() -> Vec<u8> {
         Replay {
             start: Start::new("", Mode::Mission, Difficulty::Normal, [0; 4]), build: String::new(), date: 0, seats: 1,
-            outcome: String::new(), time: 0.0, turns: Vec::new(), hashes: Vec::new(), events: Vec::new(),
+            outcome: String::new(), time: 0.0, tally: Tally::default(), turns: Vec::new(), hashes: Vec::new(), events: Vec::new(),
         }.to_bytes()
     }
 
@@ -439,6 +465,7 @@ mod tests {
                 difficulty: 2, stats: [1, 2, 3, 4], weapon: Weapon::Shotgun, dogs: 3, view_dist: Some(10240.0),
             },
             build: "abc".into(), date: 1_700_000_000, seats: 2, outcome: "lost: Darci died".into(), time: 12.5,
+            tally: Tally { badges: 2, sides: 1, score: -40, count: 7 },
             turns: vec![vec![i(0.0, 0), i(1.0, 4)], vec![i(0.0, 0), i(1.0, 4)], vec![i(0.25, 1), i(0.0, 0)]],
             hashes: vec![(1, 0xdead_beef), (3, 42)],
             events: vec![(2, Event::Lose("Too many civilian casualties".into()))],

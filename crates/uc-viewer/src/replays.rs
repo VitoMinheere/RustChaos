@@ -5,7 +5,7 @@
 //! the choice of which player to follow.
 
 use crate::*;
-use uc_net::replay::{Playback, Replay};
+use uc_net::replay::{Playback, Replay, Start, Tally};
 
 /// Replays kept besides those kept for good.
 const KEEP: usize = 20;
@@ -110,13 +110,23 @@ pub(crate) fn load(path: &Path) -> Result<Replay, String> {
 #[derive(Debug, Clone)]
 pub(crate) struct Listed {
     pub(crate) path: PathBuf,
-    pub(crate) mission: String,
+    pub(crate) start: Start,
     pub(crate) date: u64,
     pub(crate) outcome: String,
+    /// The mission clock at the end, and the replay's length in seconds (longer, when the run
+    /// went on after it was won or lost).
     pub(crate) time: f32,
-    pub(crate) coop: bool,
+    pub(crate) length: f32,
+    pub(crate) tally: Tally,
     pub(crate) kept: bool,
+    pub(crate) build: String,
     pub(crate) same_build: bool,
+}
+
+impl Listed {
+    pub(crate) fn won(&self) -> bool {
+        self.outcome == "won"
+    }
 }
 
 /// The saved replays, newest first.
@@ -131,8 +141,8 @@ pub(crate) fn list() -> Vec<Listed> {
             }
             let Ok(r) = load(&path) else { continue };
             out.push(Listed {
-                mission: r.start.mission.clone(), date: r.date, outcome: r.outcome.clone(), time: r.time,
-                coop: r.seats > 1, kept, same_build: r.same_build(), path,
+                date: r.date, outcome: r.outcome.clone(), time: r.time, length: r.turns.len() as f32 / 30.0, tally: r.tally,
+                kept, same_build: r.same_build(), build: r.build.clone(), start: r.start, path,
             });
         }
     }
@@ -168,7 +178,9 @@ impl World {
         if self.game.outcome.is_none() && self.game.turns() < SHORTEST {
             return;
         }
-        let replay = r.finish(&mut self.game);
+        let mut replay = r.finish(&mut self.game);
+        replay.tally.badges = self.goals.badges.iter().filter(|b| self.game.found.contains(b)).count() as u8;
+        replay.tally.sides = self.game.sides_done(&self.goals).len() as u8;
         self.recorder = None;
         self.replay_saved = save(&replay).map(|p| (p, false));
     }

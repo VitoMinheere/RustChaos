@@ -262,11 +262,15 @@ impl Menu {
             }
             return;
         }
-        // Spaced to fit under the title, however short the screen.
-        let top = h * 0.38;
-        let step = (26.0 * s).min((h - 12.0 * s - top) / MAIN.len() as f32);
+        // Under the title, closer together on a short screen; and on one too short even for
+        // that, a window of them round the choice that scrolls with it.
+        let top = h * 0.32;
+        let room = h - 16.0 * s - top;
+        let step = (room / MAIN.len() as f32).clamp(22.0 * s, 26.0 * s);
+        let shown = ((room / step) as usize).clamp(1, MAIN.len());
+        let first = self.main.saturating_sub(shown / 2).min(MAIN.len() - shown);
         let mut y = top;
-        for (k, &item) in MAIN.iter().enumerate() {
+        for (k, &item) in MAIN.iter().enumerate().skip(first).take(shown) {
             let label = if item == "DIFFICULTY" {
                 format!("DIFFICULTY: {}", self.progress.difficulty().name().to_uppercase())
             } else {
@@ -490,17 +494,18 @@ impl Menu {
         self.screen = Screen::Replays;
     }
 
-    /// The saved replays: when, which mission, how it went and how long it took.
+    /// The saved replays: a list on the left (when, which mission, the time, PB for a
+    /// personal best), and the one selected in a panel on the right, everything about it.
     fn replays_overlay(&self, o: &mut Overlay, w: f32, h: f32, s: f32) {
         o.backdrop(0.0, 0.0, w, h, [255, 255, 255, 255]);
         self.kibble(o, w, h, s);
-        o.rect(0.0, 0.0, w, h, [0, 0, 0, 170]);
+        o.rect(0.0, 0.0, w * 0.5, h, [0, 0, 0, 170]);
         let (white, gold, dim) = ([235, 235, 225, 255], [255, 210, 70, 255], [150, 150, 145, 255]);
         let x = 20.0 * s;
         o.text(x, 16.0 * s, s * 3.0, gold, "REPLAYS");
         o.text(x, 44.0 * s, s, [200, 200, 190, 220], "Up/Down choose   Enter watch   Esc back");
         if let Some(i) = self.loading_replay {
-            let text = format!("LOADING {}...", self.title_of(&self.replays[i].mission).to_uppercase());
+            let text = format!("LOADING {}...", self.title_of(&self.replays[i].start.mission).to_uppercase());
             o.text(w / 2.0 - Overlay::text_width(&text, s * 2.0) / 2.0, h * 0.5, s * 2.0, white, &text);
             return;
         }
@@ -508,38 +513,121 @@ impl Menu {
             o.text(x, h - 20.0 * s, s, [255, 120, 100, 255], &self.status);
         }
         if self.replays.is_empty() {
-            o.text(x, 64.0 * s, s, white, "No replays yet. A mission won, lost, or left after ten seconds is kept here.");
+            let lines = Overlay::wrap("No replays yet. A mission won, lost, or left after ten seconds is kept here.", w * 0.5 - 2.0 * x, s);
+            for (k, l) in lines.iter().enumerate() {
+                o.text(x, 64.0 * s + k as f32 * 11.0 * s, s, white, l);
+            }
             return;
         }
         let line = 11.0 * s;
         let top = 64.0 * s;
         let rows = (((h - top - 30.0 * s) / line) as usize).max(3);
         let first = self.replay_selected.saturating_sub(rows / 2).min(self.replays.len().saturating_sub(rows));
-        // Columns: when, the mission, then how long and how it went.
+        // Columns: when, the mission, then the time (right-aligned at the list's edge).
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-        let gap = 16.0 * s;
-        let title_x = x + Overlay::text_width("59 minutes ago", s) + gap;
-        let titles = self.replays.iter().map(|r| Overlay::text_width(&self.title_of(&r.mission), s));
-        let how_x = title_x + titles.fold(0.0, f32::max).min(w * 0.4) + gap;
+        let title_x = x + Overlay::text_width("59 minutes ago", s) + 12.0 * s;
+        let right = w * 0.5 - 12.0 * s;
         for (k, r) in self.replays.iter().enumerate().skip(first).take(rows) {
             let y = top + (k - first) as f32 * line;
             if k == self.replay_selected {
-                o.rect(x - 4.0 * s, y - 2.0 * s, w - 2.0 * x + 8.0 * s, line, [200, 150, 40, 200]);
-            }
-            let mut tags = Vec::new();
-            if r.coop {
-                tags.push("co-op");
-            }
-            if r.kept {
-                tags.push("kept");
-            }
-            if !r.same_build {
-                tags.push("another build");
+                o.rect(x - 4.0 * s, y - 2.0 * s, w * 0.5 - x - 8.0 * s, line, [200, 150, 40, 200]);
             }
             o.text(x, y, s, dim, &replays::ago(r.date, now));
-            o.text(title_x, y, s, white, &self.title_of(&r.mission));
-            let how = format!("{:>5}  {}   {}", clock(r.time), r.outcome, tags.join(", "));
-            o.text(how_x, y, s, if r.outcome == "won" { gold } else { white }, &how);
+            let time = match (self.personal_best(r), r.won()) {
+                (true, _) => format!("PB {}", clock(r.time)),
+                (false, true) => clock(r.time),
+                // Not won: how it ended, short.
+                _ if r.outcome.starts_with("lost") => "lost".into(),
+                _ => "left".into(),
+            };
+            let tw = Overlay::text_width(&time, s);
+            let title = fit(&self.title_of(&r.start.mission), right - tw - 12.0 * s - title_x, s);
+            o.text(title_x, y, s, white, &title);
+            o.text(right - tw, y, s, if r.won() { gold } else { dim }, &time);
+        }
+        if let Some(r) = self.replays.get(self.replay_selected) {
+            self.replay_panel(o, w, h, s, r, now);
+        }
+    }
+
+    /// Whether replay `r` is the run that set this mission's best time.
+    fn personal_best(&self, r: &replays::Listed) -> bool {
+        use uc_net::replay::Mode;
+        // The progress keeps times to a tenth of a second.
+        r.won() && matches!(r.start.mode, Mode::Mission | Mode::Coop)
+            && self.progress.best_time(&r.start.mission).is_some_and(|b| (r.time - b).abs() < 0.06)
+    }
+
+    /// Everything about replay `r`, in a panel on the right.
+    fn replay_panel(&self, o: &mut Overlay, w: f32, h: f32, s: f32, r: &replays::Listed, now: u64) {
+        use uc_net::replay::Mode;
+        let (white, gold, dim, red) = ([235, 235, 225, 255], [255, 210, 70, 255], [170, 170, 160, 255], [255, 140, 120, 255]);
+        let mut rows: Vec<(String, [u8; 4])> = Vec::new();
+        let best = self.progress.best_time(&r.start.mission);
+        let pb = self.personal_best(r);
+        match r.outcome.as_str() {
+            "won" if pb => rows.push((format!("Won in {}: the personal best", clock(r.time)), gold)),
+            "won" => rows.push((format!("Won in {}", clock(r.time)), gold)),
+            "abandoned" => rows.push((format!("Left at {}", clock(r.time)), white)),
+            lost => rows.push((format!("{} at {}", capital(lost), clock(r.time)), red)),
+        }
+        if let (Some(b), false, Mode::Mission | Mode::Coop) = (best, pb, r.start.mode) {
+            let slower = if r.won() { format!(" (this run {:.1} s slower)", r.time - b) } else { String::new() };
+            rows.push((format!("Personal best {}{slower}", clock(b)), white));
+        }
+        let mode = match r.start.mode {
+            Mode::Mission => "The mission".to_string(),
+            Mode::Explore => "Exploring (no script)".to_string(),
+            Mode::Coop => "Co-op, with Roper".to_string(),
+            Mode::Endless { seed, .. } => format!("Endless (seed {seed})"),
+            Mode::Beat { shift, .. } => format!("Beat Cop: {} shift", shift.map_or("open-ended".into(), |m| format!("{m}-minute"))),
+        };
+        rows.push((format!("{mode} on {}", r.start.difficulty().name()), white));
+        let entry = self.entries.iter().find(|e| e.mission.eq_ignore_ascii_case(&r.start.mission));
+        match (r.start.mode, entry) {
+            (Mode::Endless { .. }, _) => rows.push((format!("Score {}, wave {}", r.tally.score, r.tally.count), white)),
+            (Mode::Beat { .. }, _) => rows.push((format!("Score {}, {} handled", r.tally.score, r.tally.count), white)),
+            (_, Some(e)) if !e.goals.badges.is_empty() || !e.goals.sides.is_empty() => rows.push((
+                format!("Badges {}/{}, side objectives {}/{}", r.tally.badges, e.goals.badges.len(), r.tally.sides, e.goals.sides.len()), white)),
+            _ => {}
+        }
+        let mut kit = Vec::new();
+        if r.start.weapon != uc_game::Weapon::None {
+            kit.push(format!("{:?}", r.start.weapon).to_lowercase());
+        }
+        if r.start.dogs > 0 {
+            kit.push(format!("{} dogs", r.start.dogs));
+        }
+        if !kit.is_empty() {
+            rows.push((format!("Started with: {}", kit.join(", ")), white));
+        }
+        rows.push((String::new(), white));
+        rows.push((format!("Played {}. The replay is {} long.", replays::ago(r.date, now), clock(r.length)), dim));
+        let kept = if r.kept { "Kept for good" } else { "One of the last 20 (K on the end screen keeps a run for good)" };
+        rows.push((kept.to_string(), dim));
+        if !r.same_build {
+            rows.push((format!("Recorded on another build ({}): it may not play back the same", r.build), red));
+        }
+        if let Some(name) = r.path.file_name() {
+            rows.push((name.to_string_lossy().into_owned(), dim));
+        }
+        let (px, pw) = (w * 0.55, w * 0.42);
+        let bw = pw - 24.0 * s;
+        let line = 11.0 * s;
+        let mut lines: Vec<(String, [u8; 4])> = Vec::new();
+        for (t, c) in rows {
+            if t.is_empty() {
+                lines.push((t, c));
+                continue;
+            }
+            lines.extend(Overlay::wrap(&t, bw, s).into_iter().map(|l| (l, c)));
+        }
+        let ph = 40.0 * s + lines.len() as f32 * line;
+        let py = (h - ph - 24.0 * s).max(74.0 * s);
+        o.rect(px, py, pw, ph, [0, 0, 0, 180]);
+        o.text(px + 12.0 * s, py + 10.0 * s, s * 2.0, gold, &fit(&self.title_of(&r.start.mission), bw, s * 2.0));
+        for (k, (l, c)) in lines.iter().enumerate() {
+            o.text(px + 12.0 * s, py + 32.0 * s + k as f32 * line, s, *c, l);
         }
     }
 
@@ -619,10 +707,16 @@ impl Menu {
             if let Some(d) = self.progress.get(&e.mission) {
                 medal(&mut o, x, y, s, d.hardest, self.full(e));
             }
-            o.text(x + 10.0 * s, y, s, col, &e.title);
+            // The best time at the list's right edge.
+            let best = self.progress.best_time(&e.mission).map_or(String::new(), clock);
+            let right = w * 0.5 - 12.0 * s;
+            let bw = Overlay::text_width(&best, s);
+            o.text(x + 10.0 * s, y, s, col, &fit(&e.title, right - bw - 12.0 * s - (x + 10.0 * s), s));
+            o.text(right - bw, y, s, gold, &best);
         }
-        // The selected mission in a panel on the right: its title, the checklist (objectives,
-        // side objectives and badges, ticked once done in a win), then the briefing.
+        // The selected mission in a panel on the right: its title, the best time (or not
+        // completed yet), the checklist (objectives, side objectives and badges, ticked once
+        // done in a win), then as much of the briefing as fits on the screen.
         if let Some(e) = self.entries.get(self.selected) {
             let (px, pw) = (w * 0.55, w * 0.42);
             let bw = pw - 24.0 * s;
@@ -631,19 +725,30 @@ impl Menu {
             let (badges, _) = self.tally(e);
             let items = checklist::items(&objectives, kept.is_some(), &e.goals, badges,
                                          |id| kept.is_some_and(|d| d.sides.contains(&id)));
-            let mut lines = Overlay::wrap(&story, bw, s);
-            if let Some(t) = self.progress.best_time(&e.mission) {
-                lines.push(String::new());
-                let on = self.progress.get(&e.mission).map_or(uc_game::Difficulty::Normal, |d| d.hardest);
-                let full = if self.full(e) { ", everything found" } else { "" };
-                lines.push(format!("Completed on {}{full}. Best time {}", on.name(), clock(t)));
-            }
+            let (best, best_col) = match (self.progress.best_time(&e.mission), kept) {
+                (Some(t), Some(d)) => {
+                    let full = if self.full(e) { ", everything found" } else { "" };
+                    (format!("Best time {}, completed on {}{full}", clock(t), d.hardest.name()), gold)
+                }
+                _ => ("Not completed yet".to_string(), [170, 170, 160, 255]),
+            };
             let list_h = checklist::height(&items, bw, s);
-            let ph = 44.0 * s + list_h + lines.len() as f32 * line;
+            // The briefing gets what's left between the panel's top limit and the bottom.
+            let head = 58.0 * s + list_h;
+            let room = (((h - 24.0 * s - 74.0 * s - head) / line).floor() as usize).max(1);
+            let mut lines = Overlay::wrap(&story, bw, s);
+            if lines.len() > room {
+                lines.truncate(room);
+                if let Some(last) = lines.last_mut() {
+                    *last = fit(&format!("{last}..."), bw, s);
+                }
+            }
+            let ph = head + lines.len() as f32 * line;
             let py = (h - ph - 24.0 * s).max(74.0 * s);
             o.rect(px, py, pw, ph, [0, 0, 0, 180]);
-            o.text(px + 12.0 * s, py + 10.0 * s, s * 2.0, gold, &e.title);
-            let y = py + 32.0 * s;
+            o.text(px + 12.0 * s, py + 10.0 * s, s * 2.0, gold, &fit(&e.title, bw, s * 2.0));
+            o.text(px + 12.0 * s, py + 30.0 * s, s, best_col, &fit(&best, bw, s));
+            let y = py + 46.0 * s;
             checklist::draw(&mut o, px + 12.0 * s, y, bw, s, &items);
             for (k, l) in lines.iter().enumerate() {
                 o.text(px + 12.0 * s, y + list_h + 6.0 * s + k as f32 * line, s, [215, 215, 205, 255], l);
@@ -680,6 +785,24 @@ const UNRELEASED: [(&str, &str, &str); 4] = [
       they see you coming. Take a bike and get there first.\r\
       - Destroy all three missiles before they launch."),
 ];
+
+/// `text` cut short with "..." to fit `width` at scale `s`.
+fn fit(text: &str, width: f32, s: f32) -> String {
+    if Overlay::text_width(text, s) <= width {
+        return text.to_string();
+    }
+    let mut out: String = text.to_string();
+    while !out.is_empty() && Overlay::text_width(&format!("{out}..."), s) > width {
+        out.pop();
+    }
+    format!("{}...", out.trim_end())
+}
+
+/// "lost: Darci died" as "Lost: Darci died".
+fn capital(text: &str) -> String {
+    let mut c = text.chars();
+    c.next().map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
+}
 
 /// The game's mission list (`data\urban.sty`): (mission file without `.ucm`, title,
 /// briefing), for the missions this install has, then the unreleased ones that play. Lines
