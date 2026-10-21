@@ -100,9 +100,11 @@ impl World {
                 };
                 wx += o.text(wx, by - 2.0 * s, s, [170, 170, 160, 200], &text);
             }
-            // Badge stats (gold for those raised in this mission; kept when it's won).
+            // Badge stats (gold for those raised in this mission; kept when it's won). In
+            // co-op they're the host's, and only Darci's.
             let mut x = bx;
-            for (k, name) in ["STA", "STR", "REF", "CON"].iter().enumerate() {
+            let stats: &[&str] = if self.seat.unwrap_or(0) == 0 { &["STA", "STR", "REF", "CON"] } else { &[] };
+            for (k, name) in stats.iter().enumerate() {
                 let text = format!("{name} {}", self.game.stats[k]);
                 let col = if self.game.badges[k] > 0 { [255, 210, 70, 255] } else { [190, 190, 180, 200] };
                 x += o.text(x, by + bh + 4.0 * s, s, col, &text) + 8.0 * s;
@@ -127,6 +129,21 @@ impl World {
                     white
                 };
                 o.text(bx, by + bh + 16.0 * s, s, col, &format!("CRIME RATE {rate}%"));
+            }
+            // Co-op: the other player's name and health, smaller, underneath.
+            if let Some(me) = self.seat {
+                let mut y = by + bh + 28.0 * s;
+                for i in (0..self.game.seats()).filter(|&k| k != me).filter_map(|k| self.game.seat_person(k)) {
+                    let q = &self.game.people[i];
+                    let frac = (q.health.max(0) as f32 / q.max_health as f32).clamp(0.0, 1.0);
+                    let name = uc_world::character::person::name(q.kind).to_uppercase();
+                    let tw = o.text(bx, y, s, [200, 200, 190, 230], &name);
+                    let (x, w) = (bx + tw + 6.0 * s, 40.0 * s);
+                    o.rect(x - s, y, w + 2.0 * s, 3.0 * s + 2.0 * s, [0, 0, 0, 160]);
+                    let col = if q.knocked_out || q.health <= 0 { [120, 120, 120, 255] } else { [90, 170, 220, 255] };
+                    o.rect(x, y + s, w * frac, 3.0 * s, col);
+                    y += 10.0 * s;
+                }
             }
         }
 

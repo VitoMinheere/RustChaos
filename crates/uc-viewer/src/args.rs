@@ -6,7 +6,7 @@ pub(crate) const USAGE: &str = "\
 uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DIR] [--linear] [--fullbright]
           [--fog START,END | --no-fog] [--no-crinkles] [--no-character] [--cam X,Y,Z,YAW,PITCH] [--dogs N]
           [--screenshot FILE [--size WxH] [--sim-walk SECS | --sim-run SECS | --sim SECS]]
-          [--dump-pages DIR]
+          [--dump-pages DIR] [--host [PORT] | --join HOST[:PORT]] [--name NAME]
 
   --game DIR        Urban Chaos install (default: $UC_GAME_DIR, then the GOG location)
   --mission NAME    mission to play, e.g. ftutor1, testdrive1a, police1 (default: the menu)
@@ -33,6 +33,11 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --sim SECS        before the screenshot, run the game for SECS seconds (skipping fly-bys),
                     punching twice and kicking twice first (testing)
   --sim-walk SECS   the same, walking Darci forward; --sim-run SECS running
+  --host [PORT]     co-op: host a game on PORT (default 7777) and wait for a second player;
+                    with --mission, that's the mission played (else choose it in the lobby)
+  --join HOST       co-op: join the game hosted at HOST or HOST:PORT, as Roper
+  --name NAME       co-op: your name in the lobby (default: your user name)
+  --coop-bot        co-op: play your seat with made-up inputs (testing)
 
 Darci: WASD move (relative to the camera), Shift run, J or left mouse punch, K kick, Q block,
   E action (arrest, climb; hold while running to sprint; hold over a searchable prop or someone
@@ -54,7 +59,10 @@ Hold Tab for the mission's checklist: objectives, side objectives and badges.
 Free camera (V): mouse look, WASD move, Space/E up, C/Q down, Shift fast,
   Ctrl slow.
 Both: R restart, 1-6 toggle floor/walls/props/roofs/details/people, H hide help,
-  F12 screenshot, Esc pause (resume, restart or abandon).";
+  F12 screenshot, Esc pause (resume, restart or abandon).
+Co-op: the host is Darci (or whoever the mission's player is) and the other player Roper. The
+  host's R restarts for both; Enter after a win plays the next mission. Leaving the mission
+  leaves the game: your player stands still for the other.";
 
 #[derive(Clone)]
 pub(crate) struct Args {
@@ -93,6 +101,11 @@ pub(crate) struct Args {
     pub(crate) dump_pages: Option<PathBuf>,
     /// Seconds to simulate before a screenshot, and how Darci moves meanwhile (None, walk, run).
     pub(crate) sim: Option<(f32, Option<bool>)>,
+    /// Co-op (#182): host on this port, or join this address, as this name.
+    pub(crate) host: Option<u16>,
+    pub(crate) join: Option<String>,
+    pub(crate) name: String,
+    pub(crate) coop_bot: bool,
 }
 
 pub(crate) fn parse_floats(s: &str, n: usize, what: &str) -> Result<Vec<f32>, String> {
@@ -130,9 +143,19 @@ pub(crate) fn parse_args() -> Result<Args, String> {
         size: (1280, 720),
         dump_pages: None,
         sim: None,
+        host: None,
+        join: None,
+        coop_bot: false,
+        name: std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_else(|_| "Player".into()),
     };
-    let mut it = std::env::args().skip(1);
+    let mut it = std::env::args().skip(1).peekable();
     while let Some(arg) = it.next() {
+        // The port's optional.
+        if arg == "--host" {
+            let port = it.next_if(|v| v.parse::<u16>().is_ok()).map_or(uc_net::PORT, |v| v.parse().unwrap());
+            a.host = Some(port);
+            continue;
+        }
         let mut value = || it.next().ok_or(format!("{arg} needs a value"));
         match arg.as_str() {
             "--game" => a.game = PathBuf::from(value()?),
@@ -186,6 +209,9 @@ pub(crate) fn parse_args() -> Result<Args, String> {
                 a.size = (w.parse().map_err(|_| "--size: bad width")?, h.parse().map_err(|_| "--size: bad height")?);
             }
             "--dump-pages" => a.dump_pages = Some(PathBuf::from(value()?)),
+            "--join" => a.join = Some(value()?),
+            "--name" => a.name = value()?,
+            "--coop-bot" => a.coop_bot = true,
             "--sim" | "--sim-walk" | "--sim-run" => {
                 let secs = value()?.parse::<f32>().map_err(|e| format!("{arg}: {e}"))?;
                 a.sim = Some((secs, match arg.as_str() { "--sim-walk" => Some(false), "--sim-run" => Some(true), _ => None }));

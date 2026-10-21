@@ -162,8 +162,9 @@ impl Game {
     /// The rider's side of it each frame: on once the bike's done getting on
     /// (`SUB_STATE_MOUNTING_BIKE` to `_RIDING_BIKE`), the controls while riding
     /// (`BIKE_control_set`: forward the throttle, back the brake, left and right to steer,
-    /// jump for a wheelie), kept on the bike, and off once getting off is done.
-    pub(crate) fn ride(&mut self, input: &Controls, level: &Level) {
+    /// jump for a wheelie), kept on the bike, and off once getting off is done. `players` is
+    /// each playing person's controls, for the bike they're on.
+    pub(crate) fn ride(&mut self, players: &[(usize, Drive)], level: &Level) {
         for pi in 0..self.people.len() {
             let State::Bike { bike: k, phase } = self.people[pi].state else { continue };
             let Some((b, fig)) = self.bikes.get_mut(k) else { continue };
@@ -175,8 +176,7 @@ impl Game {
                     }
                 }
                 1 => {
-                    if self.people[pi].player {
-                        let d = input.drive;
+                    if let Some(&(_, d)) = players.iter().find(|&&(p, _)| p == pi) {
                         let accel = if d.throttle > 0.3 { 1 } else { 0 };
                         // The original's left is +1.
                         let steer = if d.steer > 0.3 { -1 } else if d.steer < -0.3 { 1 } else { 0 };

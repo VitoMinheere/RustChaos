@@ -86,6 +86,8 @@ pub(crate) struct World {
     /// Crinkles are on (`--no-crinkles` starts with them off; the console's `crinkles`
     /// switches them, as in the original, Controls.cpp:450).
     pub(crate) crinkles: bool,
+    /// Co-op (#182): this player's seat. The game is focused on it.
+    pub(crate) seat: Option<usize>,
     /// The race against the best run's ghost, on the missions that have one (#186).
     pub(crate) race: Option<ghosts::Race>,
     /// The ghost is shown (B switches it, and it's remembered).
@@ -100,10 +102,28 @@ fn race(game: &mut Game, level: &Level, args: &Args) -> Option<ghosts::Race> {
 
 impl World {
     pub(crate) fn load(args: Args) -> Result<World, String> {
+        World::load_with(args, None, |level, args| {
+            let mut game = new_game(level, args);
+            arm(&mut game, level, args);
+            game
+        })
+    }
+
+    /// A co-op game's mission, as `setup` has it, played from `seat`. Nothing here may
+    /// change the game but `setup`: every player's machine has to start the same one.
+    pub(crate) fn load_coop(args: Args, setup: &uc_net::Setup, seat: usize) -> Result<World, String> {
+        let args = Args { mission: setup.mission.clone(), explore: false, endless: false, beat: false, dogs: 0, weapon: uc_game::Weapon::None, cam: None, ..args };
+        World::load_with(args, Some(seat), |level, _| {
+            let mut game = setup.game(level);
+            game.focus(seat);
+            game
+        })
+    }
+
+    fn load_with(args: Args, seat: Option<usize>, make: impl FnOnce(&Level, &Args) -> Game) -> Result<World, String> {
         let opt = LoadOptions { fullbright: args.fullbright, character: !args.no_character, overrides: args.overrides.clone() };
         let level = Level::load(&args.game, &args.mission, &opt)?;
-        let mut game = new_game(&level, &args);
-        arm(&mut game, &level, &args);
+        let mut game = make(&level, &args);
         if !game.unsupported().is_empty() {
             println!("{}: {} event points aren't supported yet and do nothing: {}", level.name,
                      game.unsupported().len(), game.unsupported().join(", "));
@@ -120,7 +140,8 @@ impl World {
             .map_or((level.name.clone(), String::new()), |m| (m.1, m.2));
         let objectives = checklist::split_briefing(&briefing).1;
         let crinkles = args.crinkles;
-        let race = race(&mut game, &level, &args);
+        // A co-op run isn't a solo one to race or keep as the best.
+        let race = if seat.is_none() { race(&mut game, &level, &args) } else { None };
         Ok(World {
             fly: FlyCam::from(start),
             orbit: Orbit::behind(angle),
@@ -148,6 +169,7 @@ impl World {
             ach_clock: 1.0,
             relief: Relief::default(),
             crinkles,
+            seat,
             race,
             ghost_on: progress::Progress::load().ghosts(),
         })

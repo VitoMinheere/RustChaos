@@ -10,6 +10,7 @@ mod audio;
 mod cam;
 mod checklist;
 mod console;
+mod coop;
 mod ghosts;
 mod hud;
 mod input;
@@ -23,6 +24,7 @@ use args::*;
 use audio::*;
 use cam::*;
 use console::*;
+use coop::*;
 use hud::*;
 use input::*;
 use pause::*;
@@ -79,6 +81,10 @@ struct App {
     backdrop: String,
     frames: u32,
     shots: u32,
+    /// Co-op (#182): the game being played with someone else, and the server this player
+    /// hosts, once they've hosted.
+    coop: Option<Coop>,
+    hosting: Option<std::net::SocketAddr>,
 }
 
 impl App {
@@ -159,7 +165,13 @@ impl App {
                 }
             }
         }
-        if inp.hit(KeyCode::KeyR) {
+        if inp.hit(KeyCode::KeyR) && self.coop.is_some() {
+            if let Some(c) = self.coop.as_mut().filter(|c| c.is_host()) {
+                if let Some(s) = c.setup.clone() {
+                    c.client.choose(s);
+                }
+            }
+        } else if inp.hit(KeyCode::KeyR) {
             w.restart();
             // Starting over shouldn't be talked over by the run before it.
             if let Some(s) = self.sound.as_mut() {
@@ -274,15 +286,58 @@ impl App {
             let pad_mv = fwd * pad.mv.y + right * pad.mv.x;
             w.fly.pos += (mv.normalize_or_zero() + pad_mv) * speed * dt;
             // T: Darci goes where the camera looks, and the camera's back on her.
-            if inp.hit(KeyCode::KeyT) && w.game.player.is_some() {
+            if inp.hit(KeyCode::KeyT) && w.game.player.is_some() && self.coop.is_none() {
                 w.teleport_to_view();
             }
         }
+        // In co-op the skip goes with the input, for every machine to skip on the same turn.
+        let mut skip = false;
         if w.game.cutscene.is_some() && (inp.hit(KeyCode::Space) || inp.hit(KeyCode::Enter) || pad.hit(Button::South)) {
-            w.game.skip_cutscene();
+            if self.coop.is_some() {
+                skip = true;
+            } else {
+                w.game.skip_cutscene();
+            }
             controls.jump = false;
         }
-        w.game.update(dt * w.console.time_scale.unwrap_or(1.0), &controls, &w.level);
+        match self.coop.as_mut() {
+            Some(c) => c.frame(w, dt, &controls, skip),
+            None => w.game.update(dt * w.console.time_scale.unwrap_or(1.0), &controls, &w.level),
+        }
+    }
+
+    /// Co-op: the server has started `setup`, so it's loaded and played from this player's
+    /// seat, from turn 0.
+    fn play_coop(&mut self, setup: uc_net::Setup) {
+        let Some(seat) = self.coop.as_ref().map(|c| c.seat()) else { return };
+        if let Some(w) = self.world.as_mut() {
+            w.save_stats();
+        }
+        match World::load_coop(self.args.clone(), &setup, seat) {
+            Ok(mut w) => {
+                if let Some(g) = self.gfx.as_mut() {
+                    g.renderer.clear_textures();
+                    w.upload(&mut g.renderer);
+                }
+                if let Some(s) = self.sound.as_mut() {
+                    s.start(&w);
+                }
+                self.world = Some(w);
+                self.menu = None;
+                self.capture_cursor(self.want_cursor());
+                if let Some(c) = self.coop.as_mut() {
+                    println!("co-op: playing {} as seat {}, with an input delay of {} turns", setup.mission, seat + 1, c.client.delay());
+                    c.lock = uc_net::client::Lockstep::new();
+                    c.setup = Some(setup);
+                }
+            }
+            Err(e) => {
+                eprintln!("{}: {e}", setup.mission);
+                if let Some(c) = self.coop.as_mut() {
+                    c.notices.push((format!("Can't load {}: {e}", setup.mission), 8.0));
+                }
+            }
+        }
     }
 
     /// Loads mission `name` and starts playing it.
@@ -311,11 +366,16 @@ impl App {
 
     fn open_menu(&mut self) {
         let mut m = menu::Menu::new(&self.args.game);
+        // Leaving a co-op mission leaves the game.
+        let left_coop = self.world.is_some() && self.coop.take().is_some();
         // Back from a mission: straight to the missions, past the title.
         if let Some(w) = self.world.as_mut() {
             w.save_stats();
             m.select(&w.level.name);
-            m.screen = menu::Screen::Missions;
+            m.screen = if left_coop { menu::Screen::Coop } else { menu::Screen::Missions };
+        }
+        if self.coop.is_some() {
+            m.screen = menu::Screen::Lobby;
         }
         self.world = None;
         self.menu = Some(m);
@@ -326,8 +386,27 @@ impl App {
     }
 
     /// The menu: choose with the arrows (or stick/d-pad), Enter (or A) plays.
-    fn menu_frame(&mut self, el: &ActiveEventLoop) {
+    fn menu_frame(&mut self, el: &ActiveEventLoop, dt: f32) {
         self.poll_pad();
+        // Co-op: the game the server's started, or the connection gone.
+        if let Some(c) = self.coop.as_mut() {
+            c.client.poll();
+            c.notices(dt);
+            if let Some(setup) = c.client.take_start() {
+                self.play_coop(setup);
+                self.input.pressed.clear();
+                return;
+            }
+            if let (Some(why), Some(m)) = (c.client.closed.clone(), self.menu.as_mut()) {
+                (m.status, m.screen, m.lobby) = (why, menu::Screen::Coop, None);
+                self.coop = None;
+            }
+        }
+        if let (Some(m), Some(c)) = (self.menu.as_mut(), self.coop.as_ref()) {
+            let hosting = if c.is_host() { self.hosting.map_or(Vec::new(), |a| coop::addresses(a.port())) } else { Vec::new() };
+            let notices = c.notices.iter().map(|n| n.0.clone()).collect();
+            m.lobby = Some(menu::Lobby { seat: c.seat(), names: c.client.names.clone(), hosting, notices });
+        }
         let inp = &self.input;
         let Some(m) = self.menu.as_mut() else { return };
         if let Some(i) = m.loading {
@@ -384,6 +463,7 @@ impl App {
                 if go {
                     match menu::MAIN[m.main] {
                         "START" => m.screen = menu::Screen::Missions,
+                        "CO-OP" => m.screen = if self.coop.is_some() { menu::Screen::Lobby } else { menu::Screen::Coop },
                         // The two lists differ: start each at the top.
                         "ENDLESS" => {
                             (m.for_beat, m.map_selected) = (false, 0);
@@ -405,6 +485,63 @@ impl App {
                             return;
                         }
                     }
+                }
+            }
+            // The host's choice for co-op: off to the server, and back to the lobby to wait.
+            menu::Screen::Missions if m.for_coop => {
+                if back {
+                    (m.screen, m.for_coop) = (menu::Screen::Lobby, false);
+                }
+                if up {
+                    m.up();
+                }
+                if down {
+                    m.down();
+                }
+                if let (true, Some(e), Some(c)) = (go, m.entries.get(m.selected), self.coop.as_mut()) {
+                    c.choose(&e.mission);
+                    (m.screen, m.for_coop) = (menu::Screen::Lobby, false);
+                }
+            }
+            menu::Screen::Coop => {
+                // Arrows only: the letters go in the address.
+                let up = inp.hit(KeyCode::ArrowUp) || inp.pad.hit(Button::DPadUp);
+                let down = inp.hit(KeyCode::ArrowDown) || inp.pad.hit(Button::DPadDown);
+                let go = inp.hit(KeyCode::Enter) || inp.hit(KeyCode::NumpadEnter) || inp.pad.hit(Button::South);
+                if back {
+                    (m.screen, m.status) = (menu::Screen::Main, String::new());
+                }
+                if up || down {
+                    m.coop = (m.coop + 1) % menu::COOP.len();
+                }
+                if menu::COOP[m.coop] == "JOIN" {
+                    m.address.extend(inp.typed.chars().filter(|c| c.is_ascii_alphanumeric() || ".:-[]".contains(*c)));
+                    if inp.hit(KeyCode::Backspace) {
+                        m.address.pop();
+                    }
+                }
+                if go {
+                    m.status = "Connecting...".into();
+                    let made = match menu::COOP[m.coop] {
+                        "HOST" => Coop::host(&mut self.hosting, self.args.host.unwrap_or(uc_net::PORT), &self.args.name),
+                        _ => Coop::join(&m.address, &self.args.name),
+                    };
+                    match made {
+                        Ok(c) => {
+                            self.coop = Some(c);
+                            (m.screen, m.status) = (menu::Screen::Lobby, String::new());
+                        }
+                        Err(e) => m.status = e,
+                    }
+                }
+            }
+            menu::Screen::Lobby => {
+                if back || self.coop.is_none() {
+                    self.coop = None;
+                    (m.screen, m.lobby) = (menu::Screen::Coop, None);
+                }
+                if go && self.coop.as_ref().is_some_and(|c| c.is_host()) {
+                    (m.screen, m.for_coop) = (menu::Screen::Missions, true);
                 }
             }
             menu::Screen::Missions => {
@@ -451,6 +588,7 @@ impl App {
             }
         }
         self.input.pressed.clear();
+        self.input.typed.clear();
         self.input.lmb_pressed = false;
         self.input.mouse = Vec2::ZERO;
         self.input.wheel = 0.0;
@@ -497,10 +635,18 @@ impl App {
             if self.menu.is_none() {
                 self.open_menu();
             }
-            self.menu_frame(el);
+            self.menu_frame(el, dt);
             return;
         }
-        if self.world.as_ref().is_some_and(|w| w.pause.is_none()) {
+        // Co-op: the server's notices, and a game started (again, or the next mission).
+        if let Some(c) = self.coop.as_mut() {
+            c.notices(dt);
+            if let Some(setup) = c.client.take_start() {
+                self.play_coop(setup);
+                return;
+            }
+        }
+        if self.world.as_ref().is_some_and(|w| w.pause.is_none()) && self.coop.is_none() {
             let w = self.world.as_mut().unwrap();
             w.console_input(&mut self.input, dt);
         }
@@ -550,8 +696,15 @@ impl App {
             if let Some(next) = m.after(&current) {
                 let name = m.entries[next].mission.clone();
                 self.input.pressed.clear();
-                self.play(&name);
-                return;
+                // In co-op the host starts it for both.
+                match self.coop.as_mut() {
+                    Some(c) if c.is_host() => c.choose(&name),
+                    Some(_) => {}
+                    None => {
+                        self.play(&name);
+                        return;
+                    }
+                }
             }
         }
         let paused = self.world.as_ref().is_some_and(|w| w.pause.is_some());
@@ -566,7 +719,9 @@ impl App {
         // Won as Darci with more than one innocent dead: the chief's warning, and at the
         // fourth her badge, which loses the mission (Game.cpp:2783, `X_CIVSDEAD_WARNING_*`).
         let darci = world.game.player().is_some_and(|p| p.kind == uc_world::character::person::DARCI);
-        if world.game.outcome == Some(Outcome::Won) && world.result.is_none() && world.civ_warning.is_none() && darci && world.game.red_marks > 1 {
+        // (Not in co-op: the warnings counted are this player's own, and the loss would be on
+        // this machine only.)
+        if world.game.outcome == Some(Outcome::Won) && world.result.is_none() && world.civ_warning.is_none() && darci && world.game.red_marks > 1 && world.seat.is_none() {
             let n = progress::Progress::load().warn();
             world.civ_warning = Some(civ_warning(&world.args.game, n));
             if n >= 3 {
@@ -639,6 +794,9 @@ impl App {
         if world.pause.is_none() {
             draw_sights(&mut hud, &world.game.gun_sights(), &cam, size);
         }
+        if let Some(c) = &self.coop {
+            c.overlay(&mut hud, size);
+        }
         world.game.end_draw();
         if let Some(p) = &world.pause {
             p.overlay(&mut hud, size);
@@ -676,7 +834,7 @@ impl App {
             let fps = self.frames as f32 / self.title_timer;
             let st = g.renderer.stats;
             let mode = match (world.game.player(), world.third_person) {
-                (Some(p), true) => format!("Darci at {:.1}, {:.1}", p.fig.pos.x / 256.0, p.fig.pos.z / 256.0),
+                (Some(p), true) => format!("{} at {:.1}, {:.1}", world.game.player_name(), p.fig.pos.x / 256.0, p.fig.pos.z / 256.0),
                 _ => format!("free camera at {:.1}, {:.1}, {:.1}", cam.pos.x, cam.pos.y, cam.pos.z),
             };
             g.window.set_title(&format!(
@@ -857,8 +1015,30 @@ fn run() -> Result<(), String> {
     let el = EventLoop::new().map_err(|e| e.to_string())?;
     let mut sound = Sound::new(&args);
     let pads = Gilrs::new().map_err(|e| eprintln!("gamepads unavailable: {e}")).ok();
+    // Co-op from the command line: hosting (the mission chosen straight away, with
+    // --mission) or joining, then the lobby until the game starts.
+    let mut hosting = None;
+    let coop = match (args.host, &args.join) {
+        (Some(port), _) => {
+            let mut c = Coop::host(&mut hosting, port, &args.name)?;
+            for a in coop::addresses(port) {
+                println!("co-op: hosting; the other player joins with --join {a}");
+            }
+            if args.mission_given {
+                c.choose(&args.mission);
+            }
+            Some(c)
+        }
+        (None, Some(addr)) => Some(Coop::join(addr, &args.name)?),
+        _ => None,
+    };
+    let coop = coop.map(|c| Coop { bot: args.coop_bot, ..c });
     // Straight into a mission with --mission, else the menu.
-    let (world, menu) = if args.mission_given {
+    let (world, menu) = if coop.is_some() {
+        let mut m = menu::Menu::new(&args.game);
+        m.screen = menu::Screen::Lobby;
+        (None, Some(m))
+    } else if args.mission_given {
         let w = World::load(args.clone())?;
         if let Some(s) = sound.as_mut() {
             s.start(&w);
@@ -869,7 +1049,7 @@ fn run() -> Result<(), String> {
     };
     let mut app = App {
         world, menu, args, gfx: None, sound, pads, input: Input::default(), last: Instant::now(), title_timer: 0.0, backdrop: String::new(),
-        frames: 0, shots: 0,
+        frames: 0, shots: 0, coop, hosting,
     };
     el.run_app(&mut app).map_err(|e| e.to_string())
 }

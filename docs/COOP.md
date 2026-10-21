@@ -6,7 +6,31 @@ plan builds on the multiplayer ticket (#114) and on what's already in place:
 - `Game::state_hash` and the test that two runs agree on it (#115);
 - the second player in Capture the Flag (#133).
 
-Nothing here is built yet.
+## What's built (#182)
+
+The first playable cut. It is two players: Darci and Roper.
+
+- **Seats in `uc-game`:**
+  - `Game::step(&[Controls])` plays a turn with one input per seat.
+  - `Game::add_partner` puts Roper next to the mission's player, or Darci next to Roper in his own missions.
+  - A partner keeps the player-only state of his own: target, aim, search, scope, grenade and hook. `Game::focus` swaps it in, so everything written for "the player" works for him unchanged. The viewer focuses its own seat, for the camera and the HUD.
+  - Enemies go for the nearest player. The script's radius, cuboid and "player uses" triggers watch every seat.
+  - A partner who's down gets up next to Darci six seconds later. That's simpler than down-not-out below; the mission is lost when seat 1 is.
+- **`uc-net`:** lockstep over TCP. QUIC can come later; at two players TCP's head-of-line blocking costs little.
+  - The server gathers each turn's inputs and sends them out together, and compares the state hashes once a second.
+  - It pings the players in the lobby, and picks the input delay from the slowest round trip when the game starts: 3 turns (100 ms) on a LAN, more over the internet. It doesn't adapt during a game yet.
+  - Builds are compared at hello (the git commit), and a different one is turned away.
+- **`uc-server`:** the headless server. **It doesn't run the game** in this cut: the players' hashes are compared with each other, and a desync is reported, not repaired.
+  - `--bot` plays a mission with made-up inputs from a second process. Two bots show two processes staying in step.
+- **The viewer:**
+  - CO-OP in the menu: HOST, or JOIN by address, then a lobby where the host picks the mission.
+  - `--host`, `--join` and `--name` on the command line.
+  - The partner's health on the HUD, and a beacon on him.
+  - Notices: waiting for the other player, someone left, out of step.
+  - The console, the time scale, the teleport and the civilian-casualties loss are off in co-op, since they would change one machine's game only.
+- **Not yet:** snapshots (joining mid-mission, repairing a desync), `libm` for cross-platform floats, three or four seats, split-screen.
+
+The rest of this document is the plan as it was written. Where the cut above differs, the cut is what's built.
 
 ## The choice: lockstep, with a server that also runs the game
 

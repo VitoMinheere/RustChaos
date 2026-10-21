@@ -194,14 +194,15 @@ impl Game {
     }
 
     /// Cars move; the player's car follows her controls. Cars knock people over and push
-    /// cones and barrels around.
-    pub(crate) fn drive(&mut self, dt: f32, input: &Controls, level: &Level) {
-        let player = self.player;
+    /// cones and barrels around. `players` is each playing person's driving, for the car
+    /// they're at the wheel of (one in single player, one a seat in co-op).
+    pub(crate) fn drive(&mut self, dt: f32, players: &[(usize, Drive)], level: &Level) {
+        let playing = |pi: usize| players.iter().find(|&&(p, _)| p == pi).map(|&(_, d)| d);
         // Anyone else at the wheel decides first. A driver who has gone (a kill_waypoint)
         // leaves the car where it is.
         let mut npc = vec![None; self.vehicles.len()];
         for (vi, d) in npc.iter_mut().enumerate() {
-            if let Some(pi) = self.vehicles[vi].driver.filter(|&pi| Some(pi) != player) {
+            if let Some(pi) = self.vehicles[vi].driver.filter(|&pi| playing(pi).is_none()) {
                 if matches!(self.people[pi].state, State::Enter { .. }) {
                     // Still getting in.
                 } else if self.people[pi].removed {
@@ -237,7 +238,10 @@ impl Game {
                 .map(|(i, _)| i)
                 .collect();
             let v = &mut self.vehicles[vi];
-            let d = if v.driver.is_some() && v.driver == player { input.drive } else { npc.map_or(Drive::default(), |(_, d)| d) };
+            let d = match v.driver.and_then(playing) {
+                Some(d) => d,
+                None => npc.map_or(Drive::default(), |(_, d)| d),
+            };
             let sliding = v.slip.abs() > 300.0;
             let mut smashed = None;
             if let Some(speed) = v.update(d, dt, &level.ground, &level.map) {

@@ -88,7 +88,10 @@ impl App {
         let Some(w) = self.world.as_mut() else { return false };
         let Some(mut p) = w.pause else { return false };
         let slow = (1.0 - p.up).max(0.0);
-        if slow > 0.0 && w.game.outcome.is_none() {
+        // In co-op the game goes on for the other player: this one just stands still.
+        if let Some(c) = self.coop.as_mut() {
+            c.frame(w, dt, &Controls::default(), false);
+        } else if slow > 0.0 && w.game.outcome.is_none() {
             w.game.update(dt * slow, &Controls::default(), &w.level);
         }
         p.up += dt;
@@ -107,6 +110,19 @@ impl App {
         match p.menu.items()[p.sel] {
             "RESUME LEVEL" => {
                 w.pause = None;
+                if let Some(s) = self.sound.as_mut() {
+                    s.resume();
+                }
+            }
+            // In co-op the host starts it over for both.
+            "RESTART LEVEL" if self.coop.is_some() => {
+                w.pause = None;
+                if let Some(c) = self.coop.as_mut() {
+                    match (c.is_host(), c.setup.clone()) {
+                        (true, Some(s)) => c.client.choose(s),
+                        _ => c.notices.push(("Only the host can restart the mission".into(), 4.0)),
+                    }
+                }
                 if let Some(s) = self.sound.as_mut() {
                     s.resume();
                 }

@@ -64,11 +64,27 @@ pub enum Screen {
     Endless,
     /// The stats and achievements (#132).
     Stats,
+    /// Co-op (#182): host, or join by address.
+    Coop,
+    /// Co-op: in a game, waiting for the other player or the host's choice.
+    Lobby,
 }
+
+/// What the lobby shows: who's in, this player's seat, and where the host can be reached.
+#[derive(Debug, Clone, Default)]
+pub struct Lobby {
+    pub seat: usize,
+    pub names: Vec<String>,
+    pub hosting: Vec<String>,
+    pub notices: Vec<String>,
+}
+
+/// The co-op screen's choices.
+pub const COOP: [&str; 2] = ["HOST", "JOIN"];
 
 /// The main menu's items (`raw_menu_data`, frontend.cpp:376): the ones there's something
 /// behind here.
-pub const MAIN: [&str; 7] = ["START", "ENDLESS", "BEAT COP", "CAPTURE THE FLAG", "DIFFICULTY", "STATS", "EXIT"];
+pub const MAIN: [&str; 8] = ["START", "CO-OP", "ENDLESS", "BEAT COP", "CAPTURE THE FLAG", "DIFFICULTY", "STATS", "EXIT"];
 
 /// The menus' look, by how far through the game (`menu_theme`, set in
 /// `FRONTEND_MissionHierarchy`, frontend.cpp:3337): leaves for the first eight missions done,
@@ -126,6 +142,14 @@ pub struct Menu {
     pub for_beat: bool,
     /// Missions completed so far.
     pub progress: Progress,
+    /// The co-op screen's choice, the address to join, and what went wrong last.
+    pub coop: usize,
+    pub address: String,
+    pub status: String,
+    /// The mission list is for the host's choice in co-op, not for playing alone.
+    pub for_coop: bool,
+    /// The co-op lobby, while in one.
+    pub lobby: Option<Lobby>,
 }
 
 impl Menu {
@@ -169,7 +193,8 @@ impl Menu {
             .filter(|(m, _)| entries.iter().any(|e| e.mission.eq_ignore_ascii_case(m)))
             .map(|&(m, name)| (m.to_string(), name.to_string(), None, 10.0))
             .collect();
-        Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false }
+        Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false,
+               coop: 0, address: "127.0.0.1".into(), status: String::new(), for_coop: false, lobby: None }
     }
 
     /// The map list on show: Beat Cop's districts or endless mode's arenas.
@@ -184,7 +209,7 @@ impl Menu {
         let w = self.theme.word();
         match self.screen {
             Screen::Title | Screen::Main => format!("data\\TITLE {}1.TGA", w.to_ascii_uppercase()),
-            Screen::Missions | Screen::Endless | Screen::Stats => format!("data\\map {w} darci.tga"),
+            Screen::Missions | Screen::Endless | Screen::Stats | Screen::Coop | Screen::Lobby => format!("data\\map {w} darci.tga"),
         }
     }
 
@@ -390,6 +415,62 @@ impl Menu {
         }
     }
 
+    /// Co-op: host or join, then the lobby.
+    fn coop_overlay(&self, o: &mut Overlay, w: f32, h: f32, s: f32) {
+        o.backdrop(0.0, 0.0, w, h, [255, 255, 255, 255]);
+        self.kibble(o, w, h, s);
+        o.rect(0.0, 0.0, w, h, [0, 0, 0, 170]);
+        let (white, gold, dim) = ([235, 235, 225, 255], [255, 210, 70, 255], [170, 170, 165, 255]);
+        let x = 20.0 * s;
+        o.text(x, 16.0 * s, s * 3.0, gold, "CO-OP");
+        let mut y = 50.0 * s;
+        match &self.lobby {
+            None => {
+                o.text(x, y, s, dim, "Two players: the host is Darci, the other player Roper.   Up/Down choose   Enter go   Esc back");
+                y += 24.0 * s;
+                for (k, item) in COOP.iter().enumerate() {
+                    let label = if *item == "JOIN" { format!("JOIN {}_", self.address) } else { format!("HOST (port {})", uc_net::PORT) };
+                    let tw = Overlay::text_width(&label, s * 2.0);
+                    if k == self.coop {
+                        o.rect(x - 6.0 * s, y - 3.0 * s, tw + 12.0 * s, 20.0 * s, [200, 150, 40, 200]);
+                    }
+                    o.text(x, y, s * 2.0, white, &label);
+                    y += 26.0 * s;
+                }
+                o.text(x, y, s, dim, "To join, type the host's address (and :port if it isn't 7777).");
+                y += 20.0 * s;
+            }
+            Some(l) => {
+                let you = if l.seat == 0 { "You're hosting, as seat 1." } else { "You're in, as seat 2." };
+                o.text(x, y, s, white, you);
+                y += 16.0 * s;
+                for (k, n) in l.names.iter().enumerate() {
+                    let who = if k == 0 { "DARCI" } else { "ROPER" };
+                    let name = if n.is_empty() { "(waiting...)" } else { n.as_str() };
+                    o.text(x, y, s * 2.0, if n.is_empty() { dim } else { gold }, &format!("{}  {who}: {name}", k + 1));
+                    y += 22.0 * s;
+                }
+                y += 6.0 * s;
+                if !l.hosting.is_empty() {
+                    o.text(x, y, s, white, &format!("The other player joins at {}", l.hosting.join("   or   ")));
+                    y += 12.0 * s;
+                    o.text(x, y, s, dim, "From another network: forward the port to this machine, or use a VPN such as Tailscale.");
+                    y += 16.0 * s;
+                }
+                let keys = if l.seat == 0 { "Enter: choose the mission   Esc: leave" } else { "Waiting for the host to choose a mission.   Esc: leave" };
+                o.text(x, y, s, dim, keys);
+                y += 16.0 * s;
+                for n in &l.notices {
+                    o.text(x, y, s, white, n);
+                    y += 12.0 * s;
+                }
+            }
+        }
+        if !self.status.is_empty() {
+            o.text(x, y + 8.0 * s, s, [255, 120, 100, 255], &self.status);
+        }
+    }
+
     pub fn map_up(&mut self) {
         let n = self.arenas().len().max(1);
         self.map_selected = (self.map_selected + n - 1) % n;
@@ -412,6 +493,10 @@ impl Menu {
             self.stats_overlay(&mut o, w, h, s);
             return o;
         }
+        if matches!(self.screen, Screen::Coop | Screen::Lobby) {
+            self.coop_overlay(&mut o, w, h, s);
+            return o;
+        }
         if self.screen != Screen::Missions {
             self.front(&mut o, w, h, s);
             return o;
@@ -424,7 +509,8 @@ impl Menu {
         let gold = [255, 210, 70, 255];
         let x = 20.0 * s;
         o.text(x, 16.0 * s, s * 3.0, gold, "URBAN CHAOS");
-        o.text(x, 44.0 * s, s, [200, 200, 190, 220], "Up/Down choose   Enter play   Esc back");
+        let keys = if self.for_coop { "CO-OP: choose the mission to play together.   Up/Down choose   Enter play   Esc back" } else { "Up/Down choose   Enter play   Esc back" };
+        o.text(x, 44.0 * s, s, [200, 200, 190, 220], keys);
         // How far through the missions.
         let done = self.entries.iter().filter(|e| self.progress.completed(&e.mission)).count();
         let [sta, str, rfx, con] = self.progress.stats();

@@ -9,6 +9,7 @@ impl Game {
         let mut out = self.beat_beacons();
         out.extend(self.endless_beacons());
         out.extend(self.ctf_beacons());
+        out.extend(self.coop_beacons());
         let Some(s) = &self.script else { return out };
         out.extend(s.beacons()
             .into_iter()

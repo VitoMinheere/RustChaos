@@ -32,6 +32,7 @@ pub mod grenades;
 pub mod hook;
 pub mod balloons;
 pub mod ctf;
+pub(crate) mod coop;
 pub mod stats;
 mod litter;
 mod trail;
