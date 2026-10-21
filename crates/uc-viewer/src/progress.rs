@@ -46,6 +46,8 @@ pub struct Progress {
     difficulty: uc_game::Difficulty,
     /// The Beat Cop shift length chosen in the menu, in minutes (`None` open-ended).
     shift: Option<u32>,
+    /// Racing the best run's ghost on the missions that have one (#186): on unless switched off.
+    ghosts: bool,
     /// Everything done, over all play (#132).
     pub totals: uc_game::game::stats::Stats,
     /// The achievements earned, by id.
@@ -76,6 +78,11 @@ impl Progress {
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
         Some(base.join("urban-chaos-rs").join("progress.txt"))
+    }
+
+    /// The folder the progress file is in, where other saved things go too.
+    pub fn folder() -> Option<PathBuf> {
+        Some(Progress::default_path()?.parent()?.to_path_buf())
     }
 
     pub fn load() -> Progress {
@@ -121,7 +128,17 @@ impl Progress {
             }
         }
         let achieved = text.lines().filter_map(|l| Some(l.strip_prefix("@ach ")?.trim().to_string())).collect();
-        Progress { done, civ_warnings, endless, difficulty, shift, totals: stats, achieved, path }
+        let ghosts = !text.lines().any(|l| l.trim() == "@ghosts off");
+        Progress { done, civ_warnings, endless, difficulty, shift, ghosts, totals: stats, achieved, path }
+    }
+
+    pub fn ghosts(&self) -> bool {
+        self.ghosts
+    }
+
+    pub fn set_ghosts(&mut self, on: bool) {
+        self.ghosts = on;
+        self.save();
     }
 
     /// Another mission ended with too many civilian casualties: the chief's warnings before
@@ -248,6 +265,7 @@ impl Progress {
             .chain((self.shift != uc_game::game::beat::DEFAULT_SHIFT).then(|| format!("@shift {}\n", self.shift.unwrap_or(0))))
             .chain(self.totals.fields().into_iter().filter(|(_, v)| *v != 0.0).map(|(n, v)| format!("@stat {n} {v}\n")))
             .chain(self.achieved.iter().map(|a| format!("@ach {a}\n")))
+            .chain((!self.ghosts).then(|| "@ghosts off\n".to_string()))
             .chain((self.difficulty != uc_game::Difficulty::Normal).then(|| {
                 let n = uc_game::Difficulty::ALL.iter().position(|&d| d == self.difficulty).unwrap_or(1);
                 format!("@difficulty {n}\n")

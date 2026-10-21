@@ -394,7 +394,15 @@ pub struct Script {
     used: Option<usize>,
     commands: Vec<Command>,
     finished: bool,
+    /// Points set off by someone getting somewhere, in the order they went off, since the
+    /// game last took them: a ghost race's splits (#186).
+    passed: Vec<usize>,
 }
+
+/// Triggers that go off when someone (or something) gets to a place: the checkpoints a run
+/// passes, for a ghost race's splits.
+const PLACES: [u8; 7] = [trigger::RADIUS, trigger::CUBOID, trigger::ENEMY_RADIUS, trigger::PLAYER_USES_RADIUS,
+                          trigger::TRIPWIRE, trigger::THING_RADIUS_DIR, trigger::MOVE_RADIUS_DIR];
 
 /// The number of a message's or conversation's recording: `Data[9]`, which the original
 /// keeps as the speech file's number (`EWAY_create`'s `magic_index`, fallen/Source/eway.cpp);
@@ -461,8 +469,13 @@ impl Script {
         }
         Script {
             ways, counters: [0; 16], punches: 0, kicks: 0, time: 0.0, rng: 0x5eed, unsupported,
-            commands, finished: false, used: None,
+            commands, finished: false, used: None, passed: Vec::new(),
         }
+    }
+
+    /// The checkpoints passed since the last call, in order.
+    pub fn take_passed(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.passed)
     }
 
     fn rand(&mut self) -> u32 {
@@ -682,6 +695,9 @@ impl Script {
         let w = self.ways[i].as_mut().unwrap();
         w.active = true;
         let ep = w.ep.clone();
+        if PLACES.contains(&ep.trigger) {
+            self.passed.push(ep.index);
+        }
         let pos = w.pos();
         let angle = uc_world::character::ep_angle(ep.direction);
         let d = ep.data;

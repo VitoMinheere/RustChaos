@@ -196,6 +196,23 @@ impl World {
             o.text(w / 2.0 - Overlay::text_width(&text, big) / 2.0, 10.0 * s, big, col, &text);
         }
 
+        // The ghost race (#186), under the clock: the best run's time, and how this run stood
+        // against it at the last checkpoint, green ahead and red behind.
+        if let (Some(r), None) = (&self.race, &self.game.outcome) {
+            let best = match (&r.best, self.ghost_on) {
+                (Some(b), true) => format!("GHOST {}", progress::clock(b.time)),
+                (Some(b), false) => format!("BEST {}  (B: ghost)", progress::clock(b.time)),
+                (None, _) => "NO GHOST YET".to_string(),
+            };
+            let split = r.split.map(|(d, _)| (format!("  {}", ghosts::split_text(d)), if d <= 0.0 { [110, 230, 110, 255] } else { [240, 90, 70, 255] }));
+            let tw = Overlay::text_width(&best, s) + split.as_ref().map_or(0.0, |(t, _)| Overlay::text_width(t, s * 2.0));
+            let (x, y) = (w / 2.0 - tw / 2.0, 30.0 * s);
+            let x = x + o.text(x, y + 3.0 * s, s, [200, 210, 235, 230], &best);
+            if let Some((text, col)) = split {
+                o.text(x, y, s * 2.0, col, &text);
+            }
+        }
+
         // Fly-bys: letterbox and a hint.
         if self.game.cutscene.is_some() {
             o.rect(0.0, 0.0, w, h * 0.1, [0, 0, 0, 255]);
@@ -423,6 +440,10 @@ impl World {
                         Some((t, None)) => format!("Time {}   ", progress::clock(t)),
                         None => String::new(),
                     };
+                    let time = match &self.race {
+                        Some(r) if r.saved => format!("{time}New ghost saved   "),
+                        _ => time,
+                    };
                     let (badges, sides) = self.tally();
                     let found = if self.goals.badges.is_empty() && self.goals.sides.is_empty() {
                         String::new()
@@ -471,7 +492,7 @@ impl World {
         // The controls, for the first 20 seconds (H toggles them).
         if self.help && !self.checklist && self.game.cutscene.is_none() && (self.game.time < 20.0 || self.help_forced) {
             let help = ["WASD move   Shift run   Space jump   E action (hold: sprint)   C crouch (move: crawl)", "J / left mouse punch   K kick   Q block   M mouse look on/off",
-                        "G next weapon   T next target   Z scope (sniper rifle)   Tab checklist   R restart   V free camera (T: go there)   ~ console   H hide help"];
+                        "G next weapon   T next target   Z scope (sniper rifle)   Tab checklist   R restart   V free camera (T: go there)   B ghost   ~ console   H hide help"];
             for (k, line) in help.iter().enumerate() {
                 o.text(12.0 * s, 44.0 * s + k as f32 * 10.0 * s, s, [200, 200, 190, 200], line);
             }

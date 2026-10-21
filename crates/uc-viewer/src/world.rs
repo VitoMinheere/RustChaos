@@ -88,6 +88,16 @@ pub(crate) struct World {
     pub(crate) crinkles: bool,
     /// Co-op (#182): this player's seat. The game is focused on it.
     pub(crate) seat: Option<usize>,
+    /// The race against the best run's ghost, on the missions that have one (#186).
+    pub(crate) race: Option<ghosts::Race>,
+    /// The ghost is shown (B switches it, and it's remembered).
+    pub(crate) ghost_on: bool,
+}
+
+/// The ghost race for a new game of `level`, if it's one of the missions raced (and played
+/// as the mission, not explored or as an endless run).
+fn race(game: &mut Game, level: &Level, args: &Args) -> Option<ghosts::Race> {
+    (ghosts::raced(&level.name) && !args.explore && !args.endless && !args.beat).then(|| ghosts::Race::start(game, &level.name))
 }
 
 impl World {
@@ -113,7 +123,7 @@ impl World {
     fn load_with(args: Args, seat: Option<usize>, make: impl FnOnce(&Level, &Args) -> Game) -> Result<World, String> {
         let opt = LoadOptions { fullbright: args.fullbright, character: !args.no_character, overrides: args.overrides.clone() };
         let level = Level::load(&args.game, &args.mission, &opt)?;
-        let game = make(&level, &args);
+        let mut game = make(&level, &args);
         if !game.unsupported().is_empty() {
             println!("{}: {} event points aren't supported yet and do nothing: {}", level.name,
                      game.unsupported().len(), game.unsupported().join(", "));
@@ -130,6 +140,8 @@ impl World {
             .map_or((level.name.clone(), String::new()), |m| (m.1, m.2));
         let objectives = checklist::split_briefing(&briefing).1;
         let crinkles = args.crinkles;
+        // A co-op run isn't a solo one to race or keep as the best.
+        let race = if seat.is_none() { race(&mut game, &level, &args) } else { None };
         Ok(World {
             fly: FlyCam::from(start),
             orbit: Orbit::behind(angle),
@@ -158,6 +170,8 @@ impl World {
             relief: Relief::default(),
             crinkles,
             seat,
+            race,
+            ghost_on: progress::Progress::load().ghosts(),
         })
     }
 
@@ -206,6 +220,7 @@ impl World {
         self.civ_warning = None;
         self.game = new_game(&self.level, &self.args);
         arm(&mut self.game, &self.level, &self.args);
+        self.race = race(&mut self.game, &self.level, &self.args);
         self.endless_recorded = None;
         if let Some(p) = self.game.player() {
             self.orbit = Orbit::behind(p.fig.angle);
@@ -288,6 +303,9 @@ impl World {
         self.game.rain(&self.level, cam.pos * uc_world::UNIT, cam.target - cam.pos, &mut out);
         if self.crinkles && self.layers.contains(&Layer::Walls) {
             self.relief.draw(cam.pos, &mut out);
+        }
+        if let (true, Some(best)) = (self.ghost_on, self.race.as_ref().and_then(|r| r.best.as_ref())) {
+            self.game.ghost_batches(best, &self.level, &mut out);
         }
         out
     }
