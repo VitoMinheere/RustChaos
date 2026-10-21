@@ -15,8 +15,11 @@
 //!
 //! [`Server`] is the session's logic with no sockets of its own; [`server::serve`] runs it
 //! over TCP, and [`Client`] is a player's end.
+//!
+//! [`replay`] saves a game as its start and these same inputs, and plays it back (#184).
 
 pub mod client;
+pub mod replay;
 pub mod server;
 mod wire;
 
@@ -105,11 +108,7 @@ impl Setup {
     /// and Roper next to her. Everything that changes the game before turn 0 is here, so that
     /// every machine does the same.
     pub fn game(&self, level: &Level) -> Game {
-        let mut g = Game::new(level, true);
-        g.set_stats(self.stats);
-        g.set_difficulty(self.difficulty());
-        g.add_partner(level);
-        g
+        replay::Start::coop(self).game(level)
     }
 
     pub fn difficulty(&self) -> Difficulty {

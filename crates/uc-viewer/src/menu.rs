@@ -3,6 +3,7 @@
 
 use crate::checklist;
 use crate::progress::{self, clock, Progress};
+use crate::replays;
 use uc_game::goals::Goals;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -68,6 +69,8 @@ pub enum Screen {
     Coop,
     /// Co-op: in a game, waiting for the other player or the host's choice.
     Lobby,
+    /// The saved replays (#184).
+    Replays,
 }
 
 /// What the lobby shows: who's in, this player's seat, and where the host can be reached.
@@ -84,7 +87,7 @@ pub const COOP: [&str; 2] = ["HOST", "JOIN"];
 
 /// The main menu's items (`raw_menu_data`, frontend.cpp:376): the ones there's something
 /// behind here.
-pub const MAIN: [&str; 8] = ["START", "CO-OP", "ENDLESS", "BEAT COP", "CAPTURE THE FLAG", "DIFFICULTY", "STATS", "EXIT"];
+pub const MAIN: [&str; 9] = ["START", "CO-OP", "ENDLESS", "BEAT COP", "CAPTURE THE FLAG", "DIFFICULTY", "STATS", "REPLAYS", "EXIT"];
 
 /// The menus' look, by how far through the game (`menu_theme`, set in
 /// `FRONTEND_MissionHierarchy`, frontend.cpp:3337): leaves for the first eight missions done,
@@ -150,6 +153,11 @@ pub struct Menu {
     pub for_coop: bool,
     /// The co-op lobby, while in one.
     pub lobby: Option<Lobby>,
+    /// The saved replays, newest first, as they were when the list was shown.
+    pub replays: Vec<replays::Listed>,
+    pub replay_selected: usize,
+    /// A replay chosen, to load on the next frame.
+    pub loading_replay: Option<usize>,
 }
 
 impl Menu {
@@ -194,7 +202,8 @@ impl Menu {
             .map(|&(m, name)| (m.to_string(), name.to_string(), None, 10.0))
             .collect();
         Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false,
-               coop: 0, address: "127.0.0.1".into(), status: String::new(), for_coop: false, lobby: None }
+               coop: 0, address: "127.0.0.1".into(), status: String::new(), for_coop: false, lobby: None,
+               replays: Vec::new(), replay_selected: 0, loading_replay: None }
     }
 
     /// The map list on show: Beat Cop's districts or endless mode's arenas.
@@ -209,7 +218,7 @@ impl Menu {
         let w = self.theme.word();
         match self.screen {
             Screen::Title | Screen::Main => format!("data\\TITLE {}1.TGA", w.to_ascii_uppercase()),
-            Screen::Missions | Screen::Endless | Screen::Stats | Screen::Coop | Screen::Lobby => format!("data\\map {w} darci.tga"),
+            Screen::Missions | Screen::Endless | Screen::Stats | Screen::Coop | Screen::Lobby | Screen::Replays => format!("data\\map {w} darci.tga"),
         }
     }
 
@@ -253,7 +262,10 @@ impl Menu {
             }
             return;
         }
-        let mut y = h * 0.55;
+        // Spaced to fit under the title, however short the screen.
+        let top = h * 0.38;
+        let step = (26.0 * s).min((h - 12.0 * s - top) / MAIN.len() as f32);
+        let mut y = top;
         for (k, &item) in MAIN.iter().enumerate() {
             let label = if item == "DIFFICULTY" {
                 format!("DIFFICULTY: {}", self.progress.difficulty().name().to_uppercase())
@@ -266,7 +278,7 @@ impl Menu {
                 o.rect(w / 2.0 - tw / 2.0 - 8.0 * s, y - 3.0 * s, tw + 16.0 * s, 20.0 * s, [200, 150, 40, 200]);
             }
             o.text(w / 2.0 - tw / 2.0, y, s * 2.0, white, item);
-            y += 26.0 * s;
+            y += step;
         }
     }
 
@@ -471,6 +483,71 @@ impl Menu {
         }
     }
 
+    /// The replays screen, with the list as it is now.
+    pub fn show_replays(&mut self) {
+        self.replays = replays::list();
+        self.replay_selected = self.replay_selected.min(self.replays.len().saturating_sub(1));
+        self.screen = Screen::Replays;
+    }
+
+    /// The saved replays: when, which mission, how it went and how long it took.
+    fn replays_overlay(&self, o: &mut Overlay, w: f32, h: f32, s: f32) {
+        o.backdrop(0.0, 0.0, w, h, [255, 255, 255, 255]);
+        self.kibble(o, w, h, s);
+        o.rect(0.0, 0.0, w, h, [0, 0, 0, 170]);
+        let (white, gold, dim) = ([235, 235, 225, 255], [255, 210, 70, 255], [150, 150, 145, 255]);
+        let x = 20.0 * s;
+        o.text(x, 16.0 * s, s * 3.0, gold, "REPLAYS");
+        o.text(x, 44.0 * s, s, [200, 200, 190, 220], "Up/Down choose   Enter watch   Esc back");
+        if let Some(i) = self.loading_replay {
+            let text = format!("LOADING {}...", self.title_of(&self.replays[i].mission).to_uppercase());
+            o.text(w / 2.0 - Overlay::text_width(&text, s * 2.0) / 2.0, h * 0.5, s * 2.0, white, &text);
+            return;
+        }
+        if !self.status.is_empty() {
+            o.text(x, h - 20.0 * s, s, [255, 120, 100, 255], &self.status);
+        }
+        if self.replays.is_empty() {
+            o.text(x, 64.0 * s, s, white, "No replays yet. A mission won, lost, or left after ten seconds is kept here.");
+            return;
+        }
+        let line = 11.0 * s;
+        let top = 64.0 * s;
+        let rows = (((h - top - 30.0 * s) / line) as usize).max(3);
+        let first = self.replay_selected.saturating_sub(rows / 2).min(self.replays.len().saturating_sub(rows));
+        // Columns: when, the mission, then how long and how it went.
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let gap = 16.0 * s;
+        let title_x = x + Overlay::text_width("59 minutes ago", s) + gap;
+        let titles = self.replays.iter().map(|r| Overlay::text_width(&self.title_of(&r.mission), s));
+        let how_x = title_x + titles.fold(0.0, f32::max).min(w * 0.4) + gap;
+        for (k, r) in self.replays.iter().enumerate().skip(first).take(rows) {
+            let y = top + (k - first) as f32 * line;
+            if k == self.replay_selected {
+                o.rect(x - 4.0 * s, y - 2.0 * s, w - 2.0 * x + 8.0 * s, line, [200, 150, 40, 200]);
+            }
+            let mut tags = Vec::new();
+            if r.coop {
+                tags.push("co-op");
+            }
+            if r.kept {
+                tags.push("kept");
+            }
+            if !r.same_build {
+                tags.push("another build");
+            }
+            o.text(x, y, s, dim, &replays::ago(r.date, now));
+            o.text(title_x, y, s, white, &self.title_of(&r.mission));
+            let how = format!("{:>5}  {}   {}", clock(r.time), r.outcome, tags.join(", "));
+            o.text(how_x, y, s, if r.outcome == "won" { gold } else { white }, &how);
+        }
+    }
+
+    /// Mission `name`'s title, as the list has it.
+    fn title_of(&self, name: &str) -> String {
+        self.entries.iter().find(|e| e.mission.eq_ignore_ascii_case(name)).map_or(name.to_string(), |e| e.title.clone())
+    }
+
     pub fn map_up(&mut self) {
         let n = self.arenas().len().max(1);
         self.map_selected = (self.map_selected + n - 1) % n;
@@ -491,6 +568,10 @@ impl Menu {
         }
         if self.screen == Screen::Stats {
             self.stats_overlay(&mut o, w, h, s);
+            return o;
+        }
+        if self.screen == Screen::Replays {
+            self.replays_overlay(&mut o, w, h, s);
             return o;
         }
         if matches!(self.screen, Screen::Coop | Screen::Lobby) {

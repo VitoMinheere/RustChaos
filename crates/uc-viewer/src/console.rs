@@ -5,6 +5,13 @@
 
 use crate::*;
 
+/// The commands that change the game, not just what's shown: a run that used one can't be
+/// played back from its inputs, so it isn't kept as a replay (#184).
+const CHANGES: [&str; 22] = [
+    "telw", "telr", "win", "lose", "roper", "darci", "kit", "boo", "pow", "god", "ammo", "freeze", "give", "kill",
+    "crime", "wave", "telb", "dog", "spawn", "car", "call", "autopilot",
+];
+
 const HELP: &str = "telw N (to event point N)  tels / telr (store / return)  wpt (nearest point)  \
 win  lose  restart  roper  darci  kit  boo  pow  pos  god  ammo  freeze  give WHAT  kill [near]  \ncrime N  time X  wave N  bonus  telb N  car  dog  call WHAT  autopilot  crinkles";
 
@@ -25,7 +32,7 @@ pub(crate) struct Console {
 }
 
 impl Console {
-    fn say(&mut self, s: impl Into<String>) {
+    pub(crate) fn say(&mut self, s: impl Into<String>) {
         self.log.push((s.into(), 6.0));
         if self.log.len() > 6 {
             self.log.remove(0);
@@ -51,6 +58,7 @@ impl World {
         if kit.iter().all(|&k| inp.held(k)) && kit.iter().any(|&k| inp.hit(k)) {
             self.game.full_kit(&self.level);
             self.console.say("Full kit");
+            self.meddled();
         }
         let toggle = inp.hit(KeyCode::Backquote) || inp.hit(KeyCode::F9);
         let Some(mut line) = self.console.line.take() else {
@@ -91,6 +99,9 @@ impl World {
         let name = words.next().unwrap_or("").to_ascii_lowercase();
         let arg = words.next();
         let here = self.game.player().map(|p| p.fig.pos);
+        if CHANGES.contains(&name.as_str()) {
+            self.meddled();
+        }
         match name.as_str() {
             "help" | "?" => self.console.say(HELP),
             "telw" => match arg.and_then(|a| a.parse::<usize>().ok()) {
@@ -275,6 +286,7 @@ impl World {
         if self.game.teleport(to, &self.level) {
             self.third_person = true;
             self.console.say("Teleported");
+            self.meddled();
         } else {
             self.console.say("Not while driving");
         }

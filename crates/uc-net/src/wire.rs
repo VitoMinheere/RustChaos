@@ -22,51 +22,51 @@ mod tag {
     pub const PING: u8 = 16;
 }
 
-struct Out(Vec<u8>);
+pub(crate) struct Out(pub(crate) Vec<u8>);
 
 impl Out {
-    fn u8(&mut self, v: u8) {
+    pub(crate) fn u8(&mut self, v: u8) {
         self.0.push(v);
     }
-    fn u16(&mut self, v: u16) {
+    pub(crate) fn u16(&mut self, v: u16) {
         self.0.extend_from_slice(&v.to_le_bytes());
     }
-    fn u32(&mut self, v: u32) {
+    pub(crate) fn u32(&mut self, v: u32) {
         self.0.extend_from_slice(&v.to_le_bytes());
     }
-    fn u64(&mut self, v: u64) {
+    pub(crate) fn u64(&mut self, v: u64) {
         self.0.extend_from_slice(&v.to_le_bytes());
     }
-    fn f32(&mut self, v: f32) {
+    pub(crate) fn f32(&mut self, v: f32) {
         self.u32(v.to_bits());
     }
-    fn str(&mut self, s: &str) {
+    pub(crate) fn str(&mut self, s: &str) {
         let b = &s.as_bytes()[..s.len().min(u16::MAX as usize)];
         self.u16(b.len() as u16);
         self.0.extend_from_slice(b);
     }
-    fn input(&mut self, i: &Input) {
+    pub(crate) fn input(&mut self, i: &Input) {
         self.f32(i.wish[0]);
         self.f32(i.wish[1]);
         self.f32(i.drive[0]);
         self.f32(i.drive[1]);
         self.u16(i.buttons);
     }
-    fn setup(&mut self, s: &Setup) {
+    pub(crate) fn setup(&mut self, s: &Setup) {
         self.str(&s.mission);
         self.u8(s.difficulty);
         self.0.extend_from_slice(&s.stats);
     }
 }
 
-struct In<'a>(&'a [u8]);
+pub(crate) struct In<'a>(pub(crate) &'a [u8]);
 
-fn short() -> io::Error {
+pub(crate) fn short() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, "message too short")
 }
 
 impl In<'_> {
-    fn bytes(&mut self, n: usize) -> io::Result<&[u8]> {
+    pub(crate) fn bytes(&mut self, n: usize) -> io::Result<&[u8]> {
         if self.0.len() < n {
             return Err(short());
         }
@@ -74,29 +74,29 @@ impl In<'_> {
         self.0 = b;
         Ok(a)
     }
-    fn u8(&mut self) -> io::Result<u8> {
+    pub(crate) fn u8(&mut self) -> io::Result<u8> {
         Ok(self.bytes(1)?[0])
     }
-    fn u16(&mut self) -> io::Result<u16> {
+    pub(crate) fn u16(&mut self) -> io::Result<u16> {
         Ok(u16::from_le_bytes(self.bytes(2)?.try_into().unwrap()))
     }
-    fn u32(&mut self) -> io::Result<u32> {
+    pub(crate) fn u32(&mut self) -> io::Result<u32> {
         Ok(u32::from_le_bytes(self.bytes(4)?.try_into().unwrap()))
     }
-    fn u64(&mut self) -> io::Result<u64> {
+    pub(crate) fn u64(&mut self) -> io::Result<u64> {
         Ok(u64::from_le_bytes(self.bytes(8)?.try_into().unwrap()))
     }
-    fn f32(&mut self) -> io::Result<f32> {
+    pub(crate) fn f32(&mut self) -> io::Result<f32> {
         Ok(f32::from_bits(self.u32()?))
     }
-    fn str(&mut self) -> io::Result<String> {
+    pub(crate) fn str(&mut self) -> io::Result<String> {
         let n = self.u16()? as usize;
         String::from_utf8(self.bytes(n)?.to_vec()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
-    fn input(&mut self) -> io::Result<Input> {
+    pub(crate) fn input(&mut self) -> io::Result<Input> {
         Ok(Input { wish: [self.f32()?, self.f32()?], drive: [self.f32()?, self.f32()?], buttons: self.u16()? })
     }
-    fn setup(&mut self) -> io::Result<Setup> {
+    pub(crate) fn setup(&mut self) -> io::Result<Setup> {
         Ok(Setup { mission: self.str()?, difficulty: self.u8()?, stats: self.bytes(4)?.try_into().unwrap() })
     }
 }

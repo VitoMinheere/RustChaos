@@ -506,6 +506,8 @@ pub struct Game {
     recording: Option<game::ghost::Track>,
     /// The checkpoints passed: (event point, the turn after which it had gone off).
     passed: Vec<(usize, u64)>,
+    /// Every turn played, while they're kept for a replay (#184).
+    keeping: Option<game::replay::Keeping>,
     /// Presses waiting for the next turn.
     pending: Controls,
     /// Where everything was at the start of the last turn.
@@ -692,6 +694,7 @@ impl Game {
             turns: 0,
             recording: None,
             passed: Vec::new(),
+            keeping: None,
             pending: Controls::default(),
             before: Before::default(),
             drawing: None,
@@ -918,6 +921,7 @@ impl Game {
         self.turn(inputs, level);
         self.turns += 1;
         self.keep_ghost();
+        self.keep_turn(inputs);
         self.focus(focused);
     }
 

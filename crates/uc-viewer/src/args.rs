@@ -6,7 +6,7 @@ pub(crate) const USAGE: &str = "\
 uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DIR] [--linear] [--fullbright]
           [--fog START,END | --no-fog] [--no-crinkles] [--no-character] [--cam X,Y,Z,YAW,PITCH] [--dogs N]
           [--screenshot FILE [--size WxH] [--sim-walk SECS | --sim-run SECS | --sim SECS]]
-          [--dump-pages DIR] [--host [PORT] | --join HOST[:PORT]] [--name NAME]
+          [--dump-pages DIR] [--host [PORT] | --join HOST[:PORT]] [--name NAME] [--replay FILE]
 
   --game DIR        Urban Chaos install (default: $UC_GAME_DIR, then the GOG location)
   --mission NAME    mission to play, e.g. ftutor1, testdrive1a, police1 (default: the menu)
@@ -38,6 +38,7 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --join HOST       co-op: join the game hosted at HOST or HOST:PORT, as Roper
   --name NAME       co-op: your name in the lobby (default: your user name)
   --coop-bot        co-op: play your seat with made-up inputs (testing)
+  --replay FILE     watch a saved replay (.ucr); with --screenshot and --sim SECS, play SECS of it
 
 Darci: WASD move (relative to the camera), Shift run, J or left mouse punch, K kick, Q block,
   E action (arrest, climb; hold while running to sprint; hold over a searchable prop or someone
@@ -58,6 +59,9 @@ Mouse: M switches between mouse look (default: the cursor is captured) and right
 Hold Tab for the mission's checklist: objectives, side objectives and badges.
 Free camera (V): mouse look, WASD move, Space/E up, C/Q down, Shift fast,
   Ctrl slow.
+Replays (REPLAYS in the menu): Space pause, Up/Down speed, Right 10 s on, R from the start,
+  F follow the other player (co-op), V free camera, Esc back to the list. Every mission won,
+  lost, or left after ten seconds is kept (the last 20, or for good with K at the end).
 Both: R restart, 1-6 toggle floor/walls/props/roofs/details/people, H hide help,
   F12 screenshot, Esc pause (resume, restart or abandon).
 Co-op: the host is Darci (or whoever the mission's player is) and the other player Roper. The
@@ -106,6 +110,8 @@ pub(crate) struct Args {
     pub(crate) join: Option<String>,
     pub(crate) name: String,
     pub(crate) coop_bot: bool,
+    /// A replay to watch (#184).
+    pub(crate) replay: Option<PathBuf>,
 }
 
 pub(crate) fn parse_floats(s: &str, n: usize, what: &str) -> Result<Vec<f32>, String> {
@@ -116,38 +122,45 @@ pub(crate) fn parse_floats(s: &str, n: usize, what: &str) -> Result<Vec<f32>, St
     Ok(v)
 }
 
+impl Default for Args {
+    fn default() -> Args {
+        Args {
+            game: uc_formats::default_install().unwrap_or_default(),
+            mission: "ftutor1".into(),
+            mission_given: false,
+            explore: false,
+            mute: false,
+            endless: false,
+            beat: false,
+            shift: uc_game::game::beat::DEFAULT_SHIFT,
+            seed: None,
+            arena: (None, 10.0),
+            arena_name: None,
+            windowed: false,
+            weapon: uc_game::Weapon::None,
+            dogs: 0,
+            overrides: None,
+            linear: false,
+            fullbright: false,
+            fog: Some((20.0, 40.0)),
+            crinkles: true,
+            no_character: false,
+            cam: None,
+            screenshot: None,
+            size: (1280, 720),
+            dump_pages: None,
+            sim: None,
+            host: None,
+            join: None,
+            coop_bot: false,
+            replay: None,
+            name: std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_else(|_| "Player".into()),
+        }
+    }
+}
+
 pub(crate) fn parse_args() -> Result<Args, String> {
-    let mut a = Args {
-        game: uc_formats::default_install().unwrap_or_default(),
-        mission: "ftutor1".into(),
-        mission_given: false,
-        explore: false,
-        mute: false,
-        endless: false,
-        beat: false,
-        shift: uc_game::game::beat::DEFAULT_SHIFT,
-        seed: None,
-        arena: (None, 10.0),
-        arena_name: None,
-        windowed: false,
-        weapon: uc_game::Weapon::None,
-        dogs: 0,
-        overrides: None,
-        linear: false,
-        fullbright: false,
-        fog: Some((20.0, 40.0)),
-        crinkles: true,
-        no_character: false,
-        cam: None,
-        screenshot: None,
-        size: (1280, 720),
-        dump_pages: None,
-        sim: None,
-        host: None,
-        join: None,
-        coop_bot: false,
-        name: std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_else(|_| "Player".into()),
-    };
+    let mut a = Args::default();
     let mut it = std::env::args().skip(1).peekable();
     while let Some(arg) = it.next() {
         // The port's optional.
@@ -212,6 +225,7 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             "--join" => a.join = Some(value()?),
             "--name" => a.name = value()?,
             "--coop-bot" => a.coop_bot = true,
+            "--replay" => a.replay = Some(PathBuf::from(value()?)),
             "--sim" | "--sim-walk" | "--sim-run" => {
                 let secs = value()?.parse::<f32>().map_err(|e| format!("{arg}: {e}"))?;
                 a.sim = Some((secs, match arg.as_str() { "--sim-walk" => Some(false), "--sim-run" => Some(true), _ => None }));

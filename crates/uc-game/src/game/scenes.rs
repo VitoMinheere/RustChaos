@@ -32,6 +32,7 @@ impl Game {
     /// Skips the rest of a fly-by (everything it would have triggered still happens).
     pub fn skip_cutscene(&mut self) {
         let Some(c) = self.cutscene.take() else { return };
+        self.keep_skip();
         if let Some(mut script) = self.script.take() {
             for &(way, ..) in &c.shot.waypoints[c.leg.min(c.shot.waypoints.len())..] {
                 script.camera_reached(way, self);

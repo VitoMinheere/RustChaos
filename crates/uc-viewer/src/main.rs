@@ -17,6 +17,7 @@ mod input;
 mod menu;
 mod pause;
 mod progress;
+mod replays;
 mod sound;
 mod world;
 
@@ -286,19 +287,28 @@ impl App {
             let pad_mv = fwd * pad.mv.y + right * pad.mv.x;
             w.fly.pos += (mv.normalize_or_zero() + pad_mv) * speed * dt;
             // T: Darci goes where the camera looks, and the camera's back on her.
-            if inp.hit(KeyCode::KeyT) && w.game.player.is_some() && self.coop.is_none() {
+            if inp.hit(KeyCode::KeyT) && w.game.player.is_some() && self.coop.is_none() && w.replay.is_none() {
                 w.teleport_to_view();
             }
         }
         // In co-op the skip goes with the input, for every machine to skip on the same turn.
         let mut skip = false;
-        if w.game.cutscene.is_some() && (inp.hit(KeyCode::Space) || inp.hit(KeyCode::Enter) || pad.hit(Button::South)) {
+        if w.replay.is_none() && w.game.cutscene.is_some() && (inp.hit(KeyCode::Space) || inp.hit(KeyCode::Enter) || pad.hit(Button::South)) {
             if self.coop.is_some() {
                 skip = true;
             } else {
                 w.game.skip_cutscene();
             }
             controls.jump = false;
+        }
+        // K at the end of a run: its replay kept for good.
+        if inp.hit(KeyCode::KeyK) && w.game.outcome.is_some() {
+            w.keep_replay();
+        }
+        if w.replay.is_some() {
+            let idle = delta.length_squared() < 1.0 && pad.look.length_squared() < 0.01;
+            w.replay_frame(inp, dt, idle);
+            return;
         }
         match self.coop.as_mut() {
             Some(c) => c.frame(w, dt, &controls, skip),
@@ -311,6 +321,7 @@ impl App {
     fn play_coop(&mut self, setup: uc_net::Setup) {
         let Some(seat) = self.coop.as_ref().map(|c| c.seat()) else { return };
         if let Some(w) = self.world.as_mut() {
+            w.save_replay();
             w.save_stats();
         }
         match World::load_coop(self.args.clone(), &setup, seat) {
@@ -343,6 +354,7 @@ impl App {
     /// Loads mission `name` and starts playing it.
     fn play(&mut self, name: &str) {
         if let Some(w) = self.world.as_mut() {
+            w.save_replay();
             w.save_stats();
         }
         let mut args = self.args.clone();
@@ -364,12 +376,38 @@ impl App {
         }
     }
 
+    /// Loads the replay at `path` and starts watching it.
+    fn watch(&mut self, path: &Path) {
+        let loaded = replays::load(path).and_then(|r| World::load_replay(self.args.clone(), r));
+        match loaded {
+            Ok(mut w) => {
+                if let Some(g) = self.gfx.as_mut() {
+                    g.renderer.clear_textures();
+                    w.upload(&mut g.renderer);
+                }
+                if let Some(s) = self.sound.as_mut() {
+                    s.start(&w);
+                }
+                self.world = Some(w);
+                self.menu = None;
+                self.capture_cursor(self.want_cursor());
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                if let Some(m) = self.menu.as_mut() {
+                    m.status = e;
+                }
+            }
+        }
+    }
+
     fn open_menu(&mut self) {
         let mut m = menu::Menu::new(&self.args.game);
         // Leaving a co-op mission leaves the game.
         let left_coop = self.world.is_some() && self.coop.take().is_some();
         // Back from a mission: straight to the missions, past the title.
         if let Some(w) = self.world.as_mut() {
+            w.save_replay();
             w.save_stats();
             m.select(&w.level.name);
             m.screen = if left_coop { menu::Screen::Coop } else { menu::Screen::Missions };
@@ -414,6 +452,12 @@ impl App {
             self.args.endless = false;
             self.args.beat = false;
             self.play(&name);
+            self.input.pressed.clear();
+            return;
+        }
+        if let Some(i) = m.loading_replay.take() {
+            let path = m.replays[i].path.clone();
+            self.watch(&path);
             self.input.pressed.clear();
             return;
         }
@@ -475,6 +519,7 @@ impl App {
                         }
                         "CAPTURE THE FLAG" => m.loading_ctf = true,
                         "STATS" => m.screen = menu::Screen::Stats,
+                        "REPLAYS" => m.show_replays(),
                         "DIFFICULTY" => {
                             let all = uc_game::Difficulty::ALL;
                             let now = all.iter().position(|&d| d == m.progress.difficulty()).unwrap_or(1);
@@ -563,6 +608,21 @@ impl App {
                     m.screen = menu::Screen::Main;
                 }
             }
+            menu::Screen::Replays => {
+                if back {
+                    (m.screen, m.status) = (menu::Screen::Main, String::new());
+                }
+                let n = m.replays.len().max(1);
+                if up {
+                    m.replay_selected = (m.replay_selected + n - 1) % n;
+                }
+                if down {
+                    m.replay_selected = (m.replay_selected + 1) % n;
+                }
+                if go && !m.replays.is_empty() {
+                    m.loading_replay = Some(m.replay_selected);
+                }
+            }
             menu::Screen::Endless => {
                 if back {
                     m.screen = menu::Screen::Main;
@@ -646,7 +706,7 @@ impl App {
                 return;
             }
         }
-        if self.world.as_ref().is_some_and(|w| w.pause.is_none()) && self.coop.is_none() {
+        if self.world.as_ref().is_some_and(|w| w.pause.is_none() && w.replay.is_none()) && self.coop.is_none() {
             let w = self.world.as_mut().unwrap();
             w.console_input(&mut self.input, dt);
         }
@@ -657,6 +717,15 @@ impl App {
         if self.input.hit(KeyCode::Escape) || (!won && self.input.pad.hit(Button::Start)) {
             self.input.pad.pressed.remove(&Button::Start);
             let w = self.world.as_mut().unwrap();
+            // A replay's straight back to the list.
+            if w.replay.is_some() {
+                self.input.pressed.clear();
+                self.open_menu();
+                if let Some(m) = self.menu.as_mut() {
+                    m.show_replays();
+                }
+                return;
+            }
             let lost = matches!(w.game.outcome, Some(Outcome::Lost(_)));
             match w.pause.map(|p| p.menu) {
                 None if won => {
@@ -690,7 +759,8 @@ impl App {
         }
         let won = self.world.as_ref().is_some_and(|w| w.game.outcome == Some(Outcome::Won));
         let shift = self.world.as_ref().is_some_and(|w| w.game.beat().is_some());
-        if won && !shift && (self.input.hit(KeyCode::Enter) || self.input.pad.hit(Button::Start)) {
+        let watching = self.world.as_ref().is_some_and(|w| w.replay.is_some());
+        if won && !shift && !watching && (self.input.hit(KeyCode::Enter) || self.input.pad.hit(Button::Start)) {
             let current = self.world.as_ref().unwrap().level.name.clone();
             let m = menu::Menu::new(&self.args.game);
             if let Some(next) = m.after(&current) {
@@ -721,28 +791,34 @@ impl App {
         let darci = world.game.player().is_some_and(|p| p.kind == uc_world::character::person::DARCI);
         // (Not in co-op: the warnings counted are this player's own, and the loss would be on
         // this machine only.)
-        if world.game.outcome == Some(Outcome::Won) && world.result.is_none() && world.civ_warning.is_none() && darci && world.game.red_marks > 1 && world.seat.is_none() {
+        if world.game.outcome == Some(Outcome::Won) && world.result.is_none() && world.civ_warning.is_none() && darci && world.game.red_marks > 1 && world.seat.is_none()
+            && world.replay.is_none() {
             let n = progress::Progress::load().warn();
             world.civ_warning = Some(civ_warning(&world.args.game, n));
             if n >= 3 {
-                world.game.outcome = Some(Outcome::Lost("Too many civilian casualties".into()));
+                let why = "Too many civilian casualties".to_string();
+                world.game.outcome = Some(Outcome::Lost(why.clone()));
+                if let Some(r) = world.recorder.as_mut() {
+                    r.event(&mut world.game, uc_net::replay::Event::Lose(why));
+                }
             }
         }
-        if let (Some(b), Some(_), None) = (world.game.beat(), &world.game.outcome, world.endless_recorded) {
+        // (Nothing a replay does goes into the progress.)
+        if let (Some(b), Some(_), None, None) = (world.game.beat(), &world.game.outcome, world.endless_recorded, &world.replay) {
             let mut p = progress::Progress::load();
             let key = world.args.arena_name.clone().unwrap_or_else(|| progress::beat_key(&world.level.name, world.args.shift));
             let before = p.best_endless(&key);
             let best = p.record_endless(&key, b.score, b.handled);
             world.endless_recorded = Some((best, before));
         }
-        if let (Some(e), Some(Outcome::Lost(_)), None) = (world.game.endless(), &world.game.outcome, world.endless_recorded) {
+        if let (Some(e), Some(Outcome::Lost(_)), None, None) = (world.game.endless(), &world.game.outcome, world.endless_recorded, &world.replay) {
             let mut p = progress::Progress::load();
             let key = world.args.arena_name.clone().unwrap_or_else(|| world.level.name.clone());
             let before = p.best_endless(&key);
             let best = p.record_endless(&key, e.score, e.wave);
             world.endless_recorded = Some((best, before));
         }
-        if world.game.outcome == Some(Outcome::Won) && world.result.is_none() && world.game.beat().is_none() {
+        if world.game.outcome == Some(Outcome::Won) && world.result.is_none() && world.game.beat().is_none() && world.replay.is_none() {
             let mut p = progress::Progress::load();
             let before = p.best_time(&world.level.name);
             let sides = world.game.sides_done(&world.goals);
@@ -763,9 +839,13 @@ impl App {
                 world.game.record.perfect += 1;
             }
         }
-        // Over: this game's stats go into the totals.
+        // Over: this game's stats go into the totals, and it's saved as a replay.
         if world.game.outcome.is_some() {
             world.save_stats();
+            world.save_replay();
+        }
+        if let Some(r) = world.recorder.as_mut() {
+            r.take(&mut world.game);
         }
         world.check_achievements(dt);
         let shift = self.input.held(KeyCode::ShiftLeft) || self.input.held(KeyCode::ShiftRight);
@@ -934,7 +1014,15 @@ impl ApplicationHandler for App {
 
 /// `--screenshot`: render one frame offscreen, without opening a window.
 fn headless_screenshot(mut world: World, path: &Path) -> Result<(), String> {
-    if let Some((secs, mode)) = world.args.sim {
+    // A replay: SECS of it played back, and whether it kept to the recording.
+    if let (Some((secs, _)), Some(v)) = (world.args.sim, world.replay.as_mut()) {
+        v.playback.skip(&mut world.game, &world.level, (secs * 30.0) as usize);
+        let p = &v.playback;
+        match p.drift {
+            Some(t) => println!("replay: {} of {} turns played; drifted after turn {t}", p.turn(), p.len()),
+            None => println!("replay: {} of {} turns played, as recorded", p.turn(), p.len()),
+        }
+    } else if let Some((secs, mode)) = world.args.sim {
         let dt = 1.0 / 30.0;
         let ahead = vec2(world.orbit.yaw.sin(), world.orbit.yaw.cos());
         let c = Controls { wish: if mode.is_some() { ahead } else { Vec2::ZERO }, run: mode == Some(true), ..Default::default() };
@@ -993,7 +1081,11 @@ fn run() -> Result<(), String> {
     let screenshot = args.screenshot.clone();
     let dump = args.dump_pages.clone();
     // `--screenshot` without `--mission`: the menu.
-    if let (Some(path), false, None) = (&screenshot, args.mission_given, &dump) {
+    let watch = |args: &Args| -> Result<Option<World>, String> {
+        let Some(path) = &args.replay else { return Ok(None) };
+        replays::load(path).and_then(|r| World::load_replay(args.clone(), r)).map(Some)
+    };
+    if let (Some(path), false, None, None) = (&screenshot, args.mission_given, &dump, &args.replay) {
         let mut r = Renderer::headless(true)?;
         let mut m = menu::Menu::new(&args.game);
         m.screen = menu::Screen::Missions;
@@ -1006,7 +1098,10 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
     if dump.is_some() || screenshot.is_some() {
-        let world = World::load(args)?;
+        let world = match watch(&args)? {
+            Some(w) => w,
+            None => World::load(args)?,
+        };
         if let Some(dir) = dump {
             return dump_pages(&world, &dir);
         }
@@ -1038,6 +1133,11 @@ fn run() -> Result<(), String> {
         let mut m = menu::Menu::new(&args.game);
         m.screen = menu::Screen::Lobby;
         (None, Some(m))
+    } else if let Some(w) = watch(&args)? {
+        if let Some(s) = sound.as_mut() {
+            s.start(&w);
+        }
+        (Some(w), None)
     } else if args.mission_given {
         let w = World::load(args.clone())?;
         if let Some(s) = sound.as_mut() {
