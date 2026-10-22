@@ -34,8 +34,12 @@ fn height_in(t: &[Vec3; 3], x: f32, z: f32) -> Option<f32> {
 
 /// `ROOF_SHIFT` (Editor/Headers/Prim.h): RoofFace4.DY is in units of 8.
 const ROOF_SHIFT: i32 = 3;
-/// How far up a person can step without climbing (kerbs are 32).
-pub const STEP_HEIGHT: f32 = 48.0;
+/// How far up a person can step without climbing (kerbs are 32). The original's walker goes
+/// through any wall whose top is less than 0x50 over its feet (`slide_along` adds
+/// `SLIDE_ALONG_DEFAULT_EXTRA_WALL_HEIGHT`, -0x50, to the top, collide.cpp:4401) and then
+/// stands on the face it's over, so it walks up the 64-high ledges the navigation map gives
+/// as `GOTO` (#174).
+pub const STEP_HEIGHT: f32 = 80.0;
 
 /// A ladder facet, in world units.
 #[derive(Debug, Clone, Copy)]
@@ -485,11 +489,11 @@ impl Ground {
     pub fn slide(&self, from: Vec2, y: f32, delta: Vec2, radius: f32) -> Vec2 {
         let mut p = from + delta;
         // Anything that can't be stepped onto blocks: a jump that lifts the feet to within a
-        // step of a ledge's top clears it (and lands on it).
-        let waist = y + STEP_HEIGHT - 4.0;
+        // step of a ledge's top clears it (and lands on it). As `slide_along` (collide.cpp:4357),
+        // a wall blocks feet from 64 below its bottom to a step below its top.
         for _ in 0..2 {
             for w in self.blocking() {
-                if waist < w.y0 || waist > w.y1 {
+                if y < w.y0 - 64.0 || y >= w.y1 - STEP_HEIGHT {
                     continue;
                 }
                 let (a, b) = (Vec2::from(w.a), Vec2::from(w.b));
