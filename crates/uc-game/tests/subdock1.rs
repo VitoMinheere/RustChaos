@@ -1,7 +1,8 @@
 //! subdock1 (Dock Extraction, unreleased): with the dock operator (point 37) out, the police
 //! helicopter (41) comes in on a roof at the south end with reinforcements, and getting to it
 //! (point 42) wins. Darci is moved rather than walked, and the operator knocked out rather
-//! than fought. Skipped without an install.
+//! than fought. A beacon shows the operator until he's down, then the chopper's (both added:
+//! the mission has none). Skipped without an install.
 
 use glam::vec3;
 use uc_game::{person::ko, Controls, Outcome, Weapon};
@@ -14,11 +15,14 @@ fn the_operator_down_and_darci_at_the_chopper_wins() {
     r.play(1.0, Controls::default());
     assert!(r.said("Terminate dock operator"), "{:?}", r.seen);
     assert!(!r.g.point_active(41), "chopper too soon");
+    let beacons = |r: &common::Run| r.g.beacons().into_iter().map(|(l, _)| l).collect::<Vec<_>>();
+    assert_eq!(beacons(&r), ["Dock operator"]);
     let op = r.who(37);
     let from = r.g.people[r.player()].fig.pos;
     r.g.people[op].take_hit(from, 10_000, ko::FINISHERS, false, false, Weapon::None);
     assert!(r.until(10.0, |r| r.g.point_active(41)), "no chopper");
     assert!(r.until(5.0, |r| r.said("Choppers comin in")), "{:?}", r.seen);
+    assert_eq!(beacons(&r), ["Chopper"]);
     // The rendezvous is up on a roof: there's a floor there.
     let at = r.point(42);
     let y = r.level.ground.surface(&r.level.map, at.x, at.z, at.y + 64.0);

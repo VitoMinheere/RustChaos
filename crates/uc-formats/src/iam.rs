@@ -131,6 +131,9 @@ pub struct RoofFace4 {
     pub rx: u8,
     pub rz: u8,
     pub next: i16,
+    /// The building it's a roof of (0 for none), from the `DWalkable` whose faces it's among:
+    /// not in the record itself.
+    pub building: u16,
 }
 
 /// A static object (`OB_Ob` resolved through `OB_mapwho`) with world coordinates.
@@ -372,8 +375,15 @@ fn parse_with(data: &[u8], layout: WalkablesLayout) -> Result<Map> {
     match layout {
         WalkablesLayout::Current => {
             let (nw, nr) = (r.u16()? as usize, r.u16()? as usize);
-            r.skip(nw * 22)?; // DWalkable
-            for _ in 0..nr {
+            // `DWalkable`: only which roof faces are whose is kept.
+            let mut owners = Vec::with_capacity(nw);
+            for _ in 0..nw {
+                r.skip(8)?; // StartPoint, EndPoint, StartFace3, EndFace3: unused
+                let (start, end) = (r.u16()? as usize, r.u16()? as usize);
+                r.skip(8)?; // X1, Z1, X2, Z2, Y, StoreyY, Next
+                owners.push((start..end, r.u16()?));
+            }
+            for i in 0..nr {
                 roof_faces.push(RoofFace4 {
                     y: r.i16()?,
                     dy: [r.i8()?, r.i8()?, r.i8()?],
@@ -381,6 +391,7 @@ fn parse_with(data: &[u8], layout: WalkablesLayout) -> Result<Map> {
                     rx: r.u8()?,
                     rz: r.u8()?,
                     next: r.i16()?,
+                    building: owners.iter().find(|(faces, _)| faces.contains(&i)).map_or(0, |&(_, b)| b),
                 });
             }
         }

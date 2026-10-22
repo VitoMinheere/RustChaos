@@ -1,8 +1,9 @@
 //! Takeover1 (Bank Sector Takeover, unreleased): the two hostages wait where they are until
 //! Darci comes up to them where they can see her (`PCOM_MOVE_FOLLOW_ON_SEE`), then follow
 //! her; brought to the extraction point, each is "rescued", and with both the mission is won
-//! (an ending added here: the original's never had one). Darci is moved from one to the next
-//! rather than walked across the city. Skipped without an install.
+//! (an ending added here: the original's never had one). Beacons, also added, show each
+//! hostage until they're rescued, and the extraction point. Darci is moved from one to the
+//! next rather than walked across the city. Skipped without an install.
 
 use glam::{vec2, vec3, Vec3};
 use uc_game::{person, Controls, Outcome, State};
@@ -47,7 +48,14 @@ fn the_hostages_follow_darci_out_and_she_wins() {
             p.removed = true;
         }
     });
+    let beacons = |r: &Run| r.g.beacons().into_iter().map(|(l, _)| l).collect::<Vec<_>>();
+    assert_eq!(beacons(&r), ["Worker 1", "Worker 2", "Extraction point"]);
     let workers = WORKERS.map(|w| r.who(w));
+    // The hostages' beacons are on them.
+    for (k, &w) in workers.iter().enumerate() {
+        let at = r.g.beacons()[k].1;
+        assert!(at.distance(r.g.people[w].fig.pos) < 1.0, "worker {}'s beacon is at {at}", k + 1);
+    }
     for &w in &workers {
         assert_eq!(r.g.people[w].mv, person::MOVE_FOLLOW_ON_SEE);
         // Far off, they stay put.
@@ -68,6 +76,8 @@ fn the_hostages_follow_darci_out_and_she_wins() {
         r.g.people[w].fig.pos = vec3(at.x, wy, at.y);
     }
     assert!(r.until(20.0, |r| r.said("Worker 1 rescued") && r.said("Worker 2 rescued")), "{:?}", r.seen);
+    r.play(0.2, Controls::default());
+    assert_eq!(beacons(&r), ["Extraction point"]);
     assert!(r.until(5.0, |r| r.g.outcome.is_some()), "not over");
     assert_eq!(r.g.outcome, Some(Outcome::Won));
 }
