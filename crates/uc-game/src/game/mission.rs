@@ -440,6 +440,9 @@ impl script::Query for Scene<'_> {
     fn tripped(&self, way: usize) -> bool {
         self.game.trips.tripped(way)
     }
+    fn switched_on(&self, pos: Vec3) -> bool {
+        self.game.switches.on_near(pos)
+    }
     fn player_fired(&self) -> bool {
         self.game.player_fired()
     }

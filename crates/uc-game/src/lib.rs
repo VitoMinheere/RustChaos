@@ -32,6 +32,7 @@ pub mod ribbon;
 pub mod road;
 pub mod script;
 pub mod steam;
+pub mod switch;
 pub mod talk;
 pub mod tracks;
 pub mod trip;
@@ -639,6 +640,7 @@ pub struct Game {
     pub steam: steam::Steam,
     /// The beams `tripwire` points watch.
     pub trips: trip::Trips,
+    pub switches: switch::Switches,
     /// Buildings whose fences are electrified (`FACET_FLAG_ELECTRIFIED`).
     pub electrified: BTreeSet<u16>,
     /// There's no floor (`GF_NO_FLOOR`, Day Of Reckoning on top of Gunston Tower).
@@ -766,6 +768,7 @@ impl Game {
             ribbons: ribbon::Ribbons::default(),
             steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
+            switches: switch::Switches::new(level),
             electrified: BTreeSet::new(),
             no_floor: false,
             estate: level.mission.mission_name.eq_ignore_ascii_case("estate2"),
@@ -1053,6 +1056,9 @@ impl Game {
         }
         self.messages.retain(|m| m.left > 0.0);
         self.used = (0..seats).filter(|&s| seat_input(s).action).filter_map(|s| self.seat_person(s)).collect();
+        for &i in &self.used {
+            self.switches.flip_near(self.people[i].fig.pos);
+        }
         for s in 0..seats {
             self.focus(s);
             let c = seat_input(s);

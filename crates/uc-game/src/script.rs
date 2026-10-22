@@ -66,6 +66,10 @@ pub trait Query {
     fn crime_rate(&self) -> u8 {
         50
     }
+    /// The switch a `switch` point at `pos` watches is on (`EWAY_COND_SWITCH`).
+    fn switched_on(&self, _pos: Vec3) -> bool {
+        false
+    }
     /// The beam a `tripwire` point `way` watches is broken (`TRIP_activated`).
     fn tripped(&self, _way: usize) -> bool {
         false
@@ -277,7 +281,7 @@ fn trigger_supported(t: u8) -> bool {
         | PERSON_USED | PLAYER_USES_RADIUS | PERSON_ARRESTED | CONVERSATION_OVER | COUNTER
         | KILLED_NOT_ARRESTED | PERSON_IN_VEHICLE | SPECIFIC_ITEM_HELD | THING_RADIUS_DIR | RANDOM
         | DARCI_GRABBED | PUNCHED_AND_KICKED | MOVE_RADIUS_DIR | ITEM_HELD | PLAYER_FIRES_GUN | PRIM_DAMAGED
-        | CRIME_RATE_ABOVE | CRIME_RATE_BELOW | TRIPWIRE)
+        | CRIME_RATE_ABOVE | CRIME_RATE_BELOW | TRIPWIRE | SWITCH)
 }
 
 /// `EWAY_ARG_ITEM_STASHED_IN_PRIM` (fallen/Headers/eway.h): a `create_item`'s item is hidden
@@ -638,6 +642,7 @@ impl Script {
             trigger::CRIME_RATE_ABOVE => q.crime_rate() as i32 >= radius / 100,
             trigger::CRIME_RATE_BELOW => q.crime_rate() as i32 <= radius / 100,
             trigger::TRIPWIRE => q.tripped(w.ep.index),
+            trigger::SWITCH => q.switched_on(pos),
             trigger::PERSON_SEEN => q.sees(r1, r2),
             trigger::RANDOM => {
                 // Once the dependency is active, one of the points sharing it (or none) goes
