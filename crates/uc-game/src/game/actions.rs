@@ -26,6 +26,25 @@ impl Default for Aiming {
 impl Game {
     /// The player presses action: get out of the car, into a car next to her, or talk to the
     /// person next to her. Returns whether something used the key.
+    /// Whether player `pi` has someone to arrest within reach (`find_arrestee`, as their
+    /// step looks): arresting comes before everything else the action button does
+    /// (interfac.cpp:1407), talking to a bodyguard stood over the one she's knocked down
+    /// included. Nobody arrests their own bodyguards.
+    fn arrestee_near(&self, pi: usize) -> bool {
+        let p = &self.people[pi];
+        if !p.can_arrest() {
+            return false;
+        }
+        let own_guard = |o: &Person| o.ai == person::AI_BODYGUARD
+            && (if o.other == 0 { self.player } else { self.by_way.get(&o.other).copied() }) == Some(pi);
+        self.people.iter().enumerate().any(|(j, o)| {
+            let s = o.snap();
+            let d = Vec2::new(s.pos.x - p.fig.pos.x, s.pos.z - p.fig.pos.z).length();
+            j != pi && s.present && s.arrestable && !s.player && !own_guard(o)
+                && d < person::ARREST_RANGE && (s.pos.y - p.fig.pos.y).abs() < 64.0
+        })
+    }
+
     pub(crate) fn use_something(&mut self, level: &Level) -> bool {
         let Some(pi) = self.player else { return false };
         match self.people[pi].state.clone() {
@@ -49,6 +68,8 @@ impl Game {
                 true
             }
             State::Bike { .. } => true,
+            // Someone down to arrest: the button's for that (the player's own step does it).
+            State::Move if self.arrestee_near(pi) => false,
             State::Move if self.mount_near(pi) => true,
             State::Move => {
                 let pos = self.people[pi].fig.pos;
