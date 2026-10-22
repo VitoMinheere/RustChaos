@@ -402,7 +402,8 @@ impl World {
             }
         }
 
-        // Outcome.
+        // Outcome. (In a replay, without the keys to play on.)
+        let keys = |k: &'static str| if self.replay.is_some() { "" } else { k };
         if let (Some(b), Some(out)) = (self.game.beat(), &self.game.outcome) {
             let (title, col) = match out {
                 Outcome::Won => ("SHIFT OVER".to_string(), [120, 230, 120, 255]),
@@ -413,7 +414,7 @@ impl World {
                 Some((false, Some((sc, n)))) => format!("Best {sc} ({n} handled)"),
                 _ => String::new(),
             };
-            let sub = format!("Handled {}   Missed {}   Score {}   {best}   R: again   Esc: menu", b.handled, b.missed, b.score);
+            let sub = format!("Handled {}   Missed {}   Score {}   {best}   {}", b.handled, b.missed, b.score, keys("R: again   Esc: menu"));
             let big = s * 3.0;
             o.rect(0.0, h * 0.33, w, 50.0 * s, [0, 0, 0, 160]);
             o.text(w / 2.0 - Overlay::text_width(&title, big) / 2.0, h * 0.33 + 8.0 * s, big, col, &title);
@@ -425,7 +426,7 @@ impl World {
                 Some((false, Some((b, bw)))) => format!("Best {b} (wave {bw})"),
                 _ => String::new(),
             };
-            let sub = format!("{why}. Score {}   Arrests {}   Knockouts {}   {best}   R: again   Esc: menu", e.score, e.arrests, e.downed);
+            let sub = format!("{why}. Score {}   Arrests {}   Knockouts {}   {best}   {}", e.score, e.arrests, e.downed, keys("R: again   Esc: menu"));
             let big = s * 3.0;
             o.rect(0.0, h * 0.33, w, 50.0 * s, [0, 0, 0, 160]);
             o.text(w / 2.0 - Overlay::text_width(&title, big) / 2.0, h * 0.33 + 8.0 * s, big, [255, 210, 70, 255], &title);
@@ -450,9 +451,9 @@ impl World {
                     } else {
                         format!("Badges {badges}/{}   Side objectives {sides}/{}   ", self.goals.badges.len(), self.goals.sides.len())
                     };
-                    ("MISSION COMPLETE".to_string(), format!("{time}{found}Enter: next mission   R: play again   Esc: menu"), [120, 230, 120, 255])
+                    ("MISSION COMPLETE".to_string(), format!("{time}{found}{}", keys("Enter: next mission   R: play again   Esc: menu")), [120, 230, 120, 255])
                 }
-                Outcome::Lost(why) => ("MISSION FAILED".to_string(), format!("{why}. Press R to try again"), [240, 90, 70, 255]),
+                Outcome::Lost(why) => ("MISSION FAILED".to_string(), format!("{why}. {}", keys("Press R to try again")), [240, 90, 70, 255]),
             };
             let big = s * 3.0;
             o.rect(0.0, h * 0.33, w, 50.0 * s, [0, 0, 0, 160]);
@@ -467,6 +468,13 @@ impl World {
                     o.text(w / 2.0 - Overlay::text_width(l, s) / 2.0, top + k as f32 * 11.0 * s, s, [255, 220, 200, 255], l);
                 }
             }
+        }
+
+        // The run's replay, saved once it's over.
+        if let (Some((path, kept)), Some(_)) = (&self.replay_saved, &self.game.outcome) {
+            let name = path.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
+            let text = if *kept { format!("Replay kept: {name}") } else { format!("Replay saved: {name}   K: keep it") };
+            o.text(w / 2.0 - Overlay::text_width(&text, s) / 2.0, h * 0.33 - 12.0 * s, s, [200, 200, 190, 220], &text);
         }
 
         // Tab held: the mission's checklist, ticked as things get done (side objectives and
@@ -490,13 +498,14 @@ impl World {
         }
 
         // The controls, for the first 20 seconds (H toggles them).
-        if self.help && !self.checklist && self.game.cutscene.is_none() && (self.game.time < 20.0 || self.help_forced) {
+        if self.help && !self.checklist && self.game.cutscene.is_none() && (self.game.time < 20.0 || self.help_forced) && self.replay.is_none() {
             let help = ["WASD move   Shift run   Space jump   E action (hold: sprint)   C crouch (move: crawl)", "J / left mouse punch   K kick   Q block   M mouse look on/off",
                         "G next weapon   T next target   Z scope (sniper rifle)   Tab checklist   R restart   V free camera (T: go there)   B ghost   ~ console   H hide help"];
             for (k, line) in help.iter().enumerate() {
                 o.text(12.0 * s, 44.0 * s + k as f32 * 10.0 * s, s, [200, 200, 190, 200], line);
             }
         }
+        self.replay_overlay(&mut o, w, h, s);
         self.draw_console(&mut o, w, h, s);
         o
     }

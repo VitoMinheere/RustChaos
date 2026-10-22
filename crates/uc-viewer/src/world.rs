@@ -1,45 +1,43 @@
 //! A level being played or looked at: loading it, its camera and what it uploads to the renderer.
 
 use crate::*;
+use uc_net::replay::{Mode, Recorder, Replay, Start};
 
-/// A mission starts: Darci with the badges of missions completed so far, and `--weapon`.
-/// Sets a new game up for this run: badge stats from earlier missions, the weapon asked for,
-/// how far the camera sees, beyond which the city's extra people can come and go, and any
-/// dogs asked for.
-pub(crate) fn arm(game: &mut Game, level: &Level, args: &Args) {
-    let weapon = args.weapon;
-    if let Some((_, end)) = args.fog {
-        game.view_dist = game.view_dist.max(end * 256.0);
-    }
-    let progress = progress::Progress::load();
-    game.set_stats(progress.stats());
-    game.set_difficulty(progress.difficulty());
-    if let Some(p) = game.player {
-        game.people[p].give(weapon);
-        game.people[p].weapon = weapon;
-    }
-    if args.dogs > 0 {
-        let n = game.let_dogs_out(level, args.dogs);
-        println!("dogs: {n} of {} let loose", args.dogs);
+/// How a new game for `args` starts: the mission, or an endless run on its map (with
+/// `--seed`'s seed, or one from the clock); with the badge stats from earlier missions, the
+/// difficulty, the weapon asked for, how far the camera sees (beyond which the city's extra
+/// people can come and go), and any dogs asked for.
+fn start(args: &Args) -> Start {
+    let mode = if args.endless || args.beat {
+        let seed = args.seed.unwrap_or_else(|| {
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos() ^ d.as_secs() as u32)
+        });
+        println!("endless: {} with seed {seed}", args.mission);
+        let (centre, radius) = args.arena;
+        let centre = centre.map(|(x, z)| [x * 256.0, z * 256.0]);
+        if args.beat { Mode::Beat { seed, centre, shift: args.shift } } else { Mode::Endless { seed, centre, radius } }
+    } else if args.explore {
+        Mode::Explore
+    } else {
+        Mode::Mission
+    };
+    let p = progress::Progress::load();
+    Start {
+        weapon: args.weapon,
+        dogs: args.dogs as u32,
+        view_dist: args.fog.map(|(_, end)| end * 256.0),
+        ..Start::new(&args.mission, mode, p.difficulty(), p.stats())
     }
 }
 
-/// The game for `args`: the mission, or an endless run on its map (with `--seed`'s seed, or
-/// one from the clock).
-fn new_game(level: &Level, args: &Args) -> Game {
-    if !args.endless && !args.beat {
-        return Game::new(level, !args.explore);
+/// A new game for `args`, and how it started.
+fn new_game(level: &Level, args: &Args) -> (Game, Start) {
+    let start = start(args);
+    let game = start.game(level);
+    if args.dogs > 0 {
+        println!("dogs: {} of {} let loose", game.dogs.len(), args.dogs);
     }
-    let seed = args.seed.unwrap_or_else(|| {
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos() ^ d.as_secs() as u32)
-    });
-    println!("endless: {} with seed {seed}", level.name);
-    let (centre, radius) = args.arena;
-    let centre = centre.map(|(x, z)| glam::vec2(x * 256.0, z * 256.0));
-    if args.beat {
-        return Game::new_beat(level, seed, centre, args.shift);
-    }
-    Game::new_endless(level, seed, centre, radius)
+    (game, start)
 }
 
 /// Everything about a loaded level that doesn't depend on the window.
@@ -92,6 +90,12 @@ pub(crate) struct World {
     pub(crate) race: Option<ghosts::Race>,
     /// The ghost is shown (B switches it, and it's remembered).
     pub(crate) ghost_on: bool,
+    /// This run, kept for a replay (#184) until it's saved, or until the console changes it.
+    pub(crate) recorder: Option<Recorder>,
+    /// Where this run's replay was saved, and whether it's been kept for good.
+    pub(crate) replay_saved: Option<(PathBuf, bool)>,
+    /// A replay being watched, not a game being played.
+    pub(crate) replay: Option<replays::Viewing>,
 }
 
 /// The ghost race for a new game of `level`, if it's one of the missions raced (and played
@@ -102,28 +106,36 @@ fn race(game: &mut Game, level: &Level, args: &Args) -> Option<ghosts::Race> {
 
 impl World {
     pub(crate) fn load(args: Args) -> Result<World, String> {
-        World::load_with(args, None, |level, args| {
-            let mut game = new_game(level, args);
-            arm(&mut game, level, args);
-            game
-        })
+        World::load_with(args, None, None, new_game)
+    }
+
+    /// `replay`, to watch.
+    pub(crate) fn load_replay(args: Args, replay: Replay) -> Result<World, String> {
+        let start = replay.start.clone();
+        let args = Args {
+            mission: start.mission.clone(), explore: start.mode == Mode::Explore, endless: matches!(start.mode, Mode::Endless { .. }),
+            beat: matches!(start.mode, Mode::Beat { .. }), dogs: start.dogs as usize, weapon: start.weapon, cam: None,
+            no_character: false, ..args
+        };
+        World::load_with(args, None, Some(replay), |level, _| (start.game(level), start.clone()))
     }
 
     /// A co-op game's mission, as `setup` has it, played from `seat`. Nothing here may
     /// change the game but `setup`: every player's machine has to start the same one.
     pub(crate) fn load_coop(args: Args, setup: &uc_net::Setup, seat: usize) -> Result<World, String> {
         let args = Args { mission: setup.mission.clone(), explore: false, endless: false, beat: false, dogs: 0, weapon: uc_game::Weapon::None, cam: None, ..args };
-        World::load_with(args, Some(seat), |level, _| {
+        World::load_with(args, Some(seat), None, |level, _| {
             let mut game = setup.game(level);
             game.focus(seat);
-            game
+            (game, uc_net::replay::Start::coop(setup))
         })
     }
 
-    fn load_with(args: Args, seat: Option<usize>, make: impl FnOnce(&Level, &Args) -> Game) -> Result<World, String> {
+    fn load_with(args: Args, seat: Option<usize>, replay: Option<Replay>, make: impl FnOnce(&Level, &Args) -> (Game, Start))
+                 -> Result<World, String> {
         let opt = LoadOptions { fullbright: args.fullbright, character: !args.no_character, overrides: args.overrides.clone() };
         let level = Level::load(&args.game, &args.mission, &opt)?;
-        let mut game = make(&level, &args);
+        let (mut game, how) = make(&level, &args);
         if !game.unsupported().is_empty() {
             println!("{}: {} event points aren't supported yet and do nothing: {}", level.name,
                      game.unsupported().len(), game.unsupported().join(", "));
@@ -141,7 +153,10 @@ impl World {
         let objectives = checklist::split_briefing(&briefing).1;
         let crinkles = args.crinkles;
         // A co-op run isn't a solo one to race or keep as the best.
-        let race = if seat.is_none() { race(&mut game, &level, &args) } else { None };
+        let race = if seat.is_none() && replay.is_none() { race(&mut game, &level, &args) } else { None };
+        // Kept from turn 0 (not without the people: that's for looking at the level).
+        let recorder = (replay.is_none() && !args.no_character).then(|| Recorder::new(&mut game, how));
+        let replay = replay.map(replays::Viewing::new);
         Ok(World {
             fly: FlyCam::from(start),
             orbit: Orbit::behind(angle),
@@ -172,6 +187,9 @@ impl World {
             seat,
             race,
             ghost_on: progress::Progress::load().ghosts(),
+            recorder,
+            replay_saved: None,
+            replay,
         })
     }
 
@@ -185,7 +203,7 @@ impl World {
 
     /// Adds this game's stats to the saved totals, once: when it's over, or left.
     pub(crate) fn save_stats(&mut self) {
-        if self.stats_saved {
+        if self.stats_saved || self.replay.is_some() {
             return;
         }
         self.stats_saved = true;
@@ -205,6 +223,9 @@ impl World {
             return;
         }
         self.ach_clock = 1.0;
+        if self.replay.is_some() {
+            return;
+        }
         let totals = if self.stats_saved { self.known.totals.clone() } else { self.known.totals.plus(&self.game.record) };
         for a in achievements::newly(&self.known, &totals) {
             self.known.achieved.insert(a.id.to_string());
@@ -213,18 +234,31 @@ impl World {
         }
     }
 
+    /// Starts over (a replay: from the beginning).
     pub(crate) fn restart(&mut self) {
+        if let Some(v) = self.replay.as_mut() {
+            self.game = v.playback.replay.start.game(&self.level);
+            v.playback.rewind();
+        } else {
+            self.restart_game();
+        }
+        if let Some(p) = self.game.player() {
+            self.orbit = Orbit::behind(p.fig.angle);
+        }
+    }
+
+    fn restart_game(&mut self) {
+        self.save_replay();
         self.save_stats();
         self.stats_saved = false;
         self.result = None;
         self.civ_warning = None;
-        self.game = new_game(&self.level, &self.args);
-        arm(&mut self.game, &self.level, &self.args);
+        let start;
+        (self.game, start) = new_game(&self.level, &self.args);
+        self.recorder = (!self.args.no_character).then(|| Recorder::new(&mut self.game, start));
+        self.replay_saved = None;
         self.race = race(&mut self.game, &self.level, &self.args);
         self.endless_recorded = None;
-        if let Some(p) = self.game.player() {
-            self.orbit = Orbit::behind(p.fig.angle);
-        }
     }
 
     pub(crate) fn settings(&self) -> Settings {

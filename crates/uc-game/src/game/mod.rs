@@ -18,6 +18,7 @@ pub(crate) use actions::special_item;
 mod combat;
 mod draw;
 pub mod ghost;
+pub mod replay;
 mod snipe;
 mod sights;
 pub use sights::Sight;

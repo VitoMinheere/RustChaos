@@ -3,9 +3,12 @@ name = "uc-net"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
-description = "Urban Chaos co-op: the lockstep session between the players and the server, over TCP"
+description = "Urban Chaos co-op: the lockstep session between the players and the server, over TCP; and replays"
 
 [dependencies]
 uc-game = { path = "../uc-game" }
 uc-world = { path = "../uc-world" }
 glam = "0.34"
+
+[dev-dependencies]
+uc-formats = { path = "../uc-formats" }
