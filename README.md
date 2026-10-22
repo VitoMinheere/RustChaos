@@ -196,6 +196,10 @@ Normal is the original's tuning.
 - `bonus`: lists the side objectives and badges still to find, and shows them on the minimap in light blue, numbered (again to hide them);
 - `telb N`: to bonus objective N;
 - `dog` (or `spawn dog`): a dog a few steps ahead (unreleased);
+- `sm`, `dike` and `flag`: the original's unused physics, each made the way its debug key made it. They're prototypes the shipped game never switched on.
+  - `sm` drops a cube of sphere-matter, 27 coloured spheres on springs, which wobbles and settles. Each `sm` clears the last.
+  - `dike` makes the dike where she stands, a second motorbike drawn as two lines: the frame and the handlebars. Ride it with keypad `8` to go and `/` and `*` to steer.
+  - `flag` hangs a pink flag beside her, pinned along one edge, flapping in the wind. There can be up to 15.
 - `help`.
 
 Two more shortcuts:

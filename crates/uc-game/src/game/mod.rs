@@ -37,5 +37,6 @@ pub mod stats;
 mod litter;
 mod trail;
 pub mod cheats;
+mod physics;
 pub mod endless;
 pub mod beat;
