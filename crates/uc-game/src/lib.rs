@@ -1288,6 +1288,15 @@ impl Game {
         self.sync_grapples();
         self.sync_carrying(level);
         self.separate(level);
+        // `SlideOdd`: one more turn sliding along something odd, or back to none if they
+        // moved freely (collide.cpp:6659).
+        for p in &mut self.people {
+            match p.slid_odd.take() {
+                Some(true) => p.slide_odd = p.slide_odd.saturating_add(1),
+                Some(false) => p.slide_odd = 0,
+                None => {}
+            }
+        }
         self.count_dead_cops();
         self.tally_crime();
         self.men_in_black(dt, level);

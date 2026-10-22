@@ -487,12 +487,20 @@ impl Ground {
     /// Moves a circle of `radius` at feet height `y` from `from` by `delta`, sliding along
     /// walls. Walls only block if they reach above a step over the person's feet.
     pub fn slide(&self, from: Vec2, y: f32, delta: Vec2, radius: f32) -> Vec2 {
+        self.slide_odd(from, y, delta, radius).0
+    }
+
+    /// [`Ground::slide`], and whether it slid along a prop rather than a wall or a door
+    /// (`slid_odd`, collide.cpp:6623).
+    pub fn slide_odd(&self, from: Vec2, y: f32, delta: Vec2, radius: f32) -> (Vec2, bool) {
+        let props = self.prop_walls.first().map_or(usize::MAX, |(_, r)| r.start)..self.walls.len();
+        let mut odd = false;
         let mut p = from + delta;
         // Anything that can't be stepped onto blocks: a jump that lifts the feet to within a
         // step of a ledge's top clears it (and lands on it). As `slide_along` (collide.cpp:4357),
         // a wall blocks feet from 64 below its bottom to a step below its top.
         for _ in 0..2 {
-            for w in self.blocking() {
+            for (k, w) in self.blocking().enumerate() {
                 if y < w.y0 - 64.0 || y >= w.y1 - STEP_HEIGHT {
                     continue;
                 }
@@ -505,10 +513,11 @@ impl Ground {
                 if dist < radius {
                     let n = if dist > 1e-3 { d / dist } else { vec2(-ab.y, ab.x).normalize_or_zero() };
                     p = closest + n * radius;
+                    odd |= props.contains(&k);
                 }
             }
         }
-        p
+        (p, odd)
     }
 
     /// Everything solid at the moment: the map's walls, and the doors still shut.

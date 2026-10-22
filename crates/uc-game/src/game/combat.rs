@@ -302,7 +302,6 @@ impl Game {
         }
     }
 
-    /// Pushes overlapping standing people apart.
     /// Whoever has the injured AI lies down injured (`PCOM_AI_HYPOCHONDRIA` puts them straight
     /// into `set_person_injured`). Someone being carried goes where the one carrying them puts
     /// them, animated to match; once they're let go of, put down or dropped because the one
@@ -333,6 +332,8 @@ impl Game {
         }
     }
 
+    /// Pushes overlapping standing people apart (which counts towards their `SlideOdd`, as
+    /// `collide_against_things` does).
     pub(crate) fn separate(&mut self, level: &Level) {
         const MIN: f32 = 64.0;
         let n = self.people.len();
@@ -350,6 +351,7 @@ impl Game {
                 }
                 let push = d / len * (MIN - len) * 0.5;
                 for (k, s) in [(i, -1.0), (j, 1.0)] {
+                    self.people[k].slid_odd = Some(true);
                     let p = &mut self.people[k].fig.pos;
                     let to = level.ground.slide(vec2(p.x, p.z), p.y, push * s, 36.0);
                     // Never shove anyone off an edge.
