@@ -187,6 +187,13 @@ impl Level {
     pub fn load(game: &Path, mission_name: &str, opt: &LoadOptions) -> Result<Level, String> {
         let mission = Mission::parse(&read(game, &format!("levels\\{mission_name}.ucm"))?)
             .map_err(|e| format!("{mission_name}.ucm: {e}"))?;
+        Level::load_with_mission(game, mission_name, mission, opt)
+    }
+
+    /// [`Level::load`] with `mission` in place of the install's `<mission_name>.ucm`: an
+    /// edited one (#185). Its map and lighting are still read from the install, and its
+    /// textures still looked up by `mission_name`.
+    pub fn load_with_mission(game: &Path, mission_name: &str, mission: Mission, opt: &LoadOptions) -> Result<Level, String> {
         let map = Map::parse(&read(game, &mission.map)?).map_err(|e| format!("{}: {e}", mission.map))?;
         // Textures are looked up by mission name, not by map (TEXTURE_initialise_clumping).
         let clump = match read(game, &format!("clumps\\{mission_name}.txc")) {

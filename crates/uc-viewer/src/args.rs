@@ -6,7 +6,7 @@ pub(crate) const USAGE: &str = "\
 uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DIR] [--linear] [--fullbright]
           [--fog START,END | --no-fog] [--no-crinkles] [--no-character] [--cam X,Y,Z,YAW,PITCH] [--dogs N]
           [--screenshot FILE [--size WxH] [--sim-walk SECS | --sim-run SECS | --sim SECS]]
-          [--dump-pages DIR] [--host [PORT] | --join HOST[:PORT]] [--name NAME] [--replay FILE]
+          [--dump-pages DIR] [--host [PORT] | --join HOST[:PORT]] [--name NAME] [--replay FILE] [--edit NAME]
 
   --game DIR        Urban Chaos install (default: $UC_GAME_DIR, then the GOG location)
   --mission NAME    mission to play, e.g. ftutor1, testdrive1a, police1 (default: the menu)
@@ -39,6 +39,8 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --name NAME       co-op: your name in the lobby (default: your user name)
   --coop-bot        co-op: play your seat with made-up inputs (testing)
   --replay FILE     watch a saved replay (.ucr); with --screenshot and --sim SECS, play SECS of it
+  --edit NAME       edit mission NAME's event points in the mission editor (saved edits go in the
+                    progress folder's missions folder, never the install)
 
 Darci: WASD move (relative to the camera), Shift run, J or left mouse punch, K kick, Q block,
   E action (arrest, climb; hold while running to sprint; hold over a searchable prop or someone
@@ -112,6 +114,8 @@ pub(crate) struct Args {
     pub(crate) coop_bot: bool,
     /// A replay to watch (#184).
     pub(crate) replay: Option<PathBuf>,
+    /// Open the mission in the editor (#185).
+    pub(crate) edit: bool,
 }
 
 pub(crate) fn parse_floats(s: &str, n: usize, what: &str) -> Result<Vec<f32>, String> {
@@ -154,6 +158,7 @@ impl Default for Args {
             join: None,
             coop_bot: false,
             replay: None,
+            edit: false,
             name: std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_else(|_| "Player".into()),
         }
     }
@@ -175,6 +180,11 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             "--mission" => {
                 a.mission = value()?.trim_end_matches(".ucm").to_string();
                 a.mission_given = true;
+            }
+            "--edit" => {
+                a.mission = value()?.trim_end_matches(".ucm").to_string();
+                a.mission_given = true;
+                a.edit = true;
             }
             "--explore" => a.explore = true,
             "--mute" => a.mute = true,

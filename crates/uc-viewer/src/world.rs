@@ -96,6 +96,10 @@ pub(crate) struct World {
     pub(crate) replay_saved: Option<(PathBuf, bool)>,
     /// A replay being watched, not a game being played.
     pub(crate) replay: Option<replays::Viewing>,
+    /// The mission editor (#185), while the mission's being edited: the game is stopped.
+    pub(crate) editor: Option<editor::Editor>,
+    /// An edited mission being played: nothing it does goes into the progress or a replay.
+    pub(crate) edited: bool,
 }
 
 /// The ghost race for a new game of `level`, if it's one of the missions raced (and played
@@ -106,7 +110,42 @@ fn race(game: &mut Game, level: &Level, args: &Args) -> Option<ghosts::Race> {
 
 impl World {
     pub(crate) fn load(args: Args) -> Result<World, String> {
-        World::load_with(args, None, None, new_game)
+        World::load_with(args, None, None, None, new_game)
+    }
+
+    /// Mission `args.mission` in the editor (#185): `editor` if one's being returned to, else
+    /// its saved edit, or the shipped mission. The level's loaded with the edit (when it
+    /// makes a mission), but the game isn't run.
+    pub(crate) fn load_edit(args: Args, editor: Option<editor::Editor>) -> Result<World, String> {
+        let mut ed = match editor {
+            Some(e) => Some(e),
+            None => editor::saved(&args.mission).map(|d| editor::Editor::with(&args.mission, d)),
+        };
+        let mission = ed.as_ref().and_then(|e| e.mission().ok());
+        let mut w = World::load_with(Args { cam: None, ..args }, None, None, mission, new_game)?;
+        let ed = ed.take().unwrap_or_else(|| editor::Editor::new(&w.args.mission, &w.level.mission));
+        w.editor = Some(ed);
+        w.third_person = false;
+        w.recorder = None;
+        w.race = None;
+        w.help = false;
+        Ok(w)
+    }
+
+    /// `mission`, an edit of `args.mission`, played.
+    pub(crate) fn load_edited(args: Args, mission: uc_formats::ucm::Mission) -> Result<World, String> {
+        let args = Args { explore: false, endless: false, beat: false, cam: None, ..args };
+        let mut w = World::load_with(args, None, None, Some(mission), new_game)?;
+        w.edited = true;
+        w.recorder = None;
+        w.race = None;
+        Ok(w)
+    }
+
+    /// Whether this game goes into the progress (best times, stats, achievements): not a
+    /// replay, and not an edited mission.
+    pub(crate) fn counts(&self) -> bool {
+        self.replay.is_none() && !self.edited && self.editor.is_none()
     }
 
     /// `replay`, to watch.
@@ -117,24 +156,29 @@ impl World {
             beat: matches!(start.mode, Mode::Beat { .. }), dogs: start.dogs as usize, weapon: start.weapon, cam: None,
             no_character: false, ..args
         };
-        World::load_with(args, None, Some(replay), |level, _| (start.game(level), start.clone()))
+        World::load_with(args, None, Some(replay), None, |level, _| (start.game(level), start.clone()))
     }
 
     /// A co-op game's mission, as `setup` has it, played from `seat`. Nothing here may
     /// change the game but `setup`: every player's machine has to start the same one.
     pub(crate) fn load_coop(args: Args, setup: &uc_net::Setup, seat: usize) -> Result<World, String> {
         let args = Args { mission: setup.mission.clone(), explore: false, endless: false, beat: false, dogs: 0, weapon: uc_game::Weapon::None, cam: None, ..args };
-        World::load_with(args, Some(seat), None, |level, _| {
+        World::load_with(args, Some(seat), None, None, |level, _| {
             let mut game = setup.game(level);
             game.focus(seat);
             (game, uc_net::replay::Start::coop(setup))
         })
     }
 
-    fn load_with(args: Args, seat: Option<usize>, replay: Option<Replay>, make: impl FnOnce(&Level, &Args) -> (Game, Start))
-                 -> Result<World, String> {
+    /// Loads the level for `args` (with `mission` in place of the install's, if given) and
+    /// starts the game `make` makes on it.
+    fn load_with(args: Args, seat: Option<usize>, replay: Option<Replay>, mission: Option<uc_formats::ucm::Mission>,
+                 make: impl FnOnce(&Level, &Args) -> (Game, Start)) -> Result<World, String> {
         let opt = LoadOptions { fullbright: args.fullbright, character: !args.no_character, overrides: args.overrides.clone() };
-        let level = Level::load(&args.game, &args.mission, &opt)?;
+        let level = match mission {
+            Some(m) => Level::load_with_mission(&args.game, &args.mission, m, &opt)?,
+            None => Level::load(&args.game, &args.mission, &opt)?,
+        };
         let (mut game, how) = make(&level, &args);
         if !game.unsupported().is_empty() {
             println!("{}: {} event points aren't supported yet and do nothing: {}", level.name,
@@ -190,6 +234,8 @@ impl World {
             recorder,
             replay_saved: None,
             replay,
+            editor: None,
+            edited: false,
         })
     }
 
@@ -203,7 +249,7 @@ impl World {
 
     /// Adds this game's stats to the saved totals, once: when it's over, or left.
     pub(crate) fn save_stats(&mut self) {
-        if self.stats_saved || self.replay.is_some() {
+        if self.stats_saved || !self.counts() {
             return;
         }
         self.stats_saved = true;
@@ -223,7 +269,7 @@ impl World {
             return;
         }
         self.ach_clock = 1.0;
-        if self.replay.is_some() {
+        if !self.counts() {
             return;
         }
         let totals = if self.stats_saved { self.known.totals.clone() } else { self.known.totals.plus(&self.game.record) };
@@ -255,9 +301,10 @@ impl World {
         self.civ_warning = None;
         let start;
         (self.game, start) = new_game(&self.level, &self.args);
-        self.recorder = (!self.args.no_character).then(|| Recorder::new(&mut self.game, start));
+        let counts = self.counts();
+        self.recorder = (counts && !self.args.no_character).then(|| Recorder::new(&mut self.game, start));
         self.replay_saved = None;
-        self.race = race(&mut self.game, &self.level, &self.args);
+        self.race = if counts { race(&mut self.game, &self.level, &self.args) } else { None };
         self.endless_recorded = None;
     }
 
@@ -278,6 +325,10 @@ impl World {
     }
 
     pub(crate) fn camera(&self) -> Camera {
+        // The editor's is always the free camera.
+        if self.editor.is_some() {
+            return self.fly.camera();
+        }
         // A mission's fly-by takes over the camera.
         if let Some((pos, target)) = self.game.camera() {
             return Camera { pos: pos / uc_world::UNIT, target: target / uc_world::UNIT, fov_y: 60f32.to_radians(), ortho: None };

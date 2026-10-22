@@ -158,6 +158,8 @@ pub struct Menu {
     pub replay_selected: usize,
     /// A replay chosen, to load on the next frame.
     pub loading_replay: Option<usize>,
+    /// The mission to open in the editor (#185), by its place in the list.
+    pub loading_edit: Option<usize>,
 }
 
 impl Menu {
@@ -203,7 +205,7 @@ impl Menu {
             .collect();
         Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false,
                coop: 0, address: "127.0.0.1".into(), status: String::new(), for_coop: false, lobby: None,
-               replays: Vec::new(), replay_selected: 0, loading_replay: None }
+               replays: Vec::new(), replay_selected: 0, loading_replay: None, loading_edit: None }
     }
 
     /// The map list on show: Beat Cop's districts or endless mode's arenas.
@@ -678,7 +680,7 @@ impl Menu {
         let gold = [255, 210, 70, 255];
         let x = 20.0 * s;
         o.text(x, 16.0 * s, s * 3.0, gold, "URBAN CHAOS");
-        let keys = if self.for_coop { "CO-OP: choose the mission to play together.   Up/Down choose   Enter play   Esc back" } else { "Up/Down choose   Enter play   Esc back" };
+        let keys = if self.for_coop { "CO-OP: choose the mission to play together.   Up/Down choose   Enter play   Esc back" } else { "Up/Down choose   Enter play   E edit   Esc back" };
         o.text(x, 44.0 * s, s, [200, 200, 190, 220], keys);
         // How far through the missions.
         let done = self.entries.iter().filter(|e| self.progress.completed(&e.mission)).count();
@@ -687,7 +689,7 @@ impl Menu {
         let tally = format!("{done} of {} missions complete, {full} at 100%    Badges: STA {sta}  STR {str}  REF {rfx}  CON {con}",
                             self.entries.len());
         o.text(x, 56.0 * s, s, gold, &tally);
-        if let Some(i) = self.loading {
+        if let Some(i) = self.loading.or(self.loading_edit) {
             let text = format!("LOADING {}...", self.entries[i].title.to_uppercase());
             o.text(w / 2.0 - Overlay::text_width(&text, s * 2.0) / 2.0, h * 0.5, s * 2.0, white, &text);
             return o;
@@ -787,7 +789,7 @@ const UNRELEASED: [(&str, &str, &str); 4] = [
 ];
 
 /// `text` cut short with "..." to fit `width` at scale `s`.
-fn fit(text: &str, width: f32, s: f32) -> String {
+pub(crate) fn fit(text: &str, width: f32, s: f32) -> String {
     if Overlay::text_width(text, s) <= width {
         return text.to_string();
     }

@@ -6,7 +6,9 @@ license.workspace = true
 description = "Urban Chaos level viewer: fly through levels or walk around as Darci"
 
 [dependencies]
-uc-formats = { path = "../uc-formats" }
+uc-formats = { path = "../uc-formats", features = ["json"] }
+# In the editor's panel a point's fields keep their order.
+serde_json = { version = "1", features = ["preserve_order"] }
 uc-world = { path = "../uc-world" }
 uc-game = { path = "../uc-game" }
 uc-audio = { path = "../uc-audio" }

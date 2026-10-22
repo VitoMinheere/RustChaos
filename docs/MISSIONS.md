@@ -176,7 +176,7 @@ The Rust crates already provide most of a modern editor's data model:
 - read and write missions (`uc-formats`, `ucm` and `ucm_json`);
 - build the level in 3D (`uc-world`) and render it (`uc-render`).
 
-What's left is the editor UI: show event points in the 3D view, select and move them, and edit their parameters. See `docs/RUST_ROADMAP.md`.
+A first editor is in the viewer (#185): E on a mission in the mission list, or `uc-viewer --edit <mission>`. It shows the event points in the level, moves, turns, adds, copies and deletes them, changes their fields as JSON, undoes, saves the clean JSON next to the progress file, checks it, and plays it. See the README's "The mission editor". Still to come: per-type forms for the fields, new missions from scratch on a chosen map, and editing cutscenes, wander squares and the crowd.
 
 ## 6. New maps are a much bigger job
 

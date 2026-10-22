@@ -103,7 +103,9 @@ impl World {
             self.meddled();
         }
         match name.as_str() {
+            "help" | "?" if self.editor.is_some() => self.console.say("ep {json}: change the selected point's fields, as the JSON names them"),
             "help" | "?" => self.console.say(HELP),
+            "ep" => self.editor_command(cmd[2..].trim()),
             "telw" => match arg.and_then(|a| a.parse::<usize>().ok()) {
                 Some(n) => match Game::point_pos(&self.level, n) {
                     Some(at) if self.game.teleport(at, &self.level) => self.console.say(format!("At event point {n}")),
@@ -258,31 +260,7 @@ impl World {
     /// building's roof), and the first ground or roof it reaches puts her there. Looking at
     /// nothing within 60 squares, she goes under the camera.
     pub(crate) fn teleport_to_view(&mut self) {
-        let eye = self.fly.pos * uc_world::UNIT;
-        let dir = self.fly.forward();
-        let flat = vec3(dir.x, 0.0, dir.z).normalize_or_zero();
-        let step = 32.0;
-        let mut prev = eye;
-        let mut to = None;
-        for k in 1..(60.0 * uc_world::UNIT / step) as usize {
-            let p = eye + dir * step * k as f32;
-            if let Some(t) = self.level.ground.first_hit(prev, p) {
-                let beyond = prev + (p - prev) * t + flat * 48.0;
-                let top = self.level.ground.surface(&self.level.map, beyond.x, beyond.z, 1.0e5);
-                to = Some(vec3(beyond.x, top, beyond.z));
-                break;
-            }
-            let s = self.level.ground.surface(&self.level.map, p.x, p.z, p.y + 1.0);
-            if p.y <= s {
-                to = Some(vec3(p.x, s, p.z));
-                break;
-            }
-            prev = p;
-        }
-        let to = to.unwrap_or_else(|| {
-            let s = self.level.ground.surface(&self.level.map, eye.x, eye.z, eye.y);
-            vec3(eye.x, s, eye.z)
-        });
+        let to = self.look_point();
         if self.game.teleport(to, &self.level) {
             self.third_person = true;
             self.console.say("Teleported");
