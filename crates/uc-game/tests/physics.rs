@@ -1,6 +1,6 @@
 //! The original's unused physics (#111) in a level: in RTA's police station, sphere-matter,
-//! a flag and a dike made where Darci stands come to rest on its floor, not on its roof,
-//! and the dike rides off on the throttle. Skipped without an install.
+//! a flag, a dike and a hypermatter sign made where Darci stands come to rest on its floor,
+//! not on its roof, and the dike rides off on the throttle. Skipped without an install.
 
 use glam::vec2;
 use uc_game::{dike, Controls};
@@ -15,7 +15,12 @@ fn the_extras_rest_on_the_floor_indoors() {
     r.g.sphere_matter_test();
     assert!(r.g.flag_test());
     r.g.dike_test(&r.level);
+    assert!(r.g.hypermatter_test(&r.level));
     r.play(5.0, Controls::default());
+    // The sign has landed on the floor (it takes a while longer to topple and settle).
+    let sign = r.g.hm.get(0).unwrap();
+    assert!(sign.points().iter().all(|p| p.pos.is_finite() && p.pos.y > at.y - 8.0), "sign below the floor");
+    assert!(sign.points().iter().any(|p| p.pos.y < at.y + 32.0), "sign not down: {:?}", sign.cog());
     for (p, radius, _) in r.g.sm.spheres() {
         assert!(p.is_finite() && p.y >= at.y + radius - 2.0 && p.y < at.y + 160.0, "sphere at {p}, Darci at {at}");
     }

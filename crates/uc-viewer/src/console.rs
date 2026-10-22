@@ -6,7 +6,7 @@
 use crate::*;
 
 const HELP: &str = "telw N (to event point N)  tels / telr (store / return)  wpt (nearest point)  \
-win  lose  restart  roper  darci  kit  boo  pow  pos  god  ammo  freeze  give WHAT  kill [near]  \ncrime N  time X  wave N  bonus  telb N  car  dog  call WHAT  autopilot  crinkles  sm  dike  flag";
+win  lose  restart  roper  darci  kit  boo  pow  pos  god  ammo  freeze  give WHAT  kill [near]  \ncrime N  time X  wave N  bonus  telb N  car  dog  call WHAT  autopilot  crinkles  sm  dike  flag  hm";
 
 #[derive(Default)]
 pub(crate) struct Console {
@@ -138,6 +138,11 @@ impl World {
             "dike" => {
                 self.game.dike_test(&self.level);
                 self.console.say("Dike: keypad 8 to go, / and * to steer");
+            }
+            "hm" => {
+                if !self.game.hypermatter_test(&self.level) {
+                    self.console.say("No room for more hypermatter");
+                }
             }
             "flag" => {
                 if !self.game.flag_test() {

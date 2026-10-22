@@ -1,5 +1,5 @@
 //! The original's unused physics (#111), as console extras: sphere-matter (`sm`), the dike
-//! (`dike`) and cloth (`flag`). Each was made only by a debug key the shipped game
+//! (`dike`), cloth (`flag`) and hypermatter (`hm`). Each was made only by a debug key the shipped game
 //! comments out; here each is made the way its key made it, run a turn at a time, and
 //! drawn as the original drew it.
 
@@ -27,6 +27,20 @@ impl cloth::Ground for Floor<'_> {
         self.at(x, z, y)
     }
 }
+
+/// Hypermatter's ground: the floor under where the last object was dropped, a step up
+/// (the original takes it as 0 everywhere).
+struct HmFloor<'a>(&'a Level, f32);
+
+impl hm::HmWorld for HmFloor<'_> {
+    fn height(&self, x: f32, z: f32) -> f32 {
+        self.0.ground.surface(&self.0.map, x, z, self.1 + uc_world::ground::STEP_HEIGHT)
+    }
+}
+
+/// How far round a hypermatter object walls are handed to it as colvects: four squares,
+/// as `FURN_hypermatterise` looks (Furn.cpp:1040).
+const HM_WALLS: f32 = 4.0 * 256.0;
 
 impl dike::Road for Floor<'_> {
     fn height(&self, x: f32, z: f32, y: f32) -> f32 {
@@ -66,9 +80,48 @@ impl Game {
         true
     }
 
+    /// `hm`: prim 6 (an advertising sign) as hypermatter, 512 above the player, as the
+    /// debug key made it (Controls.cpp:4269). Whether there was room for another (eight).
+    pub fn hypermatter_test(&mut self, level: &Level) -> bool {
+        const PRIM: u16 = 6;
+        let Some(at) = self.player().map(|p| p.fig.pos) else { return false };
+        let Some(prim) = uc_world::level::load_prim(&level.game, PRIM) else { return false };
+        let obj = hm::Object::new(&prim, PRIM, at + Vec3::new(0.0, 512.0, 0.0), [0, 0, 0], Vec3::ZERO, &hm::primgrid(PRIM), hm::DEBUG_KEY);
+        let Some(i) = obj.and_then(|o| self.hm.add(o)) else { return false };
+        self.hm_prims.insert(i, prim);
+        self.hm_floor = at.y;
+        true
+    }
+
     /// A turn of the extras.
     pub(crate) fn run_physics(&mut self, dt: f32, level: &Level) {
         let floor = Floor(level);
+        // Hypermatter: the map's walls round each object standing on the floor (not props:
+        // `FURN_hypermatterise` only takes "colvects on the ground", Furn.cpp:642) as its
+        // colvects, then eight steps a twentieth of a second.
+        if self.hm.objects.iter().any(Option::is_some) {
+            let floor = self.hm_floor;
+            let props = level.ground.prop_walls.first().map_or(level.ground.walls.len(), |(_, r)| r.start);
+            for o in self.hm.objects.iter_mut().flatten() {
+                let at = o.cog();
+                o.colvect_clear();
+                let near = |w: &&uc_formats::facet::WallSegment| {
+                    let (a, b) = (Vec2::from(w.a), Vec2::from(w.b));
+                    let p = Vec2::new(at.x, at.z);
+                    let t = ((p - a).dot(b - a) / (b - a).length_squared().max(1e-6)).clamp(0.0, 1.0);
+                    (a + (b - a) * t - p).length() < HM_WALLS && (w.y0 - floor).abs() < 16.0
+                };
+                for w in level.ground.walls[..props].iter().filter(near) {
+                    o.colvect_add(w.a, w.b);
+                }
+            }
+            self.hm_clock += dt;
+            let world = HmFloor(level, self.hm_floor);
+            while self.hm_clock >= 1.0 / (20.0 * hm::STEPS_PER_TURN as f32) {
+                self.hm_clock -= 1.0 / (20.0 * hm::STEPS_PER_TURN as f32);
+                self.hm.process(&world);
+            }
+        }
         self.sm.update(dt, &floor);
         self.cloths.update(dt, &floor);
         if let Some(d) = self.dike.as_mut() {
@@ -98,6 +151,12 @@ impl Game {
         }
         for c in &self.cloths.cloths {
             flag(out, c);
+        }
+        // Hypermatter: its prim, each point placed through the bent lattice.
+        for (i, o) in self.hm.objects.iter().enumerate() {
+            if let (Some(o), Some(prim)) = (o, self.hm_prims.get(&i)) {
+                uc_world::level::prim_batches(prim, |v| o.place(v), lighter.as_ref(), out);
+            }
         }
     }
 }

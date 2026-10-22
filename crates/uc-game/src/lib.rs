@@ -631,6 +631,12 @@ pub struct Game {
     pub dike_control: u8,
     dike_clock: f32,
     pub cloths: cloth::Cloths,
+    /// Hypermatter, each object's prim (to draw it through its lattice), the floor under
+    /// where the last was dropped, and time not yet run.
+    pub hm: hm::Hypermatter,
+    hm_prims: HashMap<usize, uc_formats::prm::Prim>,
+    hm_floor: f32,
+    hm_clock: f32,
     /// Sheets of ground mist the mission has laid down.
     pub mists: Mists,
     /// Drops in the air.
@@ -773,6 +779,10 @@ impl Game {
             dike_control: 0,
             dike_clock: 0.0,
             cloths: cloth::Cloths::default(),
+            hm: hm::Hypermatter::default(),
+            hm_prims: HashMap::new(),
+            hm_floor: 0.0,
+            hm_clock: 0.0,
             mists: Mists::default(),
             drops: dirt::Drops::default(),
             sea: level.sea(),
