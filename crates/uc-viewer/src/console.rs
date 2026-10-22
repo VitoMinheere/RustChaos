@@ -13,7 +13,7 @@ const CHANGES: [&str; 22] = [
 ];
 
 const HELP: &str = "telw N (to event point N)  tels / telr (store / return)  wpt (nearest point)  \
-win  lose  restart  roper  darci  kit  boo  pow  pos  god  ammo  freeze  give WHAT  kill [near]  \ncrime N  time X  wave N  bonus  telb N  car  dog  call WHAT  autopilot  crinkles";
+win  lose  restart  roper  darci  kit  boo  pow  pos  god  ammo  freeze  give WHAT  kill [near]  \ncrime N  time X  wave N  bonus  telb N  car  dog  call WHAT  autopilot  crinkles  sm  dike  flag  hm";
 
 #[derive(Default)]
 pub(crate) struct Console {
@@ -142,6 +142,24 @@ impl World {
             }
             "boo" => self.game.boo(),
             "pow" => self.game.pow_test(),
+            "sm" => {
+                self.game.sphere_matter_test();
+                self.console.say("Sphere-matter");
+            }
+            "dike" => {
+                self.game.dike_test(&self.level);
+                self.console.say("Dike: keypad 8 to go, / and * to steer");
+            }
+            "hm" => {
+                if !self.game.hypermatter_test(&self.level) {
+                    self.console.say("No room for more hypermatter");
+                }
+            }
+            "flag" => {
+                if !self.game.flag_test() {
+                    self.console.say("No room for another flag");
+                }
+            }
             "god" => {
                 self.game.cheats.god = !self.game.cheats.god;
                 self.console.say(if self.game.cheats.god { "God mode on" } else { "God mode off" });

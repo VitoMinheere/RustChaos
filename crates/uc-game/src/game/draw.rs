@@ -272,6 +272,7 @@ impl Game {
         self.ribbons.draw(&mut out);
         self.draw_bikes(&mut out, level);
         self.draw_sea(&mut out);
+        self.draw_physics(&mut out, level, eye);
         out
     }
 

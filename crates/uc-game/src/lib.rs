@@ -18,11 +18,14 @@ pub mod chopper;
 pub mod barrel;
 pub mod canid;
 pub mod city;
+pub mod cloth;
 pub mod game;
 pub use game::{Aiming, Sight, Snipe};
 pub mod creature;
+pub mod dike;
 pub mod dirt;
 pub mod goals;
+pub mod hm;
 pub mod mist;
 pub mod person;
 pub mod plat;
@@ -31,6 +34,7 @@ pub mod pyro;
 pub mod ribbon;
 pub mod road;
 pub mod script;
+pub mod sm;
 pub mod steam;
 pub mod switch;
 pub mod talk;
@@ -622,6 +626,20 @@ pub struct Game {
     pub pyro: Pyro,
     /// The PlayStation's explosions (`POW_*`), which only the console sets off.
     pub pow: pow::Pow,
+    /// The original's unused physics (#111), made from the console: sphere-matter, the dike
+    /// (with what its rider presses, `dike::ACCEL` and so on, and time not yet run) and
+    /// cloth.
+    pub sm: sm::SphereMatter,
+    pub dike: Option<dike::Dike>,
+    pub dike_control: u8,
+    dike_clock: f32,
+    pub cloths: cloth::Cloths,
+    /// Hypermatter, each object's prim (to draw it through its lattice), the floor under
+    /// where the last was dropped, and time not yet run.
+    pub hm: hm::Hypermatter,
+    hm_prims: HashMap<usize, uc_formats::prm::Prim>,
+    hm_floor: f32,
+    hm_clock: f32,
     /// Sheets of ground mist the mission has laid down.
     pub mists: Mists,
     /// Drops in the air.
@@ -761,6 +779,15 @@ impl Game {
             search: None,
             pyro: Pyro::default(),
             pow: pow::Pow::default(),
+            sm: sm::SphereMatter::default(),
+            dike: None,
+            dike_control: 0,
+            dike_clock: 0.0,
+            cloths: cloth::Cloths::default(),
+            hm: hm::Hypermatter::default(),
+            hm_prims: HashMap::new(),
+            hm_floor: 0.0,
+            hm_clock: 0.0,
             mists: Mists::default(),
             drops: dirt::Drops::default(),
             sea: level.sea(),
@@ -1083,6 +1110,7 @@ impl Game {
         self.update_scenes(dt, level, pressed);
         self.pyro.update(dt);
         self.pow.update(dt);
+        self.run_physics(dt, level);
         if self.outcome.is_none() {
             self.charges(dt, level);
         }
