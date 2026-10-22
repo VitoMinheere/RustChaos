@@ -25,6 +25,7 @@ pub mod creature;
 pub mod dike;
 pub mod dirt;
 pub mod goals;
+pub mod hm;
 pub mod mist;
 pub mod person;
 pub mod plat;
