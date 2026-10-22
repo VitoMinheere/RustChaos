@@ -190,6 +190,11 @@ pub const AI_COP: u8 = 5;
 pub const AI_SUICIDE: u8 = 15;
 /// `PCOM_MOVE_WANDER`.
 pub const MOVE_WANDER: u8 = 4;
+/// `PCOM_MOVE_FOLLOW`.
+pub const MOVE_FOLLOW: u8 = 5;
+/// `PCOM_MOVE_FOLLOW_ON_SEE`: stands still until they're near whom they'd follow and can see
+/// them, then follows.
+pub const MOVE_FOLLOW_ON_SEE: u8 = 7;
 /// `PCOM_AI_HYPOCHONDRIA`: lies injured, waiting to be carried (`set_person_injured`).
 pub const AI_INJURED: u8 = 20;
 /// How far ahead of the one carrying them the carried person is put (`carry_running`).
@@ -216,7 +221,7 @@ const RADIUS: f32 = 36.0;
 const FIGHT_RANGE: f32 = 400.0;
 /// How close the attacker must be to grab or arrest.
 const GRAB_RANGE: f32 = 120.0;
-const ARREST_RANGE: f32 = 130.0;
+pub(crate) const ARREST_RANGE: f32 = 130.0;
 /// AI: notices the player within 2 squares (`PCOM_get_dist_between(...) < 0x200`).
 const AGGRO_RANGE: f32 = 512.0;
 /// The hands of someone hanging from a cable are this far above their feet position.

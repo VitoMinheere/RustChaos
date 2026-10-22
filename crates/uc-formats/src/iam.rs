@@ -1,6 +1,7 @@
 //! `.iam` maps: `load_game_map` (fallen/Source/io.cpp:617), `load_super_map` and
 //! `load_walkables` (fallen/Source/supermap.cpp:2256, :1745). See docs/ARCHITECTURE.md §5.
 
+use crate::prm::Prim;
 use crate::reader::{count, Reader, Result};
 
 /// Hi-res map squares per side (`PAP_SIZE_HI`).
@@ -162,7 +163,10 @@ pub struct Thing {
 pub enum WalkablesLayout {
     /// The layout the shipped code reads.
     Current,
-    /// The older layout (commented out in `load_walkables`), used by 3 unshipped retail maps.
+    /// The older layout (commented out in `load_walkables`), used by 3 unshipped retail maps
+    /// (`jumper1`, `submiss1a`, `supply1`). These also keep a facet's x and z as 16-bit world
+    /// coordinates rather than bytes of map squares, and their roofs and walkable tops as prim
+    /// faces ([`Map::walkables`]) rather than [`RoofFace4`]s.
     Old,
 }
 
@@ -184,6 +188,9 @@ pub struct Map {
     pub objects: Vec<Object>,
     pub texture_set: Option<i32>,
     pub walkables_layout: WalkablesLayout,
+    /// In the older layout, the roofs and walkable tops: points in world units and the faces
+    /// between them (`PrimPoint`, `PrimFace3`, `PrimFace4`), as a prim placed at the origin.
+    pub walkables: Option<Prim>,
 }
 
 impl Map {
@@ -325,12 +332,19 @@ fn parse_with(data: &[u8], layout: WalkablesLayout) -> Result<Map> {
     for _ in 0..nf {
         let kind = r.u8()?;
         let height = r.u8()?;
-        let x = [r.u8()?, r.u8()?];
-        let y = [r.i16()?, r.i16()?];
-        let z = [r.u8()?, r.u8()?];
+        // The older layout keeps x and z as world units, a square being 256 of them, and has
+        // three bytes less after `Open` (the record is the same size).
+        let (x, y, z) = if layout == WalkablesLayout::Old {
+            let x = [r.i16()?, r.i16()?];
+            let y = [r.i16()?, r.i16()?];
+            let z = [r.i16()?, r.i16()?];
+            (x.map(|v| (v >> 8) as u8), y, z.map(|v| (v >> 8) as u8))
+        } else {
+            ([r.u8()?, r.u8()?], [r.i16()?, r.i16()?], [r.u8()?, r.u8()?])
+        };
         let (flags, style_index, building, storey) = (r.u16()?, r.u16()?, r.u16()?, r.u16()?);
         let (fheight, block_height, open) = (r.u8()?, r.u8()?, r.u8()?);
-        r.skip(5)?; // Dfcache, Shake, CutHole, Counter[2]
+        r.skip(if layout == WalkablesLayout::Old { 1 } else { 5 })?; // Dfcache, Shake, CutHole, Counter[2]
         facets.push(Facet { kind, height, x, y, z, flags, style_index, building, storey, fheight, block_height, open });
     }
     let mut dstyles = Vec::with_capacity(ns);
@@ -354,6 +368,7 @@ fn parse_with(data: &[u8], layout: WalkablesLayout) -> Result<Map> {
         r.skip(nis * 22 + nst * 10 + nblk)?; // InsideStorey, Staircase, inside_block
     }
     let mut roof_faces = Vec::new();
+    let mut walkables = None;
     match layout {
         WalkablesLayout::Current => {
             let (nw, nr) = (r.u16()? as usize, r.u16()? as usize);
@@ -370,8 +385,23 @@ fn parse_with(data: &[u8], layout: WalkablesLayout) -> Result<Map> {
             }
         }
         WalkablesLayout::Old => {
+            // `DWalkable`s, then the prim points and faces they index (supermap.cpp:1758,
+            // commented out there).
             let (nw, npt, nf3, nf4) = (r.u16()? as usize, r.u16()? as usize, r.u16()? as usize, r.u16()? as usize);
-            r.skip(nw * 22 + npt * 6 + nf3 * 28 + nf4 * 34)?;
+            r.skip(nw * 22)?;
+            let mut points = Vec::with_capacity(npt);
+            for _ in 0..npt {
+                points.push([r.i16()?, r.i16()?, r.i16()?]);
+            }
+            let mut faces = Vec::with_capacity(nf3 + nf4);
+            for _ in 0..nf3 {
+                faces.push(crate::prm::face(&mut r, 3, 0)?);
+            }
+            for _ in 0..nf4 {
+                faces.push(crate::prm::face(&mut r, 4, 0)?);
+            }
+            faces.retain(|f| f.points.iter().all(|&p| (p as usize) < points.len()));
+            walkables = Some(Prim { save_type: 0, name: "walkables".into(), points, faces, coltype: 0, damage: 0, shadowtype: 0, flag: 0 });
         }
     }
     if save_type >= 23 {
@@ -395,5 +425,6 @@ fn parse_with(data: &[u8], layout: WalkablesLayout) -> Result<Map> {
         objects: obs,
         texture_set,
         walkables_layout: layout,
+        walkables,
     })
 }

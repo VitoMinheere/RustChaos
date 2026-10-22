@@ -376,6 +376,21 @@ impl Ground {
                 }
             }
         }
+        // An older map's roofs and walkable tops, faces of a prim at the origin (see
+        // `uc_formats::iam::WalkablesLayout::Old`): stood on as the props' walkable faces are.
+        for f in map.walkables.iter().flat_map(|w| w.faces.iter().map(move |f| (w, f))) {
+            let (w, f) = f;
+            let p: Vec<Vec3> = f.points.iter().map(|&i| w.points[i as usize]).map(|v| vec3(v[0] as f32, v[1] as f32, v[2] as f32)).collect();
+            let fan: Vec<[Vec3; 3]> = if p.len() == 4 { vec![[p[0], p[1], p[2]], [p[1], p[3], p[2]]] } else { vec![[p[0], p[1], p[2]]] };
+            for t in fan {
+                let (lo, hi) = (t[0].min(t[1]).min(t[2]), t[0].max(t[1]).max(t[2]));
+                for x in (lo.x / 256.0).floor() as i32..=(hi.x / 256.0).floor() as i32 {
+                    for z in (lo.z / 256.0).floor() as i32..=(hi.z / 256.0).floor() as i32 {
+                        prop_tris.entry((x, z)).or_default().push(t);
+                    }
+                }
+            }
+        }
         let cables = map.facets.iter().skip(1).filter(|f| f.kind == facet_type::CABLE).map(|f| Cable { points: cable_points(f) }).collect();
         let (fences, fence_buildings): (Vec<WallSegment>, Vec<u16>) = map
             .facets

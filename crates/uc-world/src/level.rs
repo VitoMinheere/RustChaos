@@ -183,10 +183,29 @@ fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> Clum
     clump
 }
 
+/// Endings for the unfinished missions that never got one (not in the original). Takeover1
+/// sends Darci to bring two hostages out to the extraction point, and says "Worker 1
+/// rescued." and "Worker 2 rescued." as each gets there (points 65 and 64), but nothing ends
+/// it: here an `end_game_win` point goes off once both have.
+pub fn finish_unfinished(mission: &mut Mission) {
+    use uc_formats::ucm::{on_trigger, trigger, waypoint};
+    if !mission.mission_name.eq_ignore_ascii_case("Takeover1") || mission.event_points.iter().any(|e| e.used != 0 && e.kind == waypoint::END_GAME_WIN) {
+        return;
+    }
+    let rescued = |i: usize| mission.event_points.iter().find(|e| e.index == i && e.kind == waypoint::MESSAGE && e.used != 0).cloned();
+    let (Some(two), Some(_)) = (rescued(64), rescued(65)) else { return };
+    let index = mission.event_points.iter().map(|e| e.index).max().unwrap_or(0) + 1;
+    mission.event_points.push(uc_formats::ucm::EventPoint {
+        index, kind: waypoint::END_GAME_WIN, trigger: trigger::BOOLEAN_AND, on_trigger: on_trigger::ACTIVE,
+        ep_ref: 64, ep_ref_bool: 65, data: [0; 10], radius: 0, next: 0, prev: 0, ..two
+    });
+}
+
 impl Level {
     pub fn load(game: &Path, mission_name: &str, opt: &LoadOptions) -> Result<Level, String> {
-        let mission = Mission::parse(&read(game, &format!("levels\\{mission_name}.ucm"))?)
+        let mut mission = Mission::parse(&read(game, &format!("levels\\{mission_name}.ucm"))?)
             .map_err(|e| format!("{mission_name}.ucm: {e}"))?;
+        finish_unfinished(&mut mission);
         let map = Map::parse(&read(game, &mission.map)?).map_err(|e| format!("{}: {e}", mission.map))?;
         // Textures are looked up by mission name, not by map (TEXTURE_initialise_clumping).
         let clump = match read(game, &format!("clumps\\{mission_name}.txc")) {
@@ -319,6 +338,7 @@ impl Level {
         let mut b = Builder::default();
         build_floor(&mut b, &self.map, &sh, |p| !ids.contains(&p));
         build_roof_faces(&mut b, &self.map, &sh);
+        build_walkables(&mut b, &self.map, &sh);
         // Each page's crinkle, as an index into `crinkles`.
         let mut crinkles = Vec::new();
         let mut crinkle_of: HashMap<u32, Option<u32>> = HashMap::new();
@@ -507,6 +527,24 @@ fn build_roof_faces(b: &mut Builder, map: &Map, sh: &Shader) {
             b.batch(p[0], Layer::Roofs, UNTEXTURED).quad(p, [[0.0; 2]; 4], [[10, 10, 12, 255]; 4]);
         } else {
             b.batch(p[0], Layer::Roofs, sq.page() as u32).quad(p, FLOOR_UVS[sq.rotation() as usize], sh.quad(&p));
+        }
+    }
+}
+
+/// An older map's roofs and walkable tops (`uc_formats::iam::WalkablesLayout::Old`): prim
+/// faces in world units, textured as a prim's are.
+fn build_walkables(b: &mut Builder, map: &Map, sh: &Shader) {
+    let Some(w) = &map.walkables else { return };
+    for f in &w.faces {
+        let (page, uv) = f.texture();
+        let pts: Vec<Vec3> = f.points.iter().map(|&i| w.points[i as usize]).map(|v| vec3(v[0] as f32, v[1] as f32, v[2] as f32) / UNIT).collect();
+        let n = (pts[1] - pts[0]).cross(pts[2] - pts[0]);
+        let col: Vec<[u8; 4]> = pts.iter().map(|&p| sh.at(p, n)).collect();
+        let batch = b.batch(pts[0], Layer::Roofs, page);
+        if pts.len() == 4 {
+            batch.quad([pts[0], pts[1], pts[2], pts[3]], [uv[0], uv[1], uv[2], uv[3]], [col[0], col[1], col[2], col[3]]);
+        } else {
+            batch.tri([pts[0], pts[1], pts[2]], [uv[0], uv[1], uv[2]], [col[0], col[1], col[2]]);
         }
     }
 }
