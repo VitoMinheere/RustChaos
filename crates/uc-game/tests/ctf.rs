@@ -119,10 +119,12 @@ fn the_bot_picks_up_health() {
 #[test]
 fn bot_against_bot_is_won_by_someone() {
     let Some(mut r) = common::start("Capflag1") else { return };
+    // Both seats are the AI: a fight between them on the way has to be winnable by either.
+    r.heal = false;
     r.play(1.0, Controls::default());
     assert!(r.g.autopilot());
     let mut reached = false;
-    for _ in 0..400 {
+    for _ in 0..600 {
         r.play(1.0, Controls::default());
         let c = r.g.ctf().unwrap();
         reached |= c.player.has_disk || c.bot.has_disk;
