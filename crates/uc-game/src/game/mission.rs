@@ -447,17 +447,24 @@ impl script::Query for Scene<'_> {
         self.game.player_fired()
     }
 
-    /// `can_a_see_b` (fallen/Source/Person.cpp): up to 8 squares, within about 74 degrees of
-    /// straight ahead (much wider up close), with a clear line between their heads: 0x60 up,
-    /// or 0x20 for someone crouching, who can hide behind a low wall.
     fn sees(&self, a: usize, b: usize) -> bool {
         let g = self.game;
         let (Some(&a), Some(&b)) = (g.by_way.get(&a), g.by_way.get(&b)) else { return false };
-        let (pa, pb) = (&g.people[a], &g.people[b]);
+        g.can_a_see_b(a, b, self.level)
+    }
+}
+
+impl Game {
+    /// `can_a_see_b` (fallen/Source/Person.cpp): whether person `a` can see person `b`: up to
+    /// 8 squares, within about 74 degrees of straight ahead (much wider up close), with a
+    /// clear line between their heads: 0x60 up, or 0x20 for someone crouching, who can hide
+    /// behind a low wall.
+    pub(crate) fn can_a_see_b(&self, a: usize, b: usize, level: &Level) -> bool {
+        let (pa, pb) = (&self.people[a], &self.people[b]);
         if pa.removed || pb.removed || pa.is_dead() {
             return false;
         }
-        let (from, to) = (pa.fig.pos, g.thing_pos(b));
+        let (from, to) = (pa.fig.pos, self.thing_pos(b));
         let d = Vec2::new(to.x - from.x, to.z - from.z);
         let dist = d.length();
         if dist > 8.0 * 256.0 {
@@ -466,7 +473,7 @@ impl script::Query for Scene<'_> {
         let ahead = pa.facing_dir().dot(d / dist.max(1.0));
         let cone = if dist < 192.0 { -0.54 } else { 0.28 };
         let head = |p: &Person| Vec3::new(0.0, if p.crouching() { 0x20 as f32 } else { 0x60 as f32 }, 0.0);
-        ahead > cone && self.level.ground.line_of_sight(from + head(pa), to + head(pb))
+        ahead > cone && level.ground.line_of_sight(from + head(pa), to + head(pb))
     }
 }
 

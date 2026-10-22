@@ -747,7 +747,11 @@ impl Script {
                         (None, 0xfffe) => Speaker::Tutorial,
                         (None, p) => Speaker::Person(p.max(0) as usize),
                     };
-                    self.commands.push(Command::Message { way: i, speech: speech(&w.ep), text: text.trim().to_string(), secs, speaker });
+                    // A `|` starts a new line (`CONSOLE_text` prints each part on its own,
+                    // console.cpp:256).
+                    let text = text.split('|').map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("
+");
+                    self.commands.push(Command::Message { way: i, speech: speech(&w.ep), text, secs, speaker });
                 }
             }
             waypoint::CONVERSATION => {

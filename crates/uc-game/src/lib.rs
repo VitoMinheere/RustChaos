@@ -1193,6 +1193,7 @@ impl Game {
         // player. A fight between other people waits until Darci is near enough to see it
         // (12 squares from the mark), then carries on: the original starts at once, so the
         // crash cops in RTA had shot the drunk long before she got there.
+        self.follow_on_see(level);
         self.walk_goals();
         self.run_ctf(dt, level);
         self.arm_bodyguards(level);
