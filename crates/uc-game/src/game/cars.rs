@@ -326,6 +326,7 @@ impl Game {
                 }
                 let away = if (at - Vec2::new(v.pos.x, v.pos.z)).dot(side) >= 0.0 { side } else { -side };
                 let to = level.ground.slide(at, p.fig.pos.y, away * 40.0, 36.0);
+                p.slid_odd = Some(true);
                 p.fig.pos.x = to.x;
                 p.fig.pos.z = to.y;
             }

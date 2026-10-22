@@ -62,6 +62,15 @@ impl Person {
                 (c.run, c.jump) = (jump, jump);
             }
         }
+        // `SlideOdd`: slid along a prop, a person or a car for 50 turns in a row on the way
+        // somewhere. "EMERGENCY! Take evasive action": a running jump the way they're going
+        // (pcom.cpp:12428). Wandering civilians don't jump.
+        let civ = self.ai == AI_CIV && self.mv == MOVE_WANDER && !self.aggro && self.scared.is_none();
+        let going = self.goal.is_some() || self.via.is_some();
+        if self.slide_odd >= 50 && going && !civ && c.wish.length_squared() > 0.01 && matches!(self.state, State::Move) {
+            (c.run, c.jump) = (true, true);
+            self.slide_odd = 0;
+        }
         // On a ladder: up it and off the top, rather than hang about halfway (routes only
         // ever go up ladders, `MAV_ACTION_LADDER_UP`).
         if let State::Climb { ladder, .. } = self.state {
