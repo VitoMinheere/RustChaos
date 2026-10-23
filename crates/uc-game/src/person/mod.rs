@@ -190,6 +190,11 @@ pub const AI_COP: u8 = 5;
 pub const AI_SUICIDE: u8 = 15;
 /// `PCOM_MOVE_WANDER`.
 pub const MOVE_WANDER: u8 = 4;
+/// `PCOM_MOVE_FOLLOW`.
+pub const MOVE_FOLLOW: u8 = 5;
+/// `PCOM_MOVE_FOLLOW_ON_SEE`: stands still until they're near whom they'd follow and can see
+/// them, then follows.
+pub const MOVE_FOLLOW_ON_SEE: u8 = 7;
 /// `PCOM_AI_HYPOCHONDRIA`: lies injured, waiting to be carried (`set_person_injured`).
 pub const AI_INJURED: u8 = 20;
 /// How far ahead of the one carrying them the carried person is put (`carry_running`).
@@ -216,7 +221,7 @@ const RADIUS: f32 = 36.0;
 const FIGHT_RANGE: f32 = 400.0;
 /// How close the attacker must be to grab or arrest.
 const GRAB_RANGE: f32 = 120.0;
-const ARREST_RANGE: f32 = 130.0;
+pub(crate) const ARREST_RANGE: f32 = 130.0;
 /// AI: notices the player within 2 squares (`PCOM_get_dist_between(...) < 0x200`).
 const AGGRO_RANGE: f32 = 512.0;
 /// The hands of someone hanging from a cable are this far above their feet position.
@@ -731,6 +736,11 @@ pub struct Person {
     /// Where a game mode wants them to head next, in place of the navigation map's way
     /// (endless mode's arena routes).
     pub steer: Option<Vec3>,
+    /// `SlideOdd`: how many turns in a row they've slid along something that isn't a wall
+    /// or a fence (a prop, a person, a car). After 50 on a route, they jump.
+    pub slide_odd: u8,
+    /// Whether they slid along such a thing this turn: `None` if they didn't move.
+    pub(crate) slid_odd: Option<bool>,
     /// Times the wait between their shots: the difficulty's (1 on Normal).
     pub shot_wait: f32,
     pub pace: Pace,
@@ -801,7 +811,7 @@ impl Person {
             pace: Pace::Walk,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
-            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, goal: None, via: None, leap: None, steer: None, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
+            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }

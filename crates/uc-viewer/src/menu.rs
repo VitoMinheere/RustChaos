@@ -764,7 +764,7 @@ impl Menu {
 /// order (`suggest_order`, fallen/Source/frontend.cpp:259): (mission, title, briefing).
 /// `urban.sty` has neither, so the titles are this project's and the briefings are written
 /// from the missions' opening messages.
-const UNRELEASED: [(&str, &str, &str); 4] = [
+const UNRELEASED: [(&str, &str, &str); 6] = [
     ("FreeCD1", "Construction Site Siege",
      "The local Wildcat chapter have stormed the construction site and taken some workers hostage, \
       and they've spread out all over this section of town. We want those hostages ALIVE, Stern!\r\
@@ -786,6 +786,18 @@ const UNRELEASED: [(&str, &str, &str); 4] = [
      "The Wildcats have three missiles up on the mountain, and they'll launch them the moment \
       they see you coming. Take a bike and get there first.\r\
       - Destroy all three missiles before they launch."),
+    // Two early prototypes, also untitled. Takeover1 is on a map in the older layout
+    // (`jumper1`) and never had an ending, which this project adds (see
+    // `uc_world::level::finish_unfinished`).
+    ("Takeover1", "Bank Sector Takeover",
+     "Mr X's gang have overrun the banking sector and sealed off the surrounding area. Get into \
+      that sector and rescue the two hostages.\r\
+      - Find the two workers: they'll follow you once they see you.\r\
+      - Get them out of the front gates and to the extraction point."),
+    ("subdock1", "Dock Extraction",
+     "Terminate the dock operator and get to the chopper for extraction. The extraction site is \
+      on the most southern part of this sector.\r\
+      - Take out the dock operator.\r- Meet the chopper at the rendezvous point."),
 ];
 
 /// `text` cut short with "..." to fit `width` at scale `s`.

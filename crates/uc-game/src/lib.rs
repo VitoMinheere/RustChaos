@@ -18,11 +18,14 @@ pub mod chopper;
 pub mod barrel;
 pub mod canid;
 pub mod city;
+pub mod cloth;
 pub mod game;
 pub use game::{Aiming, Sight, Snipe};
 pub mod creature;
+pub mod dike;
 pub mod dirt;
 pub mod goals;
+pub mod hm;
 pub mod mist;
 pub mod person;
 pub mod plat;
@@ -31,7 +34,9 @@ pub mod pyro;
 pub mod ribbon;
 pub mod road;
 pub mod script;
+pub mod sm;
 pub mod steam;
+pub mod switch;
 pub mod talk;
 pub mod tracks;
 pub mod trip;
@@ -621,6 +626,20 @@ pub struct Game {
     pub pyro: Pyro,
     /// The PlayStation's explosions (`POW_*`), which only the console sets off.
     pub pow: pow::Pow,
+    /// The original's unused physics (#111), made from the console: sphere-matter, the dike
+    /// (with what its rider presses, `dike::ACCEL` and so on, and time not yet run) and
+    /// cloth.
+    pub sm: sm::SphereMatter,
+    pub dike: Option<dike::Dike>,
+    pub dike_control: u8,
+    dike_clock: f32,
+    pub cloths: cloth::Cloths,
+    /// Hypermatter, each object's prim (to draw it through its lattice), the floor under
+    /// where the last was dropped, and time not yet run.
+    pub hm: hm::Hypermatter,
+    hm_prims: HashMap<usize, uc_formats::prm::Prim>,
+    hm_floor: f32,
+    hm_clock: f32,
     /// Sheets of ground mist the mission has laid down.
     pub mists: Mists,
     /// Drops in the air.
@@ -641,6 +660,7 @@ pub struct Game {
     pub steam: steam::Steam,
     /// The beams `tripwire` points watch.
     pub trips: trip::Trips,
+    pub switches: switch::Switches,
     /// Buildings whose fences are electrified (`FACET_FLAG_ELECTRIFIED`).
     pub electrified: BTreeSet<u16>,
     /// There's no floor (`GF_NO_FLOOR`, Day Of Reckoning on top of Gunston Tower).
@@ -759,6 +779,15 @@ impl Game {
             search: None,
             pyro: Pyro::default(),
             pow: pow::Pow::default(),
+            sm: sm::SphereMatter::default(),
+            dike: None,
+            dike_control: 0,
+            dike_clock: 0.0,
+            cloths: cloth::Cloths::default(),
+            hm: hm::Hypermatter::default(),
+            hm_prims: HashMap::new(),
+            hm_floor: 0.0,
+            hm_clock: 0.0,
             mists: Mists::default(),
             drops: dirt::Drops::default(),
             sea: level.sea(),
@@ -769,6 +798,7 @@ impl Game {
             ribbons: ribbon::Ribbons::default(),
             steam: steam::Steam::default(),
             trips: trip::Trips::new(level, &level.mission),
+            switches: switch::Switches::new(level),
             electrified: BTreeSet::new(),
             no_floor: false,
             estate: level.mission.mission_name.eq_ignore_ascii_case("estate2"),
@@ -1057,6 +1087,9 @@ impl Game {
         }
         self.messages.retain(|m| m.left > 0.0);
         self.used = (0..seats).filter(|&s| seat_input(s).action).filter_map(|s| self.seat_person(s)).collect();
+        for &i in &self.used {
+            self.switches.flip_near(self.people[i].fig.pos);
+        }
         for s in 0..seats {
             self.focus(s);
             let c = seat_input(s);
@@ -1077,6 +1110,7 @@ impl Game {
         self.update_scenes(dt, level, pressed);
         self.pyro.update(dt);
         self.pow.update(dt);
+        self.run_physics(dt, level);
         if self.outcome.is_none() {
             self.charges(dt, level);
         }
@@ -1191,6 +1225,7 @@ impl Game {
         // player. A fight between other people waits until Darci is near enough to see it
         // (12 squares from the mark), then carries on: the original starts at once, so the
         // crash cops in RTA had shot the drunk long before she got there.
+        self.follow_on_see(level);
         self.walk_goals();
         self.run_ctf(dt, level);
         self.arm_bodyguards(level);
@@ -1292,6 +1327,15 @@ impl Game {
         self.sync_grapples();
         self.sync_carrying(level);
         self.separate(level);
+        // `SlideOdd`: one more turn sliding along something odd, or back to none if they
+        // moved freely (collide.cpp:6659).
+        for p in &mut self.people {
+            match p.slid_odd.take() {
+                Some(true) => p.slide_odd = p.slide_odd.saturating_add(1),
+                Some(false) => p.slide_odd = 0,
+                None => {}
+            }
+        }
         self.count_dead_cops();
         self.tally_crime();
         self.men_in_black(dt, level);

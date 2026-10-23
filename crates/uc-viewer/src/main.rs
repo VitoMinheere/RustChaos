@@ -302,6 +302,11 @@ impl App {
             w.editor_frame(inp, &cam, size, dt);
             return;
         }
+        // The dike (#111) is ridden on the keypad, as the original's debug code rode it.
+        if w.game.dike.is_some() {
+            let keys = [(KeyCode::Numpad8, uc_game::dike::ACCEL), (KeyCode::NumpadDivide, uc_game::dike::LEFT), (KeyCode::NumpadMultiply, uc_game::dike::RIGHT)];
+            w.game.dike_control = keys.iter().filter(|(k, _)| inp.held(*k)).fold(0, |c, (_, bit)| c | bit);
+        }
         // In co-op the skip goes with the input, for every machine to skip on the same turn.
         let mut skip = false;
         if w.replay.is_none() && w.game.cutscene.is_some() && (inp.hit(KeyCode::Space) || inp.hit(KeyCode::Enter) || pad.hit(Button::South)) {

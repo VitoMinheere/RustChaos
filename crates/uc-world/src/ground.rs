@@ -34,8 +34,12 @@ fn height_in(t: &[Vec3; 3], x: f32, z: f32) -> Option<f32> {
 
 /// `ROOF_SHIFT` (Editor/Headers/Prim.h): RoofFace4.DY is in units of 8.
 const ROOF_SHIFT: i32 = 3;
-/// How far up a person can step without climbing (kerbs are 32).
-pub const STEP_HEIGHT: f32 = 48.0;
+/// How far up a person can step without climbing (kerbs are 32). The original's walker goes
+/// through any wall whose top is less than 0x50 over its feet (`slide_along` adds
+/// `SLIDE_ALONG_DEFAULT_EXTRA_WALL_HEIGHT`, -0x50, to the top, collide.cpp:4401) and then
+/// stands on the face it's over, so it walks up the 64-high ledges the navigation map gives
+/// as `GOTO` (#174).
+pub const STEP_HEIGHT: f32 = 80.0;
 
 /// A ladder facet, in world units.
 #[derive(Debug, Clone, Copy)]
@@ -372,6 +376,21 @@ impl Ground {
                 }
             }
         }
+        // An older map's roofs and walkable tops, faces of a prim at the origin (see
+        // `uc_formats::iam::WalkablesLayout::Old`): stood on as the props' walkable faces are.
+        for f in map.walkables.iter().flat_map(|w| w.faces.iter().map(move |f| (w, f))) {
+            let (w, f) = f;
+            let p: Vec<Vec3> = f.points.iter().map(|&i| w.points[i as usize]).map(|v| vec3(v[0] as f32, v[1] as f32, v[2] as f32)).collect();
+            let fan: Vec<[Vec3; 3]> = if p.len() == 4 { vec![[p[0], p[1], p[2]], [p[1], p[3], p[2]]] } else { vec![[p[0], p[1], p[2]]] };
+            for t in fan {
+                let (lo, hi) = (t[0].min(t[1]).min(t[2]), t[0].max(t[1]).max(t[2]));
+                for x in (lo.x / 256.0).floor() as i32..=(hi.x / 256.0).floor() as i32 {
+                    for z in (lo.z / 256.0).floor() as i32..=(hi.z / 256.0).floor() as i32 {
+                        prop_tris.entry((x, z)).or_default().push(t);
+                    }
+                }
+            }
+        }
         let cables = map.facets.iter().skip(1).filter(|f| f.kind == facet_type::CABLE).map(|f| Cable { points: cable_points(f) }).collect();
         let (fences, fence_buildings): (Vec<WallSegment>, Vec<u16>) = map
             .facets
@@ -483,13 +502,21 @@ impl Ground {
     /// Moves a circle of `radius` at feet height `y` from `from` by `delta`, sliding along
     /// walls. Walls only block if they reach above a step over the person's feet.
     pub fn slide(&self, from: Vec2, y: f32, delta: Vec2, radius: f32) -> Vec2 {
+        self.slide_odd(from, y, delta, radius).0
+    }
+
+    /// [`Ground::slide`], and whether it slid along a prop rather than a wall or a door
+    /// (`slid_odd`, collide.cpp:6623).
+    pub fn slide_odd(&self, from: Vec2, y: f32, delta: Vec2, radius: f32) -> (Vec2, bool) {
+        let props = self.prop_walls.first().map_or(usize::MAX, |(_, r)| r.start)..self.walls.len();
+        let mut odd = false;
         let mut p = from + delta;
         // Anything that can't be stepped onto blocks: a jump that lifts the feet to within a
-        // step of a ledge's top clears it (and lands on it).
-        let waist = y + STEP_HEIGHT - 4.0;
+        // step of a ledge's top clears it (and lands on it). As `slide_along` (collide.cpp:4357),
+        // a wall blocks feet from 64 below its bottom to a step below its top.
         for _ in 0..2 {
-            for w in self.blocking() {
-                if waist < w.y0 || waist > w.y1 {
+            for (k, w) in self.blocking().enumerate() {
+                if y < w.y0 - 64.0 || y >= w.y1 - STEP_HEIGHT {
                     continue;
                 }
                 let (a, b) = (Vec2::from(w.a), Vec2::from(w.b));
@@ -501,10 +528,11 @@ impl Ground {
                 if dist < radius {
                     let n = if dist > 1e-3 { d / dist } else { vec2(-ab.y, ab.x).normalize_or_zero() };
                     p = closest + n * radius;
+                    odd |= props.contains(&k);
                 }
             }
         }
-        p
+        (p, odd)
     }
 
     /// Everything solid at the moment: the map's walls, and the doors still shut.

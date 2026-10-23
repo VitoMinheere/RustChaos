@@ -11,7 +11,7 @@ use crate::ground::Ground;
 use std::sync::Arc;
 use uc_formats::all::AnimChunk;
 use uc_formats::facet;
-use uc_formats::iam::{facet_type, flags, Map, KERB_HEIGHT, MAP_SIZE};
+use uc_formats::iam::{facet_type, flags, Map, BUILDING_TYPE_WAREHOUSE, KERB_HEIGHT, MAP_SIZE};
 use uc_formats::lgt::{Lighter, Lighting};
 use uc_formats::prm::Prim;
 use uc_formats::tma::StyleTable;
@@ -130,8 +130,23 @@ fn fence_page(map_file: &str) -> Option<u32> {
 }
 
 /// The world whose textures stand in for a world no shipped mission uses (`freeoncd1.iam`
-/// and `training1.iam` are world 2): the city of RTA and the other downtown missions.
+/// and `training1.iam` are world 2): the city of RTA and the other downtown missions. It
+/// also stands in for world 6 (`subdock1.iam`'s), which the install has nothing of at all,
+/// not even the style table its walls are drawn from.
 const STAND_IN_WORLD: i32 = 3;
+
+/// Maps whose water is a page of their own world rather than [`WATER_PAGE`], and that page.
+/// `subdock1.iam`'s harbour is world 6's page 242, which no install has: it becomes the sea
+/// of the island maps (`jung3`, `skymap30`), moving with the waves.
+const SEAS: [(&str, u16); 1] = [("data\\subdock1.iam", 242)];
+
+/// Gives `map_file`'s water, if it's listed in [`SEAS`], the sea's page.
+fn to_sea(map_file: &str, map: &mut Map) {
+    let Some(&(_, page)) = SEAS.iter().find(|(m, _)| m.eq_ignore_ascii_case(map_file)) else { return };
+    for sq in map.squares.iter_mut().filter(|sq| sq.page() == page) {
+        sq.texture = (sq.texture & !0x3FF) | WATER_PAGE;
+    }
+}
 
 /// Textures for a mission the install has no clump for: the shipped missions only have
 /// clumps of their own, packed from the loose textures (`server\textures\`) that the
@@ -183,27 +198,84 @@ fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> Clum
     clump
 }
 
+/// What the two unfinished missions never got (not in the original): an ending, and
+/// beacons for the objectives, which neither has a single one of.
+///
+/// Takeover1 sends Darci to bring two hostages out to the extraction point, and says "Worker
+/// 1 rescued." and "Worker 2 rescued." as each gets there (points 65 and 64), but nothing
+/// ends it: here an `end_game_win` point goes off once both have. Each hostage (points 62
+/// and 63) has a beacon until they're rescued, and the extraction point one throughout.
+///
+/// subdock1 has a beacon on the dock operator (point 37), and one on the rendezvous (point
+/// 42) once the chopper (41) comes.
+pub fn finish_unfinished(mission: &mut Mission) {
+    use uc_formats::ucm::{on_trigger, trigger, waypoint, EventPoint};
+    let name = mission.mission_name.to_ascii_lowercase();
+    if !matches!(name.as_str(), "takeover1" | "subdock1") || mission.event_points.iter().any(|e| e.used != 0 && e.kind == waypoint::NAV_BEACON) {
+        return;
+    }
+    let point = |m: &Mission, i: usize| m.event_points.iter().find(|e| e.index == i && e.used != 0).cloned();
+    // A point with nothing set but where it is.
+    let at = |e: &EventPoint| EventPoint {
+        kind: 0, trigger: trigger::NONE, on_trigger: on_trigger::ACTIVE, ep_ref: 0, ep_ref_bool: 0, after_timer: 0,
+        data: [0; 10], radius: 0, next: 0, prev: 0, ..e.clone()
+    };
+    let beacon = |e: &EventPoint, track: usize| EventPoint { kind: waypoint::NAV_BEACON, data: [0, track as i32, 0, 0, 0, 0, 0, 0, 0, 0], ..at(e) };
+    if name == "takeover1" {
+        let (Some(two), Some(one)) = (point(mission, 64), point(mission, 65)) else { return };
+        if !mission.event_points.iter().any(|e| e.used != 0 && e.kind == waypoint::END_GAME_WIN) {
+            add_point(mission, EventPoint { kind: waypoint::END_GAME_WIN, trigger: trigger::BOOLEAN_AND, ep_ref: 64, ep_ref_bool: 65, ..at(&two) }, None);
+        }
+        for (worker, rescued, label) in [(62, &one, "Worker 1"), (63, &two, "Worker 2")] {
+            let Some(w) = point(mission, worker) else { continue };
+            let b = add_point(mission, beacon(&w, worker), Some(label));
+            let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: rescued.index as u16, ..at(rescued) };
+            add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
+        }
+        add_point(mission, beacon(&one, 0), Some("Extraction point"));
+    } else {
+        let (Some(op), Some(chopper), Some(rendezvous)) = (point(mission, 37), point(mission, 41), point(mission, 42)) else { return };
+        add_point(mission, beacon(&op, 37), Some("Dock operator"));
+        add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: chopper.index as u16, ..beacon(&rendezvous, 0) }, Some("Chopper"));
+    }
+}
+
+/// Adds `ep` to the mission as its last point, with its message if it has one, and returns
+/// its index. Messages go to the points that have them in index order (`Mission::point_texts`).
+fn add_point(mission: &mut Mission, ep: uc_formats::ucm::EventPoint, text: Option<&str>) -> usize {
+    debug_assert_eq!(uc_formats::ucm::has_text(ep.kind), text.is_some());
+    let index = mission.event_points.iter().map(|e| e.index).max().unwrap_or(0) + 1;
+    mission.event_points.push(uc_formats::ucm::EventPoint { index, ..ep });
+    if let Some(text) = text {
+        mission.texts.push(uc_formats::ucm::TextEntry::Message { text: text.to_string(), tail: Vec::new() });
+    }
+    index
+}
+
 impl Level {
     pub fn load(game: &Path, mission_name: &str, opt: &LoadOptions) -> Result<Level, String> {
-        let mission = Mission::parse(&read(game, &format!("levels\\{mission_name}.ucm"))?)
+        let mut mission = Mission::parse(&read(game, &format!("levels\\{mission_name}.ucm"))?)
             .map_err(|e| format!("{mission_name}.ucm: {e}"))?;
+        finish_unfinished(&mut mission);
         Level::load_with_mission(game, mission_name, mission, opt)
     }
 
     /// [`Level::load`] with `mission` in place of the install's `<mission_name>.ucm`: an
     /// edited one (#185). Its map and lighting are still read from the install, and its
-    /// textures still looked up by `mission_name`.
+    /// textures still looked up by `mission_name`. An edited mission keeps what
+    /// [`finish_unfinished`] added when it was loaded, or doesn't if the editor took it out.
     pub fn load_with_mission(game: &Path, mission_name: &str, mission: Mission, opt: &LoadOptions) -> Result<Level, String> {
-        let map = Map::parse(&read(game, &mission.map)?).map_err(|e| format!("{}: {e}", mission.map))?;
+        let mut map = Map::parse(&read(game, &mission.map)?).map_err(|e| format!("{}: {e}", mission.map))?;
+        to_sea(&mission.map, &mut map);
+        // A world the install has nothing of borrows the stand-in's style table and pages.
+        let style_table = |w: i32| read(game, &format!("server\\textures\\world{w}\\style.tma")).ok();
+        let world = map.texture_set.map(|w| if style_table(w).is_some() { w } else { STAND_IN_WORLD });
         // Textures are looked up by mission name, not by map (TEXTURE_initialise_clumping).
         let clump = match read(game, &format!("clumps\\{mission_name}.txc")) {
             Ok(b) => Clump::parse(b).map_err(|e| e.to_string())?,
-            Err(_) => borrowed_clump(game, &mission.map, map.texture_set),
+            Err(_) => borrowed_clump(game, &mission.map, world),
         };
-        let styles = map
-            .texture_set
-            .and_then(|w| read(game, &format!("server\\textures\\world{w}\\style.tma")).ok())
-            .and_then(|b| StyleTable::parse(&b).ok());
+        let styles = world.and_then(style_table).and_then(|b| StyleTable::parse(&b).ok());
         let lighting = if opt.fullbright { None } else { read(game, &mission.lighting).ok().and_then(|b| Lighting::parse(&b).ok()) };
         let sky = lighting.as_ref().map_or([20, 22, 30], |l| l.sky);
 
@@ -325,7 +397,8 @@ impl Level {
         let ids: std::collections::HashSet<u32> = self.clump.ids().collect();
         let mut b = Builder::default();
         build_floor(&mut b, &self.map, &sh, |p| !ids.contains(&p));
-        build_roof_faces(&mut b, &self.map, &sh);
+        build_roof_faces(&mut b, &self.map, &sh, |p| ids.contains(&p));
+        build_walkables(&mut b, &self.map, &sh);
         // Each page's crinkle, as an index into `crinkles`.
         let mut crinkles = Vec::new();
         let mut crinkle_of: HashMap<u32, Option<u32>> = HashMap::new();
@@ -495,9 +568,12 @@ fn build_floor(b: &mut Builder, map: &Map, sh: &Shader, skip_unseen: impl Fn(u32
     }
 }
 
-/// Walkable roof faces (`FACET_draw_walkable`, facet.cpp:4116). Faces over hidden squares
-/// without a rooftop belong to warehouses; the PC engine draws those black from below.
-fn build_roof_faces(b: &mut Builder, map: &Map, sh: &Shader) {
+/// Walkable roof faces (`FACET_draw_walkable`, facet.cpp:4116), each textured with the floor
+/// square under it (`ph->Texture`, facet.cpp:4357). A warehouse's are drawn dark instead:
+/// the PC engine draws them black from below, and from above with textures from the
+/// editor's `.map` files (`WARE_roof_tex`, ware.cpp:242), which the game doesn't ship. So
+/// is a face whose square is hidden and has no page in the clump.
+fn build_roof_faces(b: &mut Builder, map: &Map, sh: &Shader, has_page: impl Fn(u32) -> bool) {
     for rf in map.roof_faces.iter().skip(1) {
         let (x, z) = ((rf.rx & 127) as usize, (rf.rz & 127) as usize);
         let sq = map.square(x, z);
@@ -510,10 +586,29 @@ fn build_roof_faces(b: &mut Builder, map: &Map, sh: &Shader) {
         let (xf, zf) = (x as f32, z as f32);
         let p = [vec3(xf, ys[0] as f32 / UNIT, zf), vec3(xf + 1.0, ys[1] as f32 / UNIT, zf),
                  vec3(xf, ys[2] as f32 / UNIT, zf + 1.0), vec3(xf + 1.0, ys[3] as f32 / UNIT, zf + 1.0)];
-        if sq.has(flags::HIDDEN) {
+        let warehouse = map.buildings.get(rf.building as usize).is_some_and(|b| b.kind == BUILDING_TYPE_WAREHOUSE);
+        if warehouse || (sq.has(flags::HIDDEN) && !has_page(sq.page() as u32)) {
             b.batch(p[0], Layer::Roofs, UNTEXTURED).quad(p, [[0.0; 2]; 4], [[10, 10, 12, 255]; 4]);
         } else {
             b.batch(p[0], Layer::Roofs, sq.page() as u32).quad(p, FLOOR_UVS[sq.rotation() as usize], sh.quad(&p));
+        }
+    }
+}
+
+/// An older map's roofs and walkable tops (`uc_formats::iam::WalkablesLayout::Old`): prim
+/// faces in world units, textured as a prim's are.
+fn build_walkables(b: &mut Builder, map: &Map, sh: &Shader) {
+    let Some(w) = &map.walkables else { return };
+    for f in &w.faces {
+        let (page, uv) = f.texture();
+        let pts: Vec<Vec3> = f.points.iter().map(|&i| w.points[i as usize]).map(|v| vec3(v[0] as f32, v[1] as f32, v[2] as f32) / UNIT).collect();
+        let n = (pts[1] - pts[0]).cross(pts[2] - pts[0]);
+        let col: Vec<[u8; 4]> = pts.iter().map(|&p| sh.at(p, n)).collect();
+        let batch = b.batch(pts[0], Layer::Roofs, page);
+        if pts.len() == 4 {
+            batch.quad([pts[0], pts[1], pts[2], pts[3]], [uv[0], uv[1], uv[2], uv[3]], [col[0], col[1], col[2], col[3]]);
+        } else {
+            batch.tri([pts[0], pts[1], pts[2]], [uv[0], uv[1], uv[2]], [col[0], col[1], col[2]]);
         }
     }
 }

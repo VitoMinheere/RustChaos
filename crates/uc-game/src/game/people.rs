@@ -269,6 +269,23 @@ impl Game {
         Some(if clear { dest } else { middle(first.unwrap_or(sq(dest))) })
     }
 
+    /// `PCOM_MOVE_FOLLOW_ON_SEE` (pcom.cpp:10479): someone within 0x200 of the person their
+    /// `follow` point made (the player by default) who can see them starts following them
+    /// (`PCOM_MOVE_FOLLOW`). Takeover1's hostages wait for Darci this way.
+    pub(crate) fn follow_on_see(&mut self, level: &Level) {
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            if p.mv != person::MOVE_FOLLOW_ON_SEE || p.player || p.is_dead() || p.removed {
+                continue;
+            }
+            let j = if p.follow == 0 { self.player } else { self.by_way.get(&p.follow).copied() };
+            let Some(j) = j.filter(|&j| j != i) else { continue };
+            if (self.people[j].fig.pos - p.fig.pos).length() < 0x200 as f32 && self.can_a_see_b(i, j, level) {
+                self.people[i].mv = person::MOVE_FOLLOW;
+            }
+        }
+    }
+
     /// Where each person is walking to when they aren't fighting: `PCOM_process_patrol`
     /// (move 2 or 3) heads for the nearest active point of their colour and group, or once
     /// there (within a square), the next one by number; `PCOM_MOVE_FOLLOW` (move 5) keeps up
@@ -298,13 +315,20 @@ impl Game {
             goals[i] = match p.mv {
                 // Followers run after whoever they're following, as `PCOM_set_person_ai_follow`
                 // asks (`PERSON_SPEED_RUN`), and break into a sprint to keep up with a player
-                // who is sprinting. They stop a couple of squares short of treading on them.
+                // who is sprinting. They stop on getting within 0x60 of them
+                // (`PCOM_finished_nav`), and set off again once they're more than 0xa0 away,
+                // or 0x40 if they're running (`PCOM_process_following`, pcom.cpp:8104).
                 5 => {
                     let j = if p.follow == 0 { self.player } else { self.by_way.get(&p.follow).copied() };
+                    let going = p.goal.is_some();
                     let to = j
                         .filter(|&j| !self.people[j].removed && !self.people[j].is_dead())
-                        .map(|j| at[j])
-                        .filter(|&to| (to - at[i]).length() > 2.0 * 256.0);
+                        .filter(|&j| {
+                            let d = (at[j] - at[i]).length();
+                            let running = self.people[j].fig.anim() == uc_world::character::anim::RUN;
+                            if going { d >= 0x60 as f32 } else { d > if running { 0x40 } else { 0xa0 } as f32 }
+                        })
+                        .map(|j| at[j]);
                     let hurrying = j == self.player && self.sprinting;
                     (to, if hurrying { person::Pace::Sprint } else { person::Pace::Run })
                 }

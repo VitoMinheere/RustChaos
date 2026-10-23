@@ -118,7 +118,8 @@ impl Person {
     /// person instead: the AI, and anyone fighting, never walks off a roof.
     pub(super) fn walk(&mut self, delta: Vec2, ground: &Ground, map: &Map, drop_ok: bool) -> bool {
         let p = &mut self.fig.pos;
-        let to = ground.slide(vec2(p.x, p.z), p.y, delta, RADIUS);
+        let (to, odd) = ground.slide_odd(vec2(p.x, p.z), p.y, delta, RADIUS);
+        self.slid_odd = Some(self.slid_odd == Some(true) || odd);
         let floor = ground.surface(map, to.x, to.y, p.y);
         if floor - p.y > STEP_HEIGHT || (!drop_ok && p.y - floor > STEP_HEIGHT) {
             return true; // a wall without collision data, or an edge: just stop
