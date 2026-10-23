@@ -367,6 +367,8 @@ pub enum Move {
     KickRight,
     /// Darci's kick between the legs (`ANIM_KICK_NAD`).
     KickNad,
+    /// The foot sweep: kick from a block (`set_person_leg_sweep`, Person.cpp:9545).
+    LegSweep,
     Knife1,
     Knife2,
     Knife3,
@@ -412,6 +414,10 @@ impl Move {
             KickRight => d(anim::KICK_RIGHT, 0.45, 160.0, Dir::Right, 25, false, ko::SIDE_KICK, None),
             // The combat table's extra (combat.cpp:1894) comes on top, by who's kicked.
             KickNad => d(anim::KICK_NAD, 0.45, 130.0, Dir::Front, 10, false, 0, None),
+            // `sweep_feet` (Person.cpp:1936): 49 off and down, low so no guard stops it. Its
+            // reach and timing are in the animation's fight data, not the source: these are
+            // the kicks'.
+            LegSweep => d(anim::LEG_SWEEP, 0.45, 150.0, Dir::Front, 49, false, ko::KNOCKDOWN, None),
             // Weapons (damage from apply_hit_to_person, fallen/Source/combat.cpp).
             Knife1 => d(anim::KNIFE_ATTACK1, 0.45, 150.0, Dir::Front, 30, true, 0, Some(Knife2)),
             Knife2 => d(anim::KNIFE_ATTACK2, 0.45, 150.0, Dir::Front, 50, true, ko::COMBO_ANY, Some(Knife3)),
@@ -499,8 +505,9 @@ pub enum State {
     /// Lying on the ground: knocked down (getting up after a while) or knocked out.
     Down,
     GetUp,
-    /// Guarding against blows from the front.
-    Block,
+    /// Guarding against blows from the front: with the block key, or, `auto`, stepping back
+    /// from someone swinging at her (the manual's auto-block).
+    Block { auto: bool },
     /// Firing a gun at `target` (or straight ahead): `shots` fired so far.
     Shoot { target: Option<usize>, shots: u32 },
     /// Climbing over a fence: phase 0 grabbing on, 1 climbing up, 2 swinging over. The hips
@@ -1060,7 +1067,7 @@ impl Person {
             pos: if self.is_down() || matches!(self.state, State::Injured) { self.body_pos() } else { self.fig.pos },
             facing: self.fig.facing(),
             present: !self.removed,
-            standing: !self.removed && matches!(self.state, State::Move | State::Attack { .. } | State::Hurt | State::Land { .. } | State::Block | State::Shoot { .. }),
+            standing: !self.removed && matches!(self.state, State::Move | State::Attack { .. } | State::Hurt | State::Land { .. } | State::Block { .. } | State::Shoot { .. }),
             down: self.is_down(),
             arrested: self.arrested,
             arrestable: self.arrestable(),
@@ -1070,7 +1077,7 @@ impl Person {
             fighter: self.hostile() || self.is_dummy(),
             dummy: self.is_dummy(),
             attacking: matches!(self.state, State::Attack { .. }),
-            blocking: matches!(self.state, State::Block),
+            blocking: matches!(self.state, State::Block { .. }),
             in_car: matches!(self.state, State::InCar { .. }),
             injured: matches!(self.state, State::Injured),
             crouching: self.crouching(),
@@ -1140,11 +1147,26 @@ impl Person {
                     self.fig.pos.y = (self.fig.pos.y + FLOAT_SPEED * dt).min(floor + FLOAT_HEIGHT);
                 }
             }
-            State::Block => {
-                if let Some(t) = self.nearest_opponent(me, snaps, FIGHT_RANGE) {
+            State::Block { auto } => {
+                let target = self.nearest_opponent(me, snaps, FIGHT_RANGE);
+                if let Some(t) = target {
                     self.fig.turn_towards(flat(snaps[t].pos, self.fig.pos), 8.0, dt);
                 }
-                if !c.block {
+                // Kick from a guard: the foot sweep (Person.cpp:18720).
+                if self.player && c.kick {
+                    if let Some(t) = target {
+                        self.face(snaps[t].pos);
+                    }
+                    self.start_attack(me, Move::LegSweep, events);
+                    return;
+                }
+                // The auto-block holds while she keeps backing off (`continue_blocking`,
+                // interfac.cpp:8424) and someone close is still swinging; the other while the
+                // key is held.
+                let swinging = snaps.iter().enumerate()
+                    .any(|(j, s)| j != me && s.attacking && self.opponents(j, s) && flat(s.pos, self.fig.pos).length() < 220.0);
+                let held = if auto { c.wish.dot(-self.fig.facing()) > 0.5 && swinging } else { c.block };
+                if !held {
                     self.state = State::Move;
                     self.idle(true);
                 }

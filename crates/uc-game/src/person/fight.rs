@@ -100,7 +100,9 @@ impl Person {
                     // The AI hits less hard, more so the less skilled.
                     let damage = if self.player { def.damage } else { def.damage * (8 + self.skill as i32) / 30 };
                     let weapon = if matches!(mv, Move::Knife1 | Move::Knife2 | Move::Knife3 | Move::Bat1 | Move::Bat2) { self.weapon } else { Weapon::None };
-                    events.push(Event::Hit { attacker: me, victim: j, damage, ko: def.ko, high: def.high, low: false, weapon });
+                    // The foot sweep goes in under a guard.
+                    let low = mv == Move::LegSweep;
+                    events.push(Event::Hit { attacker: me, victim: j, damage, ko: def.ko, high: def.high, low, weapon });
                 }
             }
         }
@@ -267,12 +269,14 @@ impl Person {
         // The injured lie as the dead do (`STATE_DEAD`): nothing more happens to them.
         if self.removed || self.invulnerable || self.is_down()
             || matches!(self.state, State::InCar { .. } | State::Injured | State::Carried { .. })
+            // Nobody hits someone in the middle of a foot sweep (combat.cpp:2930).
+            || matches!(self.state, State::Attack { mv: Move::LegSweep, .. })
         {
             return;
         }
         let front = flat(from, self.fig.pos).dot(self.fig.facing()) > 0.0;
         // A guard stops blows from the front; weapons still hurt a little.
-        let blocking = matches!(self.state, State::Block) && !weapon.is_gun();
+        let blocking = matches!(self.state, State::Block { .. }) && !weapon.is_gun();
         if blocking && front && !low {
             self.cues.push(Sfx::Block);
             if weapon != Weapon::None {

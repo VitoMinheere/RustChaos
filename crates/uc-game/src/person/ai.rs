@@ -107,7 +107,7 @@ impl Person {
         match self.state {
             // Already in the air: it passes beneath.
             State::Fall { .. } | State::Land { .. } => true,
-            State::Move | State::Attack { .. } | State::Shoot { .. } | State::Block => {
+            State::Move | State::Attack { .. } | State::Shoot { .. } | State::Block { .. } => {
                 self.jump(Vec2::ZERO);
                 true
             }

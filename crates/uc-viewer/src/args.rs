@@ -54,7 +54,8 @@ Darci: WASD move (relative to the camera), Shift run, J or left mouse punch, K k
   T targets the next enemy. Walk over weapons and ammo to pick them up. With the sniper rifle,
   Z looks through its scope: WASD turn it, punch fires, Z again to put it down.
   Kick while running: sliding tackle. Punch while walking into someone: grab, then punch
-  or kick. Back/side + kick in a fight: back or side kick. Three punches or kicks in time: combo.
+  or kick. Back/side + kick in a fight: back or side kick. Backing off from a blow blocks it;
+  kick from a block sweeps their feet. Three punches or kicks in time: combo.
 Gamepad: left stick move (push fully to run), right stick camera, A/Cross jump,
   X/Square punch, Y/Triangle kick, B/Circle action (hold while running to sprint), LB block,
   RB next weapon, right stick click next target, D-pad down crouch,

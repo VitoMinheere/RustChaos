@@ -68,7 +68,7 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 | Space | Jump (grabs ledges in front) | Up |
 | J or left mouse | Punch | |
 | K | Kick | |
-| Q (hold) | Block | |
+| Q (hold) | Block. Stepping back from someone swinging at her blocks too, for as long as she keeps backing off; kick from a block is a foot sweep that puts them down | |
 | G | Next weapon (bare hands, knife or bat, pistol, shotgun, AK-47, explosives) | |
 | T | Target the next enemy (with a gun drawn) | |
 | E (or L) | Action: arrest a downed enemy, climb a ladder; hold while running to sprint | Up |

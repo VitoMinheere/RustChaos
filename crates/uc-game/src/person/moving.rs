@@ -346,7 +346,7 @@ impl Person {
         }
         if c.block {
             self.fig.restart(anim::BLOCK_HIGH, Play::Once);
-            self.state = State::Block;
+            self.state = State::Block { auto: false };
             return;
         }
         if let (true, false, Some(at)) = (c.taunt, moving, c.target) {
@@ -463,6 +463,21 @@ impl Person {
             let t = snaps[target.unwrap()].pos;
             let d = flat(t, self.fig.pos);
             self.fig.turn_towards(d, 8.0, dt);
+            // Stepping back from someone swinging at her: the auto-block (`should_i_block`,
+            // combat.cpp:951: only on the back step, so not with a bat, whose step is another
+            // animation). Backing away from them, that is, as the manual has it: not stepping
+            // towards someone behind her to kick them.
+            let swung_at = snaps.iter().enumerate().any(|(j, s)| {
+                let d = flat(self.fig.pos, s.pos);
+                j != me && s.attacking && self.opponents(j, s) && d.length() < 220.0 && s.facing.dot(d.normalize_or_zero()) > 0.5
+                    && c.wish.normalize_or_zero().dot(d.normalize_or_zero()) > 0.5
+            });
+            if self.player && moving && rel.y < -0.5 && rel.y.abs() >= rel.x.abs() && swung_at && self.weapon != Weapon::Bat
+                && self.fig.restart(anim::BLOCK_HIGH, Play::Once)
+            {
+                self.state = State::Block { auto: true };
+                return;
+            }
             if moving {
                 let step = if rel.y.abs() >= rel.x.abs() {
                     if rel.y > 0.0 { anim::FIGHT_STEP_N } else { anim::FIGHT_STEP_S }
