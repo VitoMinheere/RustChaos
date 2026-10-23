@@ -257,6 +257,14 @@ impl Level {
         let mut mission = Mission::parse(&read(game, &format!("levels\\{mission_name}.ucm"))?)
             .map_err(|e| format!("{mission_name}.ucm: {e}"))?;
         finish_unfinished(&mut mission);
+        Level::load_with_mission(game, mission_name, mission, opt)
+    }
+
+    /// [`Level::load`] with `mission` in place of the install's `<mission_name>.ucm`: an
+    /// edited one (#185). Its map and lighting are still read from the install, and its
+    /// textures still looked up by `mission_name`. An edited mission keeps what
+    /// [`finish_unfinished`] added when it was loaded, or doesn't if the editor took it out.
+    pub fn load_with_mission(game: &Path, mission_name: &str, mission: Mission, opt: &LoadOptions) -> Result<Level, String> {
         let mut map = Map::parse(&read(game, &mission.map)?).map_err(|e| format!("{}: {e}", mission.map))?;
         to_sea(&mission.map, &mut map);
         // A world the install has nothing of borrows the stand-in's style table and pages.

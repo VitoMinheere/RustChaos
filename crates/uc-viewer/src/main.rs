@@ -11,6 +11,7 @@ mod cam;
 mod checklist;
 mod console;
 mod coop;
+mod editor;
 mod ghosts;
 mod hud;
 mod input;
@@ -86,6 +87,9 @@ struct App {
     /// hosts, once they've hosted.
     coop: Option<Coop>,
     hosting: Option<std::net::SocketAddr>,
+    /// The mission editor (#185) and its camera, put aside while its edit is played: Esc
+    /// comes back to it.
+    editing: Option<(editor::Editor, FlyCam)>,
 }
 
 impl App {
@@ -134,12 +138,13 @@ impl App {
             self.input.mouse_look = !self.input.mouse_look;
             self.capture_cursor(self.want_cursor());
         }
+        let size = self.gfx.as_ref().map_or((1280, 720), |g| (g.config.width, g.config.height));
         let inp = &self.input;
         let pad = &inp.pad;
         let Some(w) = self.world.as_mut() else { return };
         let delta = inp.mouse;
         w.checklist = inp.held(KeyCode::Tab);
-        if (inp.hit(KeyCode::KeyV) || pad.hit(Button::Select)) && w.game.player.is_some() {
+        if (inp.hit(KeyCode::KeyV) || pad.hit(Button::Select)) && w.game.player.is_some() && w.editor.is_none() {
             w.third_person = !w.third_person;
             if let (false, Some(eye)) = (w.third_person, w.eye()) {
                 w.fly = w.orbit.cam(eye);
@@ -172,7 +177,7 @@ impl App {
                     c.client.choose(s);
                 }
             }
-        } else if inp.hit(KeyCode::KeyR) {
+        } else if inp.hit(KeyCode::KeyR) && w.editor.is_none() {
             w.restart();
             // Starting over shouldn't be talked over by the run before it.
             if let Some(s) = self.sound.as_mut() {
@@ -287,9 +292,15 @@ impl App {
             let pad_mv = fwd * pad.mv.y + right * pad.mv.x;
             w.fly.pos += (mv.normalize_or_zero() + pad_mv) * speed * dt;
             // T: Darci goes where the camera looks, and the camera's back on her.
-            if inp.hit(KeyCode::KeyT) && w.game.player.is_some() && self.coop.is_none() && w.replay.is_none() {
+            if inp.hit(KeyCode::KeyT) && w.game.player.is_some() && self.coop.is_none() && w.replay.is_none() && w.editor.is_none() {
                 w.teleport_to_view();
             }
+        }
+        // The editor: the game stays stopped.
+        if w.editor.is_some() {
+            let cam = w.camera();
+            w.editor_frame(inp, &cam, size, dt);
+            return;
         }
         // The dike (#111) is ridden on the keypad, as the original's debug code rode it.
         if w.game.dike.is_some() {
@@ -406,7 +417,86 @@ impl App {
         }
     }
 
+    /// Puts `w` on screen, in place of what was there.
+    fn show(&mut self, mut w: World) {
+        if let Some(g) = self.gfx.as_mut() {
+            g.renderer.clear_textures();
+            w.upload(&mut g.renderer);
+        }
+        if let Some(s) = self.sound.as_mut() {
+            if w.editor.is_some() {
+                s.stop();
+            } else {
+                s.start(&w);
+            }
+        }
+        self.world = Some(w);
+        self.menu = None;
+        self.capture_cursor(self.want_cursor());
+    }
+
+    /// Opens mission `name` in the editor (#185): `back`, the editor and its camera, when
+    /// coming back to it from playing the edit.
+    fn edit(&mut self, name: &str, back: Option<(editor::Editor, FlyCam)>) {
+        if let Some(w) = self.world.as_mut() {
+            w.save_replay();
+            w.save_stats();
+        }
+        let mut args = self.args.clone();
+        args.mission = name.to_string();
+        let (ed, fly) = back.map_or((None, None), |(e, f)| (Some(e), Some(f)));
+        match World::load_edit(args, ed) {
+            Ok(mut w) => {
+                if let Some(f) = fly {
+                    w.fly = f;
+                }
+                self.show(w);
+            }
+            Err(e) => {
+                eprintln!("{name}: {e}");
+                if let Some(m) = self.menu.as_mut() {
+                    m.status = e;
+                }
+            }
+        }
+    }
+
+    /// Plays the mission being edited, from its start, or with Darci put where the camera
+    /// looks (`here`). Esc comes back to the editor.
+    fn play_edit(&mut self, here: bool) {
+        let Some(w) = self.world.as_mut() else { return };
+        let Some(ed) = w.editor.as_mut() else { return };
+        let mission = match ed.mission() {
+            Ok(m) => m,
+            Err(e) => {
+                ed.say(format!("Can't play it: {e}"));
+                return;
+            }
+        };
+        let mut args = self.args.clone();
+        args.mission = ed.name.clone();
+        let (look, fly) = (w.look_point(), w.fly);
+        match World::load_edited(args, mission) {
+            Ok(mut played) => {
+                if here && played.game.teleport(look, &played.level) {
+                    if let Some(p) = played.game.player() {
+                        played.orbit = Orbit::behind(p.fig.angle);
+                    }
+                }
+                let ed = self.world.as_mut().and_then(|w| w.editor.take()).unwrap();
+                self.editing = Some((ed, fly));
+                self.show(played);
+            }
+            Err(e) => {
+                if let Some(ed) = self.world.as_mut().and_then(|w| w.editor.as_mut()) {
+                    ed.say(format!("Can't play it: {e}"));
+                }
+            }
+        }
+    }
+
     fn open_menu(&mut self) {
+        self.editing = None;
         let mut m = menu::Menu::new(&self.args.game);
         // Leaving a co-op mission leaves the game.
         let left_coop = self.world.is_some() && self.coop.take().is_some();
@@ -457,6 +547,12 @@ impl App {
             self.args.endless = false;
             self.args.beat = false;
             self.play(&name);
+            self.input.pressed.clear();
+            return;
+        }
+        if let Some(i) = m.loading_edit.take() {
+            let name = m.entries[i].mission.clone();
+            self.edit(&name, None);
             self.input.pressed.clear();
             return;
         }
@@ -607,6 +703,9 @@ impl App {
                 if go && !m.entries.is_empty() {
                     m.loading = Some(m.selected);
                 }
+                if inp.hit(KeyCode::KeyE) && !m.entries.is_empty() {
+                    m.loading_edit = Some(m.selected);
+                }
             }
             menu::Screen::Stats => {
                 if back || go {
@@ -715,6 +814,34 @@ impl App {
             let w = self.world.as_mut().unwrap();
             w.console_input(&mut self.input, dt);
         }
+        // The editor: F5 plays the edit, Esc leaves (asking first if it isn't saved).
+        let console_open = self.world.as_ref().is_some_and(|w| w.console.line.is_some());
+        if let Some(ed) = self.world.as_mut().and_then(|w| w.editor.as_mut()) {
+            let shift = self.input.held(KeyCode::ShiftLeft) || self.input.held(KeyCode::ShiftRight);
+            if self.input.hit(KeyCode::F5) && !console_open {
+                self.input.pressed.clear();
+                self.play_edit(shift);
+                return;
+            }
+            if self.input.hit(KeyCode::Escape) {
+                self.input.pressed.remove(&KeyCode::Escape);
+                if ed.saved || ed.leaving {
+                    self.input.pressed.clear();
+                    self.open_menu();
+                    return;
+                }
+                ed.leaving = true;
+            }
+        }
+        // Playing an edit: Esc goes back to the editor.
+        if self.editing.is_some() && self.input.hit(KeyCode::Escape) {
+            self.input.pressed.clear();
+            if let Some(back) = self.editing.take() {
+                let name = back.0.name.clone();
+                self.edit(&name, Some(back));
+            }
+            return;
+        }
         let won = self.world.as_ref().is_some_and(|w| w.game.outcome == Some(Outcome::Won));
         // Esc (or Start) pauses (`GAMEMENU_process`, gamemenu.cpp:279): the sound stops and
         // the menu comes up; again, and it's gone. After a win it's back to the mission list;
@@ -764,7 +891,7 @@ impl App {
         }
         let won = self.world.as_ref().is_some_and(|w| w.game.outcome == Some(Outcome::Won));
         let shift = self.world.as_ref().is_some_and(|w| w.game.beat().is_some());
-        let watching = self.world.as_ref().is_some_and(|w| w.replay.is_some());
+        let watching = self.world.as_ref().is_some_and(|w| !w.counts());
         if won && !shift && !watching && (self.input.hit(KeyCode::Enter) || self.input.pad.hit(Button::Start)) {
             let current = self.world.as_ref().unwrap().level.name.clone();
             let m = menu::Menu::new(&self.args.game);
@@ -797,7 +924,7 @@ impl App {
         // (Not in co-op: the warnings counted are this player's own, and the loss would be on
         // this machine only.)
         if world.game.outcome == Some(Outcome::Won) && world.result.is_none() && world.civ_warning.is_none() && darci && world.game.red_marks > 1 && world.seat.is_none()
-            && world.replay.is_none() {
+            && world.counts() {
             let n = progress::Progress::load().warn();
             world.civ_warning = Some(civ_warning(&world.args.game, n));
             if n >= 3 {
@@ -808,22 +935,23 @@ impl App {
                 }
             }
         }
-        // (Nothing a replay does goes into the progress.)
-        if let (Some(b), Some(_), None, None) = (world.game.beat(), &world.game.outcome, world.endless_recorded, &world.replay) {
+        // (Nothing a replay or an edited mission does goes into the progress.)
+        let counts = world.counts();
+        if let (Some(b), Some(_), None, true) = (world.game.beat(), &world.game.outcome, world.endless_recorded, counts) {
             let mut p = progress::Progress::load();
             let key = world.args.arena_name.clone().unwrap_or_else(|| progress::beat_key(&world.level.name, world.args.shift));
             let before = p.best_endless(&key);
             let best = p.record_endless(&key, b.score, b.handled);
             world.endless_recorded = Some((best, before));
         }
-        if let (Some(e), Some(Outcome::Lost(_)), None, None) = (world.game.endless(), &world.game.outcome, world.endless_recorded, &world.replay) {
+        if let (Some(e), Some(Outcome::Lost(_)), None, true) = (world.game.endless(), &world.game.outcome, world.endless_recorded, counts) {
             let mut p = progress::Progress::load();
             let key = world.args.arena_name.clone().unwrap_or_else(|| world.level.name.clone());
             let before = p.best_endless(&key);
             let best = p.record_endless(&key, e.score, e.wave);
             world.endless_recorded = Some((best, before));
         }
-        if world.game.outcome == Some(Outcome::Won) && world.result.is_none() && world.game.beat().is_none() && world.replay.is_none() {
+        if world.game.outcome == Some(Outcome::Won) && world.result.is_none() && world.game.beat().is_none() && counts {
             let mut p = progress::Progress::load();
             let before = p.best_time(&world.level.name);
             let sides = world.game.sides_done(&world.goals);
@@ -865,7 +993,7 @@ impl App {
         world.game.begin_draw();
         let cam = world.camera();
         match self.sound.as_mut() {
-            Some(s) if !paused => s.update(world, &cam, dt),
+            Some(s) if !paused && world.editor.is_none() => s.update(world, &cam, dt),
             _ => drop(world.game.take_sounds()),
         }
         let settings = world.settings();
@@ -875,8 +1003,8 @@ impl App {
             return;
         };
         let size = (g.config.width, g.config.height);
-        let mut hud = world.hud(size);
-        if world.pause.is_none() {
+        let mut hud = if world.editor.is_some() { world.editor_overlay(&cam, size) } else { world.hud(size) };
+        if world.pause.is_none() && world.editor.is_none() {
             draw_sights(&mut hud, &world.game.gun_sights(), &cam, size);
         }
         if let Some(c) = &self.coop {
@@ -1056,7 +1184,7 @@ fn headless_screenshot(mut world: World, path: &Path) -> Result<(), String> {
     world.upload(&mut r);
     let size = world.args.size;
     let cam = world.camera();
-    let hud = world.hud(size);
+    let hud = if world.editor.is_some() { world.editor_overlay(&cam, size) } else { world.hud(size) };
     let img = r.render_to_image(size, &cam, &world.settings(), &world.dynamic(), &hud);
     save_png(path, size, &img)?;
     println!("saved {} ({}/{} chunks drawn, {} draw calls, {} triangles)", path.display(),
@@ -1105,6 +1233,7 @@ fn run() -> Result<(), String> {
     if dump.is_some() || screenshot.is_some() {
         let world = match watch(&args)? {
             Some(w) => w,
+            None if args.edit => World::load_edit(args, None)?,
             None => World::load(args)?,
         };
         if let Some(dir) = dump {
@@ -1143,6 +1272,8 @@ fn run() -> Result<(), String> {
             s.start(&w);
         }
         (Some(w), None)
+    } else if args.edit {
+        (Some(World::load_edit(args.clone(), None)?), None)
     } else if args.mission_given {
         let w = World::load(args.clone())?;
         if let Some(s) = sound.as_mut() {
@@ -1154,7 +1285,7 @@ fn run() -> Result<(), String> {
     };
     let mut app = App {
         world, menu, args, gfx: None, sound, pads, input: Input::default(), last: Instant::now(), title_timer: 0.0, backdrop: String::new(),
-        frames: 0, shots: 0, coop, hosting,
+        frames: 0, shots: 0, coop, hosting, editing: None,
     };
     el.run_app(&mut app).map_err(|e| e.to_string())
 }

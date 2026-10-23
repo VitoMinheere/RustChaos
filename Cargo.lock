@@ -1904,6 +1904,7 @@ version = "1.0.152"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1741ab7a6cc54a03a89b5d563ed60075c277d9e3cfa73ad0c1f23f23974703c6"
 dependencies = [
+ "indexmap",
  "itoa",
  "memchr",
  "serde",
@@ -2248,6 +2249,7 @@ dependencies = [
  "glam",
  "png",
  "pollster",
+ "serde_json",
  "uc-audio",
  "uc-formats",
  "uc-game",

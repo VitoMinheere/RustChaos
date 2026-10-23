@@ -291,6 +291,7 @@ The HUD shows Darci's health, the weapon in hand and its rounds, enemy health ba
 - `--linear`: smooth texture magnification instead of crisp pixels.
 - `--no-character`: leave people out.
 - `--host [PORT]`, `--join HOST[:PORT]`, `--name NAME`: co-op (below).
+- `--edit NAME`: open mission NAME in the mission editor (below).
 - `--replay FILE`: watch a saved replay (`.ucr`). With `--screenshot` and `--sim SECS`, that much of it is played first, and whether it kept to the recording is printed.
 - `--screenshot FILE`: render one frame **without opening a window** (the menu, unless `--mission` is given). Combine with `--size WxH` and `--sim SECS` (play for a while, skipping fly-bys, punching and kicking first, then look at the nearest enemy) or `--sim-walk SECS` / `--sim-run SECS` (testing aids).
 
@@ -323,6 +324,17 @@ cargo run --release -p uc-tools -- mission check police1.json
 - The default **clean** export keeps only what the game reads. `--lossless` also keeps editor leftovers, so importing reproduces the original file byte for byte.
 
 See `docs/MISSIONS.md` for what the fields mean.
+
+### The mission editor
+
+E on a mission in the mission list (or `--edit police1`) opens it in the editor (#185). The game is stopped, and the free camera flies round the level with every event point standing in it as a marker: coloured by what it does (the player blue, enemies red, messages white, things made yellow, the win green), with its number and type above it, a dotted line to each point it depends on, and the circle of a trigger that goes off within a radius.
+
+- **Choosing:** aim the cross hair at a marker and click (or Enter); Tab goes through the points one by one, and F shows only the selected point's links, or only points of its type.
+- **Changing:** G puts the selected point where the camera looks (on a roof too), `[` and `]` turn it, N makes a new point there, Insert copies the selected one there, Delete deletes it. Its fields are in the panel on the right, as the JSON has them; to change them, open the console (`~`) and type `ep` and the fields as JSON: `ep {"radius": 768, "trigger": "timer"}`, `ep {"text": "Hello"}`.
+- **Undo:** Ctrl+Z and Ctrl+Y.
+- **Saving:** Ctrl+S writes the mission's clean JSON to `missions\<name>.json` next to the progress file, never into the install. It's checked as it's saved, and the problems are listed bottom left: what keeps it from loading, a point that depends on one that isn't there, a message with no text, a point off the map. P goes to each.
+- **Playing:** F5 plays the edit from the start; Shift+F5 plays it with Darci where the camera looks. Esc comes back to the editor where you were. Nothing an edit does goes into the progress, best times or replays.
+- **Next time:** the editor opens the saved edit, and `uc mission import` makes a `.ucm` of it for the original game.
 
 ## Upscaled textures
 
