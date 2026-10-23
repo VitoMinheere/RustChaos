@@ -5,13 +5,18 @@
 //! Walls on a page with a crinkle are built flat into each chunk's `crinkled` batches. Each
 //! frame, a chunk near the camera has those drawn by [`Relief::draw`] instead: raised for
 //! the quads close enough, flat for the rest. The relief grows out of the wall as the camera
-//! comes closer, so nothing pops where flat and raised meet.
+//! comes closer, so nothing pops where flat and raised meet. Raised faces turned away from
+//! the camera are left out, as the original back-face culls them (Crinkle.cpp:804), so the
+//! relief on the back of a see-through wall isn't drawn (#172).
 //!
-//! Differences from the original:
+//! Differences from the original (#172: kept):
 //! - How close a quad is: its middle's distance from the camera, not corner 0's depth.
 //! - The lighting of a raised face is changed in world space. The original compares a
 //!   view-space normal with the world's light direction, so its relief lights up and darkens
 //!   as the camera turns.
+//! - A quad seen from behind is drawn flat, as walls are drawn from both sides here. The
+//!   original culls the whole facet (facet.cpp:2553), or draws a two-sided one turned round
+//!   (facet.cpp:1649); culling its relief alone would leave a hole.
 
 use crate::geometry::Batch;
 use glam::Vec3;
@@ -70,7 +75,8 @@ pub fn near(cam: Vec3, min: Vec3, max: Vec3) -> bool {
 
 impl Relief {
     /// Draws the quads with a crinkle in the chunks [`near`] the camera into `out`, by page:
-    /// raised when close enough, flat otherwise. Returns how many were raised.
+    /// raised when close enough and seen from the front, flat otherwise. Returns how many
+    /// were raised.
     pub fn draw(&self, cam: Vec3, out: &mut BTreeMap<u32, Batch>) -> usize {
         let mut raised = 0;
         for ch in self.chunks.iter().filter(|ch| near(cam, ch.min, ch.max)) {
@@ -79,8 +85,8 @@ impl Relief {
                 let e = extrude(middle.distance(cam));
                 let b = out.entry(q.page).or_default();
                 match self.crinkles.get(q.crinkle as usize) {
-                    Some(c) if e > 0.0 => {
-                        raise(c, q, e, b);
+                    Some(c) if e > 0.0 && facing(q, cam) => {
+                        raise(c, q, e, cam, b);
                         raised += 1;
                     }
                     _ => b.quad(q.corners, q.uv, q.colour),
@@ -91,8 +97,16 @@ impl Relief {
     }
 }
 
-/// `CRINKLE_do` (Crinkle.cpp:493): crinkle `c` across quad `q`, raised by `e` (0 to 1).
-pub fn raise(c: &Crinkle, q: &ReliefQuad, e: f32, b: &mut Batch) {
+/// Whether `cam` sees quad `q` from the front: the side its normal (corner 0 to 1, cross 0 to
+/// 2) points away from, which a positive `out` goes into.
+pub fn facing(q: &ReliefQuad, cam: Vec3) -> bool {
+    let middle = q.corners.iter().copied().sum::<Vec3>() / 4.0;
+    (q.corners[1] - q.corners[0]).cross(q.corners[2] - q.corners[0]).dot(cam - middle) < 0.0
+}
+
+/// `CRINKLE_do` (Crinkle.cpp:493): crinkle `c` across quad `q`, raised by `e` (0 to 1), as
+/// seen from `cam`.
+pub fn raise(c: &Crinkle, q: &ReliefQuad, e: f32, cam: Vec3, b: &mut Batch) {
     // The wall's normal, the same way round whether or not the texture is mirrored.
     let n = (q.corners[1] - q.corners[0]).cross(q.corners[2] - q.corners[0]).normalize_or_zero() * DEPTH * e;
     // A texture mirrored left to right mirrors its crinkle too: corners 0 and 1 swap, and
@@ -118,10 +132,17 @@ pub fn raise(c: &Crinkle, q: &ReliefQuad, e: f32, b: &mut Batch) {
     let light = Vec3::from(AMB_NORM).normalize();
     for f in &c.faces {
         let t = if flip { [f[0], f[2], f[1]] } else { *f }.map(|i| points[i as usize]);
+        let fnorm = (t[1].0 - t[0].0).cross(t[2].0 - t[0].0);
+        // Back-face culled (Crinkle.cpp:804, `POLY_tri_backfacing`, poly.cpp:1523): the face's
+        // normal points away from the camera when it's seen from the front. A face lying in
+        // the wall faces the same way as the wall's `n`.
+        if fnorm.dot(cam - t[0].0) > 0.0 {
+            continue;
+        }
         let mut colour = t.map(|v| v.2);
         // A face standing out of the wall is lit by which way it faces (Crinkle.cpp:696).
         if f.iter().map(|&i| c.points[i as usize].out.abs()).sum::<f32>() > 0.001 {
-            let fnorm = (t[1].0 - t[0].0).cross(t[2].0 - t[0].0).normalize_or_zero();
+            let fnorm = fnorm.normalize_or_zero();
             let drgb = (fnorm.dot(light) * e * 64.0) as i32;
             for v in &mut colour {
                 for ch in &mut v[..3] {
@@ -138,8 +159,11 @@ mod tests {
     use super::*;
     use uc_formats::txc::CrinklePoint;
 
+    const FRONT: Vec3 = Vec3::new(0.5, 0.5, -5.0);
+
     fn quad() -> ReliefQuad {
-        // A wall along x, one square wide and tall, facing +z.
+        // A wall along x, one square wide and tall, seen from -z: its `n` is +z, so a
+        // positive `out` goes into it.
         let corners = [Vec3::new(1.0, 1.0, 0.0), Vec3::new(0.0, 1.0, 0.0), Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 0.0)];
         ReliefQuad { corners, uv: [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]], colour: [[200; 4]; 4], page: 1, crinkle: 0 }
     }
@@ -166,7 +190,7 @@ mod tests {
             faces: vec![[0, 1, 2]],
         };
         let mut b = Batch::default();
-        raise(&c, &quad(), 1.0, &mut b);
+        raise(&c, &quad(), 1.0, FRONT, &mut b);
         assert_eq!(b.vertices.len(), 3);
         // u runs from corner 0 to corner 1, v from corner 0 to corner 2.
         assert_eq!(b.vertices[0].pos, [1.0, 1.0, 0.0]);
@@ -180,8 +204,28 @@ mod tests {
         let mut q = quad();
         q.uv = [[1.0, 0.0], [0.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
         let mut b = Batch::default();
-        raise(&c, &q, 0.5, &mut b);
+        raise(&c, &q, 0.5, FRONT, &mut b);
         assert_eq!(b.vertices[0].pos, [0.0, 1.0, 0.0]);
         assert!((b.vertices[1].pos[2] - 0.05 * DEPTH).abs() < 1e-5);
+    }
+
+    #[test]
+    fn faces_turned_away_are_culled() {
+        // A flat face, and one standing out of the wall towards the front.
+        let c = Crinkle {
+            points: vec![point(0.0, 0.0, 0.0), point(1.0, 0.0, 0.0), point(0.5, 0.5, 0.0), point(0.5, 0.5, -0.1)],
+            faces: vec![[0, 1, 2], [0, 1, 3]],
+        };
+        let drawn = |q: &ReliefQuad, cam| {
+            let mut b = Batch::default();
+            raise(&c, q, 1.0, cam, &mut b);
+            b.vertices.len() / 3
+        };
+        let mut mirrored = quad();
+        mirrored.uv = [[1.0, 0.0], [0.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        for q in [quad(), mirrored] {
+            assert_eq!(drawn(&q, FRONT), 2);
+            assert_eq!(drawn(&q, FRONT * Vec3::new(1.0, 1.0, -1.0)), 0, "drawn from behind");
+        }
     }
 }
