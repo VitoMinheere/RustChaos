@@ -19,7 +19,9 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --windowed        in a window (default: full screen; F11 or Alt+Enter switches)
   --weapon W        start holding a weapon (knife, bat, pistol, shotgun, ak)
   --dogs N          let N dogs loose round the start (unreleased: the original never shipped them)
-  --overrides DIR   folder of page_NNNN.png files that replace clump textures
+  --overrides DIR   folder of page_NNNN.png files that replace clump textures; DIR/MISSION/ and
+                    DIR/world<N>/ (the map's texture set) are tried first (`uc textures missing`
+                    lists the pages the clump-less missions need)
   --dump-pages DIR  write every texture this level uses as DIR/page_NNNN.png and exit
   --linear          smooth texture magnification (default: crisp nearest-neighbour)
   --fullbright      ignore the level's baked lighting

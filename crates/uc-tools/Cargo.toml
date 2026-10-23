@@ -3,7 +3,7 @@ name = "uc-tools"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
-description = "Command-line tools for Urban Chaos data: missions to/from JSON"
+description = "Command-line tools for Urban Chaos data: missions to/from JSON, missing textures"
 
 [[bin]]
 name = "uc"
@@ -11,4 +11,5 @@ path = "src/main.rs"
 
 [dependencies]
 uc-formats = { path = "../uc-formats", features = ["json"] }
+uc-world = { path = "../uc-world" }
 serde_json = "1"
