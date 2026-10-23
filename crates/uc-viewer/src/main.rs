@@ -79,6 +79,8 @@ struct App {
     input: Input,
     last: Instant,
     title_timer: f32,
+    /// The next of the title screen's demos to try (#208).
+    demo_next: usize,
     /// The image behind the menu now (to change it when the screen does).
     backdrop: String,
     frames: u32,
@@ -323,6 +325,15 @@ impl App {
         }
         if w.replay.is_some() {
             let idle = delta.length_squared() < 1.0 && pad.look.length_squared() < 0.01;
+            // A demo: any key, or its end, and it's back to the title.
+            if w.replay.as_ref().is_some_and(|v| v.demo) {
+                if !inp.pressed.is_empty() || !inp.pad.pressed.is_empty() || inp.lmb_pressed || w.replay.as_ref().is_some_and(|v| v.playback.done()) {
+                    self.end_demo();
+                    return;
+                }
+                w.replay_frame(&Input::default(), dt, true);
+                return;
+            }
             w.replay_frame(inp, dt, idle);
             return;
         }
@@ -415,6 +426,39 @@ impl App {
                 }
             }
         }
+    }
+
+    /// The next demo that plays back as it was recorded (one from this build), from the
+    /// title screen; nothing if there's none.
+    fn play_demo(&mut self) {
+        let demos = replays::demos();
+        let args = self.args.clone();
+        let found = replays::next_demo(demos.len(), self.demo_next, |k| {
+            replays::load(&demos[k]).ok().filter(|r| r.same_build()).and_then(|r| World::load_replay(args.clone(), r).ok())
+        });
+        if let Some((k, mut w)) = found {
+            self.demo_next = (k + 1) % demos.len();
+            if let Some(v) = w.replay.as_mut() {
+                v.demo = true;
+            }
+            if let Some(g) = self.gfx.as_mut() {
+                g.renderer.clear_textures();
+                w.upload(&mut g.renderer);
+            }
+            if let Some(s) = self.sound.as_mut() {
+                s.start(&w);
+            }
+            self.world = Some(w);
+            self.menu = None;
+        }
+    }
+
+    /// A demo over, or a key pressed during it: back to the title screen.
+    fn end_demo(&mut self) {
+        self.input.pressed.clear();
+        self.input.pad.pressed.clear();
+        self.world = None;
+        self.open_menu();
     }
 
     /// Puts `w` on screen, in place of what was there.
@@ -556,6 +600,12 @@ impl App {
             self.input.pressed.clear();
             return;
         }
+        if std::mem::take(&mut m.loading_demo) {
+            m.idle = 0.0;
+            self.play_demo();
+            self.input.pressed.clear();
+            return;
+        }
         if let Some(i) = m.loading_replay.take() {
             let path = m.replays[i].path.clone();
             self.watch(&path);
@@ -589,10 +639,13 @@ impl App {
             || inp.pad.hit(Button::South) || inp.pad.hit(Button::Start);
         let back = inp.hit(KeyCode::Escape) || inp.pad.hit(Button::East);
         match m.screen {
-            // Any key from the title.
+            // Any key from the title. Left alone long enough, a demo plays.
             menu::Screen::Title => {
                 if !inp.pressed.is_empty() || !inp.pad.pressed.is_empty() {
-                    m.screen = menu::Screen::Main;
+                    (m.screen, m.idle) = (menu::Screen::Main, 0.0);
+                } else {
+                    m.idle += dt;
+                    m.loading_demo = m.idle >= replays::DEMO_AFTER;
                 }
             }
             menu::Screen::Main => {
@@ -849,7 +902,11 @@ impl App {
         if self.input.hit(KeyCode::Escape) || (!won && self.input.pad.hit(Button::Start)) {
             self.input.pad.pressed.remove(&Button::Start);
             let w = self.world.as_mut().unwrap();
-            // A replay's straight back to the list.
+            // A demo's back to the title, and a replay straight back to the list.
+            if w.replay.as_ref().is_some_and(|v| v.demo) {
+                self.end_demo();
+                return;
+            }
             if w.replay.is_some() {
                 self.input.pressed.clear();
                 self.open_menu();
@@ -1284,7 +1341,7 @@ fn run() -> Result<(), String> {
         (None, Some(menu::Menu::new(&args.game)))
     };
     let mut app = App {
-        world, menu, args, gfx: None, sound, pads, input: Input::default(), last: Instant::now(), title_timer: 0.0, backdrop: String::new(),
+        world, menu, args, gfx: None, sound, pads, input: Input::default(), last: Instant::now(), title_timer: 0.0, demo_next: 0, backdrop: String::new(),
         frames: 0, shots: 0, coop, hosting, editing: None,
     };
     el.run_app(&mut app).map_err(|e| e.to_string())

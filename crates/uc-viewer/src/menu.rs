@@ -160,6 +160,9 @@ pub struct Menu {
     pub loading_replay: Option<usize>,
     /// The mission to open in the editor (#185), by its place in the list.
     pub loading_edit: Option<usize>,
+    /// Seconds on the title screen with nothing pressed, and a demo to start (#208).
+    pub idle: f32,
+    pub loading_demo: bool,
 }
 
 impl Menu {
@@ -205,7 +208,7 @@ impl Menu {
             .collect();
         Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false,
                coop: 0, address: "127.0.0.1".into(), status: String::new(), for_coop: false, lobby: None,
-               replays: Vec::new(), replay_selected: 0, loading_replay: None, loading_edit: None }
+               replays: Vec::new(), replay_selected: 0, loading_replay: None, loading_edit: None, idle: 0.0, loading_demo: false }
     }
 
     /// The map list on show: Beat Cop's districts or endless mode's arenas.
