@@ -90,3 +90,42 @@ fn crinkles_raise_near_walls() {
               relief.chunks.len(), total as f64 / relief.chunks.len() as f64);
     assert!(most > 0);
 }
+
+/// Relief is back-face culled (#172): seen from in front of a crinkled wall its faces are
+/// drawn, from behind only the sides of a few that face neither way. [`Relief::draw`] draws a
+/// wall seen from behind flat, like the walls without a crinkle.
+#[test]
+fn crinkles_cull_from_behind() {
+    use uc_world::crinkle::{raise, ReliefChunk};
+    let Some(game) = uc_formats::default_install() else { return };
+    let level = Level::load(&game, "police1", &LoadOptions { fullbright: false, character: false, overrides: None }).unwrap();
+    let relief = level.build().relief();
+    let mut one = uc_world::Relief { crinkles: relief.crinkles.clone(), chunks: vec![] };
+    let (mut total, mut front, mut back) = (0, 0, 0);
+    for q in relief.chunks.iter().flat_map(|ch| &ch.quads) {
+        let c = &relief.crinkles[q.crinkle as usize];
+        let p = q.corners;
+        // Relief stands out of a wall on the side its normal points away from. (Some quads
+        // have no width.)
+        let Some(n) = (p[1] - p[0]).cross(p[2] - p[0]).try_normalize() else { continue };
+        let middle = p.iter().copied().sum::<glam::Vec3>() / 4.0;
+        let (ahead, behind) = (middle - n * 3.0, middle + n * 3.0);
+        let raised = |cam| {
+            let mut b = uc_world::Batch::default();
+            raise(c, q, 1.0, cam, &mut b);
+            b.indices.len() / 3
+        };
+        total += c.faces.len();
+        front += raised(ahead);
+        back += raised(behind);
+
+        one.chunks = vec![ReliefChunk { min: p[0].min(p[3]), max: p[0].max(p[3]), quads: vec![*q] }];
+        let mut out = std::collections::BTreeMap::new();
+        assert_eq!(one.draw(ahead, &mut out), 1);
+        let mut out = std::collections::BTreeMap::new();
+        assert_eq!(one.draw(behind, &mut out), 0);
+        assert_eq!(out[&q.page].indices.len(), 6, "not drawn flat from behind");
+    }
+    eprintln!("{total} relief faces: {front} drawn from in front, {back} from behind");
+    assert!(front * 10 > total * 9 && back * 10 < total, "{front} and {back} of {total}");
+}
