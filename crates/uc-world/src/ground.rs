@@ -504,9 +504,9 @@ impl Ground {
 
     /// Where a person made at (x, y, z) stands (`find_face_for_this_pos`, walkable.cpp:466, as
     /// `create_person` calls it, Person.cpp:761). Of the roofs and walkable tops at (x, z) no
-    /// more than 0xa0 above `y`, the nearest to `y`, above or below. With none, the ground.
-    /// The original leaves someone more than 0x50 off the ground where they are, to fall;
-    /// here they're put on it.
+    /// more than 0xa0 above `y`, the nearest to `y`, above or below. With none, the ground
+    /// if it's within 0x50, else `y` itself: they're left in the air, to fall. (The original
+    /// leaves someone 0x50 under the ground there too; here they're put on it.)
     pub fn spawn_height(&self, map: &Map, x: f32, z: f32, y: f32) -> f32 {
         let key = ((x / 256.0).floor() as i32, (z / 256.0).floor() as i32);
         let p = vec2(x, z);
@@ -517,7 +517,10 @@ impl Ground {
         self.roof_height(x, z).into_iter().chain(tops).chain(tris)
             .filter(|&h| h - y <= 160.0)
             .min_by(|a, b| (a - y).abs().total_cmp(&(b - y).abs()))
-            .unwrap_or_else(|| map.ground_height(x, z))
+            .unwrap_or_else(|| {
+                let g = map.ground_height(x, z);
+                if y - g < 80.0 { g } else { y }
+            })
     }
 
     /// Moves a circle of `radius` at feet height `y` from `from` by `delta`, sliding along

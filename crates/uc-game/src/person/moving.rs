@@ -139,7 +139,7 @@ impl Person {
         self.fig.set_speed(1.5);
     }
 
-    pub(super) fn fall(&mut self, vel: Vec2) {
+    pub(crate) fn fall(&mut self, vel: Vec2) {
         self.state = State::Fall { vy: 0.0, vel };
         self.fig.play(anim::FALLING, Play::Loop);
     }
