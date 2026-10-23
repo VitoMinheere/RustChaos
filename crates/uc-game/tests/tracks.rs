@@ -105,19 +105,56 @@ fn the_bike_leaves_tyre_tracks() {
     assert!(tracks >= 4, "only {tracks} tyre tracks");
 }
 
+impl Run {
+    /// Puts the player at the wheel of the first car.
+    fn drive_off(&mut self) {
+        self.play(2.0, Controls::default());
+        let p = self.player();
+        self.g.vehicles[0].driver = Some(p);
+        self.g.people[p].state = State::InCar { vehicle: 0 };
+    }
+}
+
 /// A car sliding round on the handbrake leaves skid marks; driving straight it doesn't.
 #[test]
 fn a_sliding_car_skids() {
     let Some(level) = common::load("testdrive1a") else { return };
     let mut r = Run::new(level);
-    r.play(2.0, Controls::default());
-    let p = r.player();
-    r.g.vehicles[0].driver = Some(p);
-    r.g.people[p].state = State::InCar { vehicle: 0 };
-    r.play(2.0, Controls { drive: Drive { throttle: 1.0, ..Default::default() }, ..Default::default() });
-    assert_eq!(r.marks(TYREMARK_PAGE), 0, "skids driving straight");
-    r.play(1.0, Controls { drive: Drive { throttle: 0.5, steer: 1.0, handbrake: true }, ..Default::default() });
-    let skids = r.marks(TYREMARK_PAGE);
+    r.drive_off();
+    let go = Controls { drive: Drive { throttle: 1.0, ..Default::default() }, ..Default::default() };
+    r.play(2.0, go);
+    let off = r.marks(TYREMARK_PAGE);
+    r.play(1.0, go);
+    assert_eq!(r.marks(TYREMARK_PAGE), off, "skids driving straight");
+    r.play(1.0, Controls { drive: Drive { throttle: 0.5, steer: 1.0, handbrake: true, ..Default::default() }, ..Default::default() });
+    let skids = r.marks(TYREMARK_PAGE) - off;
     println!("{skids} skid marks");
     assert!(skids >= 8, "only {skids} skid marks");
+}
+
+/// Pulling away hard spins the wheels (`Smokin`, vehicle.cpp:3625): smoke and skid marks
+/// till it's going, then none cruising on.
+#[test]
+fn pulling_away_hard_spins_the_wheels() {
+    let Some(level) = common::load("testdrive1a") else { return };
+    let mut r = Run::new(level);
+    r.drive_off();
+    assert!(!r.g.vehicles[0].smokin && r.marks(TYREMARK_PAGE) == 0);
+    let go = Controls { drive: Drive { throttle: 1.0, ..Default::default() }, ..Default::default() };
+    let smoke = r.g.pyro.puffs.len();
+    r.play(DT, go);
+    assert!(r.g.vehicles[0].smokin, "no wheelspin pulling away");
+    let mut spun = 0.0;
+    while r.g.vehicles[0].smokin {
+        r.play(DT, go);
+        spun += DT;
+        assert!(spun < 2.0, "still spinning at {}", r.g.vehicles[0].speed);
+    }
+    let off = r.marks(TYREMARK_PAGE);
+    println!("spun {spun:.2}s: {off} marks, {} puffs", r.g.pyro.puffs.len() - smoke);
+    assert!(off >= 8, "only {off} skid marks pulling away");
+    assert!(r.g.pyro.puffs.len() >= smoke + 8, "no tyre smoke");
+    assert!(r.g.vehicles[0].speed > 400.0);
+    r.play(2.0, go);
+    assert_eq!(r.marks(TYREMARK_PAGE), off, "skids cruising");
 }
