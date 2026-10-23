@@ -55,6 +55,8 @@ Darci: WASD move (relative to the camera), Shift run, J or left mouse punch, K k
   Z looks through its scope: WASD turn it, punch fires, Z again to put it down.
   Kick while running: sliding tackle. Punch while walking into someone: grab, then punch
   or kick. Back/side + kick in a fight: back or side kick. Three punches or kicks in time: combo.
+In a car: W/S speed, A/D steer, Space handbrake, K siren (police car, ambulance, meat wagon),
+  E get out.
 Gamepad: left stick move (push fully to run), right stick camera, A/Cross jump,
   X/Square punch, Y/Triangle kick, B/Circle action (hold while running to sprint), LB block,
   RB next weapon, right stick click next target, D-pad down crouch,
