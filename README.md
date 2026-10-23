@@ -8,7 +8,7 @@ The engine's behaviour is ported from the game's [released source code](https://
 
 What's there:
 - **Rendering:** the original textures and the game's own baked lighting, with distance fog into each level's sky colour.
-- **Play:** start at the mission menu (the game's own list and title art). The training missions play from start to finish:
+- **Play:** start at the mission menu: the original's map of Union City, a pin for each district with missions in it (Left/Right from pin to pin, Up/Down through its missions, red with something left to do, blue once it's all done), or with Tab the game's own list with the briefings and the unreleased missions that have no pin. The training missions play from start to finish:
   - the combat tutorial (`ftutor1`);
   - Combat Silver and Combat Gold (`fight1`, `fight2`): timed waves of skilled and armed enemies;
   - Physical Training (`assault1`): the assault course against the clock;

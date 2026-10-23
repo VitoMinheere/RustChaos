@@ -638,12 +638,7 @@ impl App {
                 if back {
                     (m.screen, m.for_coop) = (menu::Screen::Lobby, false);
                 }
-                if up {
-                    m.up();
-                }
-                if down {
-                    m.down();
-                }
+                mission_keys(m, inp, up, down);
                 if let (true, Some(e), Some(c)) = (go, m.entries.get(m.selected), self.coop.as_mut()) {
                     c.choose(&e.mission);
                     (m.screen, m.for_coop) = (menu::Screen::Lobby, false);
@@ -694,12 +689,7 @@ impl App {
                 if back {
                     m.screen = menu::Screen::Main;
                 }
-                if up {
-                    m.up();
-                }
-                if down {
-                    m.down();
-                }
+                mission_keys(m, inp, up, down);
                 if go && !m.entries.is_empty() {
                     m.loading = Some(m.selected);
                 }
@@ -1207,6 +1197,35 @@ fn dump_pages(world: &World, dir: &Path) -> Result<(), String> {
     }
     println!("wrote {n} textures to {}", dir.display());
     Ok(())
+}
+
+/// Choosing a mission, on the city map or in the list: Tab switches between them. On the map
+/// Left and Right go from pin to pin and Up and Down through a pin's missions.
+fn mission_keys(m: &mut menu::Menu, inp: &Input, up: bool, down: bool) {
+    if inp.hit(KeyCode::Tab) || inp.pad.hit(Button::North) {
+        if m.on_map {
+            m.on_map = false;
+        } else {
+            m.show_map();
+        }
+    }
+    if m.on_map && !m.pins.is_empty() {
+        let left = inp.hit(KeyCode::ArrowLeft) || inp.hit(KeyCode::KeyA) || inp.pad.hit(Button::DPadLeft);
+        let right = inp.hit(KeyCode::ArrowRight) || inp.hit(KeyCode::KeyD) || inp.pad.hit(Button::DPadRight);
+        if left || right {
+            m.pin_step(if right { 1 } else { -1 });
+        }
+        if up || down {
+            m.pin_mission(if down { 1 } else { -1 });
+        }
+    } else {
+        if up {
+            m.up();
+        }
+        if down {
+            m.down();
+        }
+    }
 }
 
 fn run() -> Result<(), String> {

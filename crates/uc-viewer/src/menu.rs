@@ -27,6 +27,17 @@ pub struct Entry {
     pub playable: bool,
     /// Its badges and side objectives.
     pub goals: Goals,
+    /// The district it's pinned to on the city map, by its place in `urban.sty`'s list (none
+    /// for the unreleased missions).
+    pub district: Option<usize>,
+}
+
+/// A pin on the city map (`FE_MAPSCREEN`, fallen/Source/frontend.cpp:4046): a district's
+/// name, where it is on the 640 by 480 map, and the missions in it (places in the list).
+pub struct Pin {
+    pub name: String,
+    pub at: (f32, f32),
+    pub missions: Vec<usize>,
 }
 
 /// An endless arena in the menu: a mission on its map, its name, its middle in squares (the
@@ -160,6 +171,11 @@ pub struct Menu {
     pub loading_replay: Option<usize>,
     /// The mission to open in the editor (#185), by its place in the list.
     pub loading_edit: Option<usize>,
+    /// The city map's pins (#207), left to right as the original orders them, and the one
+    /// chosen; and whether the missions show as the map or as the list.
+    pub pins: Vec<Pin>,
+    pub pin: usize,
+    pub on_map: bool,
 }
 
 impl Menu {
@@ -167,6 +183,7 @@ impl Menu {
     pub fn new(game: &Path) -> Menu {
         let mut entries: Vec<Entry> = Vec::new();
         let mut maps: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+        let (named, district_of) = districts(game);
         for (mission, title, briefing) in missions(game) {
             let playable = PLAYABLE.iter().any(|p| p.eq_ignore_ascii_case(&mission));
             let goals = uc_formats::resolve(game, &format!("levels\\{mission}.ucm"))
@@ -181,7 +198,8 @@ impl Menu {
             if let Some(map) = map.filter(|m| !m.is_empty()) {
                 maps.entry(map).or_default().push((mission.clone(), title.clone()));
             }
-            entries.push(Entry { mission, title, briefing, playable, goals });
+            let district = district_of.get(&mission.to_ascii_lowercase()).copied();
+            entries.push(Entry { mission, title, briefing, playable, goals, district });
         }
         let progress = Progress::load();
         let theme = Theme::of(entries.iter().filter(|e| progress.completed(&e.mission)).count());
@@ -198,14 +216,24 @@ impl Menu {
             }
         }
         let maps = arenas;
+        // A pin for each district with missions, ordered by where it is across the map
+        // (`crap_remap`, frontend.cpp:4094).
+        let mut pins: Vec<Pin> = named.into_iter().enumerate()
+            .filter_map(|(d, n)| n.map(|(name, at)| (d, name, at)))
+            .map(|(d, name, at)| Pin { name, at, missions: (0..entries.len()).filter(|&i| entries[i].district == Some(d)).collect() })
+            .filter(|p| !p.missions.is_empty())
+            .collect();
+        pins.sort_by(|a, b| a.at.0.total_cmp(&b.at.0));
         let beats = BEAT_DISTRICTS
             .iter()
             .filter(|(m, _)| entries.iter().any(|e| e.mission.eq_ignore_ascii_case(m)))
             .map(|&(m, name)| (m.to_string(), name.to_string(), None, 10.0))
             .collect();
-        Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false,
+        let mut m = Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false,
                coop: 0, address: "127.0.0.1".into(), status: String::new(), for_coop: false, lobby: None,
-               replays: Vec::new(), replay_selected: 0, loading_replay: None, loading_edit: None }
+               replays: Vec::new(), replay_selected: 0, loading_replay: None, loading_edit: None, pins, pin: 0, on_map: true };
+        m.show_map();
+        m
     }
 
     /// The map list on show: Beat Cop's districts or endless mode's arenas.
@@ -297,6 +325,9 @@ impl Menu {
     pub fn select(&mut self, name: &str) {
         if let Some(i) = self.entries.iter().position(|e| e.mission.eq_ignore_ascii_case(name)) {
             self.selected = i;
+            if let Some(p) = self.pin_of(i) {
+                self.pin = p;
+            }
         }
     }
 
@@ -311,6 +342,122 @@ impl Menu {
     /// Won, with every badge and side objective.
     fn full(&self, e: &Entry) -> bool {
         self.progress.completed(&e.mission) && self.tally(e) == (e.goals.badges.len(), e.goals.sides.len())
+    }
+
+    /// The pin the chosen mission is at, if it's on the map.
+    fn pin_of(&self, entry: usize) -> Option<usize> {
+        self.pins.iter().position(|p| p.missions.contains(&entry))
+    }
+
+    /// Onto the map: at the chosen mission's pin, or the first pin's first mission if it
+    /// has none.
+    pub fn show_map(&mut self) {
+        self.on_map = true;
+        match self.pin_of(self.selected) {
+            Some(p) => self.pin = p,
+            None => {
+                self.pin = self.pin.min(self.pins.len().saturating_sub(1));
+                if let Some(&m) = self.pins.get(self.pin).and_then(|p| p.missions.first()) {
+                    self.selected = m;
+                }
+            }
+        }
+    }
+
+    /// The next pin across the map (`by` +1 right, -1 left), at its first mission not yet
+    /// completed, or its first.
+    pub fn pin_step(&mut self, by: isize) {
+        let n = self.pins.len() as isize;
+        if n == 0 {
+            return;
+        }
+        self.pin = (self.pin as isize + by).rem_euclid(n) as usize;
+        let ms = &self.pins[self.pin].missions;
+        self.selected = ms.iter().copied().find(|&m| !self.progress.completed(&self.entries[m].mission)).unwrap_or(ms[0]);
+    }
+
+    /// The next mission at the chosen pin (`by` +1 down, -1 up).
+    pub fn pin_mission(&mut self, by: isize) {
+        let Some(p) = self.pins.get(self.pin) else { return };
+        let at = p.missions.iter().position(|&m| m == self.selected).unwrap_or(0) as isize;
+        self.selected = p.missions[(at + by).rem_euclid(p.missions.len() as isize) as usize];
+    }
+
+    /// The missions as the original's map of Union City (`FE_MAPSCREEN`, #207): a pin for
+    /// each district with missions in it, the one chosen gold and flashing with its missions
+    /// beside it, and the mission chosen along the bottom.
+    fn map_overlay(&self, o: &mut Overlay, w: f32, h: f32, s: f32) {
+        o.backdrop(0.0, 0.0, w, h, [255, 255, 255, 255]);
+        self.kibble(o, w, h, s);
+        let (white, gold, dim) = ([235, 235, 225, 255], [255, 210, 70, 255], [150, 150, 145, 255]);
+        let at = |p: &Pin| (p.at.0 * w / 640.0, p.at.1 * h / 480.0);
+        let flash = ((self.since.elapsed().as_secs_f32() * 3.0) as u32).is_multiple_of(2);
+        // The heading, and how far through.
+        o.rect(0.0, 0.0, w, 30.0 * s, [0, 0, 0, 150]);
+        o.text(12.0 * s, 8.0 * s, s * 2.0, gold, "UNION CITY");
+        let done = self.entries.iter().filter(|e| self.progress.completed(&e.mission)).count();
+        let tally = format!("{done} of {} missions complete", self.entries.len());
+        o.text(w - Overlay::text_width(&tally, s) - 12.0 * s, 12.0 * s, s, gold, &tally);
+        // The pins: red with something left to do, blue once it's all done.
+        for (k, p) in self.pins.iter().enumerate() {
+            let (x, y) = at(p);
+            let all = p.missions.iter().all(|&m| self.progress.completed(&self.entries[m].mission));
+            let chosen = k == self.pin;
+            let col = match (chosen, all) {
+                (true, _) if flash => [255, 240, 150, 255],
+                (true, _) => gold,
+                (false, true) => [110, 170, 230, 255],
+                (false, false) => [220, 60, 50, 255],
+            };
+            let r = if chosen { 5.0 * s } else { 3.5 * s };
+            o.rect(x - 0.5 * s, y - 9.0 * s, s, 9.0 * s, [30, 30, 30, 230]);
+            o.rect(x - r - s, y - 9.0 * s - 2.0 * r - s, 2.0 * r + 2.0 * s, 2.0 * r + 2.0 * s, [0, 0, 0, 220]);
+            o.rect(x - r, y - 9.0 * s - 2.0 * r, 2.0 * r, 2.0 * r, col);
+        }
+        // The chosen pin's district and missions beside it.
+        if let Some(p) = self.pins.get(self.pin) {
+            let (x, y) = at(p);
+            let line = 11.0 * s;
+            let rows: Vec<(String, usize)> = p.missions.iter().map(|&m| (self.entries[m].title.clone(), m)).collect();
+            let bw = rows.iter().map(|(t, _)| Overlay::text_width(t, s)).fold(Overlay::text_width(&p.name, s * 1.5), f32::max) + 30.0 * s;
+            let bh = 22.0 * s + rows.len() as f32 * line;
+            let bx = if x + 14.0 * s + bw < w { x + 14.0 * s } else { x - 14.0 * s - bw };
+            let by = (y - bh / 2.0).clamp(36.0 * s, h - 60.0 * s - bh);
+            o.rect(bx, by, bw, bh, [0, 0, 0, 190]);
+            o.text(bx + 8.0 * s, by + 6.0 * s, s * 1.5, gold, &p.name.to_uppercase());
+            for (k, (title, m)) in rows.iter().enumerate() {
+                let ry = by + 20.0 * s + k as f32 * line;
+                if *m == self.selected {
+                    o.rect(bx + 4.0 * s, ry - 2.0 * s, bw - 8.0 * s, line, [200, 150, 40, 200]);
+                }
+                if let Some(d) = self.progress.get(&self.entries[*m].mission) {
+                    medal(o, bx + 10.0 * s, ry, s, d.hardest, self.full(&self.entries[*m]));
+                }
+                let col = if self.entries[*m].playable { white } else { dim };
+                o.text(bx + 20.0 * s, ry, s, col, title);
+            }
+        }
+        // Along the bottom: the mission chosen, how it's gone, and the keys.
+        o.rect(0.0, h - 44.0 * s, w, 44.0 * s, [0, 0, 0, 170]);
+        if let Some(i) = self.loading.or(self.loading_edit) {
+            let text = format!("LOADING {}...", self.entries[i].title.to_uppercase());
+            o.text(w / 2.0 - Overlay::text_width(&text, s * 2.0) / 2.0, h - 34.0 * s, s * 2.0, white, &text);
+            return;
+        }
+        if let Some(e) = self.entries.get(self.selected) {
+            o.text(12.0 * s, h - 40.0 * s, s * 1.5, gold, &e.title);
+            let best = match (self.progress.best_time(&e.mission), self.progress.get(&e.mission)) {
+                (Some(t), Some(d)) => format!("Best time {}, completed on {}", clock(t), d.hardest.name()),
+                _ => "Not completed yet".to_string(),
+            };
+            o.text(12.0 * s, h - 25.0 * s, s, white, &best);
+        }
+        let keys = if self.for_coop {
+            "CO-OP: choose the mission to play together.   Left/Right district   Up/Down mission   Enter play   Tab list   Esc back"
+        } else {
+            "Left/Right district   Up/Down mission   Enter play   Tab list   E edit   Esc back"
+        };
+        o.text(12.0 * s, h - 13.0 * s, s, [200, 200, 190, 220], &fit(keys, w - 24.0 * s, s));
     }
 
     pub fn up(&mut self) {
@@ -672,6 +819,10 @@ impl Menu {
             self.front(&mut o, w, h, s);
             return o;
         }
+        if self.on_map && !self.pins.is_empty() {
+            self.map_overlay(&mut o, w, h, s);
+            return o;
+        }
         // The map, darkened on the left behind the list, with the kibble falling.
         o.backdrop(0.0, 0.0, w, h, [255, 255, 255, 255]);
         self.kibble(&mut o, w, h, s);
@@ -680,7 +831,7 @@ impl Menu {
         let gold = [255, 210, 70, 255];
         let x = 20.0 * s;
         o.text(x, 16.0 * s, s * 3.0, gold, "URBAN CHAOS");
-        let keys = if self.for_coop { "CO-OP: choose the mission to play together.   Up/Down choose   Enter play   Esc back" } else { "Up/Down choose   Enter play   E edit   Esc back" };
+        let keys = if self.for_coop { "CO-OP: choose the mission to play together.   Up/Down choose   Enter play   Tab map   Esc back" } else { "Up/Down choose   Enter play   E edit   Tab map   Esc back" };
         o.text(x, 44.0 * s, s, [200, 200, 190, 220], keys);
         // How far through the missions.
         let done = self.entries.iter().filter(|e| self.progress.completed(&e.mission)).count();
@@ -848,6 +999,43 @@ pub fn missions(game: &Path) -> Vec<(String, String, String)> {
     out
 }
 
+/// A district on the city map: its name and where it is on the 640 by 480 map.
+pub type District = (String, (f32, f32));
+
+/// The city map's districts and where each mission is (`FRONTEND_districts`,
+/// fallen/Source/frontend.cpp:4046): `urban.sty`'s `[districts]` list, `name=x,y` on the 640
+/// by 480 map, by place in the list (none for the blank ones), and each mission's district,
+/// the seventh field of its line (keyed by the mission file's name, lower case).
+pub fn districts(game: &Path) -> (Vec<Option<District>>, BTreeMap<String, usize>) {
+    let text = uc_formats::resolve(game, "data\\urban.sty")
+        .and_then(|p| std::fs::read(p).ok())
+        .map(|b| b.iter().map(|&c| c as char).collect::<String>())
+        .unwrap_or_default();
+    let (mut named, mut of) = (Vec::new(), BTreeMap::new());
+    let mut in_list = false;
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') {
+            in_list = true;
+        } else if in_list {
+            // A pin's point is the bottom middle of the button (`mapx - 16`, `mapy - 32`).
+            let pin = line.split_once('=').and_then(|(name, at)| {
+                let (x, y) = at.split_once(',')?;
+                let (x, y) = (x.trim().parse::<f32>().ok()?, y.trim().parse::<f32>().ok()?);
+                (!name.is_empty() && x > 0.0 && y > 0.0).then(|| (name.to_string(), (x, y)))
+            });
+            named.push(pin);
+        } else if !line.starts_with("//") {
+            let f: Vec<&str> = line.split(" : ").map(str::trim).collect();
+            if let (Some(d), Some(file)) = (f.get(6).and_then(|d| d.parse().ok()), f.get(7)) {
+                if let Some(m) = file.to_ascii_lowercase().strip_suffix(".ucm") {
+                    of.insert(m.to_string(), d);
+                }
+            }
+        }
+    }
+    (named, of)
+}
+
 /// One of the game's front-end images (24/32-bit uncompressed TGA, `file` under the
 /// install), for the menu's background.
 pub fn backdrop(game: &Path, file: &str) -> Option<Texture> {
@@ -900,5 +1088,51 @@ fn medal(o: &mut Overlay, x: f32, y: f32, s: f32, on: uc_game::Difficulty, full:
     o.rect(x - 1.0 * s, y + 2.5 * s, 5.0 * s, 5.0 * s, col);
     for (cx, cy) in [(-1.0, 2.5), (3.0, 2.5), (-1.0, 6.5), (3.0, 6.5)] {
         o.rect(x + cx * s, y + cy * s, 1.0 * s, 1.0 * s, dark);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `urban.sty`'s districts: the training missions are in the Combat Centre and on the
+    /// tracks, RTA in the West District; every playable street mission has a pin, and the pins
+    /// go left to right. Skipped without an install.
+    #[test]
+    fn the_missions_are_pinned_to_their_districts() {
+        let Some(game) = uc_formats::default_install() else { return };
+        let (named, of) = districts(&game);
+        let name = |m: &str| named[of[m]].as_ref().map(|d| d.0.clone());
+        assert_eq!(name("ftutor1").as_deref(), Some("Combat Centre"));
+        assert_eq!(named[of["ftutor1"]].as_ref().unwrap().1, (465.0, 134.0));
+        assert_eq!(name("testdrive1a").as_deref(), Some("Oval Circuit"));
+        assert_eq!(name("police1").as_deref(), Some("West District"));
+        let m = Menu::new(&game);
+        for e in m.entries.iter().filter(|e| e.playable && !UNRELEASED.iter().any(|u| u.0 == e.mission)) {
+            assert!(m.pins.iter().any(|p| p.missions.iter().any(|&i| m.entries[i].mission == e.mission)), "{} has no pin", e.mission);
+        }
+        assert!(m.pins.windows(2).all(|w| w[0].at.0 <= w[1].at.0));
+        // The unreleased missions are only in the list.
+        assert!(m.entries.iter().filter(|e| UNRELEASED.iter().any(|u| u.0 == e.mission)).all(|e| e.district.is_none()));
+    }
+
+    #[test]
+    fn left_and_right_go_from_pin_to_pin_and_up_and_down_through_one() {
+        let Some(game) = uc_formats::default_install() else { return };
+        let mut m = Menu::new(&game);
+        let start = m.pin;
+        assert!(m.pins[start].missions.contains(&m.selected));
+        m.pin_step(1);
+        assert_eq!(m.pin, (start + 1) % m.pins.len());
+        assert!(m.pins[m.pin].missions.contains(&m.selected));
+        m.pin_step(-1);
+        assert_eq!(m.pin, start);
+        let many = m.pins.iter().position(|p| p.missions.len() > 1).unwrap();
+        m.pin = many;
+        m.selected = m.pins[many].missions[0];
+        m.pin_mission(1);
+        assert_eq!(m.selected, m.pins[many].missions[1]);
+        m.pin_mission(-1);
+        assert_eq!(m.selected, m.pins[many].missions[0]);
     }
 }
