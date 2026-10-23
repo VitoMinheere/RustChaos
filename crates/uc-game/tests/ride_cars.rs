@@ -1,5 +1,6 @@
 //! Riding on cars (`WMOVE`, fallen/Source/wmove.cpp): every vehicle has walkable faces on
-//! top that move with it, so Darci can stand on one, be carried along and get off again.
+//! top that move with it, so Darci can stand on one, be carried along and get off again; a
+//! van's she can catch the edge of from a jump.
 //! Bronze's squad car (point 2) in the driving test. Skipped without an install.
 
 use glam::{vec2, vec3, Vec3};
@@ -114,5 +115,85 @@ fn darci_rides_a_car_and_gets_off() {
         g.update(DT, &Controls::default(), &level);
     }
     assert!((g.people[pi].fig.pos - was).length() < 40.0, "she shouldn't go with it");
+}
+
+/// Darci, `from` units off vehicle `vi`'s side, turned to type `kind`, walks at it and jumps,
+/// for `secs`, the car going at `speed` once she's pulling up. Returns the states she went through.
+fn jump_at(kind: u8, from: f32, speed: f32, secs: f32) -> Option<(Level, Game, usize, Vec<State>)> {
+    let (level, mut g, vi) = load()?;
+    g.vehicles[vi].kind = kind;
+    for _ in 0..30 {
+        g.update(DT, &Controls::default(), &level);
+    }
+    let pi = g.player.unwrap();
+    let v = g.vehicles[vi].clone();
+    let side = vec2(v.forward().y, -v.forward().x);
+    let at = vec2(v.pos.x, v.pos.z) + side * from;
+    let y = level.ground.surface(&level.map, at.x, at.y, v.pos.y + 32.0);
+    g.people[pi].fig.pos = vec3(at.x, y, at.y);
+    g.people[pi].fig.angle = uc_world::character::angle_of(-side);
+    g.people[pi].state = State::Move;
+    let mut seen: Vec<State> = Vec::new();
+    for f in 0..(secs / DT) as usize {
+        let c = Controls { wish: if f < 45 { -side } else { vec2(0.0, 0.0) }, jump: f == 6, ..Default::default() };
+        if seen.iter().any(|s| matches!(s, State::PullUp { .. })) {
+            g.vehicles[vi].speed = speed;
+        }
+        g.update(DT, &c, &level);
+        let s = g.people[pi].state.clone();
+        if seen.last().is_none_or(|l| std::mem::discriminant(l) != std::mem::discriminant(&s)) {
+            seen.push(s);
+        }
+    }
+    Some((level, g, vi, seen))
+}
+
+/// The top of vehicle `vi`'s highest face, and where Darci is in the car's own space.
+fn roof_and_local(level: &Level, g: &Game, vi: usize) -> (f32, glam::Vec2) {
+    let v = &g.vehicles[vi];
+    let (body, wheel, ..) = vehicle::TYPES[v.kind as usize];
+    let roof = v.tops(&level.item_prims[&body], vehicle::wheel_radius(level.item_prims.get(&wheel)))
+        .map(|f| f.at(vec2(0.5, 0.5)).y)
+        .fold(f32::MIN, f32::max);
+    let d = vec2(g.people[g.player.unwrap()].fig.pos.x - v.pos.x, g.people[g.player.unwrap()].fig.pos.z - v.pos.z);
+    let f = v.forward();
+    (roof, vec2(d.dot(f), d.dot(vec2(f.y, -f.x))))
+}
+
+/// A van's top has edges to hold (`FACE_FLAG_SLIDE_EDGE_*`, wmove.cpp:510): jumping at its
+/// side, Darci catches the edge of the roof and, it being a moving face, pulls straight up
+/// onto it (Person.cpp:13009).
+#[test]
+fn darci_grabs_a_vans_edge_and_pulls_up() {
+    let Some((level, g, vi, seen)) = jump_at(0, 220.0, 0.0, 4.0) else { return };
+    println!("{seen:?}");
+    assert!(seen.iter().any(|s| matches!(s, State::PullUp { .. })), "she should catch the edge: {seen:?}");
+    let (roof, at) = roof_and_local(&level, &g, vi);
+    let p = &g.people[g.player.unwrap()];
+    assert!(matches!(p.state, State::Move) && (p.fig.pos.y - roof).abs() < 8.0, "she should be up on it: {:?} at {} for {roof}", p.state, p.fig.pos.y);
+    assert!(at.y.abs() < 120.0 && at.x.abs() < 170.0, "and on top of it: {at:?}");
+}
+
+/// The edge moves with the van: pulling up as it drives off, she still ends up on its roof.
+#[test]
+fn a_vans_edge_moves_with_it() {
+    let Some((level, g, vi, seen)) = jump_at(8, 220.0, 300.0, 4.0) else { return };
+    let (roof, at) = roof_and_local(&level, &g, vi);
+    let p = &g.people[g.player.unwrap()];
+    println!("{seen:?}, she's at {at:?} on it, {} for {roof}", p.fig.pos.y);
+    assert!(seen.iter().any(|s| matches!(s, State::PullUp { .. })), "she should catch the edge: {seen:?}");
+    assert!(g.vehicles[vi].speed > 200.0, "the van should be going");
+    assert!((p.fig.pos.y - roof).abs() < 24.0 && at.y.abs() < 120.0 && at.x.abs() < 170.0, "she should be up on it: at {at:?}, {} for {roof}", p.fig.pos.y);
+}
+
+/// The other types' faces have no edges to hold: a jump at a jeep's side, whose roof is as
+/// out of a jump's reach as a van's, isn't caught on it, nor at a car's.
+#[test]
+fn a_cars_top_has_no_edge_to_grab() {
+    for kind in [5, 1] {
+        let Some((.., seen)) = jump_at(kind, 220.0, 0.0, 3.0) else { return };
+        println!("type {kind}: {seen:?}");
+        assert!(!seen.iter().any(|s| matches!(s, State::PullUp { .. } | State::Dangle { .. })), "type {kind}: {seen:?}");
+    }
 }
 

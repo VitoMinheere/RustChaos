@@ -4,7 +4,8 @@ use super::*;
 
 impl Person {
     /// Where a person would stand after climbing a ledge in direction `dir`, if there is one
-    /// between a step and `reach` above the feet (a raised walkway, a platform rim, a roof).
+    /// between a step and `reach` above the feet (a raised walkway, a platform rim, a roof,
+    /// a van's top; not a car's, which has no edges to hold).
     pub(super) fn ledge_ahead(&self, dir: Vec2, reach: f32, ground: &Ground, map: &Map) -> Option<Vec3> {
         Self::ledge_from(self.fig.pos, dir, reach, ground, map)
     }
@@ -12,7 +13,7 @@ impl Person {
     /// [`Person::ledge_ahead`] from feet at `p`.
     pub(super) fn ledge_from(p: Vec3, dir: Vec2, reach: f32, ground: &Ground, map: &Map) -> Option<Vec3> {
         let probe = vec2(p.x, p.z) + dir * (RADIUS + 40.0);
-        let top = ground.surface(map, probe.x, probe.y, p.y + reach - STEP_HEIGHT);
+        let top = ground.ledge(map, probe.x, probe.y, p.y + reach - STEP_HEIGHT);
         if top - p.y <= STEP_HEIGHT || top - p.y > reach {
             return None;
         }
@@ -83,6 +84,35 @@ impl Person {
         self.fig.pos += edge - hand;
         self.cues.push(Sfx::Grab);
         self.state = State::Dangle { to, dir, shift: None };
+    }
+
+    /// Where someone hanging from a ledge or pulling up over it will stand: on the face they
+    /// hold, which is their `OnFace` from the grab on (Person.cpp:13001).
+    pub(crate) fn holding(&self) -> Option<Vec3> {
+        match self.state {
+            State::Dangle { to, .. } | State::PullUp { to, .. } => Some(to),
+            _ => None,
+        }
+    }
+
+    /// Takes someone along with the moving face they're on, or whose edge they hold
+    /// (`WMOVE_relative_pos`, Person.cpp:4239, whatever they're doing): `f` maps where a point
+    /// on it was to where it is now.
+    pub(crate) fn carry_by(&mut self, f: impl Fn(Vec3) -> Vec3) {
+        let p = self.fig.pos;
+        self.fig.pos = f(p);
+        match &mut self.state {
+            State::Dangle { to, dir, shift } => {
+                let d = f(p + vec3(dir.x, 0.0, dir.y)) - self.fig.pos;
+                *dir = vec2(d.x, d.z).normalize_or(*dir);
+                *to = f(*to);
+                if let Some((a, b)) = shift {
+                    (*a, *b) = (f(*a), f(*b));
+                }
+            }
+            State::PullUp { start, end, to } => (*start, *end, *to) = (f(*start), f(*end), f(*to)),
+            _ => {}
+        }
     }
 
     /// Hanging from a ledge (`fn_person_dangling`, and `action_dangling`'s keys,

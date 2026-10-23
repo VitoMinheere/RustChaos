@@ -236,6 +236,7 @@ impl Game {
             let aboard: Vec<usize> = self.people.iter().enumerate()
                 .filter(|(_, p)| tops.iter().any(|f| f.height(p.fig.pos.x, p.fig.pos.z, 0.0).is_some_and(|h| p.fig.pos.y > h - 16.0)))
                 .map(|(i, _)| i)
+                .chain(riders.iter().map(|r| r.0))
                 .collect();
             let v = &mut self.vehicles[vi];
             let d = match v.driver.and_then(playing) {
