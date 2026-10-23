@@ -17,6 +17,7 @@ pub use actions::Aiming;
 pub(crate) use actions::special_item;
 mod combat;
 mod draw;
+pub use draw::Show;
 pub mod ghost;
 pub mod replay;
 mod snipe;

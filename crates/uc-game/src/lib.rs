@@ -20,7 +20,7 @@ pub mod canid;
 pub mod city;
 pub mod cloth;
 pub mod game;
-pub use game::{Aiming, Sight, Snipe};
+pub use game::{Aiming, Show, Sight, Snipe};
 pub mod creature;
 pub mod dike;
 pub mod dirt;
@@ -648,6 +648,8 @@ pub struct Game {
     sea: Vec<uc_world::level::SeaSquare>,
     /// Leaves, cans and snow lying about round the player.
     pub dirt: dirt::Dirt,
+    /// Which extras are drawn (the Options screen's).
+    pub show: Show,
     /// Where each person, then each car, was at the dirt's last turn (NaN for nowhere).
     dirt_marks: Vec<Vec3>,
     /// Footprints and tyre tracks on the ground.
@@ -792,6 +794,7 @@ impl Game {
             drops: dirt::Drops::default(),
             sea: level.sea(),
             dirt: Game::new_dirt(level),
+            show: Default::default(),
             dirt_marks: Vec::new(),
             tracks: tracks::Tracks::default(),
             skid_marks: Vec::new(),

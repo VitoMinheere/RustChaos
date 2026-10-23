@@ -2,6 +2,7 @@
 //! screens.
 
 use crate::checklist;
+use crate::options::Options;
 use crate::progress::{self, clock, Progress};
 use crate::replays;
 use uc_game::goals::Goals;
@@ -71,6 +72,8 @@ pub enum Screen {
     Lobby,
     /// The saved replays (#184).
     Replays,
+    /// The Options screen (#201): volumes and detail.
+    Options,
 }
 
 /// What the lobby shows: who's in, this player's seat, and where the host can be reached.
@@ -87,7 +90,7 @@ pub const COOP: [&str; 2] = ["HOST", "JOIN"];
 
 /// The main menu's items (`raw_menu_data`, frontend.cpp:376): the ones there's something
 /// behind here.
-pub const MAIN: [&str; 9] = ["START", "CO-OP", "ENDLESS", "BEAT COP", "CAPTURE THE FLAG", "DIFFICULTY", "STATS", "REPLAYS", "EXIT"];
+pub const MAIN: [&str; 10] = ["START", "CO-OP", "ENDLESS", "BEAT COP", "CAPTURE THE FLAG", "DIFFICULTY", "STATS", "REPLAYS", "OPTIONS", "EXIT"];
 
 /// The menus' look, by how far through the game (`menu_theme`, set in
 /// `FRONTEND_MissionHierarchy`, frontend.cpp:3337): leaves for the first eight missions done,
@@ -160,6 +163,9 @@ pub struct Menu {
     pub loading_replay: Option<usize>,
     /// The mission to open in the editor (#185), by its place in the list.
     pub loading_edit: Option<usize>,
+    /// The Options screen's settings while it's up, and the row chosen.
+    pub(crate) options: Options,
+    pub option_row: usize,
 }
 
 impl Menu {
@@ -205,7 +211,7 @@ impl Menu {
             .collect();
         Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false,
                coop: 0, address: "127.0.0.1".into(), status: String::new(), for_coop: false, lobby: None,
-               replays: Vec::new(), replay_selected: 0, loading_replay: None, loading_edit: None }
+               replays: Vec::new(), replay_selected: 0, loading_replay: None, loading_edit: None, options: Options::load(), option_row: 0 }
     }
 
     /// The map list on show: Beat Cop's districts or endless mode's arenas.
@@ -220,7 +226,7 @@ impl Menu {
         let w = self.theme.word();
         match self.screen {
             Screen::Title | Screen::Main => format!("data\\TITLE {}1.TGA", w.to_ascii_uppercase()),
-            Screen::Missions | Screen::Endless | Screen::Stats | Screen::Coop | Screen::Lobby | Screen::Replays => format!("data\\map {w} darci.tga"),
+            Screen::Missions | Screen::Endless | Screen::Stats | Screen::Coop | Screen::Lobby | Screen::Replays | Screen::Options => format!("data\\map {w} darci.tga"),
         }
     }
 
@@ -489,6 +495,30 @@ impl Menu {
         }
     }
 
+    /// The Options screen (the manual's pp. 22-24): a row for each setting, the one chosen
+    /// picked out, its value beside it.
+    fn options_overlay(&self, o: &mut Overlay, w: f32, h: f32, s: f32) {
+        o.backdrop(0.0, 0.0, w, h, [255, 255, 255, 255]);
+        self.kibble(o, w, h, s);
+        o.rect(0.0, 0.0, w * 0.6, h, [0, 0, 0, 170]);
+        let (white, gold, dim) = ([235, 235, 225, 255], [255, 210, 70, 255], [200, 200, 190, 220]);
+        let x = 20.0 * s;
+        o.text(x, 16.0 * s, s * 3.0, gold, "OPTIONS");
+        o.text(x, 44.0 * s, s, dim, "Up/Down choose   Left/Right or Enter change   Esc back (kept for next time)");
+        let line = 14.0 * s;
+        let top = 64.0 * s;
+        let col = x + 150.0 * s;
+        for k in 0..crate::options::ROWS {
+            let y = top + k as f32 * line + if k >= 3 { 6.0 * s } else { 0.0 };
+            let (name, value) = self.options.row(k);
+            if k == self.option_row {
+                o.rect(x - 4.0 * s, y - 3.0 * s, w * 0.6 - x - 8.0 * s, line, [200, 150, 40, 200]);
+            }
+            o.text(x, y, s, white, name);
+            o.text(col, y, s, if k == self.option_row { white } else { gold }, &value);
+        }
+    }
+
     /// The replays screen, with the list as it is now.
     pub fn show_replays(&mut self) {
         self.replays = replays::list();
@@ -662,6 +692,10 @@ impl Menu {
         }
         if self.screen == Screen::Replays {
             self.replays_overlay(&mut o, w, h, s);
+            return o;
+        }
+        if self.screen == Screen::Options {
+            self.options_overlay(&mut o, w, h, s);
             return o;
         }
         if matches!(self.screen, Screen::Coop | Screen::Lobby) {

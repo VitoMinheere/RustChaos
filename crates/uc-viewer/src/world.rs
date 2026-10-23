@@ -385,7 +385,9 @@ impl World {
     pub(crate) fn dynamic(&self) -> BTreeMap<u32, Batch> {
         let cam = self.camera();
         let mut out = self.game.batches(&self.level, cam.pos * uc_world::UNIT);
-        self.game.rain(&self.level, cam.pos * uc_world::UNIT, cam.target - cam.pos, &mut out);
+        if self.args.rain {
+            self.game.rain(&self.level, cam.pos * uc_world::UNIT, cam.target - cam.pos, &mut out);
+        }
         if self.crinkles && self.layers.contains(&Layer::Walls) {
             self.relief.draw(cam.pos, &mut out);
         }

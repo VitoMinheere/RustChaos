@@ -33,11 +33,14 @@ impl Game {
     pub fn batches(&self, level: &Level, eye: Vec3) -> BTreeMap<u32, Batch> {
         let lighter = level.lighter();
         let mut out = BTreeMap::new();
+        let show = self.show;
         // Looking through the scope from her head, she isn't drawn.
         let scoped = self.snipe.is_some();
         for p in self.people.iter().filter(|p| !p.removed && !matches!(p.state, State::InCar { .. }) && !(scoped && p.player)) {
             p.fig.append_batches(&mut out, lighter.as_ref());
-            shadow(&mut out, p, level);
+            if show.shadows {
+                shadow(&mut out, p, level);
+            }
             // The weapon in hand, and a muzzle flash just after a shot. The Men in Black's own
             // mesh has their gun built into the left arm, so no AK-47 is drawn for them.
             let built_in = p.is_mib() && p.weapon.is_gun();
@@ -217,9 +220,11 @@ impl Game {
         }
         // Ground mist: flat sheets blended over whatever is under them.
         let secs = self.time;
-        self.mists.quads(secs, |p, uv| {
-            out.entry(uc_world::MIST).or_default().quad(p, uv, [[255, 255, 255, 90]; 4]);
-        });
+        if show.mist {
+            self.mists.quads(secs, |p, uv| {
+                out.entry(uc_world::MIST).or_default().quad(p, uv, [[255, 255, 255, 90]; 4]);
+            });
+        }
         // Drops: small streaks along their way, added like the original's droplet page, in
         // `DIRT_TYPE_URINE`'s colour.
         for d in &self.drops.drops {
@@ -265,9 +270,13 @@ impl Game {
         self.draw_pow(&mut out, eye);
         self.draw_balloons(&mut out, level, eye);
         self.trips.batches(&mut out);
-        self.sky(&mut out, level, eye);
+        if show.skyline {
+            self.sky(&mut out, level, eye);
+        }
         self.draw_choppers(&mut out, level);
-        self.draw_dirt(&mut out, level);
+        if show.dirt {
+            self.draw_dirt(&mut out, level);
+        }
         self.draw_tracks(&mut out);
         self.ribbons.draw(&mut out);
         self.draw_bikes(&mut out, level);
@@ -440,6 +449,24 @@ impl Game {
     }
 }
 
+/// Which of the extras are drawn, as the Options screen sets them (#201; the original's
+/// detail toggles, `ENV_get_value_number("draw_*")`): people's shadows, the leaves and litter,
+/// ground mist, the skyline round the city and the moon. All on by default.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Show {
+    pub shadows: bool,
+    pub dirt: bool,
+    pub mist: bool,
+    pub skyline: bool,
+    pub moon: bool,
+}
+
+impl Default for Show {
+    fn default() -> Show {
+        Show { shadows: true, dirt: true, mist: true, skyline: true, moon: true }
+    }
+}
+
 impl Game {
     /// `AENG_NUM_RAINDROPS`: the drops drawn each frame.
     pub const RAINDROPS: usize = 128;
@@ -575,7 +602,7 @@ impl Game {
         }
         // `NIGHT_FLAG_DAYTIME`.
         let night = level.lighting.as_ref().is_some_and(|l| l.flags & (1 << 2) == 0);
-        if !night || self.indoors.is_some() {
+        if !night || self.indoors.is_some() || !self.show.moon {
             return;
         }
         let dist = 22.0 * 256.0 - 128.0;
