@@ -214,8 +214,10 @@ const GRAVITY: f32 = 2000.0;
 const JUMP_SPEED: f32 = 640.0;
 /// Ledges this low are jumped onto, not climbed (a standing jump clears them).
 const JUMPABLE: f32 = 160.0;
-/// While jumping, ledges this far above the feet can be grabbed.
-const GRAB_REACH: f32 = 200.0;
+/// While jumping, ledges this far above the feet can be grabbed. The original grabs within 40
+/// of the raised hands (`grab_ledge`, Person.cpp:12771); this much lets a jump's top reach a
+/// van's roof, 292 up, as there.
+const GRAB_REACH: f32 = 224.0;
 const RADIUS: f32 = 36.0;
 /// Opponents closer than this put a standing person into fight stance.
 const FIGHT_RANGE: f32 = 400.0;

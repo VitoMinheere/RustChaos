@@ -241,6 +241,10 @@ impl Person {
             let floor = ground.surface(map, p.x, p.z, p.y);
             if let Some(to) = self.ledge_ahead(dir, GRAB_REACH, ground, map).filter(|to| to.y - floor > JUMPABLE) {
                 self.grab_dangle(to, dir);
+                // A moving face's edge is pulled up over at once (Person.cpp:13009).
+                if matches!(self.state, State::Dangle { .. }) && ground.moving_at(to).is_some() {
+                    self.climb_onto(anim::PULL_UP, to, false);
+                }
                 return;
             }
         }

@@ -20,10 +20,13 @@ impl Game {
             for (k, t) in tops.iter().enumerate() {
                 let Some((_, _, bot, top)) = *t else { continue };
                 let before = self.platforms[k].pos;
-                // Who is standing on it, before it goes.
+                // Who is standing on it (or holding its edge), before it goes.
                 let riders: Vec<usize> = self.people.iter().enumerate()
                     .filter(|(_, p)| !p.removed && !matches!(p.state, State::InCar { .. }))
-                    .filter(|(_, p)| (p.fig.pos.y - (before.y + top)).abs() < 16.0 && level.ground.over_moving(k, p.fig.pos.x, p.fig.pos.z, 0.0))
+                    .filter(|(_, p)| {
+                        let at = p.holding().unwrap_or(p.fig.pos);
+                        (at.y - (before.y + top)).abs() < 16.0 && level.ground.over_moving(k, at.x, at.z, 0.0)
+                    })
                     .map(|(i, _)| i)
                     .collect();
                 let by = self.platforms[k].tick(&Route(&script));
@@ -31,7 +34,7 @@ impl Game {
                     continue;
                 }
                 for &i in &riders {
-                    self.people[i].fig.pos += by;
+                    self.people[i].carry_by(|q| q + by);
                 }
                 if self.platforms[k].rocket() && self.rand() & 1 == 0 {
                     self.pyro.lick(self.platforms[k].pos + Vec3::new(0.0, bot, 0.0), 70.0);
@@ -72,15 +75,15 @@ impl Game {
         level.ground.set_moving(plats.chain(cars).collect::<Vec<_>>());
     }
 
-    /// Who is standing on one of `faces` (`OnFace` a `WMOVE` face): (person, face, how far
-    /// along it, feet above it).
+    /// Who is standing on one of `faces` (`OnFace` a `WMOVE` face), or hanging from its edge
+    /// or pulling up over it: (person, face, how far along it, feet above it).
     pub(crate) fn riders(&self, faces: &[Wmove]) -> Vec<(usize, usize, Vec2, f32)> {
         let mut out = Vec::new();
         for (i, p) in self.people.iter().enumerate() {
             if p.removed || matches!(p.state, State::InCar { .. } | State::Enter { .. }) {
                 continue;
             }
-            let at = p.fig.pos;
+            let at = p.holding().unwrap_or(p.fig.pos);
             let on = faces.iter().enumerate().find_map(|(f, face)| {
                 let along = face.along(at.x, at.z)?;
                 let dy = at.y - face.height(at.x, at.z, 0.0)?;
@@ -102,6 +105,11 @@ impl Game {
             let to = now.at(along) + Vec3::new(0.0, dy, 0.0);
             let turn = (now.angle() - was.angle() + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
             let p = &mut self.people[i];
+            if p.holding().is_some() {
+                p.carry_by(|q| was.moved(now, q).unwrap_or(q));
+                p.fig.angle += turn;
+                continue;
+            }
             // Not if it's jumped more than a square.
             if (to.x - p.fig.pos.x).abs() <= 256.0 {
                 p.fig.pos.x = to.x;

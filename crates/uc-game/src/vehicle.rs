@@ -350,14 +350,16 @@ impl Vehicle {
 
     /// The walkable faces on top of the car (`WMOVE_get_pos`, `CLASS_VEHICLE`), from its body
     /// prim and wheel radius. Every type has them on the PC: `WMOVE_create` keeps them to the
-    /// vans only for the PlayStation.
+    /// vans only for the PlayStation. Only the van's, the Wildcat van's and the ambulance's
+    /// have edges to hang from (wmove.cpp:510).
     pub fn tops(&self, body: &Prim, wheel: f32) -> impl Iterator<Item = Wmove> + '_ {
         let lift = wheel - WHEEL_ABOVE_BODY;
+        let edges = matches!(self.kind, 0 | 4 | 8);
         let points: Vec<Vec3> = body.points.iter().map(|p| self.body_point(vec3(p[0] as f32, p[1] as f32, p[2] as f32), lift)).collect();
         TOPS[self.kind as usize].iter().filter_map(move |t| {
             let [o, a, b] = t.map(|i| points.get(i).copied());
             let o = o?;
-            Some(Wmove { o, a: a? - o, b: b? - o, vehicle: true })
+            Some(Wmove { o, a: a? - o, b: b? - o, vehicle: true, edges })
         })
     }
 

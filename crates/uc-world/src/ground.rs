@@ -83,6 +83,9 @@ pub struct Wmove {
     pub b: Vec3,
     /// On a vehicle: cars don't drive on these.
     pub vehicle: bool,
+    /// Its edges can be held (`FACE_FLAG_SLIDE_EDGE_0..3`, wmove.cpp:510): a platform's, and
+    /// the van's, the Wildcat van's and the ambulance's, not the other cars'.
+    pub edges: bool,
 }
 
 impl Wmove {
@@ -92,7 +95,7 @@ impl Wmove {
         let (s, c) = yaw.sin_cos();
         let w = |x: f32, z: f32| vec3(origin.x + c * x + s * z, top, origin.y - s * x + c * z);
         let o = w(lo.x, lo.y);
-        Wmove { o, a: w(hi.x, lo.y) - o, b: w(lo.x, hi.y) - o, vehicle: false }
+        Wmove { o, a: w(hi.x, lo.y) - o, b: w(lo.x, hi.y) - o, vehicle: false, edges: true }
     }
 
     /// How far (x, z) is along `a` and along `b`, 0 to 1 over the face (as
@@ -119,6 +122,13 @@ impl Wmove {
         (t.x >= -ma && t.x <= 1.0 + ma && t.y >= -mb && t.y <= 1.0 + mb).then(|| self.at(t).y)
     }
 
+    /// Where `p`, fixed to this face, is once the face has moved to `to` (`WMOVE_relative_pos`,
+    /// wmove.cpp:726): the same place along it, the same height off it.
+    pub fn moved(&self, to: &Wmove, p: Vec3) -> Option<Vec3> {
+        let t = self.along(p.x, p.z)?;
+        Some(to.at(t) + vec3(0.0, p.y - self.at(t).y, 0.0))
+    }
+
     /// Which way `a` points (radians, as a yaw): how much the face has turned.
     pub fn angle(&self) -> f32 {
         self.a.x.atan2(self.a.z)
@@ -140,6 +150,11 @@ impl Ground {
     /// Whether (x, z) is over moving face `t`, `margin` either way.
     pub fn over_moving(&self, t: usize, x: f32, z: f32, margin: f32) -> bool {
         self.moving(t).is_some_and(|f| f.height(x, z, margin).is_some())
+    }
+
+    /// The moving face whose top is at (x, y, z), give or take a few units.
+    pub fn moving_at(&self, p: Vec3) -> Option<usize> {
+        self.moving.borrow().iter().position(|f| f.height(p.x, p.z, 0.0).is_some_and(|h| (h - p.y).abs() < 4.0))
     }
 }
 
@@ -443,15 +458,21 @@ impl Ground {
     /// Height of the surface under feet at (x, y, z): the highest of terrain and roof that is
     /// no more than a step above `y`. Below `y` means the person should fall.
     pub fn surface(&self, map: &Map, x: f32, z: f32, y: f32) -> f32 {
-        self.surface_of(map, x, z, y, true)
+        self.surface_of(map, x, z, y, |_| true)
     }
 
     /// [`Ground::surface`] for a car's wheels: not the tops of the cars, its own or others'.
     pub fn road(&self, map: &Map, x: f32, z: f32, y: f32) -> f32 {
-        self.surface_of(map, x, z, y, false)
+        self.surface_of(map, x, z, y, |f| !f.vehicle)
     }
 
-    fn surface_of(&self, map: &Map, x: f32, z: f32, y: f32, cars: bool) -> f32 {
+    /// [`Ground::surface`] for hands reaching for a ledge: a moving face only if its edges can
+    /// be held (`find_grab_face`, interact.cpp:658), so not a car's.
+    pub fn ledge(&self, map: &Map, x: f32, z: f32, y: f32) -> f32 {
+        self.surface_of(map, x, z, y, |f| f.edges)
+    }
+
+    fn surface_of(&self, map: &Map, x: f32, z: f32, y: f32, keep: impl Fn(&Wmove) -> bool) -> f32 {
         let mut best = map.ground_height(x, z);
         if let Some(r) = self.roof_height(x, z) {
             if r <= y + STEP_HEIGHT && r > best {
@@ -464,7 +485,7 @@ impl Ground {
                 best = t.top;
             }
         }
-        for f in self.moving.borrow().iter().filter(|f| cars || !f.vehicle) {
+        for f in self.moving.borrow().iter().filter(|f| keep(f)) {
             if let Some(h) = f.height(x, z, 0.0) {
                 if h <= y + STEP_HEIGHT && h > best {
                     best = h;
