@@ -321,7 +321,11 @@ impl World {
         if let Some(v) = self.game.player_vehicle() {
             return Some(v.pos / uc_world::UNIT + vec3(0.0, 0.9, 0.0));
         }
-        self.game.player().map(|p| p.fig.pos / uc_world::UNIT + vec3(0.0, 0.62, 0.0))
+        // Against a wall looking round its end, the camera leads round the corner.
+        self.game.player().map(|p| {
+            let peek = p.peek().unwrap_or_default();
+            (p.fig.pos + vec3(peek.x, 0.0, peek.y)) / uc_world::UNIT + vec3(0.0, 0.62, 0.0)
+        })
     }
 
     pub(crate) fn camera(&self) -> Camera {
