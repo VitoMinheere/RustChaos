@@ -147,6 +147,13 @@ impl Pyro {
         }
     }
 
+    /// Smoke off a spinning tyre (vehicle.cpp:1491): a pale brown cloud (`0x7fc9b7a3`) of
+    /// size 60, growing 10 and fading 16 a particle tick, so gone in eight.
+    pub fn tyre_smoke(&mut self, at: Vec3) {
+        let life = 8.0 / 15.0;
+        self.puffs.push(Puff { pos: at, vel: Vec3::ZERO, radius: 60.0, grow: 150.0, age: 0.0, life, smoke: true, tint: [0xc9, 0xb7, 0xa3] });
+    }
+
     /// A number in -1..1.
     fn spread(&mut self) -> f32 {
         rand(&mut self.rng) as f32 / 32768.0 - 1.0

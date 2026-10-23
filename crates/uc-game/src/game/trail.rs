@@ -43,22 +43,28 @@ impl Game {
         self.lay_skids(level);
     }
 
-    /// A car's tyres sliding leave a dark mark from each wheel back to where it was, every
-    /// other turn (vehicle.cpp:1513). The original's are the wheelspin of pulling away hard
-    /// (`Smokin`); these cars don't spin their wheels, so it's while they slide, as the skid
-    /// is heard.
+    /// A car smoking (`Smokin`, vehicle.cpp:1463), its wheels spinning or sliding: a puff of
+    /// smoke at each wheel every one of the original's turns (two of our three), and once
+    /// it's moving a dark mark from each back to where it was, every other turn (:1513).
     fn lay_skids(&mut self, level: &Level) {
         self.skid_marks.resize(self.vehicles.len(), None);
-        if self.turns & 1 == 1 {
-            return;
-        }
+        let (puff, mark) = (self.turns % 3 != 2, self.turns & 1 == 0);
         for (v, was) in self.vehicles.iter().zip(&mut self.skid_marks) {
-            if v.slip.abs() <= 300.0 {
+            if !v.skidding() {
                 *was = None;
                 continue;
             }
             let (wx, fz, rz) = (vehicle::TYPES[v.kind as usize].2, vehicle::TYPES[v.kind as usize].3, vehicle::TYPES[v.kind as usize].4);
             let now = [(-wx, fz), (wx, fz), (-wx, rz), (wx, rz)].map(|(x, z)| v.to_world(x, z));
+            if puff {
+                for a in now {
+                    self.pyro.tyre_smoke(Vec3::new(a.x, v.pos.y + 20.0, a.y));
+                }
+            }
+            // (`speed > 200`: the square of a sixteenth of its speed in 256ths a tick.)
+            if !mark || v.speed.hypot(v.slip) <= 17.7 {
+                continue;
+            }
             if let Some(old) = was {
                 for (a, b) in now.iter().zip(old.iter()) {
                     let y = level.ground.surface(&level.map, a.x, a.y, v.pos.y + 64.0) + 5.0;

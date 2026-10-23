@@ -74,9 +74,9 @@ fn bot_drives_three_laps() {
                 }
                 c.drive = if backing > 0.0 {
                     backing -= DT;
-                    Drive { throttle: -1.0, steer: -steer.signum(), handbrake: false }
+                    Drive { throttle: -1.0, steer: -steer.signum(), ..Default::default() }
                 } else {
-                    Drive { throttle, steer, handbrake: false }
+                    Drive { throttle, steer, ..Default::default() }
                 };
             }
         }
@@ -196,7 +196,7 @@ fn the_handbrake_slides_the_car_round_corners() {
         }
         let (yaw0, mut slip) = (v.yaw, 0.0f32);
         for _ in 0..(0.6 / DT) as usize {
-            v.update(Drive { throttle: 0.5, steer: -1.0, handbrake }, DT, &level.ground, &level.map);
+            v.update(Drive { throttle: 0.5, steer: -1.0, handbrake, ..Default::default() }, DT, &level.ground, &level.map);
             slip = slip.max(v.slip.abs());
         }
         ((v.yaw - yaw0).abs(), slip, v.speed.hypot(v.slip))
@@ -222,11 +222,38 @@ fn a_handbrake_turn_swings_the_car_right_round() {
     let (start, speed) = (v.forward(), v.speed);
     let mut t = 0.0;
     while v.forward().dot(start) > -0.95 && t < 3.0 {
-        v.update(Drive { throttle: 0.0, steer: 1.0, handbrake: true }, DT, &level.ground, &level.map);
+        v.update(Drive { throttle: 0.0, steer: 1.0, handbrake: true, ..Default::default() }, DT, &level.ground, &level.map);
         t += DT;
     }
     println!("from {speed:.0}: facing back after {t:.2}s, still moving {:.0}", v.speed.hypot(v.slip));
     assert!(t < 1.5, "the car didn't come round");
+}
+
+#[test]
+fn only_the_foot_down_hard_spins_the_wheels() {
+    // `pedals` (vehicle.cpp:3622): flat out (`VEH_FASTER`) from still spins them till 400;
+    // easing away doesn't, nor does braking out of reverse until the car has stopped.
+    let Some(game) = uc_formats::default_install() else { return };
+    let level = Level::load(&game, "testdrive1a", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let mut v = g_car(&level);
+    let drive = |v: &mut uc_game::Vehicle, d: Drive, secs: f32| {
+        (0..(secs / DT) as usize).map(|_| { v.update(d, DT, &level.ground, &level.map); v.smokin }).collect::<Vec<_>>()
+    };
+    assert!(!drive(&mut v, Drive { throttle: 1.0, ..Default::default() }, 1.0).contains(&true), "spinning without the foot down");
+    let mut v = g_car(&level);
+    let hard = Drive { throttle: 1.0, faster: true, ..Default::default() };
+    let spun = drive(&mut v, hard, 1.5);
+    let till = spun.iter().position(|s| !s).expect("never stopped spinning");
+    println!("spun {:.2}s, then at {:.0}", till as f32 * DT, v.speed);
+    assert!(till > 0 && !spun[till..].contains(&true));
+    assert!(drive(&mut v, hard, 1.0).iter().all(|s| !s), "spinning at speed");
+    // Reversing, then the foot down: braking, then spinning once it's stopped and goes.
+    let mut v = g_car(&level);
+    drive(&mut v, Drive { throttle: -1.0, faster: true, ..Default::default() }, 1.0);
+    assert!(v.speed < -300.0);
+    let spun = drive(&mut v, hard, 1.0);
+    let from = spun.iter().position(|&s| s).expect("never spun pulling away");
+    assert!(from > 3, "spinning while still braking");
 }
 
 /// The squad car at its start, on its own (no mission running).

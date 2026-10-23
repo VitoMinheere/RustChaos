@@ -232,7 +232,7 @@ impl App {
                 controls = Controls {
                     scope: controls.scope,
                     punch: controls.punch,
-                    drive: uc_game::Drive { throttle: up.clamp(-1.0, 1.0), steer: turn.clamp(-1.0, 1.0), handbrake: false },
+                    drive: uc_game::Drive { throttle: up.clamp(-1.0, 1.0), steer: turn.clamp(-1.0, 1.0), handbrake: false, ..Default::default() },
                     ..Default::default()
                 };
             }
@@ -246,7 +246,7 @@ impl App {
                 let wheelie = inp.held(KeyCode::Space) || pad.held(Button::South);
                 controls = Controls {
                     action: controls.action,
-                    drive: uc_game::Drive { throttle: throttle.clamp(-1.0, 1.0), steer: steer.clamp(-1.0, 1.0), handbrake: wheelie },
+                    drive: uc_game::Drive { throttle: throttle.clamp(-1.0, 1.0), steer: steer.clamp(-1.0, 1.0), handbrake: wheelie, ..Default::default() },
                     ..Default::default()
                 };
             }
@@ -259,7 +259,7 @@ impl App {
                 let handbrake = inp.held(KeyCode::Space) || pad.held(Button::South);
                 controls = Controls {
                     action: controls.action,
-                    drive: uc_game::Drive { throttle: throttle.clamp(-1.0, 1.0), steer: steer.clamp(-1.0, 1.0), handbrake },
+                    drive: uc_game::Drive { throttle: throttle.clamp(-1.0, 1.0), steer: steer.clamp(-1.0, 1.0), handbrake, ..Default::default() },
                     ..Default::default()
                 };
                 if car.speed.abs() > 100.0 && delta.length_squared() < 1.0 && pad.look.length_squared() < 0.01 {

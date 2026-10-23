@@ -190,7 +190,7 @@ impl Game {
         if blocked && want > 0.0 && !st.drunk && !st.reckless {
             return stop;
         }
-        Drive { throttle: Vehicle::throttle_for(want), steer, handbrake: false }
+        Drive { throttle: Vehicle::throttle_for(want), steer, ..Default::default() }
     }
 
     /// Cars move; the player's car follows her controls. Cars knock people over and push
@@ -239,7 +239,7 @@ impl Game {
                 .collect();
             let v = &mut self.vehicles[vi];
             let d = match v.driver.and_then(playing) {
-                Some(d) => d,
+                Some(d) => Drive { faster: true, ..d },
                 None => npc.map_or(Drive::default(), |(_, d)| d),
             };
             let sliding = v.slip.abs() > 300.0;

@@ -117,12 +117,23 @@ pub const REACH: f32 = RADIUS + 16.0;
 /// A crash at more than this speed (world units per second) damages the car.
 const CRASH_SPEED: f32 = 900.0;
 
+/// Under this forwards, pulling away with [`Drive::faster`] spins the wheels (`velocity <
+/// 400`, vehicle.cpp:3622, in the original's 1.25 units a second).
+const WHEELSPIN_SPEED: f32 = 400.0 * 1.25;
+/// Rolling backwards faster than this, putting the foot down spins them anyway (`-200`).
+const ROLLBACK_SPEED: f32 = 200.0 * 1.25;
+/// Stopped: under the original's 10 (`newmag < 10`, vehicle.cpp:3799).
+const STOPPED: f32 = 10.0 * 1.25;
+
 /// The driver's controls: `throttle` -1 (reverse/brake) .. 1, `steer` -1 (left) .. 1.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Drive {
     pub throttle: f32,
     pub steer: f32,
     pub handbrake: bool,
+    /// `VEH_FASTER`: the foot down hard. The player's pedals always are (`INPUT_CAR_GOFASTER`
+    /// is either pedal, interfac.cpp:5865); the people driving round never are (pcom.cpp:14681).
+    pub faster: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -159,13 +170,18 @@ pub struct Vehicle {
     pub roll: f32,
     /// Wheel rotation (radians).
     pub wheel_spin: f32,
+    /// `Smokin`: the wheels spinning as it pulls away hard (vehicle.cpp:3625), smoking and
+    /// laying skid marks. Set afresh every turn.
+    pub smokin: bool,
+    /// `Dir < 0`: put in reverse, till it stops; pressing on then brakes rather than spins.
+    reverse: bool,
 }
 
 impl Vehicle {
     pub fn new(way: usize, kind: u8, pos: Vec3, yaw: f32, key: Key) -> Vehicle {
         Vehicle {
             way, kind: kind.min(8), pos, yaw, speed: 0.0, slip: 0.0, slide: 0.0, steer: 0.0, health: 300, driver: None, stalled: false,
-            key, pitch: 0.0, roll: 0.0, wheel_spin: 0.0,
+            key, pitch: 0.0, roll: 0.0, wheel_spin: 0.0, smokin: false, reverse: false,
         }
     }
 
@@ -188,6 +204,13 @@ impl Vehicle {
     pub fn reset(&mut self, pos: Vec3, yaw: f32) {
         (self.pos, self.yaw) = (pos, yaw);
         (self.speed, self.slip, self.slide, self.steer, self.pitch, self.roll) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        (self.smokin, self.reverse) = (false, false);
+    }
+
+    /// Smoking and laying skid marks: spinning its wheels, or sliding on the handbrake (as the
+    /// original's skid sets `Smokin`, vehicle.cpp:3934).
+    pub fn skidding(&self) -> bool {
+        self.smokin || self.slip.abs() > 300.0
     }
 
     /// The throttle that settles the car at `speed` (negative is reversing).
@@ -244,12 +267,20 @@ impl Vehicle {
         // Engine and brakes. The handbrake only locks the back wheels: it slows the car
         // gently, and it's for sliding round corners.
         let target = if d.throttle > 0.0 { TOP_SPEED * d.throttle } else { -REVERSE_SPEED * -d.throttle };
+        // Wheelspin (`pedals`, vehicle.cpp:3622): the foot down, not braking out of reverse,
+        // and slow or still rolling back.
+        if self.speed.abs() < STOPPED {
+            self.reverse = false;
+        }
+        self.smokin = !d.handbrake && d.throttle >= 0.05 && !self.reverse
+            && (self.speed < -ROLLBACK_SPEED || d.faster && self.speed < WHEELSPIN_SPEED);
         if d.handbrake {
             let brake = if dead { BRAKE } else { BRAKE * 0.12 };
             self.speed -= self.speed.signum() * (brake * dt).min(self.speed.abs());
         } else if d.throttle.abs() < 0.05 {
             self.speed -= self.speed * (DRAG * 2.0 * dt).min(1.0);
         } else if (d.throttle > 0.0) == (self.speed >= 0.0) || self.speed.abs() < 30.0 {
+            self.reverse = d.throttle < 0.0;
             let rate = if (target - self.speed).abs() > 0.0 { ACCEL } else { 0.0 };
             self.speed += (target - self.speed).signum() * (rate * dt).min((target - self.speed).abs());
         } else {

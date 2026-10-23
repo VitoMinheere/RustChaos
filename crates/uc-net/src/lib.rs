@@ -216,7 +216,7 @@ impl Input {
             scope: on(SCOPE),
             taunt: on(TAUNT),
             crouch: on(CROUCH),
-            drive: Drive { throttle: self.drive[0], steer: self.drive[1], handbrake: on(HANDBRAKE) },
+            drive: Drive { throttle: self.drive[0], steer: self.drive[1], handbrake: on(HANDBRAKE), ..Default::default() },
             target: None,
             aim: None,
         }
@@ -241,7 +241,7 @@ mod tests {
     fn controls_round_trip() {
         let c = Controls {
             wish: glam::vec2(0.25, -0.75), run: true, punch: true, crouch: true, scope: true,
-            drive: Drive { throttle: 1.0, steer: -0.5, handbrake: true }, ..Default::default()
+            drive: Drive { throttle: 1.0, steer: -0.5, handbrake: true, ..Default::default() }, ..Default::default()
         };
         let i = Input::new(&c, true);
         let back = i.controls();
