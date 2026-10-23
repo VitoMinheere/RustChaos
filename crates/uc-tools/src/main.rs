@@ -3,6 +3,9 @@
 //!   uc mission export <file.ucm> [-o out.json] [--lossless]
 //!   uc mission import <file.json> -o <out.ucm>
 //!   uc mission check <file.ucm|file.json>
+//!   uc textures missing [--game DIR] [--overrides DIR]
+
+mod textures;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -16,7 +19,12 @@ uc mission export <file.ucm> [-o out.json] [--lossless]
 uc mission import <file.json> -o <out.ucm>
     Convert JSON back into a mission the original game (and the viewer) can load.
 uc mission check <file.ucm|file.json>
-    Parse and validate a mission, and print a short summary.";
+    Parse and validate a mission, and print a short summary.
+uc textures missing [--game DIR] [--overrides DIR]
+    For the missions with no clump of their own: the world pages drawn with another
+    world's pictures, by world, as the world<N>/page_NNNN.png overrides that would fix
+    them ([x] where --overrides already has one). The install is --game, else
+    $UC_GAME_DIR, else the GOG location.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -32,11 +40,14 @@ fn main() -> ExitCode {
 fn run(args: &[String]) -> Result<(), String> {
     let mut pos: Vec<&str> = Vec::new();
     let (mut out, mut lossless) = (None, false);
+    let (mut game, mut overrides) = (None, None);
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "-o" | "--output" => out = Some(PathBuf::from(it.next().ok_or("-o needs a path")?)),
             "--lossless" => lossless = true,
+            "--game" => game = Some(PathBuf::from(it.next().ok_or("--game needs a folder")?)),
+            "--overrides" => overrides = Some(PathBuf::from(it.next().ok_or("--overrides needs a folder")?)),
             "-h" | "--help" => return Err(USAGE.into()),
             s => pos.push(s),
         }
@@ -72,6 +83,10 @@ fn run(args: &[String]) -> Result<(), String> {
                 println!("  {n:4} {k}");
             }
             Ok(())
+        }
+        ["textures", "missing"] => {
+            let game = game.or_else(uc_formats::default_install).ok_or("no install found: pass --game DIR")?;
+            textures::missing(&game, overrides.as_deref())
         }
         _ => Err(USAGE.into()),
     }

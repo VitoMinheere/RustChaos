@@ -173,6 +173,18 @@ This writes one `page_NNNN.png` per texture page; NNNN is the page ID used every
 
 **Into the Rust renderer**: no size limit. Load PNG/KTX2 overrides by page ID (e.g. `overrides/page_0123.png`) with the clump as fallback, generate mipmaps, and use BCn compression for VRAM.
 
+`uc-viewer --overrides DIR` does the PNG part. It tries `DIR/<mission>/page_NNNN.png`, then `DIR/world<N>/page_NNNN.png` (N is the map's texture set), then `DIR/page_NNNN.png`, then the clump.
+
+**Missions with no clump** (the unfinished ones) borrow pages by number from other missions' clumps. Pages that no finished mission in their world uses get another world's picture or none at all. `uc textures missing [--overrides DIR]` lists those pages by world, the ones to paint as `world<N>/` overrides, and marks the ones already done.
+
+The worst cases are:
+
+- Worlds 2 (FreeCD1, train1), 6 (subdock1) and 12 (oldsmoke1): almost every page.
+- World 6 also has no style table, so its walls follow world 3's layout.
+- `uc-viewer --mission NAME --dump-pages DIR` writes the pictures a level draws with now, at the right sizes, as a starting point.
+
+The PlayStation build doesn't help here. Its 34 levels (`levels[]`, `fallen/Source/supermap.cpp:2582`) are all maps the PC ships with clumps. Its `textures.tex` files are raw 4-bit VRAM dumps per level number, with pages renumbered from the PC's (`fallen/psxlib/Source/GDisplay.cpp:174`).
+
 **Into the original 1999 engine (retail exe or a source build)** **(unverified in the retail exe; try on a backup)**:
 
 - **Size limit**: the engine accepts only square power-of-two textures up to **256×256**. `D3DTexture::Reload_TGA` loads into a 256×256 buffer and accepts widths of 32, 64, 128 and 256 (`fallen/DDLibrary/Source/D3DTexture.cpp:~1505-1545`). So 32→128 or 64→256 (4×) fits; larger needs engine changes.

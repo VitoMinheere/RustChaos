@@ -4,7 +4,7 @@ use uc_formats::units::radians;
 use crate::crinkle::ReliefQuad;
 use crate::geometry::{Builder, Layer, WorldGeometry, UNIT, UNTEXTURED};
 use glam::{vec3, Vec3};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use crate::character::{ep_angle, People};
 use crate::ground::Ground;
@@ -36,7 +36,7 @@ pub struct LoadOptions {
     pub fullbright: bool,
     /// Load people's models and animations.
     pub character: bool,
-    /// Folder of `page_NNNN.png` files that replace clump textures.
+    /// Folder of `page_NNNN.png` files that replace clump textures (see [`override_path`]).
     pub overrides: Option<PathBuf>,
 }
 
@@ -66,10 +66,14 @@ pub struct Level {
     /// (`OB_convert_dustbins_to_barrels`, fallen/Source/ob.cpp:1627): as indices into the
     /// map's objects. They're left out of the scenery and of what people walk into.
     pub barrel_props: Vec<usize>,
+    /// The world pages whose pictures aren't this world's own: a mission with no clump
+    /// borrows them from another world by number ([`borrowed_clump`]). Empty when the
+    /// mission has a clump of its own.
+    pub stand_in_pages: BTreeSet<u32>,
     overrides: Option<PathBuf>,
     /// The prim texture pages that see through (`textype.txt`'s T, M, A or D, or the page
     /// after an I), counted from [`PRIM_PAGES`].
-    see_through_prims: std::collections::BTreeSet<u32>,
+    see_through_prims: BTreeSet<u32>,
 }
 
 /// Where the prims' texture pages start (`POLY_load_texture_flags(..., 11 * 64)`,
@@ -89,8 +93,8 @@ pub fn is_prim_page(page: u32) -> bool {
 /// polyrenderstate.cpp:82): 'T' black is transparent, 'M' the alpha channel, 'A' additive,
 /// 'D' alpha masked; and 'I' makes the next page a transparent self-illumination map. The
 /// rest are drawn solid, whatever their alpha channel holds.
-pub fn see_through_pages(text: &str) -> std::collections::BTreeSet<u32> {
-    let mut out = std::collections::BTreeSet::new();
+pub fn see_through_pages(text: &str) -> BTreeSet<u32> {
+    let mut out = BTreeSet::new();
     for line in text.lines() {
         let Some(rest) = line.trim().strip_prefix("Page ") else { continue };
         let Some((n, flags)) = rest.split_once(':') else { continue };
@@ -114,7 +118,7 @@ fn read(game: &Path, rel: &str) -> Result<Vec<u8>, String> {
 /// Whether texture page `p` belongs to the map's world (`TEXTURE_load_needed`,
 /// DDEngine/Source/texture.cpp:770): pages 0-255 come from `world<n>\`, 512-575 from
 /// `world<n>\insides\`. The rest are shared by every world.
-fn world_page(p: u32) -> bool {
+pub fn world_page(p: u32) -> bool {
     p < 64 * 4 || (64 * 8..64 * 9).contains(&p)
 }
 
@@ -153,7 +157,8 @@ fn to_sea(map_file: &str, map: &mut Map) {
 /// install no longer has. The pages come from the clumps of other missions: first those on
 /// the same map, then those in the same world; the shared pages from any. A world no
 /// clump covers borrows `STAND_IN_WORLD`'s pages, which fit its style table only roughly.
-fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> Clump {
+/// Also returns the world pages it had to take from another world (`Level::stand_in_pages`).
+fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> (Clump, BTreeSet<u32>) {
     // (rank, mission): 0 same map, 1 same world, 2 the stand-in world, 3 any other.
     let mut donors: Vec<(u8, String)> = Vec::new();
     let mut sets: HashMap<String, Option<i32>> = HashMap::new();
@@ -179,8 +184,12 @@ fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> Clum
     let own_world = donors.iter().any(|&(rank, _)| rank < 2);
     let mut clump = Clump::empty();
     let mut others = Vec::new();
+    let mut own = BTreeSet::new();
     for (rank, name) in donors {
         if let Some(c) = read(game, &format!("clumps\\{name}.txc")).ok().and_then(|b| Clump::parse(b).ok()) {
+            if rank < 2 {
+                own.extend(c.ids().map(entry_page));
+            }
             // A page's crinkle is taken along with the page.
             clump.fill_from(&c, |id| rank < 2 || (rank == 2 && !own_world) || !world_page(entry_page(id)));
             if rank >= 2 {
@@ -195,7 +204,18 @@ fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> Clum
     for c in &others {
         clump.fill_from(c, |_| true);
     }
-    clump
+    let stand_ins = clump.ids().map(entry_page).filter(|&p| world_page(p) && !own.contains(&p)).collect();
+    (clump, stand_ins)
+}
+
+/// The override for `page`, if there is one: the most particular of
+/// `<dir>/<mission>/page_NNNN.png`, `<dir>/world<N>/page_NNNN.png` (the map's own texture
+/// set, so a world that borrows another's pictures can be given its own) and
+/// `<dir>/page_NNNN.png`.
+pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -> Option<PathBuf> {
+    let file = format!("page_{page:04}.png");
+    let world = world.map(|w| dir.join(format!("world{w}")).join(&file));
+    [Some(dir.join(mission).join(&file)), world, Some(dir.join(&file))].into_iter().flatten().find(|p| p.is_file())
 }
 
 /// What the two unfinished missions never got (not in the original): an ending, and
@@ -271,10 +291,14 @@ impl Level {
         let style_table = |w: i32| read(game, &format!("server\\textures\\world{w}\\style.tma")).ok();
         let world = map.texture_set.map(|w| if style_table(w).is_some() { w } else { STAND_IN_WORLD });
         // Textures are looked up by mission name, not by map (TEXTURE_initialise_clumping).
-        let clump = match read(game, &format!("clumps\\{mission_name}.txc")) {
-            Ok(b) => Clump::parse(b).map_err(|e| e.to_string())?,
+        let (clump, mut stand_in_pages) = match read(game, &format!("clumps\\{mission_name}.txc")) {
+            Ok(b) => (Clump::parse(b).map_err(|e| e.to_string())?, BTreeSet::new()),
             Err(_) => borrowed_clump(game, &mission.map, world),
         };
+        // Borrowing the stand-in's world, none of its world pages are its own.
+        if world != map.texture_set {
+            stand_in_pages = clump.ids().map(entry_page).filter(|&p| world_page(p)).collect();
+        }
         let styles = world.and_then(style_table).and_then(|b| StyleTable::parse(&b).ok());
         let lighting = if opt.fullbright { None } else { read(game, &mission.lighting).ok().and_then(|b| Lighting::parse(&b).ok()) };
         let sky = lighting.as_ref().map_or([20, 22, 30], |l| l.sky);
@@ -322,7 +346,7 @@ impl Level {
         };
         Ok(Level {
             game: game.to_path_buf(), name: mission_name.to_string(), mission, map, clump, styles, lighting,
-            ground, spawn, sky, people, overrides: opt.overrides.clone(), platforms, barrel_props,
+            ground, spawn, sky, people, overrides: opt.overrides.clone(), platforms, barrel_props, stand_in_pages,
             see_through_prims: resolve(game, "server\\textures\\shared\\prims\\textype.txt")
                 .and_then(|p| std::fs::read_to_string(p).ok())
                 .map_or_else(Default::default, |t| see_through_pages(&t)),
@@ -336,10 +360,10 @@ impl Level {
         self.lighting.as_ref().map(|l| Lighter::new(l, &self.map.objects))
     }
 
-    /// The texture for a page: an override PNG if present, else the clump's.
+    /// The texture for a page: an override PNG if present ([`override_path`]), else the
+    /// clump's.
     pub fn texture(&self, page: u32) -> Option<(Texture, bool)> {
-        if let Some(dir) = &self.overrides {
-            let p = dir.join(format!("page_{page:04}.png"));
+        if let Some(p) = self.overrides.as_deref().and_then(|d| override_path(d, &self.name, self.map.texture_set, page)) {
             if let Some(t) = load_png(&p) {
                 return Some((t, true));
             }
@@ -807,5 +831,29 @@ mod see_through_tests {
         for page in [LEAF_PAGE, RUBBISH_PAGE, SNOWFLAKE_PAGE, crate::SKY_PAGE, crate::MOON_PAGE] {
             assert!(!is_prim_page(page), "page {page}");
         }
+    }
+}
+
+#[cfg(test)]
+mod override_tests {
+    use super::*;
+
+    /// The mission's folder wins over the world's, and the world's over the shared one.
+    #[test]
+    fn the_most_particular_override_wins() {
+        let dir = std::env::temp_dir().join(format!("uc-overrides-{}", std::process::id()));
+        for sub in ["", "world7", "botanic1"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+        }
+        for (sub, page) in [("", 124), ("world7", 124), ("world7", 125), ("botanic1", 125), ("", 126)] {
+            std::fs::write(dir.join(sub).join(format!("page_{page:04}.png")), b"").unwrap();
+        }
+        let at = |m: &str, w, page| override_path(&dir, m, w, page).map(|p| p.strip_prefix(&dir).unwrap().to_path_buf());
+        assert_eq!(at("backalley1", Some(7), 124), Some(Path::new("world7").join("page_0124.png")));
+        assert_eq!(at("botanic1", Some(7), 125), Some(Path::new("botanic1").join("page_0125.png")));
+        assert_eq!(at("police1", Some(3), 124), Some(PathBuf::from("page_0124.png")));
+        assert_eq!(at("police1", None, 126), Some(PathBuf::from("page_0126.png")));
+        assert_eq!(at("police1", Some(3), 127), None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
