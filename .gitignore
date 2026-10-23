@@ -2,3 +2,5 @@
 screenshots/
 # Extracted or upscaled game textures: never commit these
 pages*/
+# The original game's manual (Eidos's copyright): keep it local
+docs/Urban-Chaos_Manual_*.pdf
