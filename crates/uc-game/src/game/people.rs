@@ -71,11 +71,15 @@ impl Game {
     pub(crate) fn spawn_variant(&mut self, level: &Level, kind: u8, player: bool, way: usize, pos: Vec3, angle: f32, variant: u32) -> Option<usize> {
         let people = level.people.as_ref()?;
         // On the surface nearest the point (`create_person`, Person.cpp:761). Points can sit a
-        // little under the surface they're on: The Jump's jumper is 64 below his ledge.
+        // little under the surface they're on: The Jump's jumper is 64 below his ledge. One
+        // in the air with nothing under it is left there, and falls (bball2's warehouse).
         let y = level.ground.spawn_height(&level.map, pos.x, pos.z, pos.y);
         let fig = people.figure(kind, variant, Vec3::new(pos.x, y, pos.z), angle)?;
         self.people.push(Person::new(fig, kind, player, way));
         let i = self.people.len() - 1;
+        if y - level.ground.surface(&level.map, pos.x, pos.z, y) > uc_world::ground::STEP_HEIGHT {
+            self.people[i].fall(Vec2::ZERO);
+        }
         if way != 0 {
             self.by_way.insert(way, i);
         }
