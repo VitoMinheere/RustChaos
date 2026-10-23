@@ -210,7 +210,12 @@ impl Game {
                         self.people[attacker].cues.push(Sfx::Taunt { kind });
                     }
                 }
-                Event::Throw { thrower } => self.release_grenade(thrower),
+                Event::Throw { thrower } => {
+                    if !self.throw_can(thrower) {
+                        self.release_grenade(thrower);
+                    }
+                }
+                Event::PickUp { who } => self.pick_up_can(who),
                 Event::Hook { thrower } => self.release_hook(thrower),
                 Event::OutCold { attacker, victim } => {
                     if Some(attacker) == self.player {

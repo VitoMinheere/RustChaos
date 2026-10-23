@@ -347,7 +347,7 @@ impl Game {
             let across = Vec3::new(cr, -cp * sr, sp * sr);
             let along = Vec3::new(0.0, sp, cp);
             match d.kind {
-                dirt::Kind::Can => {
+                dirt::Kind::Can | dirt::Kind::HeldCan | dirt::Kind::ThrownCan => {
                     if let Some(prim) = level.item_prims.get(&uc_world::level::CAN_PRIM) {
                         let rot = glam::Quat::from_rotation_y(radians(d.yaw as f32))
                             * glam::Quat::from_rotation_x(radians(d.pitch as f32));

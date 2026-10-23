@@ -105,6 +105,19 @@ pub enum Kind {
     Leaf,
     Can,
     Snow,
+    /// A can in someone's hand (`DIRT_TYPE_HELDCAN`): the game keeps it there.
+    HeldCan,
+    /// A can thrown (`DIRT_TYPE_THROWCAN`), flying till it settles and is a can again.
+    ThrownCan,
+}
+
+/// A can clattering at `at`: guards hear it (`PCOM_SOUND_UNUSUAL`) when `alerts`, and `by`
+/// is who kicked or threw it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Clatter {
+    pub at: (i32, i32, i32),
+    pub alerts: bool,
+    pub by: Option<usize>,
 }
 
 /// `world_type`: the forest has only leaves and the snow only snow.
@@ -130,7 +143,8 @@ impl Ground {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Piece {
     pub kind: Kind,
-    /// The tree whose leaf this is (`owner`, 255 for none).
+    /// The tree whose leaf this is (`owner`, 255 for none), or the person holding a can or
+    /// who threw it (`droll`).
     owner: Option<usize>,
     /// `DIRT_FLAG_STILL`: lying on the ground.
     pub still: bool,
@@ -312,7 +326,9 @@ impl Dirt {
         for _ in 0..count {
             self.check = (self.check + 1) % MAX_DIRT;
             let i = self.check;
-            if self.pieces[i].is_some_and(|p| p.kind == Kind::Leaf && p.owner.is_some()) {
+            // Leaves under trees come and go with their tree, and a can in a hand or in the
+            // air stays with whoever has it.
+            if self.pieces[i].is_some_and(|p| (p.kind == Kind::Leaf && p.owner.is_some()) || matches!(p.kind, Kind::HeldCan | Kind::ThrownCan)) {
                 continue;
             }
             let far = self.pieces[i].is_none_or(|p| qdist2((p.x - x).abs(), (p.z - z).abs()) > radius);
@@ -362,11 +378,59 @@ impl Dirt {
         self.first = (self.first - 1).max(0);
     }
 
+    /// The can lying about nearest (x, y, z), and how far (`QDIST3`), as
+    /// `DIRT_get_nearest_can_or_head_dist` finds it.
+    pub fn nearest_can(&self, x: i32, y: i32, z: i32) -> Option<(usize, i32)> {
+        self.pieces.iter().enumerate()
+            .filter_map(|(i, p)| p.filter(|p| p.kind == Kind::Can).map(|p| (i, p)))
+            .map(|(i, p)| {
+                let (dx, dy, dz) = ((p.x - x).abs(), (p.y - y).abs(), (p.z - z).abs());
+                let big = dx.max(dy).max(dz);
+                (i, big + (dx + dy + dz - big) / 2)
+            })
+            .min_by_key(|&(_, d)| d)
+    }
+
+    /// `DIRT_pick_up_can_or_head`: the can nearest (x, y, z), if it's within 0x80, goes into
+    /// `person`'s hand. Returns its slot.
+    pub fn pick_up(&mut self, person: usize, x: i32, y: i32, z: i32) -> Option<usize> {
+        let (i, dist) = self.nearest_can(x, y, z)?;
+        let d = self.pieces[i].as_mut().filter(|_| dist < 0x80)?;
+        (d.kind, d.owner, d.still) = (Kind::HeldCan, Some(person), false);
+        Some(i)
+    }
+
+    /// The can held in slot `i` is where the hand holding it is: at (x, y, z), turned `yaw`.
+    pub fn hold(&mut self, i: usize, x: i32, y: i32, z: i32, yaw: i32) {
+        if let Some(d) = self.pieces[i].as_mut().filter(|d| d.kind == Kind::HeldCan) {
+            (d.x, d.y, d.z, d.yaw, d.pitch, d.roll) = (x, y, z, yaw, 0, 0);
+        }
+    }
+
+    /// `DIRT_release_can_or_head`: the can held in slot `i` is thrown the way someone at
+    /// engine angle `angle` (2048 a turn) faces, at `power` (0 to 256; 128 for a throw).
+    pub fn release(&mut self, i: usize, angle: i32, power: i32) {
+        let spin = (self.random() & 0x3f) - 0x1f;
+        let Some(d) = self.pieces[i].as_mut().filter(|d| d.kind == Kind::HeldCan) else { return };
+        // `FMATRIX_vector(angle, 0)`; people face (-sin, -cos).
+        d.dx = -((sin(angle) as i64 * power as i64) >> 18) as i32;
+        d.dz = -((cos(angle) as i64 * power as i64) >> 18) as i32;
+        d.dy = (power >> 2) << TICK_SHIFT;
+        (d.dyaw, d.dpitch) = (spin, 50);
+        d.kind = Kind::ThrownCan;
+    }
+
     /// `DIRT_process`, one turn. Returns where cans landed hard enough to clatter.
-    pub fn process(&mut self, floor: &impl Floor) -> Vec<(i32, i32, i32)> {
+    pub fn process(&mut self, floor: &impl Floor) -> Vec<Clatter> {
         self.turn += 1;
         let mut clatter = Vec::new();
-        for slot in &mut self.pieces {
+        for k in 0..MAX_DIRT {
+            let jiggle = if self.pieces[k].is_some_and(|d| d.kind == Kind::ThrownCan) {
+                [self.random(), self.random(), self.random(), self.random()]
+            } else {
+                [0; 4]
+            };
+            let slot = &mut self.pieces[k];
             let Some(d) = slot else { continue };
             if d.still {
                 if d.kind == Kind::Snow {
@@ -454,7 +518,7 @@ impl Dirt {
                     if d.y < newy {
                         d.y = newy;
                         if d.dy < -8 << TICK_SHIFT {
-                            clatter.push((d.x, d.y, d.z));
+                            clatter.push(Clatter { at: (d.x, d.y, d.z), alerts: false, by: None });
                         }
                         d.dy = 0;
                     }
@@ -468,6 +532,54 @@ impl Dirt {
                     d.dpitch -= d.dpitch.signum();
                     if d.dx == 0 && d.dz == 0 && d.dyaw == 0 && d.dpitch == 0 {
                         d.still = true;
+                    }
+                }
+                Kind::HeldCan => {}
+                Kind::ThrownCan => {
+                    // dirt.cpp:1857: gravity a unit a tick, falling 0x20 a tick at most.
+                    d.dy = (d.dy - (1 << TICK_SHIFT)).max(-0x20 << TICK_SHIFT);
+                    let (ox, oy, oz) = (d.x, d.y, d.z);
+                    d.x += d.dx;
+                    d.y += d.dy >> TICK_SHIFT;
+                    d.z += d.dz;
+                    d.yaw = (d.yaw + d.dyaw) & 2047;
+                    d.pitch = (d.pitch + d.dpitch) & 2047;
+                    let floor_y = floor.height(d.x, d.z) + 6;
+                    let into_building = (ox >> 8 != d.x >> 8 || oz >> 8 != d.z >> 8) && floor.hidden(d.x >> 8, d.z >> 8);
+                    if d.y < floor_y || into_building {
+                        if d.dy.abs() > 8 << TICK_SHIFT {
+                            // A clatter the guards hear.
+                            clatter.push(Clatter { at: (ox, oy, oz), alerts: true, by: d.owner });
+                        }
+                        if floor_y - d.y > 0x40 || d.dy > 0 || into_building {
+                            // Into a building: back off it the way it came in, at half speed.
+                            if ox >> 8 != d.x >> 8 {
+                                d.x = ox;
+                                d.dx = -d.dx >> 1;
+                            }
+                            if oz >> 8 != d.z >> 8 {
+                                d.z = oz;
+                                d.dz = -d.dz >> 1;
+                            }
+                        } else {
+                            // Off the floor, half as high, until it hardly bounces: then it's
+                            // a can lying about again, rolling on a little.
+                            d.dy = d.dy.abs() >> 1;
+                            d.y = 2 * floor_y - d.y;
+                            if d.dy.abs() < 10 << TICK_SHIFT {
+                                d.dy = 0;
+                                d.kind = Kind::Can;
+                                d.dx = (d.dx + (jiggle[0] & 0xf) - 7) << 8;
+                                d.dz = (d.dz + (jiggle[1] & 0xf) - 7) << 8;
+                                d.dyaw = (jiggle[2] & 0x7f) + 0x7f;
+                                d.dpitch = (jiggle[3] & 0x3f) + 0x3f;
+                            } else {
+                                d.dx += (jiggle[0] & 0xf) - 7;
+                                d.dz += (jiggle[1] & 0xf) - 7;
+                                d.dyaw += (jiggle[2] & 0x7f) - 0x3f;
+                                d.dpitch += jiggle[3] & 0x3f;
+                            }
+                        }
                     }
                 }
             }
@@ -510,6 +622,7 @@ impl Dirt {
                         d.still = false;
                     }
                 }
+                Kind::HeldCan | Kind::ThrownCan => {}
                 Kind::Can => {
                     if dist < 32 {
                         d.dx = (dx << 13) / dist;
@@ -611,6 +724,30 @@ mod tests {
         let now = d.pieces.iter().flatten().find(|p| p.kind == Kind::Can).unwrap();
         assert!(now.x > can.x + 32, "the can went {}", now.x - can.x);
         assert!(now.still);
+    }
+
+    /// Picked up, thrown, it flies the way she faces, clatters where the guards hear it, and
+    /// lies about as a can again.
+    #[test]
+    fn a_can_picked_up_and_thrown_lands_ahead() {
+        let mut d = Dirt::new(Ground::City, 0, 1, []);
+        d.set_focus(64 * 256, 64 * 256, FOCUS_RADIUS, 0, &Flat);
+        let can = d.pieces.iter().flatten().next().copied().unwrap();
+        assert_eq!(d.pick_up(7, can.x + 200, can.y, can.z), None, "out of reach");
+        let i = d.pick_up(7, can.x + 50, can.y, can.z).expect("in reach");
+        assert_eq!(d.pieces[i].unwrap().kind, Kind::HeldCan);
+        d.hold(i, can.x, 100, can.z, 0);
+        // Facing (-sin, -cos) of angle 512: -x.
+        d.release(i, 512, 128);
+        let mut clatters = Vec::new();
+        for _ in 0..400 {
+            clatters.extend(d.process(&Flat));
+        }
+        let now = d.pieces[i].unwrap();
+        assert_eq!(now.kind, Kind::Can);
+        assert!(now.x < can.x - 500, "it went {}", can.x - now.x);
+        assert!((now.z - can.z).abs() < 200);
+        assert!(clatters.iter().any(|c| c.alerts && c.by == Some(7)), "{clatters:?}");
     }
 
     #[test]
