@@ -47,6 +47,8 @@ pub(crate) struct World {
     pub(crate) game: Game,
     pub(crate) fly: FlyCam,
     pub(crate) orbit: Orbit,
+    /// Looking round (F held, #203): the view from close behind her head, while it lasts.
+    pub(crate) look: Option<Orbit>,
     pub(crate) third_person: bool,
     pub(crate) start: [f32; 5],
     pub(crate) layers: Vec<Layer>,
@@ -204,6 +206,7 @@ impl World {
         Ok(World {
             fly: FlyCam::from(start),
             orbit: Orbit::behind(angle),
+            look: None,
             third_person,
             start,
             layers: Layer::ALL.to_vec(),
@@ -339,6 +342,13 @@ impl World {
             let eye = s.eye / uc_world::UNIT;
             let fov_y = 2.0 * ((30f32.to_radians()).tan() / zoom).atan();
             return Camera { pos: eye, target: eye + dir, fov_y, ortho: None };
+        }
+        // Looking round: from close behind her head.
+        if let (Some(look), Some(p), true) = (self.look, self.game.player(), self.third_person) {
+            let head = p.fig.pos / uc_world::UNIT + vec3(0.0, cam::LOOK_ABOVE, 0.0);
+            let mut cam = look.cam(head);
+            cam.pos = self.clear_of_buildings(head, cam.pos);
+            return cam.camera();
         }
         match (self.eye(), self.third_person) {
             (Some(eye), true) => {

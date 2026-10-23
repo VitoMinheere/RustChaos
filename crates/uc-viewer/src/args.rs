@@ -59,6 +59,8 @@ Gamepad: left stick move (push fully to run), right stick camera, A/Cross jump,
   X/Square punch, Y/Triangle kick, B/Circle action (hold while running to sprint), LB block,
   RB next weapon, right stick click next target, D-pad down crouch,
   Start pause, Back/Select free camera.
+Camera (the original's keys): hold F to look round (W/S look down/up, A/D turn), F5-F8 camera
+  heights, Delete / Page Down swing it round, End puts it behind her.
 Mouse: M switches between mouse look (default: the cursor is captured) and right-drag look.
 Hold Tab for the mission's checklist: objectives, side objectives and badges.
 Free camera (V): mouse look, WASD move, Space/E up, C/Q down, Shift fast,
