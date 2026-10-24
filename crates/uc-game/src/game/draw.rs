@@ -256,6 +256,32 @@ impl Game {
                 [[0x77, 0x55, 0x33, 255]; 4],
             );
         }
+        // Puddles (`AENG_draw_puddles`, aeng.cpp:8600): each corner as the original numbers
+        // them, bit 0 picking x1 or x2 and bit 1 z1 or z2, with the texture turned a quarter
+        // round for those that run across (`rotate_uvs`). Only those within the fog.
+        for pd in &self.puddles.puddles {
+            let mid = Vec3::new((pd.a.0 + pd.b.0) / 2.0, pd.y, (pd.a.1 + pd.b.1) / 2.0);
+            if (mid - eye).length() > 32.0 * 256.0 {
+                continue;
+            }
+            let ([u1, v1], [u2, v2]) = pd.uvs();
+            let corner = |i: usize| Vec3::new(if i & 1 != 0 { pd.a.0 } else { pd.b.0 }, pd.y, if i & 2 != 0 { pd.a.1 } else { pd.b.1 }) / uc_world::UNIT;
+            let mut uv: [[f32; 2]; 4] = std::array::from_fn(|i| [if i & 1 != 0 { u1 } else { u2 }, if i & 2 != 0 { v1 } else { v2 }]);
+            if pd.rotate {
+                uv.swap(0, 1);
+                uv.swap(1, 3);
+                uv.swap(3, 2);
+            }
+            out.entry(puddle::PUDDLE_PAGE).or_default().quad(std::array::from_fn(corner), uv, [[255, 255, 255, 255]; 4]);
+        }
+        // Drips: a ring of `drip.tga` spreading and fading, added to the scene, 8 above the
+        // puddle (`AENG_draw_drips`).
+        for d in &self.puddles.drips {
+            let r = d.size;
+            let corner = |i: usize| Vec3::new(d.pos.x + if i & 1 != 0 { r } else { -r }, d.pos.y + 8.0, d.pos.z + if i & 2 != 0 { r } else { -r }) / uc_world::UNIT;
+            let f = d.fade.clamp(0.0, 255.0) as u8;
+            out.entry(puddle::DRIP_PAGE).or_default().quad(std::array::from_fn(corner), [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]], [[f, f, f, 255]; 4]);
+        }
         // Gunfire: the muzzle's sparks and where bullets land flash bright, cooling as they
         // go; blood and casings are small blended spots, dark red and brass.
         for s in &self.gunfx.sparks {
@@ -442,8 +468,9 @@ impl Game {
         let Some(people) = &level.people else { return Vec::new() };
         // The leaves, rubbish and snowflakes the dirt is drawn with.
         let mut out = vec![uc_world::SKY_PAGE, uc_world::MOON_PAGE, uc_world::EXPLODE_PAGE, uc_world::level::LEAF_PAGE, uc_world::level::RUBBISH_PAGE, uc_world::level::SNOWFLAKE_PAGE];
-        // And the footprints and tyre tracks.
+        // And the footprints, tyre tracks and puddles, and the drips in the puddles.
         out.extend(uc_world::DECAL_PAGES);
+        out.push(puddle::DRIP_PAGE);
         // The sea's floor, which the level leaves to the game.
         out.extend(level.sea().iter().map(|s| s.page));
         // The platforms' props, which the level leaves to the game.

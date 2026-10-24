@@ -29,6 +29,8 @@ impl Game {
             let mut mucky = p.mucky;
             for (limb, kind) in feet {
                 let Some((_, at)) = p.fig.part_world(limb) else { continue };
+                // A foot in a puddle drips (`DRIP_create_if_in_puddle`, Person.cpp:1420).
+                self.puddles.splash(Vec3::new(at.x, p.fig.pos.y, at.z));
                 // From twice that ahead of the foot back to it, 1.5 off the floor.
                 let from = Vec3::new(at.x - d.x * 2.0, 0.0, at.z - d.z * 2.0);
                 if tracks::on_water(&level.map, from.x, from.z) {

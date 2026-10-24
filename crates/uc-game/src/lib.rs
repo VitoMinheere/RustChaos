@@ -30,6 +30,7 @@ pub mod hm;
 pub mod mist;
 pub mod person;
 pub mod plat;
+pub mod puddle;
 pub mod pow;
 pub mod pyro;
 pub mod ribbon;
@@ -683,6 +684,8 @@ pub struct Game {
     pub drops: dirt::Drops,
     /// Sparks, casings and blood from gunfire and blows.
     pub gunfx: gunfx::GunFx,
+    /// The puddles a rainy level has, and the drips in them.
+    pub puddles: puddle::Puddles,
     /// The floor squares on the sea, drawn with the waves.
     sea: Vec<uc_world::level::SeaSquare>,
     /// Leaves, cans and snow lying about round the player.
@@ -840,6 +843,7 @@ impl Game {
             mists: Mists::default(),
             drops: dirt::Drops::default(),
             gunfx: gunfx::GunFx::default(),
+            puddles: puddle::Puddles::default(),
             sea: level.sea(),
             dirt: Game::new_dirt(level),
             show: Default::default(),
@@ -867,6 +871,10 @@ impl Game {
         };
         if !scripted {
             g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
+        }
+        // Puddles round the city when it's raining (elev.cpp:2598).
+        if Self::raining(level) {
+            g.puddles = puddle::Puddles::precalculate(&level.map, |x, z| g.routes.mav.height(x, z) as i32);
         }
         g.sync_wmove(level);
         // Run the first tick now so the player exists straight away.
@@ -1210,6 +1218,8 @@ impl Game {
             .collect();
         self.drops.update(dt, &streams, |at| level.ground.surface(&level.map, at.x, at.z, at.y + 8.0));
         self.gunfx.update(dt, |at| level.ground.surface(&level.map, at.x, at.z, at.y + 8.0));
+        let near = self.player().map(|p| p.fig.pos);
+        self.puddles.update(dt, Self::raining(level) && self.indoors.is_none(), near);
         let frozen = self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player);
         // A filmed conversation holds the player still too (`EWAY_cam_freeze`), but not
         // everyone else as a fly-by does.
