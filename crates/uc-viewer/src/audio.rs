@@ -66,6 +66,7 @@ impl Sound {
         self.audio.engine(None);
         self.audio.rotor(None);
         self.audio.siren(None);
+        self.audio.crackle(None);
     }
 
     /// Plays this frame's game sounds and keeps the music in step with the action.
@@ -138,6 +139,12 @@ impl Sound {
             0.8 * fade * fade
         });
         self.audio.siren(siren);
+        // The nearest fire burning, fading out 12 squares off.
+        let crackle = world.game.pyro.nearest_fire(listener.pos).and_then(|at| {
+            let fade = (1.0 - at.distance(listener.pos) / (12.0 * 256.0)).clamp(0.0, 1.0);
+            (fade > 0.0).then_some(0.7 * fade * fade)
+        });
+        self.audio.crackle(crackle);
         self.audio.update(dt);
     }
 }

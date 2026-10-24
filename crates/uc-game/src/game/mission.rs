@@ -291,8 +291,22 @@ impl Game {
                     let _ = way;
                     let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
                     let at = Vec3::new(pos.x, y.max(pos.y), pos.z);
-                    self.pyro.burst(at, kinds, if scale > 0.0 { scale } else { 400.0 });
-                    self.sounds.push((Sfx::Explosion, at));
+                    let scale = if scale > 0.0 { scale } else { 400.0 };
+                    self.pyro.burst(at, kinds & !pyro::FIRE, scale);
+                    // Its bonfire never goes out, and crackles (`S_FIRE`) rather than bangs.
+                    if kinds & pyro::FIRE != 0 {
+                        self.pyro.bonfire(at, scale);
+                    }
+                    // Only the fireball bangs (`PYRO_EXPLODE2`, pyro.cpp:343), and blows the
+                    // litter away as the dome does (`DIRT_gust` both ways, pyro.cpp:1237).
+                    if kinds & pyro::FIREBALL != 0 {
+                        self.sounds.push((Sfx::Explosion, at));
+                    }
+                    if kinds & (pyro::FIREBALL | pyro::DOME) != 0 {
+                        let (x, z, s) = (at.x as i32, at.z as i32, scale as i32);
+                        self.dirt.gust(x, z, x + s, z);
+                        self.dirt.gust(x + s, z, x, z);
+                    }
                 }
                 Command::Barrel { way, kind, pos } => {
                     let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);

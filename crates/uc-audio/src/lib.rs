@@ -150,6 +150,8 @@ pub struct Audio {
     rotor: Option<Arc<Control>>,
     /// A car's siren (`S_CAR_SIREN1`), looped while one's going.
     siren: Option<Arc<Control>>,
+    /// A fire's crackle (`S_FIRE`), looped while one's burning near.
+    crackle: Option<Arc<Control>>,
     rng: u32,
     /// The line being said, and the ones waiting behind it. A mission's voices are said one
     /// at a time: skipping a fly-by or a message brings the next one up before this one has
@@ -179,7 +181,7 @@ impl Audio {
         let mut sink = rodio::DeviceSinkBuilder::open_default_sink().map_err(|e| format!("no audio device: {e}"))?;
         sink.log_on_drop(false);
         Ok(Audio {
-            sink, game: game.to_path_buf(), cache: HashMap::new(), music: Vec::new(), ambience: None, bed: None, engine: None, rotor: None, siren: None, rng: 12345,
+            sink, game: game.to_path_buf(), cache: HashMap::new(), music: Vec::new(), ambience: None, bed: None, engine: None, rotor: None, siren: None, crackle: None, rng: 12345,
             speaking: None, waiting: VecDeque::new(), effect: None,
             sfx_volume: 0.8, music_volume: 0.55,
         })
@@ -365,6 +367,12 @@ impl Audio {
     pub fn siren(&mut self, volume: Option<f32>) {
         let held = self.siren.take();
         self.siren = self.hum(held, "General/CopSiren1.wav", volume);
+    }
+
+    /// A fire's crackle at `volume` (`Some`), or none burning near (`None`).
+    pub fn crackle(&mut self, volume: Option<f32>) {
+        let held = self.crackle.take();
+        self.crackle = self.hum(held, "General/FireCrackle1.wav", volume);
     }
 
     /// Loop `name` at `volume` (started if `held` isn't playing yet), or stops `held` with no
