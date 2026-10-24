@@ -17,6 +17,31 @@ pub struct Sight {
 }
 
 impl Game {
+    /// Whose health to show over them (`OVERLAY_draw_enemy_health`, overlay.cpp:813): in a
+    /// fight, the one she's squared up to; with a gun out, the one it's on. Where they stand
+    /// and how much health they have left, 0 to 1, against their type's (the Men in Black's
+    /// against 700, whatever they started with), and no more than all of it.
+    pub fn enemy_health(&self) -> Option<(Vec3, f32)> {
+        use uc_world::character::anim;
+        let me = self.player()?;
+        let fighting = matches!(me.state, State::Attack { .. } | State::Block { .. })
+            || matches!(me.fig.anim(), anim::FIGHT | anim::FIGHT_STEP_N | anim::FIGHT_STEP_S | anim::FIGHT_STEP_E | anim::FIGHT_STEP_W | anim::KNIFE_FIGHT_READY | anim::BAT_IDLE);
+        let t = if me.weapon.is_gun() && me.gun_out() {
+            self.target?
+        } else if fighting {
+            self.people.iter().enumerate()
+                .filter(|(_, q)| !q.removed && !q.player && q.hostile() && !q.is_dead() && !q.is_down())
+                .map(|(i, q)| (i, (q.fig.pos - me.fig.pos).length()))
+                .filter(|&(_, d)| d < 400.0)
+                .min_by(|a, b| a.1.total_cmp(&b.1))?.0
+        } else {
+            return None;
+        };
+        let q = &self.people[t];
+        let full = if q.is_mib() { 700 } else { uc_world::character::person::HEALTH[q.kind.min(14) as usize] };
+        Some((q.fig.pos, (q.health.max(0) as f32 / full.max(1) as f32).min(1.0)))
+    }
+
     /// What the player's gun is on.
     fn aimed(&self) -> Option<Aim> {
         match (self.target, self.aiming.creature, self.aiming.barrel, self.aiming.mine, self.aiming.vehicle) {
