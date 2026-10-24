@@ -1368,6 +1368,21 @@ impl Game {
                         .map(|(j, _)| j)
                 }
                 (person::AI_BULLY, _) => p.bully,
+                // `PCOM_AI_KILL_COLOUR` (pcom.cpp:11607): whoever is nearest of the colour of
+                // the person its `ai_other` point made, alive, not one of the city's extras,
+                // and in its zone if it has one; no matter how far, seen or not.
+                (person::AI_KILL_COLOUR, w) if w != 0 => {
+                    let colour = self.by_way.get(&w).map(|&e| self.people[e].colour);
+                    colour.and_then(|c| {
+                        self.people.iter().enumerate()
+                            .filter(|&(j, o)| {
+                                j != i && o.colour == c && !o.removed && !o.is_dead() && !o.fake
+                                    && (p.zone == 0 || level.mission.zones_at(o.fig.pos.x, o.fig.pos.z) & p.zone != 0)
+                            })
+                            .min_by(|a, b| (a.1.fig.pos - p.fig.pos).length().total_cmp(&(b.1.fig.pos - p.fig.pos).length()))
+                            .map(|(j, _)| j)
+                    })
+                }
                 _ => self.nearest_seat(p.fig.pos),
             };
             // Twenty blocks from the player, a bodyguard is out of harm's way.
