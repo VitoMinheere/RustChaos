@@ -205,7 +205,8 @@ impl Menu {
     pub fn new(game: &Path) -> Menu {
         let mut entries: Vec<Entry> = Vec::new();
         let mut maps: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
-        let (named, district_of) = districts(game);
+        let (mut named, district_of) = districts(game);
+        let mut map_of = Vec::new();
         for (mission, title, briefing) in missions(game) {
             let playable = PLAYABLE.iter().any(|p| p.eq_ignore_ascii_case(&mission));
             let goals = uc_formats::resolve(game, &format!("levels\\{mission}.ucm"))
@@ -217,9 +218,10 @@ impl Menu {
                 .and_then(|p| std::fs::read(p).ok())
                 .and_then(|b| uc_formats::ucm::Mission::parse(&b).ok())
                 .map(|m| m.map.to_ascii_lowercase());
-            if let Some(map) = map.filter(|m| !m.is_empty()) {
+            if let Some(map) = map.clone().filter(|m| !m.is_empty()) {
                 maps.entry(map).or_default().push((mission.clone(), title.clone()));
             }
+            map_of.push(map);
             let district = district_of.get(&mission.to_ascii_lowercase()).copied();
             entries.push(Entry { mission, title, briefing, playable, goals, district });
         }
@@ -238,6 +240,21 @@ impl Menu {
             }
         }
         let maps = arenas;
+        // The unreleased missions aren't in `urban.sty`: each goes on the district of a
+        // mission on the same map, and those on maps of their own on a pin of their own.
+        let mut lost = None;
+        for i in 0..entries.len() {
+            if entries[i].district.is_some() || !UNRELEASED.iter().any(|u| u.0 == entries[i].mission) {
+                continue;
+            }
+            let near = (0..entries.len()).find(|&j| j != i && map_of[j].is_some() && map_of[j] == map_of[i] && entries[j].district.is_some());
+            entries[i].district = near.and_then(|j| entries[j].district).or_else(|| {
+                Some(*lost.get_or_insert_with(|| {
+                    named.push(Some(("Unreleased Missions".to_string(), LOST_PIN)));
+                    named.len() - 1
+                }))
+            });
+        }
         // A pin for each district with missions, ordered by where it is across the map
         // (`crap_remap`, frontend.cpp:4094).
         let mut pins: Vec<Pin> = named.into_iter().enumerate()
@@ -1111,6 +1128,10 @@ pub fn missions(game: &Path) -> Vec<(String, String, String)> {
     out
 }
 
+/// Where the unreleased missions without a district of their own are pinned, on the 640 by
+/// 480 map: out in the bay.
+const LOST_PIN: (f32, f32) = (560.0, 420.0);
+
 /// A district on the city map: its name and where it is on the 640 by 480 map.
 pub type District = (String, (f32, f32));
 
@@ -1220,12 +1241,12 @@ mod tests {
         assert_eq!(name("testdrive1a").as_deref(), Some("Oval Circuit"));
         assert_eq!(name("police1").as_deref(), Some("West District"));
         let m = Menu::new(&game);
-        for e in m.entries.iter().filter(|e| e.playable && !UNRELEASED.iter().any(|u| u.0 == e.mission)) {
+        for e in m.entries.iter().filter(|e| e.playable || UNRELEASED.iter().any(|u| u.0 == e.mission)) {
             assert!(m.pins.iter().any(|p| p.missions.iter().any(|&i| m.entries[i].mission == e.mission)), "{} has no pin", e.mission);
         }
         assert!(m.pins.windows(2).all(|w| w[0].at.0 <= w[1].at.0));
-        // The unreleased missions are only in the list.
-        assert!(m.entries.iter().filter(|e| UNRELEASED.iter().any(|u| u.0 == e.mission)).all(|e| e.district.is_none()));
+        // The unreleased missions are pinned too.
+        assert!(m.entries.iter().filter(|e| UNRELEASED.iter().any(|u| u.0 == e.mission)).all(|e| e.district.is_some()));
     }
 
     #[test]
