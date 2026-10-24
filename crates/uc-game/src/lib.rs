@@ -245,14 +245,50 @@ impl Convo {
     }
 }
 
-/// What the music should be doing.
+/// What the music should be doing (`MUSIC_MODE_*`, fallen/Headers/music.h; chosen by
+/// `context_music`, fallen/Source/Controls.cpp:1372).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mood {
     Calm,
+    /// At the wheel (`MUSIC_MODE_DRIVING`).
+    Drive,
+    /// Crawling (`MUSIC_MODE_CRAWLING`).
+    Crawl,
     Fight,
     Sprint,
+    /// A mission with a theme of its own for all of it (`MUSIC_bodge_code`,
+    /// `FRONTEND_diddle_music`): the combat, assault and driving training and Day Of
+    /// Reckoning.
+    Theme(Theme),
+    /// A visible countdown under 30 seconds (`MUSIC_MODE_TIMER`): a tune played once.
+    Timer,
     Won,
     Lost,
+    /// Lost with the player still standing (`MUSIC_MODE_CHAOS`, Game.cpp:2377).
+    Chaos,
+}
+
+/// The missions that have a tune of their own throughout (`MUSIC_bodge_code`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Theme {
+    CombatTraining,
+    AssaultTraining,
+    DrivingTraining,
+    Reckoning,
+}
+
+impl Theme {
+    /// `FRONTEND_diddle_music` (fallen/Source/frontend.cpp:7375): by the mission's file name.
+    pub fn of(mission: &str) -> Option<Theme> {
+        let m = mission.to_ascii_lowercase();
+        Some(match () {
+            _ if m.starts_with("fight") || m.starts_with("ftutor") => Theme::CombatTraining,
+            _ if m.starts_with("assault") => Theme::AssaultTraining,
+            _ if m.starts_with("testdrive") => Theme::DrivingTraining,
+            _ if m.starts_with("finale1") => Theme::Reckoning,
+            _ => return None,
+        })
+    }
 }
 pub use script::{Command, Script};
 
@@ -669,6 +705,8 @@ pub struct Game {
     pub no_floor: bool,
     /// Seconds since the end of the world began (`PYRO_GAMEOVER`), if it has.
     pub end_of_world: Option<f32>,
+    /// The mission's own tune, played throughout ([`Theme::of`]).
+    theme: Option<Theme>,
     /// Estate of Emergency, where the tramp's face is the boss's (`estate`).
     estate: bool,
     /// Grim Gardens, where jumping onto a platform puts you on it (`playing_level`).
@@ -807,6 +845,7 @@ impl Game {
             electrified: BTreeSet::new(),
             no_floor: false,
             end_of_world: None,
+            theme: Theme::of(&level.name),
             estate: level.mission.mission_name.eq_ignore_ascii_case("estate2"),
             botanicc: level.name.eq_ignore_ascii_case("botanicc"),
             streets: game::Streets::new(level),

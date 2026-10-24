@@ -507,15 +507,26 @@ impl Game {
         }
     }
 
-    /// What the music should be doing: fight music while enemies are on the player, sprint
-    /// music while sprinting, quiet otherwise.
+    /// What the music should be doing (`context_music`, Controls.cpp:1372): fight music while
+    /// enemies are on the player, sprint music while sprinting, crawl music crawling, driving
+    /// music at the wheel, and quiet otherwise. A mission with a theme of its own plays it
+    /// throughout, and a visible countdown under 30 seconds plays the timer tune over
+    /// anything (`music_mode_override`, eway.cpp:2605).
     pub fn mood(&self) -> Mood {
+        let me = self.player();
         match &self.outcome {
             Some(Outcome::Won) => Mood::Won,
+            Some(Outcome::Lost(_)) if me.is_some_and(|p| !p.is_dead() && p.health > 0) => Mood::Chaos,
             Some(Outcome::Lost(_)) => Mood::Lost,
-            None if self.fight_timer > 0.0 => Mood::Fight,
-            None if self.sprinting => Mood::Sprint,
-            None => Mood::Calm,
+            None if self.countdown().is_some_and(|t| t < 30.0) => Mood::Timer,
+            None => match self.theme {
+                Some(t) => Mood::Theme(t),
+                None if self.fight_timer > 0.0 => Mood::Fight,
+                None if self.sprinting => Mood::Sprint,
+                None if me.is_some_and(|p| matches!(p.state, State::Crouch { phase: 2 })) => Mood::Crawl,
+                None if self.player_vehicle().is_some() => Mood::Drive,
+                None => Mood::Calm,
+            },
         }
     }
 }
