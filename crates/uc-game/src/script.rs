@@ -364,9 +364,14 @@ fn enemy_has(et: i32) -> u8 {
         9 | 13 => 1,
         10 | 14 => 2,
         11 | 15 => 4,
+        // `ET_WORKMAN_GRENADE` (elev.cpp:838).
+        17 => HAS_GRENADE,
         _ => 0,
     }
 }
+
+/// `HAS_GRENADE` (fallen/Headers/Mission.h).
+pub const HAS_GRENADE: u8 = 1 << 3;
 
 /// `ai_other` (`Data[7]`): the event point whose person an assassin kills or a bodyguard
 /// guards. (Fight-test dummies keep their knockout moves there instead.)

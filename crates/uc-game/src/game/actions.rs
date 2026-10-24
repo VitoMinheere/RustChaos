@@ -322,7 +322,12 @@ impl Game {
     fn empty_pockets(&mut self, j: usize, level: &Level) -> Vec<Item> {
         let p = &mut self.people[j];
         p.searched = true;
-        let kinds: Vec<u8> = [p.weapon.item(), p.melee.item(), p.drop.take()].into_iter().flatten().collect();
+        // And a grenade he was given and never threw.
+        let grenade = (!p.player && p.grenades > 0).then_some(game::grenades::IT_GRENADE);
+        if grenade.is_some() {
+            p.grenades = 0;
+        }
+        let kinds: Vec<u8> = [p.weapon.item(), p.melee.item(), p.drop.take(), grenade].into_iter().flatten().collect();
         (p.weapon, p.melee) = (Weapon::None, Weapon::None);
         let hips = p.fig.hips();
         kinds.into_iter().enumerate().map(|(n, kind)| {

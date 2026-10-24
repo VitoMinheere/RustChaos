@@ -302,7 +302,8 @@ impl Game {
         let mut goals: Vec<(Option<Vec3>, person::Pace)> = vec![(None, person::Pace::Walk); self.people.len()];
         let mut patrols: Vec<Option<usize>> = self.people.iter().map(|p| p.patrol).collect();
         for (i, p) in self.people.iter().enumerate() {
-            if p.player || p.aggro() || p.is_dead() {
+            // `PCOM_AI_NONE` does nothing at all (pcom.cpp:10851): no walking anywhere.
+            if p.player || p.aggro() || p.is_dead() || p.ai == 0 {
                 continue;
             }
             // QDIST3: the largest axis plus a quarter of each of the other two.
