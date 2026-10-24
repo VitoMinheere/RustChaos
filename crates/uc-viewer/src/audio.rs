@@ -21,6 +21,8 @@ pub(crate) struct Sound {
     pub(crate) weather: Weather,
     /// Game turns owed to the weather (20 a second).
     pub(crate) turns: f32,
+    /// The player is dead, and her heart has given out (`S_HEART_FAIL`, played once).
+    pub(crate) dead: bool,
 }
 
 impl Sound {
@@ -35,7 +37,7 @@ impl Sound {
                 return None;
             }
         };
-        Some(Sound { audio, music_world: 1, fights: 0, mood: Mood::Calm, indoors: None, weather: Weather::new(Wtype::BusyCity, false), turns: 0.0 })
+        Some(Sound { audio, music_world: 1, fights: 0, mood: Mood::Calm, indoors: None, weather: Weather::new(Wtype::BusyCity, false), turns: 0.0, dead: false })
     }
 
     /// A mission starts: its music world and the city's ambience.
@@ -47,6 +49,7 @@ impl Sound {
         self.audio.music(None);
         self.weather = Weather::new(Wtype::of(world.level.map.texture_set), Game::raining(&world.level));
         self.turns = 0.0;
+        self.dead = false;
         self.audio.ambience(self.weather.looped().and_then(sound_name), 0.35);
         self.audio.bed(self.weather.world.bed().and_then(sound_name), 0.35);
     }
@@ -76,6 +79,12 @@ impl Sound {
         for (sfx, pos) in world.game.take_sounds() {
             sound::play(&mut self.audio, sfx, pos, &listener, &world.level.name);
         }
+        // Her heart giving out as she dies (`process_weather`, Sound.cpp:296), once.
+        let dead = world.game.player().is_some_and(|p| p.knocked_out);
+        if dead && !self.dead {
+            self.audio.play("borrowed/heartfail.wav", 0.9);
+        }
+        self.dead = dead;
         let mood = world.game.mood();
         let indoors = world.game.indoors();
         let moved = indoors != self.indoors;
