@@ -1453,6 +1453,7 @@ impl Game {
         self.blow_dirt(dt, level);
         self.lay_prints(level);
         self.breathe_out(level);
+        self.bleed(level);
         self.run_balloons(dt, level);
 
         // Capture the flag: knocked out, she comes back at home ([`Game::run_ctf`]).

@@ -41,7 +41,10 @@ pub const TYREMARK_PAGE: u32 = 22 * 64 + 33;
 pub const TYRETRACK_PAGE: u32 = 22 * 64 + 60;
 /// Pages drawn as marks on the ground: blended over it by their alpha times the vertex
 /// alpha, tinted by the vertex colour (`POLY_PAGE_FOOTPRINT`, `_TYRESKID`, `_TYRETRACK`).
-pub const DECAL_PAGES: [u32; 4] = [FOOTPRINT_PAGE, TYREMARK_PAGE, TYRETRACK_PAGE, PUDDLE_PAGE];
+pub const DECAL_PAGES: [u32; 5] = [FOOTPRINT_PAGE, TYREMARK_PAGE, TYRETRACK_PAGE, PUDDLE_PAGE, BLOODSPLAT_PAGE];
+/// `TEXTURE_page_bloodsplat` (`TEXTURE_NUM_STANDARD + 27`): `bludsplt.tga`, a splash of
+/// blood blended over the ground by its alpha (`POLY_PAGE_BLOODSPLAT`).
+pub const BLOODSPLAT_PAGE: u32 = 22 * 64 + 27;
 /// `TEXTURE_page_puddle` (`TEXTURE_NUM_STANDARD + 4`): `puddle01.tga`, a puddle blended over
 /// the ground by its alpha (`POLY_PAGE_PUDDLE`).
 pub const PUDDLE_PAGE: u32 = 22 * 64 + 4;

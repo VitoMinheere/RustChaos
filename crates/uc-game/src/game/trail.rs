@@ -8,6 +8,34 @@ const LEFT_FOOT: usize = 3;
 const RIGHT_FOOT: usize = 14;
 
 impl Game {
+    /// Someone below a quarter of their health, and not in a car, now and then leaves a
+    /// splash of blood by a foot (Person.cpp:4466, `TRACKS_Bleed`, tracks.cpp:317): the
+    /// less health left, the more often. A splash is 1 to 32 across, at any angle, a few
+    /// units off the foot and just over the ground.
+    pub(crate) fn bleed(&mut self, level: &Level) {
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            if p.removed || p.is_dead() || p.health <= 0 || p.health >= p.max_health / 4 || matches!(p.state, State::InCar { .. }) {
+                continue;
+            }
+            let health = p.health;
+            if (self.rand() & 0x7f) as i32 <= health || self.rand() & 1 == 0 {
+                continue;
+            }
+            let size = 1 + (self.rand() & 0x1f) as i32;
+            let foot = if self.rand() & 1 != 0 { LEFT_FOOT } else { RIGHT_FOOT };
+            let a = (self.rand() & 2047) as f32 * std::f32::consts::TAU / 2048.0;
+            // `(rand() & 0247) - 1024` across: an octal slip in the original, so always a few
+            // units one way; `(rand() & 2047) - 1024` along.
+            let (ox, oz) = (((self.rand() & 0o247) as f32 - 1024.0) / 256.0, ((self.rand() & 2047) as f32 - 1024.0) / 256.0);
+            let Some((_, at)) = self.people[i].fig.part_world(foot) else { continue };
+            let (x, z) = (at.x + ox, at.z + oz);
+            let y = level.map.ground_height(x, z) + 1.0;
+            let d = Vec3::new(a.sin(), 0.0, a.cos()) * size as f32;
+            self.tracks.add_quad(Vec3::new(x, y, z), d, uc_world::geometry::BLOODSPLAT_PAGE, [255, 255, 255], 0, size as f32, None);
+        }
+    }
+
     /// On snow, everyone standing about but the Men in Black breathes out a puff from their
     /// head, once a breath as the animation passes its fifth frame (`fn_person_idle`,
     /// Person.cpp:11791, `MagicFrameCheck`). The original stands people in `ANIM_STAND_READY`;
