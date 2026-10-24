@@ -504,7 +504,9 @@ impl Game {
                 // An assassin of the victim (`PCOM_AI_ASSASIN`, its mark by point number).
                 let mark = self.people[victim].way;
                 let p = &mut self.people[mugger];
-                (p.ai, p.other, p.guilty) = (3, mark, true);
+                // An assassin who goes after his mark, not one who stands and snipes
+                // (`PCOM_MOVE_FOLLOW`, as the missions' assassins are).
+                (p.ai, p.other, p.guilty, p.mv) = (3, mark, true, person::MOVE_FOLLOW);
                 self.people[mugger].go_for();
                 self.people[mugger].ai = 3;
                 (inc.culprits, inc.victims) = (vec![mugger], vec![victim]);
@@ -546,7 +548,7 @@ impl Game {
                     let (wa, wo) = (self.people[a].way, self.people[o].way);
                     for (i, mark) in [(a, wo), (o, wa)] {
                         let p = &mut self.people[i];
-                        (p.ai, p.other, p.guilty) = (3, mark, true);
+                        (p.ai, p.other, p.guilty, p.mv) = (3, mark, true, person::MOVE_FOLLOW);
                         p.go_for();
                         p.ai = 3;
                     }
