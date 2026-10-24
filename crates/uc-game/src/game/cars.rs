@@ -243,6 +243,7 @@ impl Game {
                 Some(d) => Drive { faster: true, ..d },
                 None => npc.map_or(Drive::default(), |(_, d)| d),
             };
+            v.work_siren(d);
             let sliding = v.slip.abs() > 300.0;
             let mut smashed = None;
             if let Some(speed) = v.update(d, dt, &level.ground, &level.map) {
@@ -349,6 +350,11 @@ impl Game {
     }
 
     /// The car the player is driving.
+    /// The nearest car to `at` with its siren going, to hear it from.
+    pub fn siren_noise(&self, at: Vec3) -> Option<Vec3> {
+        self.vehicles.iter().filter(|v| v.siren).map(|v| v.pos).min_by(|a, b| a.distance_squared(at).total_cmp(&b.distance_squared(at)))
+    }
+
     pub fn player_vehicle(&self) -> Option<&Vehicle> {
         match self.player().map(|p| &p.state) {
             Some(State::InCar { vehicle }) => self.vehicles.get(*vehicle),

@@ -242,7 +242,8 @@ impl App {
                 };
             }
             // Driving: W/S or the triggers (or stick) for speed, A/D or the stick to steer,
-            // Space or A for the handbrake. The camera swings round behind the car.
+            // Space or A for the handbrake, kick (K or Y) for the siren, as the PlayStation's
+            // `INPUT_CAR_SIREN`. The camera swings round behind the car.
             // On a motorbike: the same keys (Space for a wheelie), and action to get off.
             if w.game.riding().is_some() {
                 let key = |k| if inp.held(k) { 1.0 } else { 0.0 };
@@ -264,7 +265,7 @@ impl App {
                 let handbrake = inp.held(KeyCode::Space) || pad.held(Button::South);
                 controls = Controls {
                     action: controls.action,
-                    drive: uc_game::Drive { throttle: throttle.clamp(-1.0, 1.0), steer: steer.clamp(-1.0, 1.0), handbrake, ..Default::default() },
+                    drive: uc_game::Drive { throttle: throttle.clamp(-1.0, 1.0), steer: steer.clamp(-1.0, 1.0), handbrake, siren: controls.kick, ..Default::default() },
                     ..Default::default()
                 };
                 if car.speed.abs() > 100.0 && delta.length_squared() < 1.0 && pad.look.length_squared() < 0.01 {

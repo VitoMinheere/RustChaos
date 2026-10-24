@@ -181,8 +181,10 @@ pub mod button {
     pub const HANDBRAKE: u16 = 1 << 13;
     /// Skip the cutscene.
     pub const SKIP: u16 = 1 << 14;
+    /// The car's siren on or off.
+    pub const SIREN: u16 = 1 << 15;
     /// Those that are pressed rather than held: kept until a turn takes them.
-    pub const PRESSES: u16 = PUNCH | KICK | ACTION | JUMP | SWITCH | CYCLE_TARGET | SCOPE | TAUNT | SKIP;
+    pub const PRESSES: u16 = PUNCH | KICK | ACTION | JUMP | SWITCH | CYCLE_TARGET | SCOPE | TAUNT | SKIP | SIREN;
 }
 
 impl Input {
@@ -192,7 +194,7 @@ impl Input {
             (c.run, RUN), (c.sprint, SPRINT), (c.punch, PUNCH), (c.kick, KICK), (c.action, ACTION),
             (c.jump, JUMP), (c.block, BLOCK), (c.fire, FIRE), (c.switch, SWITCH),
             (c.cycle_target, CYCLE_TARGET), (c.scope, SCOPE), (c.taunt, TAUNT), (c.crouch, CROUCH),
-            (c.drive.handbrake, HANDBRAKE), (skip, SKIP),
+            (c.drive.handbrake, HANDBRAKE), (c.drive.siren, SIREN), (skip, SKIP),
         ];
         let buttons = bits.iter().filter(|b| b.0).fold(0, |a, b| a | b.1);
         Input { wish: c.wish.to_array(), drive: [c.drive.throttle, c.drive.steer], buttons }
@@ -216,7 +218,7 @@ impl Input {
             scope: on(SCOPE),
             taunt: on(TAUNT),
             crouch: on(CROUCH),
-            drive: Drive { throttle: self.drive[0], steer: self.drive[1], handbrake: on(HANDBRAKE), ..Default::default() },
+            drive: Drive { throttle: self.drive[0], steer: self.drive[1], handbrake: on(HANDBRAKE), siren: on(SIREN), ..Default::default() },
             target: None,
             aim: None,
         }
