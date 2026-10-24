@@ -291,14 +291,16 @@ impl Game {
     }
 
     /// Where each person is walking to when they aren't fighting: `PCOM_process_patrol`
-    /// (move 2 or 3) heads for the nearest active point of their colour and group, or once
-    /// there (within a square), the next one by number; `PCOM_MOVE_FOLLOW` (move 5) keeps up
+    /// (move 2 or 3) heads for the nearest active point of their colour and group, and once
+    /// there (within a square), the next one by number, and so on (it keeps to the one it's
+    /// heading for, not the nearest, which would turn it back once it's left a point); `PCOM_MOVE_FOLLOW` (move 5) keeps up
     /// with the person their `follow` point created, the player by default.
     pub(crate) fn walk_goals(&mut self) {
         let Some(script) = &self.script else { return };
         // Where everyone stands this frame, so they all aim at the same thing.
         let at: Vec<Vec3> = self.people.iter().map(|p| p.fig.pos).collect();
         let mut goals: Vec<(Option<Vec3>, person::Pace)> = vec![(None, person::Pace::Walk); self.people.len()];
+        let mut patrols: Vec<Option<usize>> = self.people.iter().map(|p| p.patrol).collect();
         for (i, p) in self.people.iter().enumerate() {
             if p.player || p.aggro() || p.is_dead() {
                 continue;
@@ -339,9 +341,11 @@ impl Game {
                 // `PCOM_process_patrol`: a walk, unless they're `PCOM_BENT_DILIGENT`.
                 2 | 3 => {
                     let points = script.patrol_points(p.colour, p.group);
+                    let heading = p.patrol.and_then(|w| points.iter().position(|q| q.0 == w));
                     let nearest = (0..points.len()).min_by(|&a, &b| near(points[a].1).total_cmp(&near(points[b].1)));
-                    let to = nearest.map(|k| {
+                    let to = heading.or(nearest).map(|k| {
                         let k = if near(points[k].1) < 256.0 { (k + 1) % points.len() } else { k };
+                        patrols[i] = Some(points[k].0);
                         points[k].1
                     });
                     (to, if p.bent & 2 != 0 { person::Pace::Run } else { person::Pace::Walk })
@@ -349,8 +353,8 @@ impl Game {
                 _ => (None, person::Pace::Walk),
             };
         }
-        for (p, (goal, pace)) in self.people.iter_mut().zip(goals) {
-            (p.goal, p.pace) = (goal, pace);
+        for ((p, (goal, pace)), patrol) in self.people.iter_mut().zip(goals).zip(patrols) {
+            (p.goal, p.pace, p.patrol) = (goal, pace, patrol);
         }
     }
 }

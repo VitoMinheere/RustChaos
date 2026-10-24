@@ -777,6 +777,14 @@ pub struct Person {
     /// `PCOM_MOVE_WANDER`: walking to this spot, giving up after this many seconds (or
     /// pausing, with no spot).
     wander: (Option<Vec2>, f32),
+    /// The patrol point (its waypoint) being walked to, kept from reaching one point until
+    /// reaching the next (`PCOM_process_patrol`).
+    pub(crate) patrol: Option<usize>,
+    /// Seconds walking (the AI) without getting anywhere, against a wall, an edge or a
+    /// parked car: they stand a while, rather than walk on the spot, and a wanderer gives up
+    /// where it was going. Measured over half a second at a time, from where they were then.
+    pub(crate) blocked: f32,
+    pub(crate) walk_check: (Vec3, f32),
     /// One of the city's extra people, made by the level rather than the mission
     /// (`FLAG2_PERSON_FAKE_WANDER`): they keep to the pavements, and are moved somewhere
     /// near the player once out of sight for a while.
@@ -837,7 +845,7 @@ impl Person {
             pace: Pace::Walk,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
-            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
+            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }

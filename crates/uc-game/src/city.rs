@@ -116,7 +116,7 @@ impl Game {
         for _ in 0..level.mission.fake_cars {
             let Some((at, yaw)) = (0..16).find_map(|_| self.car_start(level, true)) else { continue };
             let kind = VEHICLE_RANDOM[((self.city_rand() >> 4) & 15) as usize];
-            let y = level.ground.surface(&level.map, at.x, at.y, 1.0e4);
+            let y = street_height(level, at);
             let variant = self.city_rand();
             let Some(i) = self.spawn_variant(level, ptype::CIV, false, 0, Vec3::new(at.x, y, at.y), 0.0, variant) else { break };
             self.drive_off(i, kind, Vec3::new(at.x, y, at.y), yaw, Driving::default());
@@ -243,7 +243,7 @@ impl Game {
                 State::InCar { vehicle } => {
                     if p.unseen > UNSEEN && !paused && self.vehicles[vehicle].driver == Some(i) && !self.vehicles[vehicle].wrecked() {
                         if let Some((to, yaw)) = self.car_start(level, false) {
-                            let y = level.ground.surface(&level.map, to.x, to.y, 1.0e4);
+                            let y = street_height(level, to);
                             self.vehicles[vehicle].reset(Vec3::new(to.x, y, to.y), yaw);
                             self.streets.drivers.insert(i, Driving::default());
                             self.people[i].unseen = (self.city_rand() & 15) as f32 / 20.0;
@@ -262,7 +262,7 @@ impl Game {
                         let crowded = |to: &Vec2| self.people.iter().any(|o| o.fake && vec2(o.fig.pos.x - to.x, o.fig.pos.z - to.y).length() < 3.0 * 256.0);
                         let to = to.filter(|to| !crowded(to));
                         if let Some(to) = to {
-                            let y = level.ground.surface(&level.map, to.x, to.y, 1.0e4);
+                            let y = street_height(level, to);
                             self.people[i].respawn(Vec3::new(to.x, y, to.y));
                             self.turn_bored(i, pi, level);
                         }
@@ -287,7 +287,7 @@ impl Game {
                         let to = self.streets.wand.start_ahead(me, facing, self.view_dist, &mut || rand(&mut rng));
                         self.rngs.city = rng;
                         if let Some(to) = to {
-                            let y = level.ground.surface(&level.map, to.x, to.y, 1.0e4);
+                            let y = street_height(level, to);
                             self.people[i].respawn(Vec3::new(to.x, y, to.y));
                             self.turn_bored(i, pi, level);
                         }
@@ -388,4 +388,10 @@ impl Game {
         self.messages.push(Message { text, left: 4.0, face, filmed: false });
         true
     }
+}
+
+/// The height of the street at `at`: the pavement or road, not the top of an awning or a roof
+/// over it, which the city's people and cars are never put on (they'd be stuck up there).
+fn street_height(level: &Level, at: Vec2) -> f32 {
+    level.ground.road(&level.map, at.x, at.y, level.map.ground_height(at.x, at.y))
 }

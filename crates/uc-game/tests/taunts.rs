@@ -75,7 +75,8 @@ fn a_gang_member_taunts_then_comes_on() {
     let Some((level, mut g, i)) = rta_gang() else { return };
     let mut taunted = false;
     let mut came = false;
-    for _ in 0..(20.0 / DT) as usize {
+    // Each taunt is followed by coming on only half the time: long enough for a few.
+    for _ in 0..(40.0 / DT) as usize {
         run(&mut g, &level, DT, &Controls::default());
         if matches!(g.people[i].state, State::Taunt { .. }) {
             taunted = true;
