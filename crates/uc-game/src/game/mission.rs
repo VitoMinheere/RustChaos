@@ -55,7 +55,13 @@ impl Game {
                         (p.ai, p.bent, p.ko_moves) = (spec.ai, spec.bent, spec.ko_moves);
                         (p.skill, p.mv, p.weapon) = (spec.skill, spec.mv, Weapon::from_has(spec.has));
                         p.follow = spec.follow;
-                        p.drop = game::special_item(spec.drop);
+                        // Someone with a pistol doesn't drop another (pcom.cpp:5369).
+                        let drop = if spec.has & 1 != 0 && spec.drop == 2 { 0 } else { spec.drop };
+                        p.drop = game::special_item(drop);
+                        // A grenade to his name (`PCOM_HAS_GRENADE`, pcom.cpp:5551).
+                        if spec.has & script::HAS_GRENADE != 0 {
+                            p.grenades = p.grenades.max(1);
+                        }
                         p.fig.clothes = spec.colour & 3;
                         p.fig.jacket = spec.skill / 4;
                         p.other = spec.other;

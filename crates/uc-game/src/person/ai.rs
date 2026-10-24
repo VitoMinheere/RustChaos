@@ -14,6 +14,15 @@ impl Person {
     /// `can_a_see_b` (Person.cpp:3198), with its range capped at `range`: within it, half that
     /// if they're crouching; in front within 700 of 2048 either way up close (0xc0), 420
     /// further off (`PEOPLE_FOV`); and in view head to head, a crouched head being lower.
+    /// Seconds to the next shot: sooner the more skilled. `PCOM_AI_SHOOT_DEAD` waits for
+    /// nothing (pcom.cpp:8622, 8973), so the gun goes off as fast as it can be fired.
+    fn shot_interval(&self, skill: f32, rand: &mut impl FnMut() -> u32) -> f32 {
+        if self.ai == 21 {
+            return 0.3;
+        }
+        ((2.4 - skill * 0.1).max(0.8) + (rand() % 100) as f32 / 100.0) * self.shot_wait
+    }
+
     /// Called in by a Man in Black: off after the player, if they're the sort who'd fight
     /// and aren't already (`PCOM_alert_nearby_mib_to_attack` sends the Men in Black, guards,
     /// gang members and fight-test dummies who are going about their business, home or
@@ -351,7 +360,7 @@ impl Person {
                 if self.attack_timer <= 0.0 {
                     c.punch = true;
                     let skill = self.skill as f32;
-                    self.attack_timer = ((2.4 - skill * 0.1).max(0.8) + (rand() % 100) as f32 / 100.0) * self.shot_wait;
+                    self.attack_timer = self.shot_interval(skill, rand);
                 }
             }
             return c;
@@ -376,7 +385,7 @@ impl Person {
             let seen = dist < SHOOT_RANGE && ground.line_of_sight(self.fig.pos + eye, p.pos + eye);
             if seen && self.attack_timer <= 0.0 {
                 c.punch = true;
-                self.attack_timer = ((2.4 - skill * 0.1).max(0.8) + (rand() % 100) as f32 / 100.0) * self.shot_wait;
+                self.attack_timer = self.shot_interval(skill, rand);
             } else if !seen || dist > SHOOT_RANGE * 0.8 {
                 c.wish = towards;
                 c.run = dist > SHOOT_RANGE;
