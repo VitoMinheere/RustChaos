@@ -36,6 +36,36 @@ impl Game {
         }
     }
 
+    /// Someone landed dead from a plunge: a splash of blood spreading out round them
+    /// (`PYRO_SPLATTERY`, pyro.cpp:1146). Its counter goes up 18 a frame to 255; each frame
+    /// lays four times five splashes, `counter` out from the middle and shrinking from 31 to
+    /// nothing as it goes.
+    pub(crate) fn splatter(&mut self, level: &Level) {
+        for i in 0..self.people.len() {
+            if !std::mem::take(&mut self.people[i].splattered) {
+                continue;
+            }
+            let at = self.people[i].fig.pos;
+            let mut counter = 0u32;
+            while counter <= 254 {
+                for _ in 0..4 {
+                    let size = ((255 - counter) >> 3) as f32;
+                    let a = (self.rand() & 2047) as f32 * std::f32::consts::TAU / 2048.0;
+                    let d = Vec3::new(a.sin(), 0.0, a.cos()) * size.max(1.0);
+                    let (x, z) = (at.x - d.x / 2.0, at.z - d.z / 2.0);
+                    let turn = (self.rand() & 0xff) as f32;
+                    for b in 0..5 {
+                        let a = (b as f32 * 340.0 + turn) * std::f32::consts::TAU / 2048.0;
+                        let (ox, oz) = (a.sin() * counter as f32, a.cos() * counter as f32);
+                        let y = level.map.ground_height(x + ox, z + oz) + 1.0;
+                        self.tracks.add_quad(Vec3::new(x + ox, y, z + oz), d, uc_world::geometry::BLOODSPLAT_PAGE, [255, 255, 255], 0, size.max(1.0), None);
+                    }
+                }
+                counter += 18;
+            }
+        }
+    }
+
     /// On snow, everyone standing about but the Men in Black breathes out a puff from their
     /// head, once a breath as the animation passes its fifth frame (`fn_person_idle`,
     /// Person.cpp:11791, `MagicFrameCheck`). The original stands people in `ANIM_STAND_READY`;

@@ -287,6 +287,8 @@ pub enum Sfx {
     ConversationLine(usize, usize),
     /// A blow blocked.
     Block,
+    /// Someone plunging to their death screams (`ScreamFallSound`, Sound.cpp:600).
+    ScreamFall { kind: u8 },
     Stab,
     BatHit,
     Shot(Weapon),
@@ -888,6 +890,10 @@ pub struct Person {
     fidget_roll: u32,
     /// This breath's puff is out (`FLAG2_SYNC_SOUNDFX` for `MagicFrameCheck`).
     pub(crate) breathed: bool,
+    /// Plunging to their death: they've screamed. Landed from it: the blood to splash
+    /// (`PYRO_SPLATTERY`), for the game to lay.
+    pub(crate) screamed: bool,
+    pub(crate) splattered: bool,
     /// One of the city's extra people, made by the level rather than the mission
     /// (`FLAG2_PERSON_FAKE_WANDER`): they keep to the pavements, and are moved somewhere
     /// near the player once out of sight for a while.
@@ -948,7 +954,7 @@ impl Person {
             pace: Pace::Walk,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
-            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, breathed: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
+            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, breathed: false, screamed: false, splattered: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }
