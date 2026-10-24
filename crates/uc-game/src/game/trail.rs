@@ -67,7 +67,8 @@ impl Game {
             }
             if let Some(old) = was {
                 for (a, b) in now.iter().zip(old.iter()) {
-                    let y = level.ground.surface(&level.map, a.x, a.y, v.pos.y + 64.0) + 5.0;
+                    // On the road, not on top of a car: its own roof is walkable ground too.
+                    let y = level.ground.road(&level.map, a.x, a.y, v.pos.y + 64.0) + 5.0;
                     let d = *b - *a;
                     self.tracks.add(Vec3::new(a.x, y, a.y), Vec3::new(d.x, 0.0, d.y), Kind::Skid, 0, Surface::None);
                 }
