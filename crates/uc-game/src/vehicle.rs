@@ -125,6 +125,19 @@ pub fn from_vt(vt: i32) -> u8 {
 const TOP_SPEED: f32 = 3000.0;
 const REVERSE_SPEED: f32 = 900.0;
 const ACCEL: f32 = 1300.0;
+
+/// Each type's engine (`ENGINE_*`, fallen/Source/vehicle.cpp:175): forwards, backwards,
+/// acceleration and brakes, as fractions of the police car's (`ENGINE_PIG`), which is what
+/// [`TOP_SPEED`], [`REVERSE_SPEED`], [`ACCEL`] and [`BRAKE`] are. The vans are light goods
+/// vehicles (`ENGINE_LGV`), the car, taxi and jeep cars (`ENGINE_CAR`), the ambulance and the
+/// meat wagon `ENGINE_AMB`, and the sedan has a cop car's.
+const ENGINES: [(f32, f32, f32, f32); 9] = {
+    const LGV: (f32, f32, f32, f32) = (17.0 / 25.0, 10.0 / 15.0, 4.0 / 5.0, 8.0 / 10.0);
+    const CAR: (f32, f32, f32, f32) = (21.0 / 25.0, 10.0 / 15.0, 4.0 / 5.0, 8.0 / 10.0);
+    const PIG: (f32, f32, f32, f32) = (1.0, 1.0, 1.0, 1.0);
+    const AMB: (f32, f32, f32, f32) = (1.0, 10.0 / 15.0, 1.0, 8.0 / 10.0);
+    [LGV, CAR, CAR, PIG, AMB, CAR, AMB, PIG, LGV]
+};
 const BRAKE: f32 = 3200.0;
 const DRAG: f32 = 0.35;
 /// Distance from the middle to the nose and tail circles, and their radius.
@@ -179,6 +192,8 @@ pub struct Vehicle {
     slide: f32,
     pub steer: f32,
     pub health: i32,
+    /// Whoever last did it damage, a shot or a blast, for the blame when it goes up.
+    pub hurt_by: Option<usize>,
     /// The person (index) driving.
     pub driver: Option<usize>,
     /// Stopped by the mission (`stall_car`).
@@ -204,7 +219,7 @@ pub struct Vehicle {
 impl Vehicle {
     pub fn new(way: usize, kind: u8, pos: Vec3, yaw: f32, key: Key) -> Vehicle {
         Vehicle {
-            way, kind: kind.min(8), pos, yaw, speed: 0.0, slip: 0.0, slide: 0.0, steer: 0.0, health: 300, driver: None, stalled: false,
+            way, kind: kind.min(8), pos, yaw, speed: 0.0, slip: 0.0, slide: 0.0, steer: 0.0, health: 300, hurt_by: None, driver: None, stalled: false,
             key, pitch: 0.0, roll: 0.0, wheel_spin: 0.0, smokin: false, reverse: false, siren: false,
         }
     }
@@ -314,7 +329,8 @@ impl Vehicle {
         let d = if dead { Drive { handbrake: true, ..Default::default() } } else { d };
         // Engine and brakes. The handbrake only locks the back wheels: it slows the car
         // gently, and it's for sliding round corners.
-        let target = if d.throttle > 0.0 { TOP_SPEED * d.throttle } else { -REVERSE_SPEED * -d.throttle };
+        let (top, back, accel, brakes) = ENGINES[self.kind as usize];
+        let target = if d.throttle > 0.0 { TOP_SPEED * top * d.throttle } else { -REVERSE_SPEED * back * -d.throttle };
         // Wheelspin (`pedals`, vehicle.cpp:3622): the foot down, not braking out of reverse,
         // and slow or still rolling back.
         if self.speed.abs() < STOPPED {
@@ -329,11 +345,11 @@ impl Vehicle {
             self.speed -= self.speed * (DRAG * 2.0 * dt).min(1.0);
         } else if (d.throttle > 0.0) == (self.speed >= 0.0) || self.speed.abs() < 30.0 {
             self.reverse = d.throttle < 0.0;
-            let rate = if (target - self.speed).abs() > 0.0 { ACCEL } else { 0.0 };
+            let rate = if (target - self.speed).abs() > 0.0 { ACCEL * accel } else { 0.0 };
             self.speed += (target - self.speed).signum() * (rate * dt).min((target - self.speed).abs());
         } else {
             // Pressing against the direction of travel brakes.
-            self.speed -= self.speed.signum() * (BRAKE * dt).min(self.speed.abs());
+            self.speed -= self.speed.signum() * (BRAKE * brakes * dt).min(self.speed.abs());
         }
         self.speed -= self.speed * DRAG * 0.2 * dt;
         // Steering: tighter at low speed, turning in the direction of travel. With the

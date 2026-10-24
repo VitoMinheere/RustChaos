@@ -430,6 +430,11 @@ impl Game {
                 continue;
             }
             let at = self.vehicles[v].pos;
+            // Blowing up a police car or a meat wagon earns the player a red mark
+            // (`VEH_reduce_health`, vehicle.cpp:4804).
+            if self.vehicles[v].hurt_by.is_some() && self.vehicles[v].hurt_by == self.player && matches!(self.vehicles[v].kind, 3 | 6) {
+                self.red_marks = self.red_marks.saturating_add(1);
+            }
             self.pyro.burst(at + Vec3::new(0.0, 48.0, 0.0), pyro::FIREBOMB, 256.0);
             self.sounds.push((Sfx::Explosion, at));
             if self.aiming.vehicle == Some(v) {

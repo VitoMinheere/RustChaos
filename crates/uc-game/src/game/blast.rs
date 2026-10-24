@@ -93,6 +93,9 @@ impl Game {
             let dist = dist - 0x100 as f32;
             let hit = if dist <= 0.0 { damage } else { (damage as f32 * (radius - dist) / radius) as i32 };
             v.reduce_health(hit);
+            if let Blame::Person(p) = by {
+                v.hurt_by = Some(p);
+            }
         }
         for i in 0..self.people.len() {
             let p = &self.people[i];
