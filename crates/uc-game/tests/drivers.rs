@@ -1,5 +1,6 @@
 //! Drivers: a cop driver (`PCOM_AI_COP_DRIVER`) finds a car and drives as any driver does, and
-//! a driver frightened by gunfire pulls up, gets out and runs. In Southside Offensive, and in
+//! a driver frightened by gunfire pulls up, gets out and runs, and one held up by someone in the
+//! road honks. In Southside Offensive, and in
 //! RTA's traffic.
 //! Skipped without an install.
 
@@ -72,4 +73,28 @@ fn a_frightened_driver_gets_out_and_runs() {
     assert!(out, "stayed at the wheel");
     assert!(g.vehicles[v].driver.is_none());
     assert!(g.people[driver].scared.is_some(), "got out but isn't running");
+}
+
+/// A traffic driver held up by Darci standing in the road sounds the horn now and then
+/// (`PCOM_RUNOVER_BEEP_HORN`), and waits for her.
+#[test]
+fn a_driver_held_up_honks() {
+    let Some((level, mut g)) = start("police1") else { return };
+    let p = g.player.unwrap();
+    let v = g.vehicles.iter().position(|v| v.driver.is_some_and(|d| g.people[d].fake && g.people[d].ai == uc_game::person::AI_DRIVER))
+        .expect("no traffic");
+    g.take_sounds();
+    let mut horns = 0;
+    let from = g.vehicles[v].pos;
+    for _ in 0..(8.0 / DT) as usize {
+        // In the road just ahead of it.
+        let car = &g.vehicles[v];
+        let ahead = vec3(car.yaw.sin(), 0.0, car.yaw.cos()) * 220.0;
+        g.people[p].fig.pos = vec3(car.pos.x + ahead.x, car.pos.y, car.pos.z + ahead.z);
+        run(&mut g, &level, DT, Controls::default());
+        horns += g.take_sounds().iter().filter(|(s, _)| *s == uc_game::Sfx::Horn).count();
+    }
+    assert!(horns >= 1, "no horn in 8 s");
+    assert!(horns <= 4, "{horns} horns in 8 s");
+    assert!((g.vehicles[v].pos - from).length() < 400.0, "it didn't wait for her");
 }

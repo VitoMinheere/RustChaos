@@ -300,6 +300,9 @@ pub enum Sfx {
     Cone,
     /// A car's tyres started sliding.
     Skid,
+    /// A driver held up by someone in the road sounds the horn (`S_CAR_HORN_START` and the
+    /// two after).
+    Horn,
     /// Getting into or out of a car.
     CarDoor,
     Pickup,

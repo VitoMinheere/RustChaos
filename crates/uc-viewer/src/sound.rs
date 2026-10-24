@@ -108,6 +108,7 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         Sfx::Crash => at(audio, vec!["MedCrash2.wav".into(), "Impact1.wav".into(), "Impact2.wav".into()], 1.0),
         Sfx::Cone => at(audio, vec!["Cone1.wav".into()], 0.8),
         Sfx::Skid => at(audio, numbered("Skid", 1..=3, ".wav"), 0.8),
+        Sfx::Horn => at(audio, numbered("Horn", 1..=3, ".wav"), 0.8),
         Sfx::CarDoor => at(audio, vec!["DoorOpenCls1.wav".into()], 0.8),
         // `S_EXPLODE_START + 0..2` (fallen/Headers/sound_id.h), as `PYRO_construct` plays
         // for a fireball.

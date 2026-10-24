@@ -18,7 +18,7 @@ pub struct Wander {
 }
 
 /// `ROAD_is_zebra`: a crossing's texture.
-fn is_zebra(map: &Map, x: i32, z: i32) -> bool {
+pub(crate) fn is_zebra(map: &Map, x: i32, z: i32) -> bool {
     (0..N).contains(&x) && (0..N).contains(&z) && matches!(map.square(x as usize, z as usize).page(), 333 | 334)
 }
 
