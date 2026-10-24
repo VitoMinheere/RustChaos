@@ -195,6 +195,11 @@ pub const AI_MIB: u8 = 18;
 pub const AI_KILL_COLOUR: u8 = 17;
 /// `PCOM_AI_BULLY`: picks on whoever's about, the player or a passer-by.
 pub const AI_BULLY: u8 = 13;
+/// `PCOM_MOVE_*` that pose at home: warming their hands at a fire, dancing, hands up, tied up.
+pub const MOVE_WARM_HANDS: u8 = 6;
+pub const MOVE_DANCE: u8 = 8;
+pub const MOVE_HANDS_UP: u8 = 9;
+pub const MOVE_TIED_UP: u8 = 10;
 /// `PCOM_BENT_LAZY`: walks rather than runs, doesn't keep taunting, and sits down.
 pub const BENT_LAZY: u8 = 1 << 0;
 /// `PCOM_BENT_GANG`: one of a gang, who backs up the rest of their colour.
@@ -545,6 +550,10 @@ pub enum State {
     /// Sat on a bench, a sofa or an armchair (`ANIM_SIT_DOWN`, then held:
     /// `SUB_STATE_SIMPLE_ANIM_OVER`), until something gets them up.
     Sit,
+    /// Doing what their move has them do at home, until something needs them
+    /// (`PCOM_set_person_move_animation` with `FLAG_PERSON_NO_RETURN_TO_NORMAL`): dancing,
+    /// `anim` on a loop; or hands up, for good.
+    Pose { anim: usize },
     /// Sliding down a cable: `t` along it (0..1), moving towards `dir` (+1 or -1).
     /// `ridden`: how far along the cable so far (world units).
     Zip { cable: usize, t: f32, dir: f32, speed: f32, ridden: f32 },
@@ -1269,6 +1278,15 @@ impl Person {
             // Sitting: down, and stays down. They get up again in `decide` when something
             // needs them.
             State::Sit => {}
+            State::Pose { anim: a } => {
+                if a == anim::HANDS_UP {
+                    if self.fig.anim() != anim::HANDS_UP_LOOP && (self.fig.anim() != anim::HANDS_UP || self.fig.finished()) {
+                        self.fig.play(anim::HANDS_UP_LOOP, Play::Loop);
+                    }
+                } else {
+                    self.fig.play(a, Play::Loop);
+                }
+            }
             State::HandsUp { by, time } => {
                 // `ANIM_HANDS_UP`, then held there (`ANIM_HANDS_UP_LOOP`), facing the gun.
                 if snaps[by].present {

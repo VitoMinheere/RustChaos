@@ -76,7 +76,8 @@ impl Game {
         if let Some(mut cv) = self.convo.take() {
             // Anything happening to either of them breaks it off; it counts as said.
             if let (Some((i, j)), true) = (cv.pair, cv.filmed()) {
-                let busy = |k: usize| !matches!(self.people[k].state, State::Move) || !self.can_talk(k);
+                // Sitting or posing (hands up, a hostage) they can still talk.
+                let busy = |k: usize| !matches!(self.people[k].state, State::Move | State::Sit | State::Pose { .. }) || !self.can_talk(k);
                 if busy(i) || busy(j) {
                     self.wide = None;
                     if let Some(s) = &mut self.script {

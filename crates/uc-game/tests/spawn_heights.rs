@@ -79,7 +79,8 @@ fn people_made_in_the_air_fall() {
                         let at = p.fig.pos;
                         let floor = r.level.ground.surface(&r.level.map, at.x, at.z, at.y);
                         m.2 |= at.y < point().y - 32.0;
-                        m.3 |= m.2 && matches!(p.state, State::Move) && (at.y - floor).abs() < 8.0;
+                        // On their feet again, or dancing as their move has them do.
+                        m.3 |= m.2 && matches!(p.state, State::Move | State::Pose { .. }) && (at.y - floor).abs() < 8.0;
                     }
                     None if aloft.contains(&p.way) => {
                         assert!(matches!(p.state, State::Fall { .. }), "{mission} point {}: made {:?}", p.way, p.state);

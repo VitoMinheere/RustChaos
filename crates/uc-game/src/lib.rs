@@ -1416,6 +1416,7 @@ impl Game {
         }
         self.raise_alerts();
         self.sit_down();
+        self.strike_poses();
         self.apply(events, level);
         self.back_up_gangs();
         for s in 0..seats {
