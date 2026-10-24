@@ -14,14 +14,16 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
 use std::collections::{BTreeMap, HashMap};
 use uc_formats::txc::Texture;
-use uc_world::{ghost_page, Batch, Layer, Vertex, WorldGeometry, ADDITIVE_PAGES, DECAL_PAGES, EXPLODE_PAGE, GLOW, MIST, MOON_PAGE, SHADOW, SKY_PAGE, UNTEXTURED};
+use uc_world::{ghost_page, reflect_page, Batch, Layer, Vertex, WorldGeometry, ADDITIVE_PAGES, DECAL_PAGES, EXPLODE_PAGE, GLOW, MIST, MOON_PAGE, SHADOW, SKY_PAGE, UNTEXTURED};
+use uc_world::geometry::PUDDLE_PAGE;
 use wgpu::util::DeviceExt;
 
 pub use overlay::Overlay;
 pub use wgpu;
 
 const SAMPLES: u32 = 4;
-const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+/// Depth, and a stencil for where the puddles show (#268).
+const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth24PlusStencil8;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -143,6 +145,9 @@ pub struct Renderer {
     ghost_pipeline: wgpu::RenderPipeline,
     sky_pipeline: wgpu::RenderPipeline,
     moon_pipeline: wgpu::RenderPipeline,
+    puddle_mask_pipeline: wgpu::RenderPipeline,
+    reflect_pipeline: wgpu::RenderPipeline,
+    moon_reflect_pipeline: wgpu::RenderPipeline,
     shadow_tex: wgpu::BindGroup,
     mist_tex: wgpu::BindGroup,
     statics: Option<(wgpu::Buffer, wgpu::Buffer)>,
@@ -608,6 +613,52 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        // Reflections in the puddles (#268). The puddles first mark the stencil where they show
+        // (over the ground and behind whatever stands on them); then what's reflected is
+        // drawn only there, whatever the depth, since it lies under the ground.
+        let additive = wgpu::BlendState { color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add }, alpha: wgpu::BlendComponent::OVER };
+        let stencilled = |label, entry, depth_compare, stencil: wgpu::StencilFaceState, write: bool, blend: Option<wgpu::BlendState>| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<Vertex>() as u64,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4],
+                    })],
+                },
+                primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(depth_compare),
+                    stencil: wgpu::StencilState { front: stencil, back: stencil, read_mask: 0xff, write_mask: if write { 0xff } else { 0 } },
+                    bias: wgpu::DepthBiasState { constant: -8, slope_scale: -1.0, clamp: 0.0 },
+                }),
+                multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend,
+                        write_mask: if blend.is_some() { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::empty() },
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let mark = wgpu::StencilFaceState { compare: wgpu::CompareFunction::Always, fail_op: wgpu::StencilOperation::Keep, depth_fail_op: wgpu::StencilOperation::Keep, pass_op: wgpu::StencilOperation::Replace };
+        let inside = wgpu::StencilFaceState { compare: wgpu::CompareFunction::Equal, fail_op: wgpu::StencilOperation::Keep, depth_fail_op: wgpu::StencilOperation::Keep, pass_op: wgpu::StencilOperation::Keep };
+        let puddle_mask_pipeline = stencilled("puddle mask pipeline", "fs_mask", wgpu::CompareFunction::LessEqual, mark, true, None);
+        let reflect_pipeline = stencilled("reflect pipeline", "fs_ghost", wgpu::CompareFunction::Always, inside, false, Some(wgpu::BlendState::ALPHA_BLENDING));
+        let moon_reflect_pipeline = stencilled("moon reflect pipeline", "fs_sky", wgpu::CompareFunction::Always, inside, false, Some(additive));
         let shadow_tex = make_texture(&device, &queue, &tex_layout, &sampler, &blob_texture());
         let mist_tex = make_texture(&device, &queue, &tex_layout, &sampler, &cloud_texture());
 
@@ -673,7 +724,7 @@ impl Renderer {
         let font = make_texture_levels(&device, &queue, &tex_layout, &font_sampler, &font_tex, 1);
         Renderer {
             device, queue, format, pipeline, globals_buf, globals_bg, tex_layout, sampler,
-            textures: HashMap::new(), white, shadow_pipeline, decal_pipeline, glow_pipeline, additive_pipeline, sprite_pipeline, ghost_depth_pipeline, ghost_pipeline, sky_pipeline, moon_pipeline, shadow_tex, mist_tex,
+            textures: HashMap::new(), white, shadow_pipeline, decal_pipeline, glow_pipeline, additive_pipeline, sprite_pipeline, ghost_depth_pipeline, ghost_pipeline, sky_pipeline, moon_pipeline, puddle_mask_pipeline, reflect_pipeline, moon_reflect_pipeline, shadow_tex, mist_tex,
             statics: None, chunks: Vec::new(), dynamic: None, targets: None,
             overlay_pipeline, screen_buf, screen_bg, font, overlay_buf: None, backdrop: None, minimap: None, faces: [None, None], stats: Stats::default(),
         }
@@ -951,13 +1002,14 @@ impl Renderer {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &t.depth,
                     depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
-                    stencil_ops: None,
+                    stencil_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0), store: wgpu::StoreOp::Discard }),
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
             pass.set_bind_group(0, &self.globals_bg, &[]);
+            pass.set_stencil_reference(1);
             // The sky first, behind everything, then the moon added over it.
             if let (Some((vb, ib, _, _)), false) = (&self.dynamic, dyn_ranges.is_empty()) {
                 pass.set_vertex_buffer(0, vb.slice(..));
@@ -997,8 +1049,27 @@ impl Renderer {
             if let (Some((vb, ib, _, _)), false) = (&self.dynamic, dyn_ranges.is_empty()) {
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                for &(page, first, count) in dyn_ranges.iter().filter(|r| !matches!(r.0, SHADOW | GLOW | MIST | SKY_PAGE | MOON_PAGE | EXPLODE_PAGE) && !DECAL_PAGES.contains(&r.0) && !ADDITIVE_PAGES.contains(&r.0) && ghost_page(r.0).is_none()) {
+                for &(page, first, count) in dyn_ranges.iter().filter(|r| !matches!(r.0, SHADOW | GLOW | MIST | SKY_PAGE | MOON_PAGE | EXPLODE_PAGE) && !DECAL_PAGES.contains(&r.0) && !ADDITIVE_PAGES.contains(&r.0) && ghost_page(r.0).is_none() && reflect_page(r.0).is_none()) {
                     pass.set_bind_group(1, self.textures.get(&page).unwrap_or(&self.white), &[]);
+                    pass.draw_indexed(first..first + count, 0, 0..1);
+                    stats.draw_calls += 1;
+                    stats.triangles += count as usize / 3;
+                }
+                // Where the puddles show, then what they reflect there, under the puddles'
+                // own sheen (drawn with the marks next, as `POLY_PAGE_PUDDLE` over the
+                // reflections in the original).
+                for &(_, first, count) in dyn_ranges.iter().filter(|r| r.0 == PUDDLE_PAGE) {
+                    let Some(tex) = self.textures.get(&PUDDLE_PAGE) else { continue };
+                    pass.set_pipeline(&self.puddle_mask_pipeline);
+                    pass.set_bind_group(1, tex, &[]);
+                    pass.draw_indexed(first..first + count, 0, 0..1);
+                    stats.draw_calls += 1;
+                    stats.triangles += count as usize / 3;
+                }
+                for &(page, first, count) in dyn_ranges.iter() {
+                    let Some(own) = reflect_page(page) else { continue };
+                    pass.set_pipeline(if own == MOON_PAGE { &self.moon_reflect_pipeline } else { &self.reflect_pipeline });
+                    pass.set_bind_group(1, self.textures.get(&own).unwrap_or(&self.white), &[]);
                     pass.draw_indexed(first..first + count, 0, 0..1);
                     stats.draw_calls += 1;
                     stats.triangles += count as usize / 3;
