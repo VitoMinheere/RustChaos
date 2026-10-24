@@ -56,6 +56,7 @@ impl Game {
                 }
             }
         }
+        self.reflections(&mut out, level, eye);
         // Cars: body and wheels (front wheels turned by the steering), and a long shadow.
         for v in &self.vehicles {
             car(v, level, lighter.as_ref(), &mut out);
@@ -682,6 +683,73 @@ impl Game {
             [[lo, lo], [hi, lo], [lo, hi], [hi, hi]],
             white,
         );
+        // And upside down in the puddles (`SKY_draw_moon_reflection`, sky.cpp:714): as far
+        // under the camera's half height as the moon is over it, squashed to half its height,
+        // dimmer and yellower (`0xaaaa88`), and wobbling side to side a strip at a time. The
+        // renderer shows it only where a puddle does.
+        if self.no_floor {
+            return;
+        }
+        let mid = Vec3::new(eye.x, eye.y * 0.5 - pitch.sin() * dist, eye.z + pitch.cos() * dist);
+        let away = (mid - eye).normalize_or(Vec3::Z);
+        let right = away.cross(Vec3::Y).normalize_or(Vec3::X) * radius;
+        let up = right.cross(away).normalize_or(Vec3::Y) * radius;
+        let corner = |x: f32, y: f32| (mid + right * x + up * y) / uc_world::UNIT;
+        // Sixteen strips, each shifted by two waves down the screen and in time, in the
+        // original's pixels of a 640-wide screen (`SKY_wibble_*`, the moon 96 across).
+        const STRIPS: usize = 16;
+        let turn = (self.time * 20.0) as i32;
+        let wibble = |k: usize| {
+            let y = (k * 96 / STRIPS) as i32;
+            let a1 = ((y * 62 + turn * 17) & 2047) as f32 * std::f32::consts::TAU / 2048.0;
+            let a2 = ((y * 137 + turn * 78) & 2047) as f32 * std::f32::consts::TAU / 2048.0;
+            (a1.sin() * 40.0 + a2.cos() * 45.0) / 8.0 / 96.0
+        };
+        let tint = [[0xaa, 0xaa, 0x88, 255]; 4];
+        let page = out.entry(uc_world::REFLECT + uc_world::MOON_PAGE).or_default();
+        for k in 0..STRIPS {
+            let (t0, t1) = (k as f32 / STRIPS as f32, (k + 1) as f32 / STRIPS as f32);
+            let (y0, y1) = (0.5 - t0, 0.5 - t1);
+            let (w0, w1) = (wibble(k), wibble(k + 1));
+            let (v0, v1) = (lo + (hi - lo) * t0, lo + (hi - lo) * t1);
+            page.quad(
+                [corner(-1.0 + w0, y0), corner(1.0 + w0, y0), corner(-1.0 + w1, y1), corner(1.0 + w1, y1)],
+                [[lo, v0], [hi, v0], [lo, v1], [hi, v1]],
+                tint,
+            );
+        }
+    }
+
+    /// People standing on a puddle, upside down in it (`FIGURE_draw_reflection`, aeng.cpp:8393):
+    /// those in view within 0x600 of the camera (as the original measures, across plus along)
+    /// whose square has a puddle on it, mirrored in the puddle's surface and lit as they are.
+    /// The renderer shows them only where the puddle does.
+    fn reflections(&self, out: &mut BTreeMap<u32, Batch>, level: &Level, eye: Vec3) {
+        let lighter = level.lighter();
+        let scoped = self.snipe.is_some();
+        for p in self.people.iter().filter(|p| !p.removed && !matches!(p.state, State::InCar { .. }) && !(scoped && p.player)) {
+            let at = p.fig.pos;
+            if (at.x - eye.x).abs() + (at.z - eye.z).abs() >= 0x600 as f32 {
+                continue;
+            }
+            // `PAP_FLAG_REFLECTIVE`: a puddle on the square they're on.
+            let (sx, sz) = ((at.x / 256.0).floor() * 256.0, (at.z / 256.0).floor() * 256.0);
+            let Some(pd) = self.puddles.puddles.iter().find(|pd| {
+                pd.a.0.min(pd.b.0) < sx + 256.0 && pd.a.0.max(pd.b.0) > sx && pd.a.1.min(pd.b.1) < sz + 256.0 && pd.a.1.max(pd.b.1) > sz
+            }) else { continue };
+            let mirror = 2.0 * pd.y / uc_world::UNIT;
+            let mut mine = BTreeMap::new();
+            p.fig.append_batches(&mut mine, lighter.as_ref());
+            for (page, b) in mine {
+                let into = out.entry(uc_world::REFLECT + page).or_default();
+                let base = into.vertices.len() as u32;
+                into.vertices.extend(b.vertices.into_iter().map(|mut v| {
+                    v.pos[1] = mirror - v.pos[1];
+                    v
+                }));
+                into.indices.extend(b.indices.into_iter().map(|i| i + base));
+            }
+        }
     }
 }
 

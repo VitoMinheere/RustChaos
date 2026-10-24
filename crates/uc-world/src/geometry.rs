@@ -64,6 +64,16 @@ pub fn ghost_page(p: u32) -> Option<u32> {
     (GHOST..2 * GHOST).contains(&p).then(|| p - GHOST)
 }
 
+/// A reflection in the puddles (#268): page `REFLECT + p` is page `p` drawn only where a
+/// puddle shows, see-through by the vertex alpha and not hidden by the ground it lies under
+/// (`FIGURE_draw_reflection`). `REFLECT + MOON_PAGE` is the moon's, added as the moon is.
+pub const REFLECT: u32 = 1 << 29;
+
+/// The page a reflection batch's page `p` is drawn from, if it's one.
+pub fn reflect_page(p: u32) -> Option<u32> {
+    (REFLECT..GHOST).contains(&p).then(|| p - REFLECT)
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct Vertex {

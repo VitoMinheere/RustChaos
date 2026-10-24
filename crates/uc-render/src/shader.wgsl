@@ -56,6 +56,16 @@ fn fs_decal(in: VOut) -> @location(0) vec4<f32> {
     return vec4<f32>(mix(t.rgb * in.color.rgb, g.fog_color.rgb, f), t.a * in.color.a);
 }
 
+// Where a puddle shows (#268): only the stencil is written, wherever its texture isn't
+// clear (`POLY_PAGE_PUDDLE`'s alpha test, `D3DCMP_NOTEQUAL` 0).
+@fragment
+fn fs_mask(in: VOut) -> @location(0) vec4<f32> {
+    if (textureSample(tex, samp, in.uv).a * in.color.a < 0.02) {
+        discard;
+    }
+    return vec4<f32>(0.0);
+}
+
 // The sky behind everything and the moon added over it (`POLY_PAGE_SKY`, `_MOON`): the
 // texture times the vertex colour, with no fog.
 @fragment

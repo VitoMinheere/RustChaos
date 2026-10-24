@@ -11,9 +11,11 @@
 //! fades 16 a tick. Feet coming down in one drip too (`DRIP_create_if_in_puddle`, from
 //! `person_splash`). Here the drips come a tick at a time for the puddles near the player.
 //!
+//! What they reflect, the moon and the people standing in them (#268), is drawn with the
+//! rest of the game (see `Game::batches`), and shown by the renderer only where a puddle is.
+//!
 //! Not done: the ripples a splash sets going in the puddle's own picture (`PUDDLE_splash`,
-//! drawn as a wobble of the screen behind it), and what the puddles reflect (#239's moon and
-//! people).
+//! drawn as a wobble of the screen behind it).
 
 use crate::rand;
 use glam::{vec3, Vec3};
