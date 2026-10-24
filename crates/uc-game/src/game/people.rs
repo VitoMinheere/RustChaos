@@ -369,4 +369,52 @@ impl Game {
             }
         }
     }
+
+    /// The bullies pick their victims (`PCOM_AI_BULLY`, pcom.cpp:11514): once one's down,
+    /// they're free again, and while free, every 8 ticks each looks round for someone to pick
+    /// on (`PCOM_can_i_see_person_to_bully`, pcom.cpp:5811): anyone they can see within 0x600
+    /// who isn't down, a passer-by strolling about or the player (only the player if they're
+    /// `PCOM_BENT_ONLY_KILL_PLAYER`). The nearest wins, the height counting double and the
+    /// player at half the distance.
+    pub(crate) fn bullies(&mut self, snaps: &[person::Snap], dt: f32, level: &Level) {
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            if p.ai != person::AI_BULLY || p.player || p.is_down() || p.is_dead() {
+                continue;
+            }
+            if let Some(v) = p.bully {
+                let q = &self.people[v];
+                if q.removed || q.is_down() || q.is_dead() {
+                    self.people[i].bully = None;
+                    self.people[i].calm_down();
+                }
+                continue;
+            }
+            let clock = p.bully_clock - dt;
+            if clock > 0.0 {
+                self.people[i].bully_clock = clock;
+                continue;
+            }
+            self.people[i].bully_clock = clock + 8.0 / 20.0;
+            let p = &self.people[i];
+            let only_player = p.bent & person::BENT_ONLY_KILL_PLAYER != 0;
+            let victim = self.people.iter().enumerate()
+                .filter(|&(j, q)| {
+                    j != i && !q.removed && !q.is_down() && !q.is_dead()
+                        && (q.player || (!only_player && q.ai == person::AI_CIV && q.mv == person::MOVE_WANDER))
+                        && (q.fig.pos - p.fig.pos).length() < 0x600 as f32
+                        && p.sees(&snaps[j], &level.ground)
+                })
+                .map(|(j, q)| {
+                    let d = (q.fig.pos - p.fig.pos).abs();
+                    let score = d.x + d.y * 2.0 + d.z;
+                    (j, if q.player { score / 2.0 } else { score })
+                })
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(j, _)| j);
+            if let Some(v) = victim {
+                self.people[i].bully_after(v);
+            }
+        }
+    }
 }

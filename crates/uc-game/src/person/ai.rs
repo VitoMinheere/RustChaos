@@ -30,6 +30,21 @@ impl Person {
         self.attack_timer = self.attack_timer.max(0.8);
     }
 
+    /// Sees `p` as `can_a_see_b` does with its own range, 8 squares.
+    pub(crate) fn sees(&self, p: &Snap, ground: &Ground) -> bool {
+        self.can_see(p, 8.0 * 256.0, ground)
+    }
+
+    /// A bully off after `victim`: noticed, and out to get them.
+    pub(crate) fn bully_after(&mut self, victim: usize) {
+        self.bully = Some(victim);
+        if !self.aggro {
+            self.aggro = true;
+            self.cues.push(Sfx::Alert { kind: self.kind });
+            self.attack_timer = self.attack_timer.max(0.8);
+        }
+    }
+
     pub(super) fn can_see(&self, p: &Snap, range: f32, ground: &Ground) -> bool {
         let d = flat(p.pos, self.fig.pos);
         let dist = d.length();

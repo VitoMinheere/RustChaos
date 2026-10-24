@@ -1325,6 +1325,7 @@ impl Game {
                 p.calm_down();
             }
         }
+        self.bullies(&snaps, dt, level);
         for i in 0..self.people.len() {
             let p = &self.people[i];
             let foe = match (p.ai, p.other) {
@@ -1366,6 +1367,7 @@ impl Game {
                         })
                         .map(|(j, _)| j)
                 }
+                (person::AI_BULLY, _) => p.bully,
                 _ => self.nearest_seat(p.fig.pos),
             };
             // Twenty blocks from the player, a bodyguard is out of harm's way.
