@@ -68,14 +68,18 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 | Space | Jump (grabs ledges in front) | Up |
 | J or left mouse | Punch | |
 | K | Kick | |
-| Q (hold) | Block | |
-| G | Next weapon (bare hands, knife or bat, pistol, shotgun, AK-47, explosives) | |
+| Q (hold) | Block. Stepping back from someone swinging at her blocks too, for as long as she keeps backing off; kick from a block is a foot sweep that puts them down | |
+| G | Next weapon (bare hands, knife or bat, pistol, shotgun, AK-47, explosives), with everything carried shown for three seconds; bare-handed, the best weapon first (a loaded gun, then a knife or bat), as the original | |
 | T | Target the next enemy (with a gun drawn) | |
-| E (or L) | Action: arrest a downed enemy, climb a ladder; hold while running to sprint | Up |
+| E (or L) | Action: arrest a downed enemy, climb a ladder; hold while running to sprint. Standing in front of a building's wall: back to it, then move along it to edge sideways, look round its end, and E again to leap out; walk away from it to leave. Bare-handed by a can lying about: pick it up, then punch throws it; guards near where it lands (or near a can anyone kicks) turn to look | Up |
 | C / Q | | Down |
 | Mouse | Orbit the camera (the cursor is captured) | Look |
 | M | Mouse look on/off (off: right mouse drag turns the camera) | same |
 | Mouse wheel | Zoom | |
+| F (hold) | Look round from close behind her head, standing still: W/S or Up/Down look down/up, A/D or Left/Right turn, or the mouse | |
+| F5 – F8 | The original's camera heights: F5 the usual, F6 high and close, F7 high and far, F8 low and far | |
+| Delete / Page Down | Turn the view right / left, swinging the camera round her | |
+| End | Camera back behind her | |
 | Ctrl | | Slow |
 | Tab (hold) | The mission's checklist: objectives, side objectives, badges | |
 | B | The ghost on or off, on the missions raced against one | |
@@ -172,6 +176,8 @@ Normal is the original's tuning.
 
 **Stats and achievements:** STATS in the main menu shows totals over all play: arrests, takedowns from behind, people searched, red marks; knockouts by fists, by knife or bat and by gun; shots fired and the hit rate; distance on foot, driving and on the bike; zip-wire distance and the longest ride; ladders climbed and falls survived; missions completed, the furthest endless wave and the best Beat Cop shift. Next to them are the achievements, with how far along each one is: Rookie (finish the training), By the Book (win with an arrest, no shots and no red marks), Clean Record (the campaign without a red mark), Silent Partner (25 takedowns), Frisk (search 100 people), High Wire (a 20-square zip-wire ride), Roof Runner (pull yourself up onto a roof), Riot Control (wave 20 in endless mode), Thorough (a mission with everything found) and Hard Boiled (the campaign on Hard). One pops up on screen as it's earned. They're saved with the progress.
 
+**Credits:** CREDITS in the main menu scrolls the original's credits, section by section as its outro does (Mucky Foot, Eidos UK, USA, France and Germany, the voice production and the CD's music), then this project's, over the outro's music. Down holds them faster, Left and Right skip a section. They also roll after Finale1 is won, as in the original.
+
 **Grappling hook (unreleased):** the original's grappling hook, built and then switched off, with no way to get it in the game; here it comes from the console (`give hook`). With it in hand, attack throws it. It flies and bounces with the original's physics, trailing its line. If it comes down on a roof, or hits a wall just under the top, it catches the edge. Go to the foot of the wall and attack again to climb the line like a ladder (towards the wall climbs, away lets go), off the top onto the roof. Otherwise it's reeled back in. The original never got as far as climbing; and its own wind-up and release animations aren't in the shipped files, so she throws it like a grenade.
 
 **Dogs (unreleased):** the original's dogs, written but never switched on; their model and barks are in the install. Here they're off unless asked for: `dog` in the console puts one a few steps ahead, and `--dogs N` lets N loose round where Darci starts. A dog prowls round where it was let loose, or naps. It chases anyone who comes close, or whom it sees ahead of it further off, walking when near and running when far, and stands barking at them until they move off. It doesn't bite: the original's never did. The model has no textures, and the palette that coloured it didn't ship, so it's plain brown; and only 15 of its 28 pieces are animated, so the others are left out.
@@ -246,7 +252,7 @@ Guns can aim at the Balrog and gargoyles, and a bar under the clock shows the he
 
 **Falls:** landing hard hurts, and a fall of more than about five storeys kills, Darci included (as in the original).
 
-**Driving:** E next to a car gets in (and out, once it has nearly stopped). Some are locked, as the mission sets them: the squad cars parked at the station never open, and a car locked with a coloured key opens once you've picked up a key (Media Trouble has one). Trying a locked car says so. W/S or the triggers accelerate and brake/reverse, A/D or the stick steer, Space or A is the handbrake: it locks the back wheels, so the car slides round a corner (with a skid) instead of stopping. At speed, full lock and the handbrake spin the car right round (a 180 in a little over a second), ready to drive back the way it came. Nobody can hit or shoot you while you're in the car. The camera swings round behind the car; the HUD shows speed and damage. Hit walls hard enough and the car wrecks. People get out of the way of a car coming at them, as in the original, but if you catch them they go flying. Cones and barrels get knocked about.
+**Driving:** E next to a car gets in (and out, once it has nearly stopped). Some are locked, as the mission sets them: the squad cars parked at the station never open, and a car locked with a coloured key opens once you've picked up a key (Media Trouble has one). Trying a locked car says so. W/S or the triggers accelerate and brake/reverse, A/D or the stick steer, Space or A is the handbrake: it locks the back wheels, so the car slides round a corner (with a skid) instead of stopping. At speed, full lock and the handbrake spin the car right round (a 180 in a little over a second), ready to drive back the way it came. In a police car, an ambulance or a meat wagon, kick (K or Y) switches the siren on and off, the manual's pursuit mode: it wails and the light bar flashes until you switch it off or get out. Nobody can hit or shoot you while you're in the car. The camera swings round behind the car; the HUD shows speed and damage. Hit walls hard enough and the car wrecks. People get out of the way of a car coming at them, as in the original, but if you catch them they go flying. Cones and barrels get knocked about.
 
 **Fighting:**
 - Hold block to stop blows from the front. Knives and bats still hurt a little, and attacks from behind get through. Skilled enemies block too.

@@ -127,7 +127,7 @@ impl Game {
             } else {
                 p.take_hit(from, 0, person::ko::FINISHERS, false, false, Weapon::None);
             }
-        } else if recoil && matches!(p.state, State::Move | State::Block | State::Attack { .. } | State::Shoot { .. }) {
+        } else if recoil && matches!(p.state, State::Move | State::Block { .. } | State::Attack { .. } | State::Shoot { .. }) {
             p.face_towards(from);
             p.take_hit(from, 0, 0, false, false, Weapon::None);
         } else {

@@ -54,6 +54,8 @@ pub mod anim {
     pub const KICK_NAD_STUNNED: usize = 396;
     pub const KICK_NAD_RECOVER: usize = 397;
     pub const BLOCK_HIGH: usize = 165;
+    /// `ANIM_LEG_SWEEP`: the foot sweep from a block.
+    pub const LEG_SWEEP: usize = 219;
     pub const HIT_FRONT_HI: usize = 166;
     pub const HIT_FRONT_MID: usize = 167;
     pub const HIT_BACK_HI: usize = 168;
@@ -128,6 +130,10 @@ pub mod anim {
     pub const BIKE_DISMOUNT: usize = 360;
     /// `ANIM_ENTER_CAR`: getting in at the driver's door.
     pub const ENTER_CAR: usize = 89;
+    /// `ANIM_CAN_PICKUP` and `ANIM_CAN_RELEASE`: picking up a can and throwing it (or a
+    /// grenade).
+    pub const CAN_PICKUP: usize = 64;
+    pub const CAN_RELEASE: usize = 65;
     /// The rest of the `ANIM_END` + n slots, taken from the civilians' and Roper's files.
     pub const WANKER: usize = 403;
     /// `ANIM_ENTER_TAXI`: getting in at the passenger's door.

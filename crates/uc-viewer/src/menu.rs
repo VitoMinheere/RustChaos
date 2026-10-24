@@ -2,6 +2,7 @@
 //! screens.
 
 use crate::checklist;
+use crate::credits::Credits;
 use crate::progress::{self, clock, Progress};
 use crate::replays;
 use uc_game::goals::Goals;
@@ -82,6 +83,8 @@ pub enum Screen {
     Lobby,
     /// The saved replays (#184).
     Replays,
+    /// The credits (#209), scrolling.
+    Credits,
 }
 
 /// What the lobby shows: who's in, this player's seat, and where the host can be reached.
@@ -98,7 +101,7 @@ pub const COOP: [&str; 2] = ["HOST", "JOIN"];
 
 /// The main menu's items (`raw_menu_data`, frontend.cpp:376): the ones there's something
 /// behind here.
-pub const MAIN: [&str; 9] = ["START", "CO-OP", "ENDLESS", "BEAT COP", "CAPTURE THE FLAG", "DIFFICULTY", "STATS", "REPLAYS", "EXIT"];
+pub const MAIN: [&str; 10] = ["START", "CO-OP", "ENDLESS", "BEAT COP", "CAPTURE THE FLAG", "DIFFICULTY", "STATS", "REPLAYS", "CREDITS", "EXIT"];
 
 /// The menus' look, by how far through the game (`menu_theme`, set in
 /// `FRONTEND_MissionHierarchy`, frontend.cpp:3337): leaves for the first eight missions done,
@@ -176,6 +179,8 @@ pub struct Menu {
     pub pins: Vec<Pin>,
     pub pin: usize,
     pub on_map: bool,
+    /// How far through the credits.
+    pub credits: Credits,
 }
 
 impl Menu {
@@ -231,7 +236,8 @@ impl Menu {
             .collect();
         let mut m = Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false,
                coop: 0, address: "127.0.0.1".into(), status: String::new(), for_coop: false, lobby: None,
-               replays: Vec::new(), replay_selected: 0, loading_replay: None, loading_edit: None, pins, pin: 0, on_map: true };
+               replays: Vec::new(), replay_selected: 0, loading_replay: None, loading_edit: None, pins, pin: 0, on_map: true,
+               credits: Credits::default() };
         m.show_map();
         m
     }
@@ -247,7 +253,7 @@ impl Menu {
     pub fn image(&self) -> String {
         let w = self.theme.word();
         match self.screen {
-            Screen::Title | Screen::Main => format!("data\\TITLE {}1.TGA", w.to_ascii_uppercase()),
+            Screen::Title | Screen::Main | Screen::Credits => format!("data\\TITLE {}1.TGA", w.to_ascii_uppercase()),
             Screen::Missions | Screen::Endless | Screen::Stats | Screen::Coop | Screen::Lobby | Screen::Replays => format!("data\\map {w} darci.tga"),
         }
     }
@@ -643,6 +649,12 @@ impl Menu {
         self.screen = Screen::Replays;
     }
 
+    /// The credits, from the start.
+    pub fn show_credits(&mut self) {
+        self.credits = Credits::default();
+        self.screen = Screen::Credits;
+    }
+
     /// The saved replays: a list on the left (when, which mission, the time, PB for a
     /// personal best), and the one selected in a panel on the right, everything about it.
     fn replays_overlay(&self, o: &mut Overlay, w: f32, h: f32, s: f32) {
@@ -809,6 +821,13 @@ impl Menu {
         }
         if self.screen == Screen::Replays {
             self.replays_overlay(&mut o, w, h, s);
+            return o;
+        }
+        if self.screen == Screen::Credits {
+            // The title image, dark enough to read over, as the outro's own backdrop.
+            o.backdrop(0.0, 0.0, w, h, [255, 255, 255, 255]);
+            o.rect(0.0, 0.0, w, h, [0, 0, 0, 190]);
+            self.credits.draw(&mut o, w, h, s);
             return o;
         }
         if matches!(self.screen, Screen::Coop | Screen::Lobby) {
