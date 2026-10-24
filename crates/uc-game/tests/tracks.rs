@@ -74,9 +74,10 @@ fn muddy_prints_off_grass_not_tarmac() {
     // Back on tarmac: a few more, each fainter, then none.
     r.paint(at, 8, 1);
     r.walk(20.0);
-    let all = r.marks(FOOTPRINT_PAGE);
-    assert!(all > muddy && all <= muddy + 32, "{muddy} then {all}");
-    let last = r.g.tracks.list.back().unwrap();
+    // Hers: passers-by crossing the painted grass get muddy feet too.
+    let hers: Vec<_> = r.g.tracks.list.iter().filter(|t| t.page == FOOTPRINT_PAGE).skip(muddy).filter(|t| (t.at - at).length() < 1500.0).collect();
+    assert!(!hers.is_empty() && hers.len() <= 32, "{muddy} then {} more", hers.len());
+    let last = hers.last().unwrap();
     assert!(last.faded > 200, "the last print is only {} faded", last.faded);
 }
 

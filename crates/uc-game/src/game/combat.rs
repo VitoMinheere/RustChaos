@@ -129,6 +129,7 @@ impl Game {
                     if (self.rand() % 1000) as f32 / 1000.0 < chance {
                         self.gunfx.spang(at);
                         self.vehicles[k].reduce_health(damage);
+                        self.vehicles[k].hurt_by = Some(attacker);
                     }
                 }
                 Event::Shot { attacker, victim: None, .. } if Some(attacker) == self.player && self.aiming.barrel.is_some() => {
