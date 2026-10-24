@@ -570,7 +570,22 @@ impl Script {
         (alive, dead)
     }
 
+    /// Whether point `i`'s trigger holds, turned round for an inverted point
+    /// (`WPT_FLAGS_INVERSE`: `if (ec->negate) ans = !ans`, eway.cpp:3580). So an inverted point
+    /// with no trigger never goes off, except for the barrels and cars nothing refers to: the
+    /// loader puts those down there and then (elev.cpp:1398, eway.cpp:1628), before the flag is
+    /// ever looked at. A `boolean_and`'s or `_or`'s own references are never inverted
+    /// (elev.cpp:512), and here they're read through `is_active`, so they aren't either.
     fn condition(&mut self, i: usize, dt: f32, q: &dyn Query) -> bool {
+        use uc_formats::ucm::point_flags::{INVERSE, REFERENCED};
+        let ans = self.test(i, dt, q);
+        let ep = &self.ways[i].as_ref().unwrap().ep;
+        let loaded = ep.trigger == trigger::NONE && ep.flags & REFERENCED == 0
+            && (ep.kind == waypoint::CREATE_BARREL || ep.kind == waypoint::CREATE_VEHICLE && ep.data[0] != 4);
+        if ep.flags & INVERSE != 0 && !loaded { !ans } else { ans }
+    }
+
+    fn test(&mut self, i: usize, dt: f32, q: &dyn Query) -> bool {
         let w = self.ways[i].as_ref().unwrap();
         // Camera waypoints only trigger when the camera gets there (EWAY_COND_CAMERA_AT).
         if w.ep.kind == waypoint::CAMERA_WAYPOINT {

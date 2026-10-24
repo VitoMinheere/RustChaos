@@ -107,6 +107,14 @@ pub mod on_trigger {
     pub const ACTIVE_DIE: u8 = 4;
 }
 
+/// `WPT_FLAGS_*` (fallen/Headers/Mission.h): an event point's `flags`.
+pub mod point_flags {
+    /// The trigger counts when its condition is false (`ecd.negate`, elev.cpp:410).
+    pub const INVERSE: u8 = 2;
+    /// Another point refers to this one (set by the editor's `export_mission`).
+    pub const REFERENCED: u8 = 16;
+}
+
 /// Event point types that carry one message string each (counted as `mess_count` by the loader).
 pub fn has_text(kind: u8) -> bool {
     matches!(kind, waypoint::MESSAGE | waypoint::NAV_BEACON | waypoint::BONUS_POINTS | waypoint::CONVERSATION)
