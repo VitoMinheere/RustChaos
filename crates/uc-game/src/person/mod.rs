@@ -394,6 +394,8 @@ pub enum Move {
     KickNad,
     /// The foot sweep: kick from a block (`set_person_leg_sweep`, Person.cpp:9545).
     LegSweep,
+    /// A kick at someone lying knocked down is a stamp (`set_person_stomp`, Person.cpp:9928).
+    Stomp,
     Knife1,
     Knife2,
     Knife3,
@@ -443,6 +445,9 @@ impl Move {
             // reach and timing are in the animation's fight data, not the source: these are
             // the kicks'.
             LegSweep => d(anim::LEG_SWEEP, 0.45, 150.0, Dir::Front, 49, false, ko::KNOCKDOWN, None),
+            // 50 on top of the blow (combat.cpp:1967); it lands only on someone lying down,
+            // the foot within 0x53 of their pelvis, head or shin (combat.cpp:1296).
+            Stomp => d(anim::FIGHT_STOMP, 0.5, 130.0, Dir::Front, 50, false, 0, None),
             // Weapons (damage from apply_hit_to_person, fallen/Source/combat.cpp).
             Knife1 => d(anim::KNIFE_ATTACK1, 0.45, 150.0, Dir::Front, 30, true, 0, Some(Knife2)),
             Knife2 => d(anim::KNIFE_ATTACK2, 0.45, 150.0, Dir::Front, 50, true, ko::COMBO_ANY, Some(Knife3)),
@@ -680,6 +685,9 @@ pub struct Snap {
     pub crouching: bool,
     /// Doubled over from a kick between the legs: another won't do it again (`not_nad`).
     pub doubled: bool,
+    /// Lying knocked down, alive and not cuffed: a kick stamps on them
+    /// (`is_person_ko_and_lay_down`, Person.cpp:2862).
+    pub floored: bool,
     /// How far off the noise they're making this frame is heard (`PCOM_oscillate_tympanum`'s
     /// radii, pcom.cpp:13124): running feet 0x280, a landing 0x200 to 0x600, a fight 0x900; 0
     /// for none.
@@ -1189,6 +1197,13 @@ impl Person {
         matches!(self.state, State::Grapple { grab: Grab::Hold, .. })
     }
 
+    /// Lying knocked down and waiting to get up (or out cold), not dead, cuffed or lying
+    /// with their hands behind their head.
+    pub fn floored(&self) -> bool {
+        matches!(self.state, State::Down) && !self.knocked_out && !self.arrested && !self.removed
+            && self.fig.anim() != anim::HANDS_UP_LIE
+    }
+
     /// Doubled over from a kick between the legs, or straightening up again.
     pub fn doubled(&self) -> bool {
         matches!(self.state, State::Hurt) && matches!(self.fig.anim(), anim::KICK_NAD_TAKE | anim::KICK_NAD_STUNNED | anim::KICK_NAD_RECOVER)
@@ -1222,6 +1237,7 @@ impl Person {
             injured: matches!(self.state, State::Injured),
             crouching: self.crouching(),
             doubled: self.doubled(),
+            floored: self.floored(),
             noise: match self.state {
                 _ if self.removed => 0.0,
                 // A landing, as hard as they came down (`PCOM_SOUND_DROP`, `_MED`, `_BIG`,
