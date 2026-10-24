@@ -326,6 +326,16 @@ impl Game {
                 // or 0x40 if they're running (`PCOM_process_following`, pcom.cpp:8104).
                 5 => {
                     let j = if p.follow == 0 { self.player } else { self.by_way.get(&p.follow).copied() };
+                    // In a car, they climb in with them (`PCOM_set_person_ai_hitch`, pcom.cpp:4758):
+                    // off to its passenger door at a run (a walk for the lazy).
+                    if let Some(State::InCar { vehicle: v }) = j.map(|j| self.people[j].state.clone()) {
+                        if !matches!(p.state, State::InCar { .. }) && !self.vehicles[v].wrecked() {
+                            let door = self.vehicles[v].to_world(-200.0, 20.0);
+                            let pace = if p.bent & person::BENT_LAZY != 0 { person::Pace::Walk } else { person::Pace::Run };
+                            goals[i] = (Some(Vec3::new(door.x, at[i].y, door.y)), pace);
+                        }
+                        continue;
+                    }
                     let going = p.goal.is_some();
                     let to = j
                         .filter(|&j| !self.people[j].removed && !self.people[j].is_dead())
@@ -336,7 +346,10 @@ impl Game {
                         })
                         .map(|j| at[j]);
                     let hurrying = j == self.player && self.sprinting;
-                    (to, if hurrying { person::Pace::Sprint } else { person::Pace::Run })
+                    // Keeping down with them when they crouch or crawl (`PERSON_SPEED_CRAWL`,
+                    // pcom.cpp:8016).
+                    let crawling = j.is_some_and(|j| matches!(self.people[j].state, State::Crouch { .. }));
+                    (to, if crawling { person::Pace::Crawl } else if hurrying { person::Pace::Sprint } else { person::Pace::Run })
                 }
                 // `PCOM_process_patrol`: a walk, unless they're `PCOM_BENT_DILIGENT`. On a
                 // random patrol (`PCOM_MOVE_PATROL_RAND`), the next point is any of the others

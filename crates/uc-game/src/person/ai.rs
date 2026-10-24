@@ -400,6 +400,7 @@ impl Person {
             if d.length() > 40.0 {
                 c.wish = d.normalize();
                 (c.run, c.sprint) = self.pace.controls();
+                c.crouch = self.pace == Pace::Crawl;
             }
             return c;
         }

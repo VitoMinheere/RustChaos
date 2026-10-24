@@ -323,13 +323,15 @@ pub enum Pace {
     Walk,
     Run,
     Sprint,
+    /// Crawling (`PERSON_SPEED_CRAWL`): a follower keeping down with whoever they follow.
+    Crawl,
 }
 
 impl Pace {
     /// The controls that move someone at this speed.
     fn controls(self) -> (bool, bool) {
         match self {
-            Pace::Walk => (false, false),
+            Pace::Walk | Pace::Crawl => (false, false),
             Pace::Run => (true, false),
             Pace::Sprint => (true, true),
         }

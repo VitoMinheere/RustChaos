@@ -1313,6 +1313,7 @@ impl Game {
         self.find_ways(level);
         self.city_life(dt, level);
         self.board_cars(level);
+        self.hitch_rides(level);
         // `PCOM_AI_SUICIDE`, "the easiest AI! A random death" (fallen/Source/pcom.cpp): down
         // as if shot with a pistol the first time it runs. The Fallen's bootlegger is made this
         // way on the roof once Harney has spoken, and the first clue waits on his death.
