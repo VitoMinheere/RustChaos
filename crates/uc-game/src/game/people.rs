@@ -382,12 +382,7 @@ impl Game {
             if p.ai != person::AI_BULLY || p.player || p.is_down() || p.is_dead() {
                 continue;
             }
-            if let Some(v) = p.bully {
-                let q = &self.people[v];
-                if q.removed || q.is_down() || q.is_dead() {
-                    self.people[i].bully = None;
-                    self.people[i].calm_down();
-                }
+            if p.victim.is_some() {
                 continue;
             }
             let clock = p.bully_clock - dt;
@@ -416,5 +411,36 @@ impl Game {
                 self.people[i].bully_after(v);
             }
         }
+    }
+
+    /// A gang member who has just gone into a fight brings in the rest of their gang: every
+    /// one of their colour who isn't busy fighting goes for the same person, however far off
+    /// (`PCOM_alert_my_gang_to_a_fight`, pcom.cpp:1781, from `PCOM_set_person_ai_kill_person`).
+    /// And anyone out to get someone who's down is free again.
+    pub(crate) fn back_up_gangs(&mut self) {
+        let fighting = std::mem::take(&mut self.fighting);
+        for i in 0..self.people.len() {
+            if let Some(v) = self.people[i].victim {
+                let q = &self.people[v];
+                if q.removed || q.is_down() || q.is_dead() {
+                    self.people[i].victim = None;
+                    self.people[i].calm_down();
+                }
+            }
+        }
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            if p.bent & person::BENT_GANG == 0 || !p.aggro() || fighting.get(i).copied().unwrap_or(false) {
+                continue;
+            }
+            let Some(target) = p.victim.or(p.foe) else { continue };
+            let colour = p.colour;
+            for (j, q) in self.people.iter_mut().enumerate() {
+                if j != i && j != target && q.bent & person::BENT_GANG != 0 && q.colour == colour && !q.aggro() {
+                    q.join_fight(target);
+                }
+            }
+        }
+        self.fighting = self.people.iter().map(|p| p.aggro()).collect();
     }
 }

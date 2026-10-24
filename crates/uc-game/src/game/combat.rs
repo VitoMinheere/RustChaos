@@ -17,6 +17,9 @@ impl Game {
                 self.muzzle_fx(*attacker);
             }
             match e {
+                // People in the same gang like each other: their blows and shots don't land
+                // on each other (`people_allowed_to_hit_each_other`, combat.cpp:2700).
+                Event::Hit { attacker, victim, .. } | Event::Shot { attacker, victim: Some(victim), .. } if self.same_gang(attacker, victim) => {}
                 Event::Hit { attacker, victim, mut damage, ko, high, low, weapon } => {
                     // The player's strength badges add to every blow, and her reflexes to every
                     // shot (`damage += Strength` / `Skill`, combat.cpp:2070).
@@ -405,6 +408,12 @@ impl Game {
                 }
             }
         }
+    }
+
+    /// Whether `a` and `b` are in the same gang (`PCOM_BENT_GANG`, and the same colour).
+    fn same_gang(&self, a: usize, b: usize) -> bool {
+        let (a, b) = (&self.people[a], &self.people[b]);
+        a.bent & b.bent & person::BENT_GANG != 0 && a.colour == b.colour
     }
 
     /// A gun going off in person `i`'s hand: sparks from the muzzle and casings out of the
