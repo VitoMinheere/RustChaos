@@ -195,6 +195,8 @@ pub const AI_MIB: u8 = 18;
 pub const AI_KILL_COLOUR: u8 = 17;
 /// `PCOM_AI_BULLY`: picks on whoever's about, the player or a passer-by.
 pub const AI_BULLY: u8 = 13;
+/// `PCOM_BENT_LAZY`: walks rather than runs, doesn't keep taunting, and sits down.
+pub const BENT_LAZY: u8 = 1 << 0;
 /// `PCOM_BENT_GANG`: one of a gang, who backs up the rest of their colour.
 pub const BENT_GANG: u8 = 1 << 2;
 /// `PCOM_BENT_ONLY_KILL_PLAYER`: a bully who only picks on the player.
@@ -540,6 +542,9 @@ pub enum State {
     /// Hands up to the gun person `by` is aiming (`PCOM_AI_STATE_HANDS_UP`), for `time`
     /// seconds so far.
     HandsUp { by: usize, time: f32 },
+    /// Sat on a bench, a sofa or an armchair (`ANIM_SIT_DOWN`, then held:
+    /// `SUB_STATE_SIMPLE_ANIM_OVER`), until something gets them up.
+    Sit,
     /// Sliding down a cable: `t` along it (0..1), moving towards `dir` (+1 or -1).
     /// `ridden`: how far along the cable so far (world units).
     Zip { cable: usize, t: f32, dir: f32, speed: f32, ridden: f32 },
@@ -1261,6 +1266,9 @@ impl Person {
                 self.fig.play(anim::INJURED_LOOP, Play::Loop);
             }
             State::Carried { .. } | State::Enter { .. } | State::Bike { .. } => {}
+            // Sitting: down, and stays down. They get up again in `decide` when something
+            // needs them.
+            State::Sit => {}
             State::HandsUp { by, time } => {
                 // `ANIM_HANDS_UP`, then held there (`ANIM_HANDS_UP_LOOP`), facing the gun.
                 if snaps[by].present {
