@@ -440,6 +440,9 @@ impl script::Query for Scene<'_> {
     fn prim_damaged(&self, pos: Vec3) -> bool {
         self.game.prim_damaged(self.level, pos)
     }
+    fn surface(&self, x: f32, z: f32, y: f32) -> f32 {
+        self.level.ground.surface(&self.level.map, x, z, y)
+    }
     fn crime_rate(&self) -> u8 {
         self.game.crime_rate
     }
