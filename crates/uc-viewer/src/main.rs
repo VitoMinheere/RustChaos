@@ -11,6 +11,7 @@ mod cam;
 mod checklist;
 mod console;
 mod coop;
+mod credits;
 mod editor;
 mod ghosts;
 mod hud;
@@ -512,6 +513,12 @@ impl App {
             w.save_stats();
             m.select(&w.level.name);
             m.screen = if left_coop { menu::Screen::Coop } else { menu::Screen::Missions };
+            // The game finished: the credits, as the original's outro (Game.cpp:2730).
+            if w.level.name.eq_ignore_ascii_case("Finale1") && w.game.outcome == Some(Outcome::Won)
+                && w.replay.is_none() && w.editor.is_none() && !left_coop
+            {
+                m.show_credits();
+            }
         }
         if self.coop.is_some() {
             m.screen = menu::Screen::Lobby;
@@ -627,6 +634,7 @@ impl App {
                         "CAPTURE THE FLAG" => m.loading_ctf = true,
                         "STATS" => m.screen = menu::Screen::Stats,
                         "REPLAYS" => m.show_replays(),
+                        "CREDITS" => m.show_credits(),
                         "DIFFICULTY" => {
                             let all = uc_game::Difficulty::ALL;
                             let now = all.iter().position(|&d| d == m.progress.difficulty()).unwrap_or(1);
@@ -718,6 +726,19 @@ impl App {
                     m.screen = menu::Screen::Main;
                 }
             }
+            menu::Screen::Credits => {
+                if back || go {
+                    m.screen = menu::Screen::Main;
+                }
+                if inp.hit(KeyCode::ArrowLeft) || inp.hit(KeyCode::KeyA) || inp.pad.hit(Button::DPadLeft) {
+                    m.credits.next(-1);
+                }
+                if inp.hit(KeyCode::ArrowRight) || inp.hit(KeyCode::KeyD) || inp.pad.hit(Button::DPadRight) {
+                    m.credits.next(1);
+                }
+                let fast = inp.held(KeyCode::ArrowDown) || inp.held(KeyCode::KeyS) || inp.pad.held(Button::DPadDown);
+                m.credits.advance(dt, fast);
+            }
             menu::Screen::Replays => {
                 if back {
                     (m.screen, m.status) = (menu::Screen::Main, String::new());
@@ -756,6 +777,11 @@ impl App {
                     m.loading_endless = Some(m.map_selected);
                 }
             }
+        }
+        // The outro's music under the credits, and quiet in the rest of the menu.
+        if let Some(s) = self.sound.as_mut() {
+            s.audio.music((m.screen == menu::Screen::Credits).then_some(credits::MUSIC));
+            s.audio.update(dt);
         }
         self.input.pressed.clear();
         self.input.typed.clear();
