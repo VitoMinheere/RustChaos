@@ -48,6 +48,8 @@ Darci: WASD move (relative to the camera), Shift run, J or left mouse punch, K k
   E action (arrest, climb; hold while running to sprint; hold over a searchable prop or someone
   dead, out cold or arrested to search them), mouse turns the camera, wheel zoom.
   F11 or Alt+Enter: full screen or a window.
+  E facing a building's wall: back to it; move along it to edge sideways, at its end she looks
+  round the corner and E leaps out; walk away to leave it.
   C or Left Ctrl crouch (hold; move to crawl). Punch someone with their back to her, close by,
   to knock them out cold from behind (crouching or crawling up is quietest).
   G next weapon. With a gun: punch fires (hold for the AK-47) at the bracketed target,

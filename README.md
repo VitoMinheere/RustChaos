@@ -71,7 +71,7 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 | Q (hold) | Block | |
 | G | Next weapon (bare hands, knife or bat, pistol, shotgun, AK-47, explosives) | |
 | T | Target the next enemy (with a gun drawn) | |
-| E (or L) | Action: arrest a downed enemy, climb a ladder; hold while running to sprint | Up |
+| E (or L) | Action: arrest a downed enemy, climb a ladder; hold while running to sprint. Standing in front of a building's wall: back to it, then move along it to edge sideways, look round its end, and E again to leap out; walk away from it to leave | Up |
 | C / Q | | Down |
 | Mouse | Orbit the camera (the cursor is captured) | Look |
 | M | Mouse look on/off (off: right mouse drag turns the camera) | same |

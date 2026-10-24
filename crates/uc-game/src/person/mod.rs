@@ -15,6 +15,8 @@ mod ai;
 mod carry;
 mod climb;
 mod fight;
+mod hug;
+pub use hug::Hug;
 mod moving;
 
 /// `PCOM_COMBAT_*`: which finishing moves knock out a fight-test dummy.
@@ -565,6 +567,9 @@ pub enum State {
     /// Crouched, for as long as action is held (`set_person_croutch`): phase 0 going down,
     /// 1 down, 2 crawling (`SUB_STATE_CRAWLING`), 3 getting up (`SUB_STATE_IDLE_UNCROUCH`).
     Crouch { phase: u8 },
+    /// Back to a wall (`STATE_HUG_WALL`, #205): the wall from `a` to `b`, `out` its normal
+    /// (the way she faces), and what she's doing against it.
+    HugWall { a: Vec2, b: Vec2, out: Vec2, hug: Hug },
 }
 
 /// What a person did this frame that affects somebody else.
@@ -1060,7 +1065,7 @@ impl Person {
             pos: if self.is_down() || matches!(self.state, State::Injured) { self.body_pos() } else { self.fig.pos },
             facing: self.fig.facing(),
             present: !self.removed,
-            standing: !self.removed && matches!(self.state, State::Move | State::Attack { .. } | State::Hurt | State::Land { .. } | State::Block | State::Shoot { .. }),
+            standing: !self.removed && matches!(self.state, State::Move | State::Attack { .. } | State::Hurt | State::Land { .. } | State::Block | State::Shoot { .. } | State::HugWall { .. }),
             down: self.is_down(),
             arrested: self.arrested,
             arrestable: self.arrestable(),
@@ -1165,6 +1170,7 @@ impl Person {
             }
             State::Dangle { to, dir, shift } => self.step_dangle(to, dir, shift, c, ground, map),
             State::Carry { victim, phase } => self.step_carry(victim, phase, c, ground, map, dt),
+            State::HugWall { a, b, out, hug } => self.step_hug(a, b, out, hug, c, ground, map, dt),
             State::Crouch { phase } => {
                 // Up from a crouch or a crawl straight into the takedown, if someone's back
                 // is to her.
