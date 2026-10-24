@@ -1,7 +1,8 @@
 //! Hands up (`PCOM_cop_aiming_at_you`, fallen/Source/pcom.cpp:14092): Darci's gun turned on a
 //! passer-by has them put their hands up and keep them there; twenty seconds on, they put
 //! them down once she's aiming elsewhere. The guilty go for her instead, and cops pay no
-//! heed. In RTA, among its crowd. Skipped without an install.
+//! heed. She shouts "Freeze!" or "Stop, police!" at whoever she draws on. In RTA, among its
+//! crowd. Skipped without an install.
 
 use glam::vec3;
 use uc_game::person::{AI_CIV, AI_GANG};
@@ -115,4 +116,29 @@ fn killing_innocents_earns_red_marks() {
     g.people[other].take_hit(from, 10_000, uc_game::person::ko::FINISHERS, false, false, Weapon::Pistol);
     run(&mut g, &level, DT);
     assert_eq!(g.red_marks, 1);
+}
+
+/// Darci's shouts at whoever she draws on.
+fn shouts(g: &mut Game) -> Vec<u8> {
+    g.take_sounds().into_iter().filter_map(|(s, _)| if let uc_game::Sfx::Freeze(n) = s { Some(n) } else { None }).collect()
+}
+
+#[test]
+fn she_shouts_freeze_at_who_she_draws_on() {
+    let Some((level, mut g)) = start() else { return };
+    let i = g.people.iter().position(|q| q.fake && q.ai == AI_CIV && q.kind == ptype::CIV && !q.is_dead()).expect("no crowd");
+    g.take_sounds();
+    aim_at(&mut g, &level, i);
+    run(&mut g, &level, DT);
+    assert_eq!(shouts(&mut g).len(), 1, "one shout on drawing on them");
+    // Kept on them, she doesn't keep shouting.
+    run(&mut g, &level, 2.0);
+    assert!(shouts(&mut g).is_empty());
+    // A cop isn't told to freeze.
+    let cop = g.people.iter().position(|q| q.kind == ptype::COP && !q.is_dead() && !q.removed);
+    if let Some(c) = cop {
+        aim_at(&mut g, &level, c);
+        run(&mut g, &level, DT);
+        assert!(shouts(&mut g).is_empty(), "she told a cop to freeze");
+    }
 }
