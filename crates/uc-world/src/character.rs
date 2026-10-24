@@ -60,6 +60,18 @@ pub mod anim {
     pub const HIT_FRONT_MID: usize = 167;
     pub const HIT_BACK_HI: usize = 168;
     pub const HIT_BACK_MID: usize = 169;
+    /// Knocked dead by a blast, a car or fire, standing on the ground
+    /// (`PERSON_DEATH_TYPE_OTHER`): from the front, onto the back; from behind, flat out.
+    pub const KO_BACK: usize = 33;
+    pub const KO_BEHIND_BIG: usize = 109;
+    /// A fall that kills (`PERSON_DEATH_TYPE_LAND`, `ANIM_BIGLAND_DIE`).
+    pub const BIGLAND_DIE: usize = 388;
+    /// Shot dead (`ANIM_SHOT_DEAD_*`, fallen/Headers/animate.h:514): from behind, in the
+    /// head, the chest or the gut; from the front, thrown onto the back.
+    pub const SHOT_DEAD_HEAD: usize = 304;
+    pub const SHOT_DEAD_CHEST: usize = 305;
+    pub const SHOT_DEAD_GUT: usize = 306;
+    pub const SHOT_DEAD_BACK: usize = 307;
     pub const KD_FRONT_MID: usize = 170;
     pub const KD_BACK_MID: usize = 172;
     pub const KD_BACK_LOW: usize = 174;

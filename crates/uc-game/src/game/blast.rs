@@ -111,7 +111,9 @@ impl Game {
                 self.people[i].hurt_by = Some(by);
             }
             let hit = self.hurt(i, hit);
+            let (behind, was) = (self.people[i].hit_from_behind(at), self.people[i].is_dead());
             self.people[i].take_hit(at, hit, ko, false, false, Weapon::None);
+            self.knocked_dead(i, behind, was, level);
         }
     }
 
@@ -140,6 +142,17 @@ impl Game {
             self.shake_turns -= 1.0;
             self.shake = (self.shake - 1.0).max(0.0);
             self.shake -= (self.shake / 8.0).floor();
+        }
+    }
+
+    /// Someone a blast or a car has just killed, on the ground, falls as such a death does
+    /// (`PERSON_DEATH_TYPE_OTHER`, Person.cpp:2585: within 0x20 of the floor); in the air
+    /// they keep the knockdown they were given.
+    pub(crate) fn knocked_dead(&mut self, i: usize, behind: bool, was_dead: bool, level: &Level) {
+        let p = &self.people[i];
+        let floor = level.ground.surface(&level.map, p.fig.pos.x, p.fig.pos.z, p.fig.pos.y + 8.0);
+        if !was_dead && p.is_dead() && !p.arrested && p.fig.pos.y - floor < 32.0 {
+            self.people[i].knocked_dead(behind);
         }
     }
 
