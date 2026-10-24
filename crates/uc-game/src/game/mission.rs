@@ -283,6 +283,9 @@ impl Game {
                 Command::Sound { id, pos, replace } => self.sounds.push((Sfx::ById { id, replace }, pos)),
                 Command::Electrify { pos, on } => self.electrify(level, pos, on),
                 Command::NoFloor => self.no_floor = true,
+                Command::EndOfWorld => {
+                    self.end_of_world.get_or_insert(0.0);
+                }
                 Command::OpenDoor { pos } => {
                     if !level.ground.open_door_near(pos.x, pos.z) {
                         // The original says so too, on its console.

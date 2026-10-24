@@ -235,6 +235,8 @@ pub enum Command {
     Electrify { pos: Vec3, on: bool },
     /// There's no floor (`GF_NO_FLOOR`): the street isn't drawn, and nobody lands on it.
     NoFloor,
+    /// The end of the world round the player (`EWAY_DO_END_OF_WORLD`): the mission is lost.
+    EndOfWorld,
     /// Lay a sheet of ground mist centred on `pos` (`EWAY_DO_CREATE_MIST`).
     Mist { pos: Vec3 },
     /// Play the game's sound `id` at `pos`. `replace` is `play_glue_wave`'s type 1, which cuts
@@ -302,6 +304,10 @@ const FOLLOW_PERSON: i32 = 1;
 
 /// `IT_BARREL`: a `create_item` that puts down barrels.
 const IT_BARREL: i32 = 9;
+
+/// `IT_WIRE_CUTTER`: not an item at all. The loader makes the point `EWAY_DO_END_OF_WORLD`
+/// (elev.cpp:1074): Day Of Reckoning's, when its countdowns run out.
+const IT_WIRE_CUTTER: i32 = 25;
 
 /// `EWAY_counter[7]`: how many cops have been killed.
 const COPS_KILLED: usize = 7;
@@ -802,6 +808,7 @@ impl Script {
             waypoint::CREATE_CREATURE => {
                 self.commands.push(Command::Creature { way: i, kind: d[0] as u8, pos, angle })
             }
+            waypoint::CREATE_ITEM if d[0] == IT_WIRE_CUTTER => self.commands.push(Command::EndOfWorld),
             waypoint::CREATE_ITEM => {
                 // Somewhere on the person's square, near its middle, as
                 // `find_nice_place_near_person` picks it (Person.cpp:1040, from
