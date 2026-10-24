@@ -57,6 +57,7 @@ impl Game {
     }
 
     pub(crate) fn shockwave(&mut self, level: &Level, at: Vec3, radius: f32, damage: i32, by: Blame) {
+        self.shake_camera(at, damage);
         self.shock_props(level, at, radius, damage);
         self.light_mines(at);
         // Creatures: a little more than people get, as far out as the edge, and four times
@@ -111,6 +112,34 @@ impl Game {
             }
             let hit = self.hurt(i, hit);
             self.people[i].take_hit(at, hit, ko, false, false, Weapon::None);
+        }
+    }
+
+    /// A shockwave shakes the camera (`FC_explosion`, fc.cpp:2085, from `create_shockwave` with
+    /// its damage as the force): by up to 255, the closer the more, out to sixteen times the
+    /// force. Measured from the player, whom the camera follows a couple of squares behind.
+    fn shake_camera(&mut self, at: Vec3, force: i32) {
+        let Some(me) = self.player().map(|p| p.fig.pos) else { return };
+        let d = (me - at).abs();
+        let dist = d.max_element() + (d.x + d.y + d.z - d.max_element()) / 4.0;
+        let reach = (force * 16) as f32;
+        if dist < reach {
+            self.shake = (256.0 * (reach - dist) / reach).clamp(0.0, 255.0).floor();
+        }
+    }
+
+    /// The camera's shake dies down a game turn at a time (fc.cpp:1923): by one, then by an
+    /// eighth.
+    pub(crate) fn settle_shake(&mut self, dt: f32) {
+        if self.shake <= 0.0 {
+            self.shake_turns = 0.0;
+            return;
+        }
+        self.shake_turns += dt * 20.0;
+        while self.shake_turns >= 1.0 && self.shake > 0.0 {
+            self.shake_turns -= 1.0;
+            self.shake = (self.shake - 1.0).max(0.0);
+            self.shake -= (self.shake / 8.0).floor();
         }
     }
 
