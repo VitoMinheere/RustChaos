@@ -119,6 +119,7 @@ impl Person {
     pub(super) fn walk(&mut self, delta: Vec2, ground: &Ground, map: &Map, drop_ok: bool) -> bool {
         let p = &mut self.fig.pos;
         let (to, odd) = ground.slide_odd(vec2(p.x, p.z), p.y, delta, RADIUS);
+        let to = uc_world::mav::keep_off_nogo(map, to);
         self.slid_odd = Some(self.slid_odd == Some(true) || odd);
         let floor = ground.surface(map, to.x, to.y, p.y);
         if floor - p.y > STEP_HEIGHT || (!drop_ok && p.y - floor > STEP_HEIGHT) {
@@ -249,7 +250,7 @@ impl Person {
             }
         }
         let p = self.fig.pos;
-        let to = ground.slide(vec2(p.x, p.z), p.y, vel * dt, RADIUS);
+        let to = uc_world::mav::keep_off_nogo(map, ground.slide(vec2(p.x, p.z), p.y, vel * dt, RADIUS));
         let y = p.y + vy * dt;
         let floor = ground.surface(map, to.x, to.y, p.y);
         if y <= floor {

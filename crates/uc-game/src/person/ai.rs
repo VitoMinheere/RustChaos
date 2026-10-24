@@ -181,6 +181,16 @@ impl Person {
         // is `can_a_see_b`), or turns to look on hearing them (running feet, a landing, a
         // fight) and may see them then; others still by being near.
         let gang = self.ai == AI_GANG && !hunter;
+        // Someone kept to a zone only goes after a person standing in it, and only hears
+        // what happens there; once they're out of it, the chase is over
+        // (`PCOM_can_i_see_person_to_attack`, pcom.cpp:5775; pcom.cpp:8534 and 13244).
+        let in_zone = self.zone == 0 || p.zone & self.zone != 0;
+        if !in_zone {
+            self.aggro = false;
+            self.taunt = None;
+            self.heard = None;
+            return self.wander(c, ground, dt, rand);
+        }
         if gang && !self.aggro && p.noise > 0.0 && dist < p.noise {
             self.hear(p.pos);
         }

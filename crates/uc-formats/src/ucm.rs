@@ -115,6 +115,16 @@ pub mod point_flags {
     pub const REFERENCED: u8 = 16;
 }
 
+/// `ZF_*` (fallen/Headers/Mission.h): a square's byte in a mission's zone map.
+pub mod zone_flags {
+    /// City extras and wanderers don't go there (`PAP_FLAG_WANDER` cleared, elev.cpp:1800).
+    pub const NO_WANDER: u8 = 4;
+    /// `ZF_ZONE1` to `ZF_ZONE4`: the zones people can be kept to (`PAP_FLAG_ZONE1-4`).
+    pub const ZONES: u8 = 0x78;
+    /// Nobody goes there (`MAV_turn_off_whole_square`, `PAP_FLAG_NOGO`, elev.cpp:1813).
+    pub const NO_GO: u8 = 128;
+}
+
 /// Event point types that carry one message string each (counted as `mess_count` by the loader).
 pub fn has_text(kind: u8) -> bool {
     matches!(kind, waypoint::MESSAGE | waypoint::NAV_BEACON | waypoint::BONUS_POINTS | waypoint::CONVERSATION)
@@ -216,6 +226,21 @@ pub struct Mission {
 }
 
 impl Mission {
+    /// The zone map's byte (`ZF_*`) for the square at world (x, z); 0 off the map or for a
+    /// mission without one.
+    pub fn zone_at(&self, x: f32, z: f32) -> u8 {
+        let (mx, mz) = ((x / 256.0).floor() as i32, (z / 256.0).floor() as i32);
+        if !(0..128).contains(&mx) || !(0..128).contains(&mz) {
+            return 0;
+        }
+        self.zones.get((mx * 128 + mz) as usize).copied().unwrap_or(0)
+    }
+
+    /// The zones (bit 0 for `ZF_ZONE1`, as a person's `pcom_zone`) of the square at (x, z).
+    pub fn zones_at(&self, x: f32, z: f32) -> u8 {
+        (self.zone_at(x, z) & zone_flags::ZONES) >> 3
+    }
+
     /// World position of the first `create_player` event point.
     pub fn player_start(&self) -> Option<[i32; 3]> {
         self.event_points

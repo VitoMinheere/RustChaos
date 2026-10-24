@@ -138,6 +138,9 @@ pub struct EnemySpec {
     /// Guilty of something (`FLAG2_PERSON_GUILTY`): bit 5 of the zone byte. A cop can only be
     /// arrested if so.
     pub guilty: bool,
+    /// The zones they're kept to (`pcom_zone`: the low four bits of the zone byte, bit 0 for
+    /// `ZF_ZONE1`); 0 for anywhere.
+    pub zone: u8,
 }
 
 /// A camera fly-by (`create_camera` with its `camera_waypoint`s and `create_target`).
@@ -740,6 +743,7 @@ impl Script {
                     drop: (0..32).rev().find(|j| d[8] >> j & 1 != 0).map_or(0, |j| j as u8 + 1),
                     follow: (d[1] & 0xFFFF) as usize, colour: w.ep.colour, other: ai_other(ai, d[7]), group: w.ep.group,
                     invulnerable: zone & (1 << 4) != 0 && ai != PCOM_AI_FIGHT_TEST, guilty: zone & (1 << 5) != 0,
+                    zone: (zone & 0xf) as u8,
                 };
                 self.commands.push(Command::SpawnEnemy { way: i, pos, angle, spec });
             }

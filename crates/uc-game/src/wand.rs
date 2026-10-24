@@ -57,6 +57,16 @@ impl Wander {
         Wander { squares }
     }
 
+    /// Takes off the squares the mission's zone map says nobody wanders onto (`ZF_NO_WANDER`,
+    /// elev.cpp:1800). Hidden squares are left alone: the flag means something else there.
+    pub fn forbid(&mut self, map: &Map, zones: &[u8]) {
+        for (k, &z) in zones.iter().enumerate().take(self.squares.len()) {
+            if z & uc_formats::ucm::zone_flags::NO_WANDER != 0 && !map.squares[k].has(flags::HIDDEN) {
+                self.squares[k] = false;
+            }
+        }
+    }
+
     /// `WAND_square_is_wander`.
     pub fn is_wander(&self, x: i32, z: i32) -> bool {
         (0..N).contains(&x) && (0..N).contains(&z) && self.squares[(x * N + z) as usize]

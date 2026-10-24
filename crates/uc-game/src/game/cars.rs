@@ -17,7 +17,11 @@ impl Streets {
         Streets {
             roads: road::Roads::new(&level.map, &level.mission.map),
             drivers: HashMap::new(),
-            wand: wand::Wander::new(&level.map, &level.game),
+            wand: {
+                let mut w = wand::Wander::new(&level.map, &level.game);
+                w.forbid(&level.map, &level.mission.zones);
+                w
+            },
             chatter: city::Chatter::load(level),
         }
     }

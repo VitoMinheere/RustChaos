@@ -47,12 +47,21 @@ fn brought_back(g: &mut Game, level: &Level, i: usize) {
 }
 
 /// Sends one of the crowd far off out of sight, so the crowd brings them back near Darci.
+/// The rest of the crowd goes the other way and isn't due back for a while: there are few
+/// places to bring anyone back to here, and the first one brought back is the one boredom
+/// turns.
 fn send_away(g: &mut Game) -> usize {
     let p = g.player.unwrap();
     let me = g.people[p].fig.pos;
     let i = g.people.iter().position(|q| q.fake && q.ai == AI_CIV && !q.is_dead()).expect("no crowd");
     g.people[i].fig.pos = me + vec3(40.0 * 256.0, 0.0, 0.0);
     g.people[i].unseen = 10.0;
+    for (j, q) in g.people.iter_mut().enumerate() {
+        if j != i && q.fake && q.ai == AI_CIV {
+            q.fig.pos = me + vec3(-40.0 * 256.0, 0.0, 0.0);
+            q.unseen = 0.0;
+        }
+    }
     i
 }
 
@@ -94,16 +103,6 @@ fn never_where_the_rate_is_255() {
     }
     g.bored = 10_000.0;
     let i = send_away(&mut g);
-    // The rest of the crowd out of the way, and not due back for a while, so the places near
-    // her aren't all taken (there are few here).
-    let p = g.player.unwrap();
-    let me = g.people[p].fig.pos;
-    for (j, q) in g.people.iter_mut().enumerate() {
-        if j != i && q.fake && q.ai == AI_CIV {
-            q.fig.pos = me + vec3(-40.0 * 256.0, 0.0, 0.0);
-            q.unseen = 0.0;
-        }
-    }
     brought_back(&mut g, &level, i);
     assert_eq!(g.people[i].kind, ptype::CIV, "turned with a rate of 255");
 }

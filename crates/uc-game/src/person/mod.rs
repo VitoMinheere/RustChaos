@@ -646,6 +646,8 @@ pub struct Snap {
     /// How far off the noise they're making this frame is heard (`PCOM_oscillate_tympanum`'s
     /// radii, pcom.cpp:13124): running feet 0x280, a landing 0x200, a fight 0x900; 0 for none.
     pub noise: f32,
+    /// The zones of the square they're on (bit 0 for `ZF_ZONE1`), set by the game.
+    pub zone: u8,
 }
 
 /// What someone is running from: a person (followed as they move) or a place.
@@ -676,6 +678,9 @@ pub struct Person {
     pub removed: bool,
     /// 0..15: how well an enemy fights (attack rate, blocking, damage).
     pub skill: u8,
+    /// The zones of the mission's zone map they're kept to (`pcom_zone`, bit 0 for
+    /// `ZF_ZONE1`), 0 for none: they only go after someone standing in one of them.
+    pub zone: u8,
     /// `PCOM_MOVE_*`: 5 (follow) hunts the player down.
     pub mv: u8,
     /// What's in hand.
@@ -845,7 +850,7 @@ impl Person {
             pace: Pace::Walk,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
-            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
+            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }
@@ -1146,6 +1151,7 @@ impl Person {
                 State::Move if matches!(self.fig.anim(), anim::RUN | anim::PISTOL_JOG | anim::AK_JOG) => 0x280 as f32,
                 _ => 0.0,
             },
+            zone: 0,
         }
     }
 

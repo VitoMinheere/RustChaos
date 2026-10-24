@@ -287,6 +287,14 @@ impl Level {
     pub fn load_with_mission(game: &Path, mission_name: &str, mission: Mission, opt: &LoadOptions) -> Result<Level, String> {
         let mut map = Map::parse(&read(game, &mission.map)?).map_err(|e| format!("{}: {e}", mission.map))?;
         to_sea(&mission.map, &mut map);
+        // The mission's no-go squares: nobody walks into them, routes go round them, and
+        // someone walking up to one stops short (elev.cpp:1813, after `MAV_precalculate`
+        // and `WAND_init`, so they're turned off on top of whatever those found).
+        for (k, &z) in mission.zones.iter().enumerate().take(MAP_SIZE * MAP_SIZE) {
+            if z & uc_formats::ucm::zone_flags::NO_GO != 0 {
+                map.squares[k].flags |= flags::NOGO;
+            }
+        }
         // A world the install has nothing of borrows the stand-in's style table and pages.
         let style_table = |w: i32| read(game, &format!("server\\textures\\world{w}\\style.tma")).ok();
         let world = map.texture_set.map(|w| if style_table(w).is_some() { w } else { STAND_IN_WORLD });

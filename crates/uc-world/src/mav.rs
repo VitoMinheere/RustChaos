@@ -87,6 +87,42 @@ fn crosses(p: Vec2, p2: Vec2, q: Vec2, q2: Vec2) -> bool {
     (0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u)
 }
 
+/// How close anyone comes to a no-go square: `NOGO_COLLIDE_WIDTH`, 0x58 of a square.
+const NOGO_WIDTH: f32 = 88.0;
+
+/// Keeps someone at `p` out of the no-go squares (`PAP_FLAG_NOGO`) round the one they're
+/// in, as `slide_along` does (collide.cpp:4111): no nearer than [`NOGO_WIDTH`] to a side
+/// shared with one, or to a corner touching one diagonally. It doesn't look at height, so
+/// a no-go square is a wall from the ground to the sky.
+pub fn keep_off_nogo(map: &Map, p: Vec2) -> Vec2 {
+    let (mx, mz) = ((p.x / 256.0).floor() as i32, (p.y / 256.0).floor() as i32);
+    if !(1..MAP_SIZE as i32 - 1).contains(&mx) || !(1..MAP_SIZE as i32 - 1).contains(&mz) {
+        return p;
+    }
+    let nogo = |dx: i32, dz: i32| map.square((mx + dx) as usize, (mz + dz) as usize).has(flags::NOGO);
+    let base = vec2(mx as f32, mz as f32) * 256.0;
+    let mut f = p - base;
+    if nogo(-1, 0) { f.x = f.x.max(NOGO_WIDTH); }
+    if nogo(1, 0) { f.x = f.x.min(256.0 - NOGO_WIDTH); }
+    if nogo(0, -1) { f.y = f.y.max(NOGO_WIDTH); }
+    if nogo(0, 1) { f.y = f.y.min(256.0 - NOGO_WIDTH); }
+    // The corners, each on its own (the original lumps them together, which only matters
+    // where two diagonal no-go squares meet the same square).
+    for (dx, dz) in [(-1, -1), (1, -1), (-1, 1), (1, 1)] {
+        if !nogo(dx, dz) {
+            continue;
+        }
+        let corner = vec2(if dx > 0 { 256.0 } else { 0.0 }, if dz > 0 { 256.0 } else { 0.0 });
+        let d = (f - corner).abs();
+        let dist = qdist2(d.x as i32, d.y as i32) as f32 + 1.0;
+        if dist < NOGO_WIDTH {
+            let away = d * (NOGO_WIDTH / dist);
+            f = corner + vec2(if dx > 0 { -away.x } else { away.x }, if dz > 0 { -away.y } else { away.y });
+        }
+    }
+    base + f
+}
+
 impl Mav {
     /// `MAV_calc_height_array` (warehouses included) and `MAV_precalculate` for a level.
     pub fn new(level: &Level) -> Mav {
