@@ -55,6 +55,8 @@ pub(crate) struct World {
     pub(crate) help: bool,
     /// H pressed: show the help for as long as wanted.
     pub(crate) help_forced: bool,
+    /// The controls the help shows, as they're bound (#202).
+    pub(crate) help_lines: Vec<String>,
     /// A win, once recorded: (time, best time before it).
     pub(crate) result: Option<(f32, Option<f32>)>,
     /// The mission's badges and side objectives, and those done in earlier wins.
@@ -215,6 +217,7 @@ impl World {
             args,
             help: true,
             help_forced: false,
+            help_lines: Vec::new(),
             result: None,
             goals,
             kept,

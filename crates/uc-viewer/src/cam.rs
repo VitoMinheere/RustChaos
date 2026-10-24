@@ -106,21 +106,22 @@ impl Orbit {
 impl World {
     /// The original's camera keys beside the mouse (#203; the keyboard's, interfac.cpp:7118):
     /// F5 to F8 the camera types, Delete and Page Down swing the camera round her, End puts
-    /// it behind her (`INPUT_MASK_CAM_BEHIND`), and F held looks round (the manual's A).
+    /// it behind her (`INPUT_MASK_CAM_BEHIND`), and F held looks round (the manual's A); all
+    /// but the F keys as the bindings have them (#202).
     pub(crate) fn classic_camera(&mut self, inp: &Input, delta: Vec2, dt: f32) {
         // The editor has its own Delete.
         if self.editor.is_some() {
             return;
         }
         for (t, k) in [KeyCode::F5, KeyCode::F6, KeyCode::F7, KeyCode::F8].into_iter().enumerate() {
-            if inp.hit(k) {
+            if inp.own(k) {
                 self.orbit.set_type(t);
             }
         }
-        if inp.hit(KeyCode::Delete) {
+        if inp.tap(Act::CamLeft) {
             self.orbit.rotate(-1.0);
         }
-        if inp.hit(KeyCode::PageDown) {
+        if inp.tap(Act::CamRight) {
             self.orbit.rotate(1.0);
         }
         self.orbit.turn(dt);
@@ -130,7 +131,7 @@ impl World {
                 (o.yaw, o.swing) = (Orbit::behind(a).yaw, 0.0);
             }
         };
-        if inp.hit(KeyCode::End) {
+        if inp.tap(Act::CamBehind) {
             behind(&mut self.orbit);
         }
         // Looking round only on foot, as the original only lets her standing, aiming or
@@ -138,14 +139,14 @@ impl World {
         // replay, where F and the arrows are its own.
         let on_foot = self.game.player_vehicle().is_none() && self.game.riding().is_none() && self.game.sniping().is_none()
             && self.replay.is_none();
-        match (inp.held(KeyCode::KeyF) && on_foot, &mut self.look) {
+        match (inp.on(Act::Look) && on_foot, &mut self.look) {
             (true, None) => self.look = angle.map(Orbit::look),
             (true, Some(look)) => {
                 let key = |k| if inp.held(k) { 1.0 } else { 0.0 };
                 // Up looks down and Down up, as the manual has it; 13 of 2048 a tick for
                 // `look_pitch`, and she turns 32 a tick (interfac.cpp:7571).
-                let up = key(KeyCode::ArrowDown) + key(KeyCode::KeyS) - key(KeyCode::ArrowUp) - key(KeyCode::KeyW);
-                let round = key(KeyCode::ArrowLeft) + key(KeyCode::KeyA) - key(KeyCode::ArrowRight) - key(KeyCode::KeyD);
+                let up = (key(KeyCode::ArrowDown) + inp.axis(Act::Back) - key(KeyCode::ArrowUp) - inp.axis(Act::Forward)).clamp(-1.0, 1.0);
+                let round = (key(KeyCode::ArrowLeft) + inp.axis(Act::Left) - key(KeyCode::ArrowRight) - inp.axis(Act::Right)).clamp(-1.0, 1.0);
                 let tick = 20.0 * dt * std::f32::consts::TAU / 2048.0;
                 look.look_by(up * 13.0 * tick, round * 32.0 * tick);
                 if inp.rmb || inp.mouse_look {

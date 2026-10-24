@@ -61,6 +61,8 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 
 ## Viewer controls
 
+These are the default keys. **Options → Controls** rebinds them (Enter on an action, then the new key or button) and has a **Classic** layout with the original's keys (the manual's pp. 11-13, 16-17 and 21): Up runs, Left/Right turn, Down walks back, V held walks, Z punch/fire, X kick, C action, Space jump, Enter the inventory, A held to look around, and Space in a car for the siren (X the handbrake). The bindings are kept in `bindings.txt` beside the progress file. A key given to an action stops doing what the viewer had on it (B, H, R, Tab and the like).
+
 | Input | Third person (Darci) | Free camera |
 |---|---|---|
 | WASD | Walk, relative to the camera | Fly |

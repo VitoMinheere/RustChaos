@@ -7,6 +7,7 @@
 mod achievements;
 mod args;
 mod audio;
+mod bindings;
 mod cam;
 mod checklist;
 mod console;
@@ -30,6 +31,7 @@ use cam::*;
 use console::*;
 use coop::*;
 use hud::*;
+use bindings::Act;
 use input::*;
 use pause::*;
 use world::*;
@@ -143,7 +145,7 @@ impl App {
 
     fn update(&mut self, dt: f32) {
         self.poll_pad();
-        if self.input.hit(KeyCode::KeyM) {
+        if self.input.own(KeyCode::KeyM) {
             self.input.mouse_look = !self.input.mouse_look;
             self.capture_cursor(self.want_cursor());
         }
@@ -152,20 +154,23 @@ impl App {
         let pad = &inp.pad;
         let Some(w) = self.world.as_mut() else { return };
         let delta = inp.mouse;
-        w.checklist = inp.held(KeyCode::Tab);
+        w.checklist = inp.held(KeyCode::Tab) && !inp.bindings.uses(KeyCode::Tab);
         w.game.show = w.args.show;
-        if (inp.hit(KeyCode::KeyV) || pad.hit(Button::Select)) && w.game.player.is_some() && w.editor.is_none() {
+        if w.help {
+            w.help_lines = inp.bindings.help();
+        }
+        if inp.tap(Act::View) && w.game.player.is_some() && w.editor.is_none() {
             w.third_person = !w.third_person;
             if let (false, Some(eye)) = (w.third_person, w.eye()) {
                 w.fly = w.orbit.cam(eye);
             }
         }
         // B: the ghost on or off, on the missions raced against one (#186), and remembered.
-        if inp.hit(KeyCode::KeyB) && w.race.is_some() {
+        if inp.own(KeyCode::KeyB) && w.race.is_some() {
             w.ghost_on = !w.ghost_on;
             progress::Progress::load().set_ghosts(w.ghost_on);
         }
-        if inp.hit(KeyCode::KeyH) {
+        if inp.own(KeyCode::KeyH) {
             let shown = w.help && (w.game.time < 20.0 || w.help_forced);
             w.help = !shown;
             w.help_forced = !shown;
@@ -173,7 +178,7 @@ impl App {
         let keys = [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6];
         let layers = [Layer::Floor, Layer::Walls, Layer::Props, Layer::Roofs, Layer::Detail, Layer::Character];
         for (k, l) in keys.iter().zip(layers) {
-            if inp.hit(*k) {
+            if inp.own(*k) {
                 if let Some(i) = w.layers.iter().position(|x| *x == l) {
                     w.layers.remove(i);
                 } else {
@@ -181,13 +186,13 @@ impl App {
                 }
             }
         }
-        if inp.hit(KeyCode::KeyR) && self.coop.is_some() {
+        if inp.own(KeyCode::KeyR) && self.coop.is_some() {
             if let Some(c) = self.coop.as_mut().filter(|c| c.is_host()) {
                 if let Some(s) = c.setup.clone() {
                     c.client.choose(s);
                 }
             }
-        } else if inp.hit(KeyCode::KeyR) && w.editor.is_none() {
+        } else if inp.own(KeyCode::KeyR) && w.editor.is_none() {
             w.restart();
             // Starting over shouldn't be talked over by the run before it.
             if let Some(s) = self.sound.as_mut() {
@@ -207,75 +212,74 @@ impl App {
             w.orbit.pitch = (w.orbit.pitch + pad.look.y * 1.5 * dt).clamp(-1.3, 0.4);
             w.orbit.dist = (w.orbit.dist * (1.0 - inp.wheel * 0.1)).clamp(0.8, 8.0);
             w.classic_camera(inp, delta, dt);
+            // The original's layout turns with Left and Right (the camera swinging round
+            // behind her), and runs unless Run (its walk) is held.
+            let classic = inp.bindings.classic;
+            let on_foot = w.game.player_vehicle().is_none() && w.game.riding().is_none() && w.game.sniping().is_none();
+            if classic && on_foot && w.look.is_none() {
+                w.orbit.yaw -= (inp.axis(Act::Right) - inp.axis(Act::Left)) * 2.5 * dt;
+            }
             // Movement relative to the camera; screen right = forward x up.
             let fwd = vec2(w.orbit.yaw.sin(), w.orbit.yaw.cos());
             let right = vec2(-fwd.y, fwd.x);
-            let mut wish = Vec2::ZERO;
-            if inp.held(KeyCode::KeyW) { wish += fwd; }
-            if inp.held(KeyCode::KeyS) { wish -= fwd; }
-            if inp.held(KeyCode::KeyD) { wish += right; }
-            if inp.held(KeyCode::KeyA) { wish -= right; }
+            let mut wish = fwd * (inp.axis(Act::Forward) - inp.axis(Act::Back));
+            if !classic {
+                wish += right * (inp.axis(Act::Right) - inp.axis(Act::Left));
+            }
             // The stick walks when pushed partway and runs when pushed fully.
             let stick = fwd * pad.mv.y + right * pad.mv.x;
-            let action_held = inp.held(KeyCode::KeyE) || inp.held(KeyCode::KeyL) || pad.held(Button::East);
+            let run = if classic { wish != Vec2::ZERO && !inp.on(Act::Run) } else { inp.on(Act::Run) };
             controls = Controls {
                 wish: if wish != Vec2::ZERO { wish.normalize() } else { stick },
-                run: inp.held(KeyCode::ShiftLeft) || inp.held(KeyCode::ShiftRight) || pad.mv.length() > 0.85,
-                sprint: action_held,
-                punch: inp.hit(KeyCode::KeyJ) || inp.lmb_pressed || pad.hit(Button::West),
-                kick: inp.hit(KeyCode::KeyK) || pad.hit(Button::North),
-                action: inp.hit(KeyCode::KeyE) || inp.hit(KeyCode::KeyL) || pad.hit(Button::East),
-                jump: inp.hit(KeyCode::Space) || pad.hit(Button::South),
-                block: inp.held(KeyCode::KeyQ) || pad.held(Button::LeftTrigger) || pad.held(Button::LeftTrigger2),
-                fire: inp.held(KeyCode::KeyJ) || inp.lmb || pad.held(Button::West),
-                switch: inp.hit(KeyCode::KeyG) || pad.hit(Button::RightTrigger),
-                cycle_target: inp.hit(KeyCode::KeyT) || pad.hit(Button::RightThumb),
-                scope: inp.hit(KeyCode::KeyZ) || pad.hit(Button::LeftThumb),
-                crouch: inp.held(KeyCode::KeyC) || inp.held(KeyCode::ControlLeft) || pad.held(Button::DPadDown),
+                run: run || pad.mv.length() > 0.85,
+                sprint: inp.on(Act::Action),
+                punch: inp.tap(Act::Punch) || inp.lmb_pressed,
+                kick: inp.tap(Act::Kick),
+                action: inp.tap(Act::Action),
+                jump: inp.tap(Act::Jump),
+                block: inp.on(Act::Block),
+                fire: inp.on(Act::Punch) || inp.lmb,
+                switch: inp.tap(Act::Weapon),
+                cycle_target: inp.tap(Act::Target),
+                scope: inp.tap(Act::Scope),
+                crouch: inp.on(Act::Crouch),
                 ..Default::default()
             };
             // Looking round, she stands where she is: the keys turn the view.
             if w.look.is_some() {
                 (controls.wish, controls.run, controls.sprint) = (Vec2::ZERO, false, false);
             }
-            // Through the sniper rifle's scope: WASD (or the stick) turn it, punch fires, Z
-            // again to come out of it.
+            let ahead = inp.axis(Act::Forward) - inp.axis(Act::Back);
+            let turn = inp.axis(Act::Right) - inp.axis(Act::Left);
+            // Through the sniper rifle's scope: the movement keys (or the stick) turn it,
+            // punch fires, scope again to come out of it.
             if w.game.sniping().is_some() {
-                let key = |k| if inp.held(k) { 1.0 } else { 0.0 };
-                let up = key(KeyCode::KeyW) - key(KeyCode::KeyS) + pad.mv.y;
-                let turn = key(KeyCode::KeyD) - key(KeyCode::KeyA) + pad.mv.x;
                 controls = Controls {
                     scope: controls.scope,
                     punch: controls.punch,
-                    drive: uc_game::Drive { throttle: up.clamp(-1.0, 1.0), steer: turn.clamp(-1.0, 1.0), handbrake: false, ..Default::default() },
+                    drive: uc_game::Drive { throttle: (ahead + pad.mv.y).clamp(-1.0, 1.0), steer: (turn + pad.mv.x).clamp(-1.0, 1.0), handbrake: false, ..Default::default() },
                     ..Default::default()
                 };
             }
-            // Driving: W/S or the triggers (or stick) for speed, A/D or the stick to steer,
-            // Space or A for the handbrake, kick (K or Y) for the siren, as the PlayStation's
-            // `INPUT_CAR_SIREN`. The camera swings round behind the car.
-            // On a motorbike: the same keys (Space for a wheelie), and action to get off.
+            // Driving: forward and back or the triggers (or stick) for speed, left and right
+            // or the stick to steer, the handbrake, and the siren (the PlayStation's
+            // `INPUT_CAR_SIREN`; the manual's pursuit mode). The camera swings round behind
+            // the car. On a motorbike: the same keys (the handbrake for a wheelie), and
+            // action to get off.
             if w.game.riding().is_some() {
-                let key = |k| if inp.held(k) { 1.0 } else { 0.0 };
-                let throttle = key(KeyCode::KeyW) - key(KeyCode::KeyS) + pad.mv.y;
-                let steer = key(KeyCode::KeyD) - key(KeyCode::KeyA) + pad.mv.x;
-                let wheelie = inp.held(KeyCode::Space) || pad.held(Button::South);
                 controls = Controls {
                     action: controls.action,
-                    drive: uc_game::Drive { throttle: throttle.clamp(-1.0, 1.0), steer: steer.clamp(-1.0, 1.0), handbrake: wheelie, ..Default::default() },
+                    drive: uc_game::Drive { throttle: (ahead + pad.mv.y).clamp(-1.0, 1.0), steer: (turn + pad.mv.x).clamp(-1.0, 1.0), handbrake: inp.on(Act::Handbrake), ..Default::default() },
                     ..Default::default()
                 };
             }
             if let Some(car) = w.game.player_vehicle() {
-                let key = |k| if inp.held(k) { 1.0 } else { 0.0 };
-                let throttle = key(KeyCode::KeyW) - key(KeyCode::KeyS)
+                let throttle = ahead
                     + if pad.held(Button::RightTrigger2) { 1.0 } else { 0.0 }
                     - if pad.held(Button::LeftTrigger2) { 1.0 } else { 0.0 } + pad.mv.y;
-                let steer = key(KeyCode::KeyD) - key(KeyCode::KeyA) + pad.mv.x;
-                let handbrake = inp.held(KeyCode::Space) || pad.held(Button::South);
                 controls = Controls {
                     action: controls.action,
-                    drive: uc_game::Drive { throttle: throttle.clamp(-1.0, 1.0), steer: steer.clamp(-1.0, 1.0), handbrake, siren: controls.kick, ..Default::default() },
+                    drive: uc_game::Drive { throttle: throttle.clamp(-1.0, 1.0), steer: (turn + pad.mv.x).clamp(-1.0, 1.0), handbrake: inp.on(Act::Handbrake), siren: inp.tap(Act::Siren), ..Default::default() },
                     ..Default::default()
                 };
                 if car.speed.abs() > 100.0 && delta.length_squared() < 1.0 && pad.look.length_squared() < 0.01 {
@@ -308,7 +312,7 @@ impl App {
             let pad_mv = fwd * pad.mv.y + right * pad.mv.x;
             w.fly.pos += (mv.normalize_or_zero() + pad_mv) * speed * dt;
             // T: Darci goes where the camera looks, and the camera's back on her.
-            if inp.hit(KeyCode::KeyT) && w.game.player.is_some() && self.coop.is_none() && w.replay.is_none() && w.editor.is_none() {
+            if inp.own(KeyCode::KeyT) && w.game.player.is_some() && self.coop.is_none() && w.replay.is_none() && w.editor.is_none() {
                 w.teleport_to_view();
             }
         }
@@ -334,7 +338,7 @@ impl App {
             controls.jump = false;
         }
         // K at the end of a run: its replay kept for good.
-        if inp.hit(KeyCode::KeyK) && w.game.outcome.is_some() {
+        if inp.own(KeyCode::KeyK) && w.game.outcome.is_some() {
             w.keep_replay();
         }
         if w.replay.is_some() {
@@ -659,6 +663,7 @@ impl App {
             || inp.pad.hit(Button::South) || inp.pad.hit(Button::Start);
         let back = inp.hit(KeyCode::Escape) || inp.pad.hit(Button::East);
         let mut apply = false;
+        let mut rebound = None;
         match m.screen {
             // Any key from the title. Left alone long enough, a demo plays.
             menu::Screen::Title => {
@@ -789,7 +794,9 @@ impl App {
                 let left = inp.hit(KeyCode::ArrowLeft) || inp.hit(KeyCode::KeyA) || inp.pad.hit(Button::DPadLeft);
                 let right = inp.hit(KeyCode::ArrowRight) || inp.hit(KeyCode::KeyD) || inp.pad.hit(Button::DPadRight);
                 let leave = back || (go && m.option_row == rows - 1);
-                if (left || right || go) && !leave {
+                if go && m.option_row == options::CONTROLS_ROW {
+                    (m.screen, m.bindings, m.bind_row, m.binding) = (menu::Screen::Controls, inp.bindings.clone(), 0, false);
+                } else if (left || right || go) && !leave {
                     m.options.change(m.option_row, if left { -1 } else { 1 });
                 }
                 // Each change heard (and seen) straight away, the command line's switches over
@@ -802,6 +809,45 @@ impl App {
                 if leave {
                     m.options.save();
                     m.screen = menu::Screen::Main;
+                }
+            }
+            // Waiting, the next key or button pressed goes on the action chosen (Escape
+            // leaves it be); otherwise Enter picks one to rebind, and the layout row starts
+            // again from the one it's switched to.
+            menu::Screen::Controls if m.binding => {
+                let key = inp.pressed.iter().copied().find(|k| bindings::KEYS.contains(k));
+                let button = inp.pad.pressed.iter().copied().find(|b| bindings::BUTTONS.contains(b));
+                let act = bindings::ACTS[m.bind_row - 1];
+                if inp.hit(KeyCode::Escape) || inp.pad.hit(Button::Start) {
+                    m.binding = false;
+                } else if let Some(k) = key {
+                    m.bindings.set_key(act, k);
+                    m.binding = false;
+                } else if let Some(b) = button {
+                    m.bindings.set_pad(act, b);
+                    m.binding = false;
+                }
+            }
+            menu::Screen::Controls => {
+                let rows = bindings::ROWS;
+                if up {
+                    m.bind_row = (m.bind_row + rows - 1) % rows;
+                }
+                if down {
+                    m.bind_row = (m.bind_row + 1) % rows;
+                }
+                let left = inp.hit(KeyCode::ArrowLeft) || inp.pad.hit(Button::DPadLeft);
+                let right = inp.hit(KeyCode::ArrowRight) || inp.pad.hit(Button::DPadRight);
+                let leave = back || (go && m.bind_row == rows - 1);
+                if m.bind_row == 0 && (left || right || go) {
+                    m.bindings = if m.bindings.classic { bindings::Bindings::modern() } else { bindings::Bindings::classic() };
+                } else if go && !leave {
+                    m.binding = true;
+                }
+                if leave {
+                    m.bindings.save();
+                    rebound = Some(m.bindings.clone());
+                    m.screen = menu::Screen::Options;
                 }
             }
             menu::Screen::Credits => {
@@ -855,6 +901,9 @@ impl App {
                     m.loading_endless = Some(m.map_selected);
                 }
             }
+        }
+        if let Some(b) = rebound {
+            self.input.bindings = b;
         }
         if apply {
             apply_options(&self.options, self.fog, &mut self.args, self.world.as_mut(), self.sound.as_mut());
@@ -1449,7 +1498,7 @@ fn run() -> Result<(), String> {
         (None, Some(menu::Menu::new(&args.game)))
     };
     let mut app = App {
-        world, menu, args, gfx: None, sound, pads, input: Input::default(), last: Instant::now(), title_timer: 0.0, options, fog, cli, demo_next: 0, backdrop: String::new(),
+        world, menu, args, gfx: None, sound, pads, input: Input { bindings: bindings::Bindings::load(), ..Default::default() }, last: Instant::now(), title_timer: 0.0, options, fog, cli, demo_next: 0, backdrop: String::new(),
         frames: 0, shots: 0, coop, hosting, editing: None,
     };
     el.run_app(&mut app).map_err(|e| e.to_string())
