@@ -707,6 +707,10 @@ pub struct Game {
     pub end_of_world: Option<f32>,
     /// The mission's own tune, played throughout ([`Theme::of`]).
     theme: Option<Theme>,
+    /// How hard the camera is shaking from a blast nearby, 0 to 255 (`fc->shake`): it's
+    /// thrown about by up to half that in world units each way.
+    pub shake: f32,
+    shake_turns: f32,
     /// Estate of Emergency, where the tramp's face is the boss's (`estate`).
     estate: bool,
     /// Grim Gardens, where jumping onto a platform puts you on it (`playing_level`).
@@ -846,6 +850,8 @@ impl Game {
             no_floor: false,
             end_of_world: None,
             theme: Theme::of(&level.name),
+            shake: 0.0,
+            shake_turns: 0.0,
             estate: level.mission.mission_name.eq_ignore_ascii_case("estate2"),
             botanicc: level.name.eq_ignore_ascii_case("botanicc"),
             streets: game::Streets::new(level),
@@ -1179,6 +1185,7 @@ impl Game {
         self.electric_fences(dt, level);
         self.no_floor_falls();
         self.end_the_world(dt);
+        self.settle_shake(dt);
         self.go_indoors(level);
         self.move_platforms(dt, level);
         // Lightning dies away (the Men in Black's and the fences' too, where there are no

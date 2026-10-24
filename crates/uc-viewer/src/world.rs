@@ -359,13 +359,16 @@ impl World {
         }
         match (self.eye(), self.third_person) {
             (Some(eye), true) => {
-                // Further back when driving.
+                // Further back when driving, and closer in with a gun out (200 of 256,
+                // `FC_alter_for_pos`, fc.cpp:65).
                 let mut orbit = Orbit { ..self.orbit };
                 if self.game.player_vehicle().is_some() {
                     orbit.dist = orbit.dist.max(4.0);
+                } else if self.game.player().is_some_and(|p| p.gun_out()) {
+                    orbit.dist *= 200.0 / 256.0;
                 }
                 let mut cam = orbit.cam(eye);
-                cam.pos = self.clear_of_buildings(eye, cam.pos);
+                cam.pos = self.clear_of_buildings(eye, cam.pos) + self.shaken();
                 // With no floor the camera never goes below 0x280 (fc.cpp:1650).
                 if self.game.no_floor {
                     cam.pos.y = cam.pos.y.max(0x280 as f32 / uc_world::UNIT);
@@ -374,6 +377,25 @@ impl World {
             }
             _ => self.fly.camera(),
         }
+    }
+
+    /// Where a blast nearby throws the camera this frame (`fc->shake`, fc.cpp:1913): up to
+    /// half the shake either way on each axis, in world units, at random. Only where it is
+    /// moves, not what it looks at, so the view jolts round.
+    fn shaken(&self) -> Vec3 {
+        let s = self.game.shake;
+        if s < 1.0 {
+            return Vec3::ZERO;
+        }
+        let seed = (self.game.time * 1000.0) as u32;
+        let r = |k: u32| {
+            let mut x = seed.wrapping_mul(0x9e37_79b1) ^ k.wrapping_mul(0x85eb_ca6b);
+            x ^= x >> 15;
+            x = x.wrapping_mul(0x2c1b_3c6d);
+            x ^= x >> 12;
+            (x % s as u32) as f32 - s / 2.0
+        };
+        vec3(r(1), r(2), r(3)) / 2.0 / uc_world::UNIT
     }
 
     /// Brings the follow camera in front of a building that stands between it and `eye`, so
