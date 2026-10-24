@@ -35,6 +35,11 @@ impl Person {
         self.can_see(p, 8.0 * 256.0, ground)
     }
 
+    /// Turned to look at something they heard (`PCOM_AI_STATE_INVESTIGATING`).
+    pub(crate) fn listening(&self) -> bool {
+        self.heard.is_some()
+    }
+
     /// A gang mate's fight: off after `victim` if they're free to (not down, frightened or
     /// held to a truce).
     pub(crate) fn join_fight(&mut self, victim: usize) {

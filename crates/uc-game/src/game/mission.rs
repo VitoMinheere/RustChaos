@@ -62,6 +62,7 @@ impl Game {
                         (p.colour, p.group) = (spec.colour, spec.group);
                         (p.protected, p.guilty) = (spec.invulnerable, spec.guilty);
                         p.zone = spec.zone;
+                        p.home = Some((p.fig.pos, p.fig.angle));
                         // Hands up from the start, they've dropped their gun
                         // (`PCOM_create_person`, pcom.cpp:5686).
                         if p.mv == person::MOVE_HANDS_UP && p.weapon.is_gun() {
@@ -94,6 +95,11 @@ impl Game {
                         let p = &mut self.people[i];
                         (p.ai, p.bent, p.ko_moves, p.other, p.mv, p.follow) = (ai, bent, ko_moves, other, mv, follow);
                         (p.colour, p.group) = (colour, group);
+                        // Home is where they are now (`PCOM_change_person_attributes`,
+                        // pcom.cpp:5702), still facing the way they started.
+                        if let Some((_, angle)) = p.home {
+                            p.home = Some((p.fig.pos, angle));
+                        }
                     }
                 }
                 Command::Remove { way } => {
@@ -130,6 +136,10 @@ impl Game {
                         if !p.is_dead() {
                             p.fig.pos = Vec3::new(pos.x, y, pos.z);
                             p.fig.angle = angle;
+                            // And it's their home now (eway.cpp:6229).
+                            if p.home.is_some() {
+                                p.home = Some((p.fig.pos, angle));
+                            }
                         }
                     }
                     // Only people, vehicles and animals: `EWAY_get_person` gives nothing for a

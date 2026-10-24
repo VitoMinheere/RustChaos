@@ -569,12 +569,16 @@ impl Person {
             }
             // Getting nowhere (the AI): under a quarter of the way they'd walk, over half a
             // second, counting what pushed them back (a car they're walking into shoves
-            // them out of it).
+            // them out of it). Strolling to a spot of their own, it's measured along the way
+            // they're going, so being shoved back and popping out again doesn't count as
+            // getting anywhere; on a route or after someone, sliding along what's in the way
+            // counts (they jump it after a while).
             if !self.player {
                 let (from, t) = self.walk_check;
                 let t = t + dt;
                 if t >= 0.5 {
-                    let net = flat(self.fig.pos, from).length();
+                    let d = flat(self.fig.pos, from);
+                    let net = if self.goal.is_none() && self.via.is_none() { d.dot(dir.normalize_or_zero()) } else { d.length() };
                     self.blocked = if net < speed * t * 0.25 { self.blocked + t } else { 0.0 };
                     self.walk_check = (self.fig.pos, 0.0);
                 } else {
