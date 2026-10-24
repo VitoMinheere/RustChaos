@@ -667,6 +667,8 @@ pub struct Game {
     pub electrified: BTreeSet<u16>,
     /// There's no floor (`GF_NO_FLOOR`, Day Of Reckoning on top of Gunston Tower).
     pub no_floor: bool,
+    /// Seconds since the end of the world began (`PYRO_GAMEOVER`), if it has.
+    pub end_of_world: Option<f32>,
     /// Estate of Emergency, where the tramp's face is the boss's (`estate`).
     estate: bool,
     /// Grim Gardens, where jumping onto a platform puts you on it (`playing_level`).
@@ -804,6 +806,7 @@ impl Game {
             switches: switch::Switches::new(level),
             electrified: BTreeSet::new(),
             no_floor: false,
+            end_of_world: None,
             estate: level.mission.mission_name.eq_ignore_ascii_case("estate2"),
             botanicc: level.name.eq_ignore_ascii_case("botanicc"),
             streets: game::Streets::new(level),
@@ -1136,6 +1139,7 @@ impl Game {
         }
         self.electric_fences(dt, level);
         self.no_floor_falls();
+        self.end_the_world(dt);
         self.go_indoors(level);
         self.move_platforms(dt, level);
         // Lightning dies away (the Men in Black's and the fences' too, where there are no

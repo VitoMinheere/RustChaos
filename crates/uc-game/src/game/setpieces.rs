@@ -305,6 +305,35 @@ impl Game {
         }
     }
 
+    /// The end of the world (`PYRO_GAMEOVER`, pyro.cpp:1067), round the player. Its counter
+    /// climbs 3 a tick at 20 ticks a second: past 100 comes the big bang (`S_BIG_BANG_END`),
+    /// and past 242 the mission is lost, the floor goes and the player is knocked down for
+    /// good (500 of damage). The original lights it all with eight flickering lights round
+    /// the player, going from dark to fiery orange; with no dynamic lights here (#240), the
+    /// bang is the `boo` cheat's explosion instead.
+    pub(crate) fn end_the_world(&mut self, dt: f32) {
+        const BANG: f32 = 102.0 / 3.0 / 20.0;
+        const OVER: f32 = 243.0 / 3.0 / 20.0;
+        /// `S_BIG_BANG_END` in the sound list.
+        const BIG_BANG: usize = 521;
+        let Some(t) = self.end_of_world else { return };
+        let now = t + dt;
+        self.end_of_world = Some(now);
+        let Some(pi) = self.player else { return };
+        let at = self.people[pi].fig.pos;
+        if t <= BANG && now > BANG {
+            self.sounds.push((Sfx::ById { id: BIG_BANG, replace: false }, at));
+            self.boo();
+        }
+        if t <= OVER && now > OVER {
+            self.finish(crate::Outcome::Lost("Time ran out".into()));
+            self.no_floor = true;
+            let from = at + Vec3::new(16.0, 0.0, 16.0);
+            let hit = self.hurt(pi, 500);
+            self.people[pi].take_hit(from, hit, crate::person::ko::FINISHERS, false, false, crate::Weapon::None);
+        }
+    }
+
     /// With no floor, someone falling fast below the street stops moving sideways, so they
     /// can't come up under a building and pop out on top of it (Darci.cpp:1010).
     pub(crate) fn no_floor_falls(&mut self) {
