@@ -76,6 +76,10 @@ The install is found from `--game DIR`, then `UC_GAME_DIR`, then the default GOG
 | Mouse | Orbit the camera (the cursor is captured) | Look |
 | M | Mouse look on/off (off: right mouse drag turns the camera) | same |
 | Mouse wheel | Zoom | |
+| F (hold) | Look round from close behind her head, standing still: W/S or Up/Down look down/up, A/D or Left/Right turn, or the mouse | |
+| F5 – F8 | The original's camera heights: F5 the usual, F6 high and close, F7 high and far, F8 low and far | |
+| Delete / Page Down | Turn the view right / left, swinging the camera round her | |
+| End | Camera back behind her | |
 | Ctrl | | Slow |
 | Tab (hold) | The mission's checklist: objectives, side objectives, badges | |
 | B | The ghost on or off, on the missions raced against one | |

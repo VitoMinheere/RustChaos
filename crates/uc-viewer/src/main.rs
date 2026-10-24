@@ -196,6 +196,7 @@ impl App {
             w.orbit.yaw -= pad.look.x * 2.5 * dt;
             w.orbit.pitch = (w.orbit.pitch + pad.look.y * 1.5 * dt).clamp(-1.3, 0.4);
             w.orbit.dist = (w.orbit.dist * (1.0 - inp.wheel * 0.1)).clamp(0.8, 8.0);
+            w.classic_camera(inp, delta, dt);
             // Movement relative to the camera; screen right = forward x up.
             let fwd = vec2(w.orbit.yaw.sin(), w.orbit.yaw.cos());
             let right = vec2(-fwd.y, fwd.x);
@@ -223,6 +224,10 @@ impl App {
                 crouch: inp.held(KeyCode::KeyC) || inp.held(KeyCode::ControlLeft) || pad.held(Button::DPadDown),
                 ..Default::default()
             };
+            // Looking round, she stands where she is: the keys turn the view.
+            if w.look.is_some() {
+                (controls.wish, controls.run, controls.sprint) = (Vec2::ZERO, false, false);
+            }
             // Through the sniper rifle's scope: WASD (or the stick) turn it, punch fires, Z
             // again to come out of it.
             if w.game.sniping().is_some() {
