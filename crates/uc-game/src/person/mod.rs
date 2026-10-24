@@ -565,6 +565,9 @@ pub enum State {
     /// Pulling up onto a ledge (or off a ladder). The animation itself lifts the body, so
     /// `pos` moves from `start` to `end` while the drawn hips go from the edge to `to`.
     PullUp { start: Vec3, end: Vec3, to: Vec3 },
+    /// Vaulting a low fence at a run (`SUB_STATE_RUNNING_VAULT`), from `from` to `to` on the
+    /// far side as the animation goes.
+    Vault { from: Vec3, to: Vec3 },
     /// Hanging by the hands from a ledge (`STATE_DANGLING`, `SUB_STATE_DANGLING`): `to` is
     /// where she'd stand on top after pulling up, `dir` the way she faces (into the wall).
     /// While going a hand along it (`SUB_STATE_TRAVERSE_LEFT`, `_RIGHT`), `shift` is the
@@ -1382,6 +1385,15 @@ impl Person {
             State::Down => self.step_down(ground, map, dt),
             State::Cuffed | State::Held { .. } | State::InCar { .. } => {}
             State::Fall { vy, vel } => self.step_fall(vy, vel, c, ground, map, dt),
+            State::Vault { from, to } => {
+                self.fig.pos = from.lerp(to, self.fig.progress());
+                if self.fig.finished() {
+                    let floor = ground.surface(map, to.x, to.z, to.y + STEP_HEIGHT);
+                    self.fig.pos = vec3(to.x, floor, to.z);
+                    self.state = State::Move;
+                    self.fig.play(anim::RUN, Play::Loop);
+                }
+            }
             State::PullUp { start, end, to } => {
                 self.fig.pos = start.lerp(end, self.fig.progress());
                 if self.fig.finished() {
