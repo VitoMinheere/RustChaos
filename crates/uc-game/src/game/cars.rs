@@ -158,7 +158,7 @@ impl Game {
     /// (`PCOM_process_driving_wander`) and keeping to their lane (`DriveCar`, both in
     /// fallen/Source/pcom.cpp); otherwise they pull up and stay put
     /// (`PCOM_process_driving_still`).
-    pub(crate) fn npc_drive(&mut self, vi: usize, pi: usize, dt: f32) -> Drive {
+    pub(crate) fn npc_drive(&mut self, vi: usize, pi: usize, dt: f32, level: &Level) -> Drive {
         const TURN: f32 = 896.0; // `LEFT_TURN_DIST`: how near the junction before turning
         let v = &self.vehicles[vi];
         let (at, speed, yaw, y) = (Vec2::new(v.pos.x, v.pos.z), v.speed, v.yaw, v.pos.y);
@@ -235,13 +235,21 @@ impl Game {
         // Stop for anyone in the road ahead (`PCOM_find_runover_thing`).
         let fwd = Vec2::new(yaw.sin(), yaw.cos());
         let side = Vec2::new(fwd.y, -fwd.x);
-        let blocked = self.people.iter().enumerate().any(|(j, o)| {
+        let blocker = self.people.iter().enumerate().find(|&(j, o)| {
             let r = Vec2::new(o.fig.pos.x - at.x, o.fig.pos.z - at.y);
             j != pi && !o.removed && !matches!(o.state, State::InCar { .. }) && (o.fig.pos.y - y).abs() < 150.0
                 && r.dot(fwd) > 0.0 && r.dot(fwd) < 250.0 + speed.max(0.0) * 0.5 && r.dot(side).abs() < 170.0
-        });
+        }).map(|(_, o)| o.fig.pos);
         self.streets.drivers.insert(pi, st);
-        if blocked && want > 0.0 && !st.drunk && !st.reckless {
+        if let (Some(them), true) = (blocker, want > 0.0 && !st.drunk && !st.reckless) {
+            // Off a zebra crossing, now and then a blast of the horn: on two turns in 128,
+            // counted from the car's own number (pcom.cpp:12116, played at :14637).
+            let zebra = crate::wand::is_zebra(&level.map, (them.x / 256.0) as i32, (them.z / 256.0) as i32);
+            let (turn, was) = ((self.time * 20.0) as u32, ((self.time - dt) * 20.0) as u32);
+            if !zebra && turn != was && matches!(turn.wrapping_add(vi as u32) & 0x7f, 0 | 25) {
+                let pos = self.vehicles[vi].pos;
+                self.sounds.push((Sfx::Horn, pos));
+            }
             return stop;
         }
         Drive { throttle: Vehicle::throttle_for(want), steer, ..Default::default() }
@@ -278,7 +286,7 @@ impl Game {
                         self.streets.drivers.remove(&pi);
                     }
                 } else {
-                    *d = Some((pi, self.npc_drive(vi, pi, dt)));
+                    *d = Some((pi, self.npc_drive(vi, pi, dt, level)));
                 }
             }
         }
