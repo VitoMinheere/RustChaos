@@ -91,15 +91,7 @@ impl World {
                 (None, _) => p.weapon.name().to_string(),
             };
             let col = if p.rounds() == Some(0) { [240, 90, 70, 255] } else { white };
-            let mut wx = bx + bw + 8.0 * s + o.text(bx + bw + 8.0 * s, by - 2.0 * s, s, col, &weapon);
-            // What else is being carried, dimmer: press G for it.
-            for (w, rounds) in p.stowed() {
-                let text = match rounds {
-                    Some(n) => format!("  {} {n}", w.name()),
-                    None => format!("  {}", w.name()),
-                };
-                wx += o.text(wx, by - 2.0 * s, s, [170, 170, 160, 200], &text);
-            }
+            o.text(bx + bw + 8.0 * s, by - 2.0 * s, s, col, &weapon);
             // The inventory, for a few seconds after a weapon change (`PANEL_inventory`,
             // DDEngine/Source/panel.cpp:4173): everything that can be taken out, in the order
             // the weapon key goes through them, the one in hand picked out, and a key if she
