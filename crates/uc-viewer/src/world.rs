@@ -320,7 +320,11 @@ impl World {
         let layers: Vec<Layer> = self.layers.iter().copied().filter(|&l| !(self.game.no_floor && l == Layer::Floor)).collect();
         // The raised walls come with the dynamic batches, which only the character layer draws.
         let crinkles = self.crinkles && layers.contains(&Layer::Character);
-        Settings { sky: self.level.sky, fog: self.args.fog, layers, crinkles }
+        // The game's dynamic lights, in square units.
+        let lights = self.game.lights().into_iter()
+            .map(|l| uc_render::Light { pos: l.pos / uc_world::UNIT, radius: l.radius / uc_world::UNIT, rgb: l.rgb })
+            .collect();
+        Settings { sky: self.level.sky, fog: self.args.fog, layers, crinkles, lights }
     }
 
     pub(crate) fn eye(&self) -> Option<Vec3> {
@@ -452,7 +456,7 @@ impl World {
         let mut sea = BTreeMap::new();
         self.game.draw_sea(&mut sea);
         let shot = |r: &mut Renderer, cam: &Camera| {
-            r.render_to_image((n, n), cam, &Settings { sky: self.level.sky, fog: None, layers: layers.clone(), crinkles: false }, &sea, &Overlay::new())
+            r.render_to_image((n, n), cam, &Settings { sky: self.level.sky, fog: None, layers: layers.clone(), crinkles: false, lights: Vec::new() }, &sea, &Overlay::new())
         };
         let mut rgba = shot(r, &top);
         // Warehouse roofs (and some ceilings) are black from above, as on PC: there, show the

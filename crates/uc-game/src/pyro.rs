@@ -74,6 +74,8 @@ pub struct Pyro {
     pub puffs: Vec<Puff>,
     /// Fires still burning: (where, how big, seconds left, seconds to the next puff).
     fires: Vec<(Vec3, f32, f32, f32)>,
+    /// Fireballs lighting the scene: (where, how far the light reaches, seconds since).
+    flashes: Vec<(Vec3, f32, f32)>,
     /// Its own chance, kept apart from the game's: how an explosion looks mustn't change how
     /// the mission plays out.
     rng: u32,
@@ -81,7 +83,7 @@ pub struct Pyro {
 
 impl Default for Pyro {
     fn default() -> Pyro {
-        Pyro { puffs: Vec::new(), fires: Vec::new(), rng: 0x5eed }
+        Pyro { puffs: Vec::new(), fires: Vec::new(), flashes: Vec::new(), rng: 0x5eed }
     }
 }
 
@@ -89,6 +91,11 @@ impl Pyro {
     /// Sets off `kinds` (the bitfield above) at `pos`. `scale` is roughly how wide the whole
     /// thing is in world units, so each puff is a fraction of it.
     pub fn burst(&mut self, pos: Vec3, kinds: u8, scale: f32) {
+        // A fireball lights the scene round it (`PYRO_EXPLODE2`'s dlight): out to half its
+        // scale, a byte's worth at most, in quarters of a unit.
+        if kinds & FIREBALL != 0 {
+            self.flashes.push((pos, (scale / 2.0).min(255.0) * 4.0, 0.0));
+        }
         let mut made: Vec<Puff> = Vec::new();
         let mut rng = self.rng;
         // A number in -1..1.
@@ -161,6 +168,10 @@ impl Pyro {
 
     /// Moves everything on and lets the fires flicker.
     pub fn update(&mut self, dt: f32) {
+        for f in &mut self.flashes {
+            f.2 += dt;
+        }
+        self.flashes.retain(|f| f.2 < 1.5);
         for p in &mut self.puffs {
             p.age += dt;
             p.pos += p.vel * dt;
@@ -199,6 +210,11 @@ impl Pyro {
             pos: at, vel: vec3(0.0, size * 1.6, 0.0), radius: size * 0.5, grow: -size * 0.2,
             age: 0.0, life: 0.5, smoke: false, tint: [255, 170, 70],
         });
+    }
+
+    /// The fireballs lighting the scene: (where, how far it reaches, seconds since).
+    pub fn flashes(&self) -> impl Iterator<Item = (Vec3, f32, f32)> + '_ {
+        self.flashes.iter().copied()
     }
 
     /// Where the fires are burning, and how big: for lighting the scene, and for tests.

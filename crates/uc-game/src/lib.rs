@@ -25,6 +25,7 @@ pub mod creature;
 pub mod dike;
 pub mod dirt;
 pub mod goals;
+pub mod lights;
 pub mod gunfx;
 pub mod hm;
 pub mod mist;
@@ -686,6 +687,8 @@ pub struct Game {
     pub gunfx: gunfx::GunFx,
     /// The puddles a rainy level has, and the drips in them.
     pub puddles: puddle::Puddles,
+    /// It's night (`NIGHT_FLAG_DAYTIME` clear): the cars have their lights on.
+    pub night: bool,
     /// The floor squares on the sea, drawn with the waves.
     sea: Vec<uc_world::level::SeaSquare>,
     /// Leaves, cans and snow lying about round the player.
@@ -844,6 +847,7 @@ impl Game {
             drops: dirt::Drops::default(),
             gunfx: gunfx::GunFx::default(),
             puddles: puddle::Puddles::default(),
+            night: Self::raining(level),
             sea: level.sea(),
             dirt: Game::new_dirt(level),
             show: Default::default(),

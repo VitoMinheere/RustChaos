@@ -7,6 +7,11 @@ struct Globals {
     fog_color: vec4<f32>,
     // x = fog start, y = fog end (square units), z = 1 to enable
     fog: vec4<f32>,
+    // Dynamic lights (`NIGHT_dlight`): xyz where (square units), w how far it reaches; and
+    // what each adds to the light. x of `light_count` is how many there are.
+    lights: array<vec4<f32>, 16>,
+    light_rgb: array<vec4<f32>, 16>,
+    light_count: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -59,6 +64,23 @@ fn fs_sky(in: VOut) -> @location(0) vec4<f32> {
     return vec4<f32>(t.rgb * in.color.rgb, 1.0);
 }
 
+// What the dynamic lights add at `p`: each its colour, falling off evenly to nothing at its
+// edge, by the engine's own distance (`QDIST3`: the longest side and a quarter of the others).
+fn dynamic_light(p: vec3<f32>) -> vec3<f32> {
+    var add = vec3<f32>(0.0);
+    let n = u32(g.light_count.x);
+    for (var i = 0u; i < n; i = i + 1u) {
+        let l = g.lights[i];
+        let d = abs(l.xyz - p);
+        let big = max(d.x, max(d.y, d.z));
+        let dist = big + (d.x + d.y + d.z - big) * 0.25;
+        if (dist < l.w) {
+            add = add + g.light_rgb[i].rgb * (1.0 - dist / l.w);
+        }
+    }
+    return add;
+}
+
 @fragment
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let t = textureSample(tex, samp, in.uv);
@@ -66,7 +88,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     if (t.a < 0.5) {
         discard;
     }
-    var c = t.rgb * in.color.rgb;
+    var c = t.rgb * min(in.color.rgb + dynamic_light(in.world), vec3<f32>(1.0));
     let d = distance(in.world, g.cam_pos.xyz);
     let f = clamp((d - g.fog.x) / max(g.fog.y - g.fog.x, 0.001), 0.0, 1.0) * g.fog.z;
     c = mix(c, g.fog_color.rgb, f);
