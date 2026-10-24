@@ -1388,6 +1388,7 @@ impl Game {
             };
             self.people[i].step(i, &c, &snaps, &level.ground, &level.map, dt, &mut events);
         }
+        self.raise_alerts();
         self.apply(events, level);
         for s in 0..seats {
             self.focus(s);

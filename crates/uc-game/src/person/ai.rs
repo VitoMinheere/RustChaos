@@ -14,6 +14,22 @@ impl Person {
     /// `can_a_see_b` (Person.cpp:3198), with its range capped at `range`: within it, half that
     /// if they're crouching; in front within 700 of 2048 either way up close (0xc0), 420
     /// further off (`PEOPLE_FOV`); and in view head to head, a crouched head being lower.
+    /// Called in by a Man in Black: off after the player, if they're the sort who'd fight
+    /// and aren't already (`PCOM_alert_nearby_mib_to_attack` sends the Men in Black, guards,
+    /// gang members and fight-test dummies who are going about their business, home or
+    /// looking round, to `PCOM_set_person_ai_navtokill`).
+    pub(crate) fn called_in(&mut self) {
+        if self.player || self.removed || self.is_down() || self.is_dead() || self.aggro || self.truce || self.scared.is_some()
+            || !matches!(self.ai, AI_MIB | AI_GUARD | AI_GANG | AI_FIGHT_TEST)
+        {
+            return;
+        }
+        self.aggro = true;
+        self.heard = None;
+        self.cues.push(Sfx::Alert { kind: self.kind });
+        self.attack_timer = self.attack_timer.max(0.8);
+    }
+
     pub(super) fn can_see(&self, p: &Snap, range: f32, ground: &Ground) -> bool {
         let d = flat(p.pos, self.fig.pos);
         let dist = d.length();
@@ -118,7 +134,10 @@ impl Person {
     pub(super) fn decide(&mut self, me: usize, snaps: &[Snap], ground: &Ground, dt: f32,
               rand: &mut impl FnMut() -> u32) -> Controls {
         let player = self.foe;
-        let mut c = Controls { target: player, ..Default::default() };
+        // Only someone who has noticed their foe has them as a target: a gun drawn is kept on
+        // the target, so otherwise anyone armed would turn to face the player before they
+        // had seen her.
+        let mut c = Controls { target: player.filter(|_| self.aggro || self.is_dummy()), ..Default::default() };
         // A car coming: run out of its way (`PCOM_find_runover_thing`).
         if let Some((dir, left)) = self.dodge {
             self.dodge = (left > dt).then_some((dir, left - dt));
@@ -181,6 +200,17 @@ impl Person {
         // is `can_a_see_b`), or turns to look on hearing them (running feet, a landing, a
         // fight) and may see them then; others still by being near.
         let gang = self.ai == AI_GANG && !hunter;
+        // A Man in Black sees the player, out to 8 squares (`can_a_see_b`'s own range), and
+        // whoever's near comes for her; he hears her too, and calls in those near *her*
+        // (`PCOM_AI_MIB`, pcom.cpp:11703 and 13487).
+        let mib = self.ai == AI_MIB;
+        if mib && !self.aggro && !self.truce {
+            if p.noise > 0.0 && dist < p.noise {
+                self.alert = Some(p.pos);
+            } else if self.can_see(&p, range, ground) {
+                self.alert = Some(self.fig.pos);
+            }
+        }
         // Someone kept to a zone only goes after a person standing in it, and only hears
         // what happens there; once they're out of it, the chase is over
         // (`PCOM_can_i_see_person_to_attack`, pcom.cpp:5775; pcom.cpp:8534 and 13244).
@@ -194,7 +224,7 @@ impl Person {
         if gang && !self.aggro && p.noise > 0.0 && dist < p.noise {
             self.hear(p.pos);
         }
-        let notices = if gang { self.can_see(&p, range, ground) } else { dist < range && (dy < 128.0 || hunter) };
+        let notices = if gang || mib { self.can_see(&p, range, ground) } else { dist < range && (dy < 128.0 || hunter) };
         if !self.aggro && !notices {
             if let Some((at, left)) = self.heard {
                 self.heard = (left > dt).then_some((at, left - dt));
