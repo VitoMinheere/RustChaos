@@ -238,7 +238,7 @@ fn blocking_stops_blows_from_the_front() {
     let mut p = darci(&level, pos, vec2(0.0, -1.0));
     let block = Controls { block: true, ..Default::default() };
     run(&mut p, &level, block, 0.3, 60.0, |_| false);
-    assert!(matches!(p.state, State::Block));
+    assert!(matches!(p.state, State::Block { .. }));
     let health = p.health;
     // In front (facing is -z), then behind.
     p.take_hit(pos + vec3(0.0, 0.0, -100.0), 20, 0, true, false, uc_game::Weapon::None);

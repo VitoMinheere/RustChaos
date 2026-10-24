@@ -59,6 +59,46 @@ fn pick_up_guns_and_ammo_and_switch() {
     assert_eq!(g.people[pi].rounds(), Some(29));
 }
 
+/// Bare-handed, the weapon key first takes out the best weapon carried
+/// (`CONTROLS_get_best_item`): a loaded gun before a knife. Pressed again while the inventory
+/// is still up, it goes on through the list; and an empty gun doesn't count as best.
+#[test]
+fn bare_handed_the_best_weapon_comes_out_first() {
+    let Some((level, mut g)) = load("fight2") else { return };
+    for _ in 0..30 {
+        g.skip_cutscene();
+        g.update(DT, &Controls::default(), &level);
+    }
+    let pi = g.player.unwrap();
+    g.people[pi].give(Weapon::Knife);
+    g.people[pi].give(Weapon::Pistol);
+    g.people[pi].weapon = Weapon::None;
+    let switch = |g: &mut Game| {
+        g.update(DT, &Controls { switch: true, ..Default::default() }, &level);
+        g.update(DT, &Controls::default(), &level);
+        g.people[pi].weapon
+    };
+    let wait = |g: &mut Game| {
+        for _ in 0..(3.5 / DT) as usize {
+            g.update(DT, &Controls::default(), &level);
+        }
+    };
+    // The pistol, though the knife comes next in the list.
+    assert_eq!(switch(&mut g), Weapon::Pistol);
+    assert!(g.people[pi].inventory > 2.5, "the inventory shows");
+    // On through the list while it's up: bare hands, then the knife.
+    assert_eq!(switch(&mut g), Weapon::None);
+    assert_eq!(switch(&mut g), Weapon::Knife);
+    wait(&mut g);
+    assert_eq!(g.people[pi].inventory, 0.0);
+    // Empty, the pistol isn't the best: bare-handed again, the knife.
+    g.people[pi].ammo = [0; 4];
+    assert_eq!(switch(&mut g), Weapon::Pistol);
+    assert_eq!(switch(&mut g), Weapon::None);
+    wait(&mut g);
+    assert_eq!(switch(&mut g), Weapon::Knife);
+}
+
 #[test]
 fn bot_shoots_through_combat_gold_with_an_ak() {
     let Some((level, mut g)) = load("fight2") else { return };

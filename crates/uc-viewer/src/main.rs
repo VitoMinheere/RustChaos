@@ -11,6 +11,7 @@ mod cam;
 mod checklist;
 mod console;
 mod coop;
+mod credits;
 mod editor;
 mod ghosts;
 mod hud;
@@ -198,6 +199,7 @@ impl App {
             w.orbit.yaw -= pad.look.x * 2.5 * dt;
             w.orbit.pitch = (w.orbit.pitch + pad.look.y * 1.5 * dt).clamp(-1.3, 0.4);
             w.orbit.dist = (w.orbit.dist * (1.0 - inp.wheel * 0.1)).clamp(0.8, 8.0);
+            w.classic_camera(inp, delta, dt);
             // Movement relative to the camera; screen right = forward x up.
             let fwd = vec2(w.orbit.yaw.sin(), w.orbit.yaw.cos());
             let right = vec2(-fwd.y, fwd.x);
@@ -225,6 +227,10 @@ impl App {
                 crouch: inp.held(KeyCode::KeyC) || inp.held(KeyCode::ControlLeft) || pad.held(Button::DPadDown),
                 ..Default::default()
             };
+            // Looking round, she stands where she is: the keys turn the view.
+            if w.look.is_some() {
+                (controls.wish, controls.run, controls.sprint) = (Vec2::ZERO, false, false);
+            }
             // Through the sniper rifle's scope: WASD (or the stick) turn it, punch fires, Z
             // again to come out of it.
             if w.game.sniping().is_some() {
@@ -239,7 +245,8 @@ impl App {
                 };
             }
             // Driving: W/S or the triggers (or stick) for speed, A/D or the stick to steer,
-            // Space or A for the handbrake. The camera swings round behind the car.
+            // Space or A for the handbrake, kick (K or Y) for the siren, as the PlayStation's
+            // `INPUT_CAR_SIREN`. The camera swings round behind the car.
             // On a motorbike: the same keys (Space for a wheelie), and action to get off.
             if w.game.riding().is_some() {
                 let key = |k| if inp.held(k) { 1.0 } else { 0.0 };
@@ -261,7 +268,7 @@ impl App {
                 let handbrake = inp.held(KeyCode::Space) || pad.held(Button::South);
                 controls = Controls {
                     action: controls.action,
-                    drive: uc_game::Drive { throttle: throttle.clamp(-1.0, 1.0), steer: steer.clamp(-1.0, 1.0), handbrake, ..Default::default() },
+                    drive: uc_game::Drive { throttle: throttle.clamp(-1.0, 1.0), steer: steer.clamp(-1.0, 1.0), handbrake, siren: controls.kick, ..Default::default() },
                     ..Default::default()
                 };
                 if car.speed.abs() > 100.0 && delta.length_squared() < 1.0 && pad.look.length_squared() < 0.01 {
@@ -550,6 +557,12 @@ impl App {
             w.save_stats();
             m.select(&w.level.name);
             m.screen = if left_coop { menu::Screen::Coop } else { menu::Screen::Missions };
+            // The game finished: the credits, as the original's outro (Game.cpp:2730).
+            if w.level.name.eq_ignore_ascii_case("Finale1") && w.game.outcome == Some(Outcome::Won)
+                && w.replay.is_none() && w.editor.is_none() && !left_coop
+            {
+                m.show_credits();
+            }
         }
         if self.coop.is_some() {
             m.screen = menu::Screen::Lobby;
@@ -674,6 +687,7 @@ impl App {
                         "CAPTURE THE FLAG" => m.loading_ctf = true,
                         "STATS" => m.screen = menu::Screen::Stats,
                         "REPLAYS" => m.show_replays(),
+                        "CREDITS" => m.show_credits(),
                         "DIFFICULTY" => {
                             let all = uc_game::Difficulty::ALL;
                             let now = all.iter().position(|&d| d == m.progress.difficulty()).unwrap_or(1);
@@ -691,12 +705,7 @@ impl App {
                 if back {
                     (m.screen, m.for_coop) = (menu::Screen::Lobby, false);
                 }
-                if up {
-                    m.up();
-                }
-                if down {
-                    m.down();
-                }
+                mission_keys(m, inp, up, down);
                 if let (true, Some(e), Some(c)) = (go, m.entries.get(m.selected), self.coop.as_mut()) {
                     c.choose(&e.mission);
                     (m.screen, m.for_coop) = (menu::Screen::Lobby, false);
@@ -747,12 +756,7 @@ impl App {
                 if back {
                     m.screen = menu::Screen::Main;
                 }
-                if up {
-                    m.up();
-                }
-                if down {
-                    m.down();
-                }
+                mission_keys(m, inp, up, down);
                 if go && !m.entries.is_empty() {
                     m.loading = Some(m.selected);
                 }
@@ -764,6 +768,19 @@ impl App {
                 if back || go {
                     m.screen = menu::Screen::Main;
                 }
+            }
+            menu::Screen::Credits => {
+                if back || go {
+                    m.screen = menu::Screen::Main;
+                }
+                if inp.hit(KeyCode::ArrowLeft) || inp.hit(KeyCode::KeyA) || inp.pad.hit(Button::DPadLeft) {
+                    m.credits.next(-1);
+                }
+                if inp.hit(KeyCode::ArrowRight) || inp.hit(KeyCode::KeyD) || inp.pad.hit(Button::DPadRight) {
+                    m.credits.next(1);
+                }
+                let fast = inp.held(KeyCode::ArrowDown) || inp.held(KeyCode::KeyS) || inp.pad.held(Button::DPadDown);
+                m.credits.advance(dt, fast);
             }
             menu::Screen::Replays => {
                 if back {
@@ -803,6 +820,11 @@ impl App {
                     m.loading_endless = Some(m.map_selected);
                 }
             }
+        }
+        // The outro's music under the credits, and quiet in the rest of the menu.
+        if let Some(s) = self.sound.as_mut() {
+            s.audio.music((m.screen == menu::Screen::Credits).then_some(credits::MUSIC));
+            s.audio.update(dt);
         }
         self.input.pressed.clear();
         self.input.typed.clear();
@@ -1264,6 +1286,35 @@ fn dump_pages(world: &World, dir: &Path) -> Result<(), String> {
     }
     println!("wrote {n} textures to {}", dir.display());
     Ok(())
+}
+
+/// Choosing a mission, on the city map or in the list: Tab switches between them. On the map
+/// Left and Right go from pin to pin and Up and Down through a pin's missions.
+fn mission_keys(m: &mut menu::Menu, inp: &Input, up: bool, down: bool) {
+    if inp.hit(KeyCode::Tab) || inp.pad.hit(Button::North) {
+        if m.on_map {
+            m.on_map = false;
+        } else {
+            m.show_map();
+        }
+    }
+    if m.on_map && !m.pins.is_empty() {
+        let left = inp.hit(KeyCode::ArrowLeft) || inp.hit(KeyCode::KeyA) || inp.pad.hit(Button::DPadLeft);
+        let right = inp.hit(KeyCode::ArrowRight) || inp.hit(KeyCode::KeyD) || inp.pad.hit(Button::DPadRight);
+        if left || right {
+            m.pin_step(if right { 1 } else { -1 });
+        }
+        if up || down {
+            m.pin_mission(if down { 1 } else { -1 });
+        }
+    } else {
+        if up {
+            m.up();
+        }
+        if down {
+            m.down();
+        }
+    }
 }
 
 fn run() -> Result<(), String> {

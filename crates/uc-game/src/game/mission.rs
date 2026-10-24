@@ -381,7 +381,7 @@ impl Game {
             (p.ai, p.bent, p.skill) = (1, person::BENT_ROBOT | person::BENT_FIGHT_BACK, 15);
             (p.mv, p.goal) = (1, None);
             p.protected = true;
-            if matches!(p.state, State::Attack { .. } | State::Block | State::Shoot { .. }) {
+            if matches!(p.state, State::Attack { .. } | State::Block { .. } | State::Shoot { .. }) {
                 p.state = State::Move;
             }
         }
