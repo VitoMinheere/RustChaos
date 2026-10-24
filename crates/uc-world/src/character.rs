@@ -24,6 +24,8 @@ pub mod anim {
     pub const CLIMB_UP_FENCE: usize = 45;
     pub const LAND_ON_FENCE: usize = 57;
     pub const CLIMB_OVER_FENCE: usize = 58;
+    /// Over a low fence at a run (`ANIM_VAULT`).
+    pub const VAULT: usize = 16;
     pub const DEATH_SLIDE: usize = 68;
     pub const OFF_LADDER_TOP: usize = 55;
     pub const RUN: usize = 119;

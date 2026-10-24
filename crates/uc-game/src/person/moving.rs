@@ -570,6 +570,18 @@ impl Person {
             if moved < speed * dt * 0.5 && self.fig.facing().dot(dir) > 0.7 {
                 if let Some((i, at, over)) = ground.fence_ahead(self.fig.pos, dir, RADIUS + 30.0) {
                     let f = ground.fences[i];
+                    // A fence two blocks of 16 high, at a run: vaulted, not climbed
+                    // (`is_facet_vaultable`, Person.cpp:11265; `set_person_vault`), unless the
+                    // far side is somewhere nobody may go.
+                    let far = at + over * (RADIUS + 40.0);
+                    let nogo = map.square((far.x / 256.0) as usize % 128, (far.y / 256.0) as usize % 128).has(uc_formats::iam::flags::NOGO);
+                    if c.run && ((f.y1 - f.y0) - 128.0).abs() < 8.0 && (self.fig.pos.y - f.y0).abs() < 32.0 && !nogo
+                        && self.fig.restart(anim::VAULT, Play::Once)
+                    {
+                        self.fig.angle = uc_world::character::angle_of(over);
+                        self.state = State::Vault { from: self.fig.pos, to: vec3(far.x, self.fig.pos.y, far.y) };
+                        return;
+                    }
                     self.climb_fence(at, over, f.y1);
                     return;
                 }
