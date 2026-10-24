@@ -50,6 +50,7 @@ Darci: WASD move (relative to the camera), Shift run, J or left mouse punch, K k
   F11 or Alt+Enter: full screen or a window.
   E facing a building's wall: back to it; move along it to edge sideways, at its end she looks
   round the corner and E leaps out; walk away to leave it.
+  E bare-handed by a can: pick it up; punch throws it, and guards near where it lands look.
   C or Left Ctrl crouch (hold; move to crawl). Punch someone with their back to her, close by,
   to knock them out cold from behind (crouching or crawling up is quietest).
   G next weapon. With a gun: punch fires (hold for the AK-47) at the bracketed target,

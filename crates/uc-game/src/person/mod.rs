@@ -574,6 +574,8 @@ pub enum State {
     /// Crouched, for as long as action is held (`set_person_croutch`): phase 0 going down,
     /// 1 down, 2 crawling (`SUB_STATE_CRAWLING`), 3 getting up (`SUB_STATE_IDLE_UNCROUCH`).
     Crouch { phase: u8 },
+    /// Bending down for a can (`SUB_STATE_CANNING_PICKUP`): whether it's in her hand yet.
+    PickUp { got: bool },
     /// Back to a wall (`STATE_HUG_WALL`, #205): the wall from `a` to `b`, `out` its normal
     /// (the way she faces), and what she's doing against it.
     HugWall { a: Vec2, b: Vec2, out: Vec2, hug: Hug },
@@ -605,6 +607,8 @@ pub enum Event {
     Throw { thrower: usize },
     /// The hook's let go from `thrower`'s hand.
     Hook { thrower: usize },
+    /// The pickup reached the frame where the can in reach goes into `who`'s hand.
+    PickUp { who: usize },
 }
 
 /// What everyone else needs to know about a person this frame.
@@ -707,6 +711,11 @@ pub struct Person {
     pub explosives: u8,
     /// Carrying a key (`SPECIAL_KEY`): cars locked with a coloured key open for them.
     pub has_key: bool,
+    /// The dirt slot of the can in her hand (`FLAG_PERSON_CANNING`, `Hold`).
+    pub can: Option<usize>,
+    /// A can lies within reach of her feet to pick up (`DIRT_get_nearest_can_or_head_dist`
+    /// under 0x80), as the game finds each turn.
+    pub can_near: bool,
     /// Seconds left of the inventory panel shown after a weapon change
     /// (`CONTROLS_inventory_mode`, 3000 ms, fallen/Source/Controls.cpp:2386).
     pub inventory: f32,
@@ -829,7 +838,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, truce: false, colour: 0, group: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
-            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
+            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }
 
@@ -925,6 +934,10 @@ impl Person {
     /// shows the inventory. Bare-handed with it not on show, the best weapon comes out
     /// instead (Controls.cpp:2370).
     pub fn next_weapon(&mut self) {
+        // Not with a can in hand.
+        if self.can.is_some() {
+            return;
+        }
         let carried = self.carried();
         let best = (self.weapon == Weapon::None && self.inventory <= 0.0).then(|| self.best_weapon()).flatten();
         let at = carried.iter().position(|&w| w == self.weapon).unwrap_or(0);
@@ -1342,6 +1355,17 @@ impl Person {
                 }
             }
             State::Rope { at, dir, top, to, y0, loops0 } => self.step_rope(at, dir, top, to, y0, loops0, c),
+            State::PickUp { got } => {
+                // The fourth frame picks it up (`FrameIndex == 3`, Person.cpp:20722).
+                if !got && self.fig.frame().is_some_and(|f| f >= 3) {
+                    events.push(Event::PickUp { who: me });
+                    self.state = State::PickUp { got: true };
+                }
+                if self.fig.finished() {
+                    self.state = State::Move;
+                    self.idle(false);
+                }
+            }
             State::Throw { released } => {
                 // The fourth frame lets it go (`FrameIndex == 3`).
                 if !released && self.fig.frame().is_some_and(|f| f >= 3) {

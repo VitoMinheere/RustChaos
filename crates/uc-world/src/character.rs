@@ -130,6 +130,10 @@ pub mod anim {
     pub const BIKE_DISMOUNT: usize = 360;
     /// `ANIM_ENTER_CAR`: getting in at the driver's door.
     pub const ENTER_CAR: usize = 89;
+    /// `ANIM_CAN_PICKUP` and `ANIM_CAN_RELEASE`: picking up a can and throwing it (or a
+    /// grenade).
+    pub const CAN_PICKUP: usize = 64;
+    pub const CAN_RELEASE: usize = 65;
     /// The rest of the `ANIM_END` + n slots, taken from the civilians' and Roper's files.
     pub const WANKER: usize = 403;
     /// `ANIM_ENTER_TAXI`: getting in at the passenger's door.

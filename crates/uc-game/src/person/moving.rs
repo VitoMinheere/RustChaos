@@ -369,6 +369,13 @@ impl Person {
                 }
             }
         }
+        // Action standing bare-handed by a can: pick it up (interfac.cpp:2074).
+        if self.player && c.action && !moving && !c.crouch && self.can_near && self.can.is_none() && self.weapon == Weapon::None
+            && self.fig.restart(anim::CAN_PICKUP, Play::Once)
+        {
+            self.state = State::PickUp { got: false };
+            return;
+        }
         if self.player && ((c.action && !moving) || c.crouch) {
             let a = match self.weapon {
                 _ if !self.gun_out() => anim::CROUTCH_DOWN,
@@ -379,6 +386,15 @@ impl Person {
                 self.state = State::Crouch { phase: 0 };
                 return;
             }
+        }
+        // Punch with a can in hand throws it (`player_activate_in_hand`, interfac.cpp:668).
+        if c.punch && self.can.is_some() {
+            if self.fig.restart(anim::CAN_RELEASE, Play::Once) {
+                self.state = State::Throw { released: false };
+            } else {
+                events.push(Event::Throw { thrower: me });
+            }
+            return;
         }
         if c.punch && self.weapon.is_gun() {
             if self.rounds() == Some(0) {
