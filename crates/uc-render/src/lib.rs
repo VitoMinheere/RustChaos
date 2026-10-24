@@ -30,6 +30,21 @@ struct Globals {
     cam_pos: [f32; 4],
     fog_color: [f32; 4],
     fog: [f32; 4],
+    lights: [[f32; 4]; MAX_LIGHTS],
+    light_rgb: [[f32; 4]; MAX_LIGHTS],
+    light_count: [f32; 4],
+}
+
+/// How many dynamic lights the shader takes: the nearest to the camera.
+pub const MAX_LIGHTS: usize = 16;
+
+/// A dynamic light: where it is and how far it reaches (square units), and what it adds to
+/// the light where it reaches (0 to 1, falling off to nothing at its edge).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Light {
+    pub pos: Vec3,
+    pub radius: f32,
+    pub rgb: [f32; 3],
 }
 
 /// A camera in square units.
@@ -74,6 +89,8 @@ pub struct Settings {
     /// Crinkles are on: the walls with one in chunks near the camera are left out, for the
     /// dynamic batches to draw raised (`uc_world::Relief::draw`).
     pub crinkles: bool,
+    /// The dynamic lights this frame; the nearest [`MAX_LIGHTS`] to the camera are drawn.
+    pub lights: Vec<Light>,
 }
 
 /// Draw statistics for the last frame.
@@ -892,11 +909,23 @@ impl Renderer {
         let vp = cam.view_proj(size);
         let sky = s.sky.map(|c| c as f32 / 255.0);
         let (fog_start, fog_end, fog_on) = s.fog.map_or((0.0, 1.0, 0.0), |(a, b)| (a, b, 1.0));
+        let mut near: Vec<&Light> = s.lights.iter().filter(|l| l.radius > 0.0).collect();
+        near.sort_by(|a, b| (a.pos - cam.pos).length_squared().total_cmp(&(b.pos - cam.pos).length_squared()));
+        near.truncate(MAX_LIGHTS);
+        let mut lights = [[0.0; 4]; MAX_LIGHTS];
+        let mut light_rgb = [[0.0; 4]; MAX_LIGHTS];
+        for (k, l) in near.iter().enumerate() {
+            lights[k] = [l.pos.x, l.pos.y, l.pos.z, l.radius];
+            light_rgb[k] = [l.rgb[0], l.rgb[1], l.rgb[2], 0.0];
+        }
         let globals = Globals {
             view_proj: vp.to_cols_array_2d(),
             cam_pos: [cam.pos.x, cam.pos.y, cam.pos.z, 1.0],
             fog_color: [sky[0], sky[1], sky[2], 1.0],
             fog: [fog_start, fog_end, fog_on, 0.0],
+            lights,
+            light_rgb,
+            light_count: [near.len() as f32, 0.0, 0.0, 0.0],
         };
         self.queue.write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
         let dyn_ranges = if s.layers.contains(&Layer::Character) { self.upload_dynamic(dynamic) } else { Vec::new() };
