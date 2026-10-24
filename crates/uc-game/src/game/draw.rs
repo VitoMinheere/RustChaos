@@ -256,6 +256,22 @@ impl Game {
                 [[0x77, 0x55, 0x33, 255]; 4],
             );
         }
+        // Gunfire: the muzzle's sparks and where bullets land flash bright, cooling as they
+        // go; blood and casings are small blended spots, dark red and brass.
+        for s in &self.gunfx.sparks {
+            let t = gunfx::GunFx::spark_t(s);
+            billboard(&mut out, uc_world::GLOW, s.pos, 5.0, [255, (220.0 - 120.0 * t) as u8, 80, (255.0 * (1.0 - t)) as u8]);
+        }
+        for s in &self.gunfx.spangs {
+            let t = gunfx::GunFx::spang_t(s);
+            billboard(&mut out, uc_world::GLOW, s.pos, 12.0 + 22.0 * t, [255, 240, 200, (255.0 * (1.0 - t)) as u8]);
+        }
+        for d in &self.gunfx.blood {
+            billboard(&mut out, uc_world::SHADOW, d.pos, 4.0, [150, 0, 0, 255]);
+        }
+        for b in &self.gunfx.brass {
+            billboard(&mut out, uc_world::SHADOW, b.pos + Vec3::new(0.0, 1.5, 0.0), 2.5, [210, 170, 60, 255]);
+        }
         // Steam: soft pale puffs blended over the scene, turned to face the camera. The
         // original draws each with a frame of a wispy cloud (`POLY_PAGE_SMOKECLOUD2`), which
         // covers far less than a solid blob does, so they're thinned to match.

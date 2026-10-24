@@ -14,6 +14,7 @@ impl Game {
                     self.record.shots += 1;
                 }
                 self.gunshot(*attacker);
+                self.muzzle_fx(*attacker);
             }
             match e {
                 Event::Hit { attacker, victim, mut damage, ko, high, low, weapon } => {
@@ -42,7 +43,13 @@ impl Game {
                     let damage = damage + if !nad { 0 } else if male { 50 } else { 10 };
                     self.people[victim].hurt_by = Some(attacker);
                     let damage = self.hurt(victim, damage);
+                    let before = self.people[victim].health;
                     self.people[victim].take_hit(from, damage, ko, high, low, weapon);
+                    // A blow that lands draws blood: a drop, or five from a knife.
+                    if self.people[victim].health < before {
+                        let at = self.people[victim].fig.part_world(4).map_or(self.people[victim].fig.pos, |(_, at)| at);
+                        self.gunfx.bleed(at, if weapon == Weapon::Knife { 5 } else { 1 });
+                    }
                     // He doubles over (`ANIM_KICK_NAD_TAKE`), and she crows about it more
                     // often than not (`taunt_prob` 75).
                     let v = &mut self.people[victim];
@@ -117,6 +124,7 @@ impl Game {
                         _ => 0,
                     };
                     if (self.rand() % 1000) as f32 / 1000.0 < chance {
+                        self.gunfx.spang(at);
                         self.vehicles[k].reduce_health(damage);
                     }
                 }
@@ -130,6 +138,7 @@ impl Game {
                     let dist = (at - from).length();
                     let chance = (0.95 - dist / (40.0 * 256.0)).clamp(0.4, 0.95);
                     if (self.rand() % 1000) as f32 / 1000.0 < chance {
+                        self.gunfx.spang(at);
                         self.shoot_barrel(k, attacker, level);
                     }
                 }
@@ -175,6 +184,12 @@ impl Game {
                         self.people[victim].hurt_by = Some(attacker);
                         let damage = self.hurt(victim, damage);
                         self.people[victim].take_hit(from, damage, ko, true, false, weapon);
+                        // A spark where it lands, and two drops of blood from the head.
+                        let v = &self.people[victim];
+                        let head = v.fig.part_world(11).map_or(v.fig.pos + Vec3::new(0.0, 150.0, 0.0), |(_, at)| at);
+                        let chest = v.fig.part_world(4).map_or(head, |(_, at)| at);
+                        self.gunfx.spang(chest);
+                        self.gunfx.bleed(head, 2);
                         if Some(attacker) == self.player {
                             self.record.hits += 1;
                         }
@@ -187,8 +202,9 @@ impl Game {
                         }
                     } else {
                         // A miss hits the nearest barrel within 0xa0 of who it was meant for
-                        // (Person.cpp:6508).
+                        // (Person.cpp:6508), or the ground beside them (Person.cpp:6587).
                         let at = self.people[victim].fig.pos;
+                        self.gunfx.spang_beside(at, |x, z| level.ground.surface(&level.map, x, z, at.y + 64.0));
                         let near = self.barrels.iter().enumerate()
                             .filter(|(_, b)| !b.gone && (b.pos - at).length() < 0xa0 as f32)
                             .min_by(|a, b| (a.1.pos - at).length().total_cmp(&(b.1.pos - at).length()))
@@ -367,5 +383,16 @@ impl Game {
                 }
             }
         }
+    }
+
+    /// A gun going off in person `i`'s hand: sparks from the muzzle and casings out of the
+    /// hand, three at a time from an AK-47 or a Man in Black (Person.cpp:6261).
+    fn muzzle_fx(&mut self, i: usize) {
+        let p = &self.people[i];
+        let hand = p.fig.part_world(7).map_or(p.fig.pos + Vec3::new(0.0, 110.0, 0.0), |(_, at)| at);
+        let dir = p.facing_dir();
+        let muzzle = hand + Vec3::new(dir.x, 0.0, dir.y) * 40.0;
+        let casings = if p.weapon == Weapon::Ak47 || p.is_mib() { 3 } else { 1 };
+        self.gunfx.fire(muzzle, hand, dir, casings);
     }
 }
