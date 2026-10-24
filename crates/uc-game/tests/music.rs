@@ -55,7 +55,8 @@ fn a_countdown_under_thirty_seconds_plays_the_timer_tune() {
             p.removed = true;
         }
     });
-    r.play(445.0, Controls::default());
+    // The countdown waits for the 33-second talk with Roper at the start (#258).
+    r.play(33.0 + 445.0, Controls::default());
     assert_eq!(r.g.mood(), Mood::Theme(Theme::Reckoning), "the countdown has {:?} left", r.g.countdown());
     r.play(10.0, Controls::default());
     assert_eq!(r.g.mood(), Mood::Timer, "the countdown has {:?} left", r.g.countdown());

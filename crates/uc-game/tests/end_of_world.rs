@@ -22,7 +22,8 @@ fn the_world_ends_when_day_of_reckoning_runs_out_of_time() {
             }
         }
     });
-    r.play(479.0, Controls::default());
+    // The countdown waits for the 33-second talk with Roper at the start (#258).
+    r.play(33.0 + 479.0, Controls::default());
     assert!(r.g.end_of_world.is_none(), "the world ended early");
     assert!(r.g.outcome.is_none(), "the mission ended early: {:?}", r.g.outcome);
     // The bang comes 1.7 seconds in and the end at 4.05, on top of a second or so for the
