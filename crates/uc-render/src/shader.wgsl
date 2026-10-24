@@ -56,6 +56,20 @@ fn fs_decal(in: VOut) -> @location(0) vec4<f32> {
     return vec4<f32>(mix(t.rgb * in.color.rgb, g.fog_color.rgb, f), t.a * in.color.a);
 }
 
+// A person's own shadow (#241, `POLY_PAGE_SHADOW`): what it falls on darkened by half the
+// map's coverage (`GetShadowPixelMapping`) times the vertex alpha (its fade from them), and
+// nothing off the map. Gone into the fog as the ground is.
+@fragment
+fn fs_smap(in: VOut) -> @location(0) vec4<f32> {
+    if (in.uv.x < 0.0 || in.uv.x > 1.0 || in.uv.y < 0.0 || in.uv.y > 1.0) {
+        discard;
+    }
+    let t = textureSample(tex, samp, in.uv);
+    let d = distance(in.world, g.cam_pos.xyz);
+    let f = clamp((d - g.fog.x) / max(g.fog.y - g.fog.x, 0.001), 0.0, 1.0) * g.fog.z;
+    return vec4<f32>(0.0, 0.0, 0.0, t.a * 0.5 * in.color.a * (1.0 - f));
+}
+
 // Where a puddle shows (#268): only the stencil is written, wherever its texture isn't
 // clear (`POLY_PAGE_PUDDLE`'s alpha test, `D3DCMP_NOTEQUAL` 0).
 @fragment
