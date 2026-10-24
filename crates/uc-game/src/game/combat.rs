@@ -40,6 +40,14 @@ impl Game {
                         self.people[victim].state = State::Move;
                     }
                     let was_down = self.people[victim].is_down();
+                    if self.people[attacker].fig.anim() == uc_world::character::anim::FIGHT_STOMP {
+                        self.people[victim].hurt_by = Some(attacker);
+                        let damage = self.hurt(victim, damage);
+                        self.people[victim].take_stomp(damage);
+                        let at = self.people[victim].body_pos();
+                        self.gunfx.bleed(at, 1);
+                        continue;
+                    }
                     // Between the legs (combat.cpp:1894): 50 more for a man, 10 for a woman.
                     let nad = self.people[attacker].fig.anim() == uc_world::character::anim::KICK_NAD;
                     let male = self.people[victim].male();

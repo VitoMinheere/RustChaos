@@ -559,6 +559,20 @@ impl Person {
                 events.push(Event::Kick { attacker: me });
                 return;
             }
+            // Someone lying knocked down in front is stamped on (`turn_to_target_and_kick`,
+            // combat.cpp:3488).
+            let f = self.fig.facing();
+            let lying = snaps.iter().enumerate()
+                .filter(|&(j, s)| j != me && s.floored && self.opponents(j, s) && (s.pos.y - self.fig.pos.y).abs() < 100.0)
+                .map(|(j, s)| (j, flat(s.pos, self.fig.pos)))
+                .filter(|(_, d)| d.length() < 130.0 && d.normalize_or_zero().dot(f) > 0.3)
+                .min_by(|a, b| a.1.length().total_cmp(&b.1.length()))
+                .map(|(j, _)| j);
+            if let Some(t) = lying {
+                self.face(snaps[t].pos);
+                self.start_attack(me, Move::Stomp, events);
+                return;
+            }
             // Darci stepping in on someone close kicks between the legs, unless they're still
             // doubled up from the last one (`set_person_kick_near`).
             let close = target.filter(|&t| flat(snaps[t].pos, self.fig.pos).length() < NAD_RANGE && !snaps[t].doubled);

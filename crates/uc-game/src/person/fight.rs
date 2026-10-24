@@ -91,8 +91,11 @@ impl Person {
                 Dir::Left => { let f = self.fig.facing(); vec2(f.y, -f.x) }
                 Dir::Right => { let f = self.fig.facing(); vec2(-f.y, f.x) }
             };
+            // A stamp lands only on someone lying down, and nothing else does.
+            let stomp = mv == Move::Stomp;
             for (j, s) in snaps.iter().enumerate() {
-                if j == me || !s.standing || !self.opponents(j, s) || (s.pos.y - self.fig.pos.y).abs() > 100.0 {
+                let open = if stomp { s.floored } else { s.standing };
+                if j == me || !open || !self.opponents(j, s) || (s.pos.y - self.fig.pos.y).abs() > 100.0 {
                     continue;
                 }
                 let d = flat(s.pos, self.fig.pos);
@@ -197,6 +200,29 @@ impl Person {
     /// Onto the back from the front (`ANIM_KO_BACK`), flat out from behind (`ANIM_KO_BEHIND_BIG`).
     pub(crate) fn knocked_dead(&mut self, behind: bool) {
         self.fig.restart(if behind { anim::KO_BEHIND_BIG } else { anim::KO_BACK }, Play::Once);
+    }
+
+    /// Stamped on lying down (`ANIM_FIGHT_STOMP`). Killed by it, they die where they lie
+    /// (`PERSON_DEATH_TYPE_COMBAT_PRONE`, Person.cpp:2468): `ANIM_FIGHT_STOMPED_BACK` on their
+    /// front, `ANIM_FIGHT_STOMPED_FRONT` on their back.
+    pub fn take_stomp(&mut self, damage: i32) {
+        if !self.floored() || self.invulnerable {
+            return;
+        }
+        self.health -= damage;
+        self.aggro = true;
+        self.cues.push(Sfx::Hit { heavy: true });
+        if self.health > 0 {
+            self.cues.push(Sfx::Hurt { kind: self.kind });
+            return;
+        }
+        self.health = 0;
+        self.knocked_out = true;
+        self.cues.push(Sfx::KnockedOut { kind: self.kind });
+        // On their front after a blow from behind (`person_is_lying_on_what`, Person.cpp:1160).
+        let front = matches!(self.fig.anim(), anim::KD_FRONT_LOW | anim::KD_FRONT_MID | anim::KD_FRONT_LAND
+            | anim::KO_BEHIND_BIG | anim::PISTOL_WHIP_TAKE | anim::FIGHT_STOMPED_BACK);
+        self.fig.restart_locked(if front { anim::FIGHT_STOMPED_BACK } else { anim::FIGHT_STOMPED_FRONT }, Play::Once);
     }
 
     /// Whether a blow or a shot from `from` comes from behind them.

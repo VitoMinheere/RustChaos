@@ -89,6 +89,9 @@ pub mod anim {
     pub const FIGHT_STEP_S: usize = 179;
     pub const FIGHT_STEP_E: usize = 180;
     pub const FIGHT_STEP_W: usize = 181;
+    pub const FIGHT_STOMP: usize = 184;
+    pub const FIGHT_STOMPED_BACK: usize = 188;
+    pub const FIGHT_STOMPED_FRONT: usize = 189;
     pub const STANDING_JUMP: usize = 203;
     pub const LAND_VERT: usize = 204;
     pub const BAT_HIT1: usize = 199;
