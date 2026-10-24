@@ -35,9 +35,18 @@ impl Person {
         self.can_see(p, 8.0 * 256.0, ground)
     }
 
+    /// A gang mate's fight: off after `victim` if they're free to (not down, frightened or
+    /// held to a truce).
+    pub(crate) fn join_fight(&mut self, victim: usize) {
+        if self.player || self.removed || self.is_down() || self.is_dead() || self.truce || self.scared.is_some() || !self.hostile() {
+            return;
+        }
+        self.bully_after(victim);
+    }
+
     /// A bully off after `victim`: noticed, and out to get them.
     pub(crate) fn bully_after(&mut self, victim: usize) {
-        self.bully = Some(victim);
+        self.victim = Some(victim);
         if !self.aggro {
             self.aggro = true;
             self.cues.push(Sfx::Alert { kind: self.kind });
@@ -257,7 +266,9 @@ impl Person {
             if self.ai == AI_GANG && !hunter && self.can_taunt() {
                 self.taunt = Some(Taunt::Now);
             }
-        } else if self.aggro && !hunter && (dist > range * 2.0 + AGGRO_RANGE || dy > 256.0) {
+        } else if self.aggro && !hunter && self.victim.is_none() && (dist > range * 2.0 + AGGRO_RANGE || dy > 256.0) {
+            // Out to get someone in particular (a gang mate's fight, a bully's pick), they keep
+            // on after them however far: `PCOM_AI_STATE_NAVTOKILL`.
             self.aggro = false;
         }
         if !self.aggro {

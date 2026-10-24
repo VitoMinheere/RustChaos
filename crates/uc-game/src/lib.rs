@@ -689,6 +689,8 @@ pub struct Game {
     pub puddles: puddle::Puddles,
     /// It's night (`NIGHT_FLAG_DAYTIME` clear): the cars have their lights on.
     pub night: bool,
+    /// Who was in a fight last turn, for the gangs to see who's just gone into one.
+    fighting: Vec<bool>,
     /// The floor squares on the sea, drawn with the waves.
     sea: Vec<uc_world::level::SeaSquare>,
     /// Leaves, cans and snow lying about round the player.
@@ -848,6 +850,7 @@ impl Game {
             gunfx: gunfx::GunFx::default(),
             puddles: puddle::Puddles::default(),
             night: Self::raining(level),
+            fighting: Vec::new(),
             sea: level.sea(),
             dirt: Game::new_dirt(level),
             show: Default::default(),
@@ -1367,7 +1370,10 @@ impl Game {
                         })
                         .map(|(j, _)| j)
                 }
-                (person::AI_BULLY, _) => p.bully,
+                // Someone out to get a particular person (a bully's pick, a gang mate's fight).
+                _ if p.victim.is_some() => p.victim,
+                // A bully with nobody picked on has nobody to fight.
+                (person::AI_BULLY, _) => None,
                 // `PCOM_AI_KILL_COLOUR` (pcom.cpp:11607): whoever is nearest of the colour of
                 // the person its `ai_other` point made, alive, not one of the city's extras,
                 // and in its zone if it has one; no matter how far, seen or not.
@@ -1407,6 +1413,7 @@ impl Game {
         }
         self.raise_alerts();
         self.apply(events, level);
+        self.back_up_gangs();
         for s in 0..seats {
             self.focus(s);
             self.pick_up();
