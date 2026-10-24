@@ -101,6 +101,35 @@ pub(crate) fn keep(path: &Path) -> Option<PathBuf> {
     }
 }
 
+/// Seconds on the title screen with nothing pressed before a demo plays (#208).
+pub(crate) const DEMO_AFTER: f32 = 30.0;
+
+/// The replays the title screen plays as demos, when nobody touches the keys (#208; the
+/// original's attract mode played `Data\Game.pkt`, `Game2.pkt` and `Game3.pkt`, which the
+/// shipped game doesn't have): any in a `demos` folder beside the program, then the runs the
+/// player kept for good (`replays\kept\`).
+pub(crate) fn demos() -> Vec<PathBuf> {
+    let beside = std::env::current_exe().ok().and_then(|e| Some(e.parent()?.join("demos")));
+    let kept = folder().map(|f| f.join("kept"));
+    let mut out = Vec::new();
+    for dir in [beside, kept].into_iter().flatten() {
+        let mut here: Vec<PathBuf> = std::fs::read_dir(&dir).into_iter().flatten().flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("ucr")))
+            .collect();
+        here.sort();
+        out.extend(here);
+    }
+    out
+}
+
+/// The first of `n` demos, going round from `from`, that `play` can play (one recorded on
+/// another build may not play back the same, so it's passed over): its place, and what `play`
+/// made of it.
+pub(crate) fn next_demo<T>(n: usize, from: usize, mut play: impl FnMut(usize) -> Option<T>) -> Option<(usize, T)> {
+    (0..n).map(|k| (from + k) % n).find_map(|k| play(k).map(|t| (k, t)))
+}
+
 pub(crate) fn load(path: &Path) -> Result<Replay, String> {
     let b = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     Replay::from_bytes(&b).map_err(|e| format!("{}: {e}", path.display()))
@@ -156,6 +185,8 @@ pub(crate) struct Viewing {
     /// Its place in [`SPEEDS`].
     speed: usize,
     pub(crate) paused: bool,
+    /// Played as the title screen's demo: any key goes back to the title.
+    pub(crate) demo: bool,
 }
 
 impl Viewing {
@@ -163,7 +194,7 @@ impl Viewing {
         if !replay.same_build() {
             println!("replay: recorded on build {}, this is {}: it may not play back the same", replay.build, uc_net::BUILD);
         }
-        Viewing { playback: Playback::new(replay), speed: 2, paused: false }
+        Viewing { playback: Playback::new(replay), speed: 2, paused: false, demo: false }
     }
 
     fn speed(&self) -> f32 {
@@ -238,6 +269,14 @@ impl World {
     pub(crate) fn replay_overlay(&self, o: &mut Overlay, w: f32, h: f32, s: f32) {
         let Some(v) = &self.replay else { return };
         let p = &v.playback;
+        // A demo: only what it is, and how to get out of it (Attract.cpp's "press any key").
+        if v.demo {
+            let text = format!("DEMO: {}   Press any key", self.title);
+            let tw = Overlay::text_width(&text, s * 1.5);
+            o.rect(w / 2.0 - tw / 2.0 - 8.0 * s, h - 30.0 * s, tw + 16.0 * s, 18.0 * s, [0, 0, 0, 160]);
+            o.text(w / 2.0 - tw / 2.0, h - 26.0 * s, s * 1.5, [255, 210, 70, 255], &text);
+            return;
+        }
         let secs = |turns: usize| progress::clock(turns as f32 / 30.0);
         let state = if p.done() {
             "END".to_string()
@@ -269,6 +308,19 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The demos go round in turn, past any that can't be played (from another build).
+    #[test]
+    fn demos_go_round_in_turn_past_those_that_cant_play() {
+        let plays = [true, false, true, true];
+        let play = |k: usize| plays[k].then_some(k * 10);
+        assert_eq!(next_demo(4, 0, play), Some((0, 0)));
+        assert_eq!(next_demo(4, 1, play), Some((2, 20)));
+        assert_eq!(next_demo(4, 3, play), Some((3, 30)));
+        assert_eq!(next_demo(4, 4 % 4, play), Some((0, 0)));
+        assert_eq!(next_demo(3, 1, |_| None::<u8>), None);
+        assert_eq!(next_demo(0, 0, play), None);
+    }
 
     #[test]
     fn dates() {
