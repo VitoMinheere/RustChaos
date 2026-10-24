@@ -30,7 +30,8 @@ pub(crate) fn font_atlas() -> (u32, u32, Vec<u8>) {
 }
 
 /// The font cell for `ch`. Mission texts are Windows-1252 read byte for byte: their curly
-/// quotes and dashes (0x91-0x97) become plain ASCII; anything else outside ASCII is '?'.
+/// quotes and dashes (0x91-0x97) become plain ASCII, and accented letters the letter without
+/// the accent; anything else outside ASCII is '?'.
 fn glyph(ch: char) -> u8 {
     match ch as u32 {
         0x91 | 0x92 | 0x2018 | 0x2019 => b'\'',
@@ -38,6 +39,7 @@ fn glyph(ch: char) -> u8 {
         0x96 | 0x97 | 0x2013 | 0x2014 => b'-',
         0x85 | 0x2026 => b'.',
         c if c < 128 => c as u8,
+        0xC0..=0xFF => b"AAAAAAACEEEEIIIIDNOOOOOxOUUUUYTsaaaaaaaceeeeiiiidnooooo/ouuuuyty"[ch as usize - 0xC0],
         _ => b'?',
     }
 }
@@ -145,5 +147,18 @@ impl Overlay {
             lines.push(line);
         }
         lines
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::glyph;
+
+    #[test]
+    fn accented_letters_lose_their_accents() {
+        let plain: String = "Sören Übersetzung françaises Stéphan ÿ".chars().map(|c| glyph(c) as char).collect();
+        assert_eq!(plain, "Soren Ubersetzung francaises Stephan y");
+        assert_eq!(glyph('\u{92}'), b'\'');
+        assert_eq!(glyph('漢'), b'?');
     }
 }

@@ -178,6 +178,25 @@ impl Game {
                 billboard(&mut out, uc_world::GLOW, at, 40.0, [255, 30, 20, (-towards * 255.0) as u8]);
             }
         }
+        // The light bars of cars with their sirens going (vehicle.cpp:1268): two lights, each
+        // flaring as it turns past the camera, a turn every 16 ticks. The second turns the
+        // other way (its direction is the first's with x and z swapped), so they flash out of
+        // step; it's red, the first blue (red on the ambulance). Each car starts at a turn of
+        // its own.
+        for (k, v) in self.vehicles.iter().enumerate().filter(|(_, v)| v.siren) {
+            let (_, wheel, ..) = vehicle::TYPES[v.kind as usize];
+            let lift = vehicle::wheel_radius(level.item_prims.get(&wheel)) - vehicle::WHEEL_ABOVE_BODY;
+            let Some(([first, second], red)) = v.light_bar(lift) else { continue };
+            let a = radians((((k as i64 * 331) + (turn << 7)) & 2047) as f32);
+            let (sin, cos) = a.sin_cos();
+            let blue = if red { [223, 0, 0] } else { [0, 0, 223] };
+            for (at, dir, [r, g, b]) in [(first, Vec3::new(sin, 0.0, cos), blue), (second, Vec3::new(cos, 0.0, sin), [223, 0, 0])] {
+                let towards = dir.dot((at - eye).normalize_or(Vec3::Z));
+                if towards < 0.0 {
+                    billboard(&mut out, uc_world::GLOW, at, 60.0, [r, g, b, (-towards * 255.0) as u8]);
+                }
+            }
+        }
         // A set charge's light the same way, green (`SPECIAL_EXPLOSIVES`, `0x007F5D`), turning
         // with its timer (`timer << 3`; the timer counts down 0x10 a tick).
         for c in &self.charges {
@@ -356,7 +375,7 @@ impl Game {
             let across = Vec3::new(cr, -cp * sr, sp * sr);
             let along = Vec3::new(0.0, sp, cp);
             match d.kind {
-                dirt::Kind::Can => {
+                dirt::Kind::Can | dirt::Kind::HeldCan | dirt::Kind::ThrownCan => {
                     if let Some(prim) = level.item_prims.get(&uc_world::level::CAN_PRIM) {
                         let rot = glam::Quat::from_rotation_y(radians(d.yaw as f32))
                             * glam::Quat::from_rotation_x(radians(d.pitch as f32));

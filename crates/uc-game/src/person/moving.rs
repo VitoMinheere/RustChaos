@@ -346,7 +346,7 @@ impl Person {
         }
         if c.block {
             self.fig.restart(anim::BLOCK_HIGH, Play::Once);
-            self.state = State::Block;
+            self.state = State::Block { auto: false };
             return;
         }
         if let (true, false, Some(at)) = (c.taunt, moving, c.target) {
@@ -360,6 +360,22 @@ impl Person {
         if self.player && c.punch && self.takedown(me, snaps, events) {
             return;
         }
+        // Action standing in front of a building's wall: back to it (interfac.cpp:2063,
+        // before crouching).
+        if self.player && c.action && !moving && !c.crouch {
+            if let Some((a, b, out)) = ground.wall_to_hug(map, self.fig.pos, self.fig.facing()) {
+                if self.start_hug(a, b, out) {
+                    return;
+                }
+            }
+        }
+        // Action standing bare-handed by a can: pick it up (interfac.cpp:2074).
+        if self.player && c.action && !moving && !c.crouch && self.can_near && self.can.is_none() && self.weapon == Weapon::None
+            && self.fig.restart(anim::CAN_PICKUP, Play::Once)
+        {
+            self.state = State::PickUp { got: false };
+            return;
+        }
         if self.player && ((c.action && !moving) || c.crouch) {
             let a = match self.weapon {
                 _ if !self.gun_out() => anim::CROUTCH_DOWN,
@@ -370,6 +386,15 @@ impl Person {
                 self.state = State::Crouch { phase: 0 };
                 return;
             }
+        }
+        // Punch with a can in hand throws it (`player_activate_in_hand`, interfac.cpp:668).
+        if c.punch && self.can.is_some() {
+            if self.fig.restart(anim::CAN_RELEASE, Play::Once) {
+                self.state = State::Throw { released: false };
+            } else {
+                events.push(Event::Throw { thrower: me });
+            }
+            return;
         }
         if c.punch && self.weapon.is_gun() {
             if self.rounds() == Some(0) {
@@ -463,6 +488,21 @@ impl Person {
             let t = snaps[target.unwrap()].pos;
             let d = flat(t, self.fig.pos);
             self.fig.turn_towards(d, 8.0, dt);
+            // Stepping back from someone swinging at her: the auto-block (`should_i_block`,
+            // combat.cpp:951: only on the back step, so not with a bat, whose step is another
+            // animation). Backing away from them, that is, as the manual has it: not stepping
+            // towards someone behind her to kick them.
+            let swung_at = snaps.iter().enumerate().any(|(j, s)| {
+                let d = flat(self.fig.pos, s.pos);
+                j != me && s.attacking && self.opponents(j, s) && d.length() < 220.0 && s.facing.dot(d.normalize_or_zero()) > 0.5
+                    && c.wish.normalize_or_zero().dot(d.normalize_or_zero()) > 0.5
+            });
+            if self.player && moving && rel.y < -0.5 && rel.y.abs() >= rel.x.abs() && swung_at && self.weapon != Weapon::Bat
+                && self.fig.restart(anim::BLOCK_HIGH, Play::Once)
+            {
+                self.state = State::Block { auto: true };
+                return;
+            }
             if moving {
                 let step = if rel.y.abs() >= rel.x.abs() {
                     if rel.y > 0.0 { anim::FIGHT_STEP_N } else { anim::FIGHT_STEP_S }
