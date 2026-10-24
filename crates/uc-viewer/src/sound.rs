@@ -63,6 +63,9 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         // Only Darci grunts with the effort: the gangs have no such recordings.
         Sfx::Jump { kind: ptype::DARCI } => at(audio, numbered("darci/effort ", 1..=3, ".WAV"), 0.6),
         Sfx::Jump { .. } => {}
+        // Darci's; Roper's (which the original gives the civilians too) aren't shipped.
+        Sfx::ScreamFall { kind: ptype::DARCI } => at(audio, vec!["darci/scream fall.WAV".into(), "darci/scream fall 2.WAV".into()], 1.0),
+        Sfx::ScreamFall { .. } => {}
         Sfx::Land => at(audio, vec!["Footsteps/StreetLand1.wav".into()], 0.6),
         Sfx::Grab => at(audio, vec!["JudoChop1.wav".into()], 0.8),
         Sfx::Arrest => at(

@@ -151,3 +151,31 @@ fn a_fall_that_kills_ends_in_a_heap() {
     assert!(g.people[i].is_dead(), "{:?}", g.people[i].state);
     assert_eq!(g.people[i].fig.anim(), anim::BIGLAND_DIE);
 }
+
+#[test]
+fn falling_from_high_up_they_plunge_and_splat() {
+    let Some((level, mut g)) = start() else { return };
+    let i = in_front(&mut g, &level, true);
+    stand_still(&mut g, i);
+    // Well over 0x600 up and dropping faster than 6000 a tick: nothing to save them.
+    g.people[i].fig.pos.y += 4000.0;
+    g.people[i].state = State::Fall { vy: -600.0, vel: glam::Vec2::ZERO };
+    g.take_sounds();
+    let mut plunged = false;
+    let mut screamed = false;
+    for _ in 0..(6.0 / DT) as usize {
+        g.update(DT, &Controls::default(), &level);
+        plunged |= matches!(g.people[i].fig.anim(), anim::PLUNGE_START | anim::PLUNGE_FORWARDS);
+        screamed |= g.take_sounds().iter().any(|(s, _)| matches!(s, uc_game::Sfx::ScreamFall { .. }));
+        if g.people[i].is_dead() {
+            break;
+        }
+    }
+    assert!(plunged, "no dive");
+    assert!(screamed, "no scream");
+    assert!(g.people[i].is_dead(), "{:?}", g.people[i].state);
+    assert_eq!(g.people[i].fig.anim(), anim::PLUNGE_FRONT_SLAM);
+    g.update(DT, &Controls::default(), &level);
+    let blood = g.tracks.list.iter().filter(|t| t.page == uc_world::geometry::BLOODSPLAT_PAGE).count();
+    assert!(blood > 50, "only {blood} splashes");
+}

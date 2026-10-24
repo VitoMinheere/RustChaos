@@ -75,6 +75,10 @@ pub mod anim {
     pub const KO_BEHIND_BIG: usize = 109;
     /// A fall that kills (`PERSON_DEATH_TYPE_LAND`, `ANIM_BIGLAND_DIE`).
     pub const BIGLAND_DIE: usize = 388;
+    /// Falling to your death: the dive, the fall head first, and the landing face down.
+    pub const PLUNGE_START: usize = 277;
+    pub const PLUNGE_FORWARDS: usize = 129;
+    pub const PLUNGE_FRONT_SLAM: usize = 141;
     /// Shot dead (`ANIM_SHOT_DEAD_*`, fallen/Headers/animate.h:514): from behind, in the
     /// head, the chest or the gut; from the front, thrown onto the back.
     pub const SHOT_DEAD_HEAD: usize = 304;

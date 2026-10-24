@@ -317,7 +317,7 @@ impl Person {
     pub(super) fn step_fall(&mut self, mut vy: f32, mut vel: Vec2, c: &Controls, ground: &Ground, map: &Map, dt: f32) {
         vy -= GRAVITY * dt;
         let running = vel.length() > 100.0;
-        if self.fig.finished() {
+        if self.fig.finished() && !matches!(self.fig.anim(), anim::PLUNGE_START | anim::PLUNGE_FORWARDS) {
             self.fig.play(if running { anim::MID_AIR } else { anim::FALLING }, Play::Loop);
         }
         // A little air control.
@@ -372,6 +372,35 @@ impl Person {
                 return;
             }
         }
+        // Falling to their death (Darci.cpp:997): falling faster than 12000 a tick for the
+        // player, 6000 for anyone else, with no ground within 0x600 under three points along
+        // the way they're going, they dive head first (`ANIM_PLUNGE_START`) and drop
+        // straight down, screaming a couple of frames in.
+        let plunging = matches!(self.fig.anim(), anim::PLUNGE_START | anim::PLUNGE_FORWARDS);
+        let death = if self.player { 12000.0 } else { 6000.0 } / 256.0 * 20.0;
+        if -vy > death {
+            let p = self.fig.pos;
+            if plunging {
+                if self.fig.anim() == anim::PLUNGE_START && self.fig.finished() {
+                    self.fig.play(anim::PLUNGE_FORWARDS, Play::Loop);
+                }
+                if !self.screamed && self.fig.frame().unwrap_or(0) >= 2 {
+                    self.screamed = true;
+                    self.cues.push(Sfx::ScreamFall { kind: self.kind });
+                }
+                vel = Vec2::ZERO;
+            } else {
+                let ahead = vel / 20.0 * 8.0;
+                let safe = (1..4).any(|i| {
+                    let q = vec2(p.x, p.z) + ahead * i as f32;
+                    ground.surface(map, q.x, q.y, p.y) >= p.y - 0x600 as f32
+                });
+                if !safe {
+                    self.fig.restart_locked(anim::PLUNGE_START, Play::Once);
+                    self.screamed = false;
+                }
+            }
+        }
         let p = self.fig.pos;
         let to = uc_world::mav::keep_off_nogo(map, ground.slide(vec2(p.x, p.z), p.y, vel * dt, RADIUS));
         let y = p.y + vy * dt;
@@ -396,10 +425,16 @@ impl Person {
                 self.fig.lift = 0.0;
                 let ko = if damage >= self.health { ko::KNOCKDOWN } else { 0 };
                 self.take_hit(self.fig.pos + vec3(0.0, 0.0, 1.0), damage, ko, false, true, Weapon::None);
-                // A fall that kills (`PERSON_DEATH_TYPE_LAND`, Person.cpp:2559): there's no
-                // dive here to slam down from, so it's always `ANIM_BIGLAND_DIE`.
+                // A fall that kills (`PERSON_DEATH_TYPE_LAND`, Person.cpp:2559): face down
+                // in a splash of blood from a plunge (`ANIM_PLUNGE_FRONT_SLAM`,
+                // `PYRO_SPLATTERY`), else `ANIM_BIGLAND_DIE`.
                 if self.knocked_out {
-                    self.fig.restart(anim::BIGLAND_DIE, Play::Once);
+                    if plunging {
+                        self.fig.restart_locked(anim::PLUNGE_FRONT_SLAM, Play::Once);
+                        self.splattered = true;
+                    } else {
+                        self.fig.restart(anim::BIGLAND_DIE, Play::Once);
+                    }
                 }
             }
         } else {
