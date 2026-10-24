@@ -174,6 +174,36 @@ impl Person {
         self.state = State::Slide { phase, speed, hit };
     }
 
+    /// Shot dead standing on the street (`PERSON_DEATH_TYPE_SHOT_*`, chosen in combat.cpp:2433
+    /// and played by `set_person_dead`, Person.cpp:2504): from the front they're thrown onto
+    /// their back (`ANIM_SHOT_DEAD_BACK`); from behind it's the head, the gut or the chest,
+    /// `pick` choosing which. In place of the knockdown they were given; they don't get up.
+    pub(crate) fn shot_dead(&mut self, behind: bool, pick: usize) {
+        let a = if behind { [anim::SHOT_DEAD_HEAD, anim::SHOT_DEAD_GUT, anim::SHOT_DEAD_CHEST][pick % 3] } else { anim::SHOT_DEAD_BACK };
+        self.fig.restart(a, Play::Once);
+    }
+
+    /// Fired at with their hands up: they lie face down, helpless, to be cuffed
+    /// (`PERSON_DEATH_TYPE_GET_DOWN`, Person.cpp:2620: `ANIM_HANDS_UP_LIE`, with no fall and no
+    /// cry). Nothing hurts them, and they stay down.
+    pub(crate) fn get_down(&mut self) {
+        self.state = State::Down;
+        self.down_timer = 0.0;
+        self.fig.restart(anim::HANDS_UP_LIE, Play::Once);
+    }
+
+    /// Knocked dead by something that isn't a fight, a shot or a fall, standing on the ground:
+    /// a blast or a car (`knock_person_down` with `PERSON_DEATH_TYPE_OTHER`, Person.cpp:2585).
+    /// Onto the back from the front (`ANIM_KO_BACK`), flat out from behind (`ANIM_KO_BEHIND_BIG`).
+    pub(crate) fn knocked_dead(&mut self, behind: bool) {
+        self.fig.restart(if behind { anim::KO_BEHIND_BIG } else { anim::KO_BACK }, Play::Once);
+    }
+
+    /// Whether a blow or a shot from `from` comes from behind them.
+    pub(crate) fn hit_from_behind(&self, from: Vec3) -> bool {
+        flat(from, self.fig.pos).dot(self.fig.facing()) <= 0.0
+    }
+
     /// `step` in [`State::Down`].
     pub(super) fn step_down(&mut self, ground: &Ground, map: &Map, dt: f32) {
         // Knocked down, not out: get up after a while (unless arrested meanwhile).

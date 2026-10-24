@@ -328,7 +328,12 @@ impl Game {
                 }
                 if v.speed.abs() > 300.0 && !p.is_down() {
                     p.hurt_by = v.driver;
+                    let behind = p.hit_from_behind(v.pos);
                     p.take_hit(v.pos, (v.speed.abs() / 12.0) as i32, person::ko::KNOCKDOWN, false, true, Weapon::None);
+                    // Killed by it, on the ground: `PERSON_DEATH_TYPE_OTHER` (vehicle.cpp:3329).
+                    if p.is_dead() && !p.arrested {
+                        p.knocked_dead(behind);
+                    }
                 }
                 let away = if (at - Vec2::new(v.pos.x, v.pos.z)).dot(side) >= 0.0 { side } else { -side };
                 let to = level.ground.slide(at, p.fig.pos.y, away * 40.0, 36.0);

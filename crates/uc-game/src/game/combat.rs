@@ -147,6 +147,17 @@ impl Game {
                     if Some(attacker) == self.player {
                         self.bored = 0.0;
                     }
+                    // Darci firing at someone with their hands up: "Get Down." and down they
+                    // go, unhurt, for her to cuff (Person.cpp:6828). She looks for someone else.
+                    if self.people[attacker].kind == ptype::DARCI && matches!(self.people[victim].state, State::HandsUp { .. }) {
+                        self.people[victim].get_down();
+                        let face = Some(self.face(attacker));
+                        self.messages.push(Message { text: "Get Down.".into(), left: 8.0, face, filmed: false });
+                        if Some(attacker) == self.player {
+                            self.target = None;
+                        }
+                        continue;
+                    }
                     let (a, v) = (&self.people[attacker], &self.people[victim]);
                     let eye = Vec3::new(0.0, 140.0, 0.0);
                     if !level.ground.line_of_sight(a.fig.pos + eye, v.fig.pos + eye) {
@@ -183,7 +194,18 @@ impl Game {
                         let was_down = self.people[victim].is_down();
                         self.people[victim].hurt_by = Some(attacker);
                         let damage = self.hurt(victim, damage);
+                        let behind = self.people[victim].hit_from_behind(from);
                         self.people[victim].take_hit(from, damage, ko, true, false, weapon);
+                        // Shot dead on the street, not on a roof (`person_on_floor`,
+                        // `OnFace == 0`), they die as the shot had it (combat.cpp:2433): the
+                        // pavement counts, anything a storey up doesn't. Which of the three
+                        // from behind goes by who and when, not the game's chance.
+                        let v = &self.people[victim];
+                        let street = (v.fig.pos.y - level.map.ground_height(v.fig.pos.x, v.fig.pos.z)).abs() < 96.0;
+                        if !was_down && v.is_dead() && street {
+                            let pick = victim + (self.time * 20.0) as usize;
+                            self.people[victim].shot_dead(behind, pick);
+                        }
                         // A spark where it lands, and two drops of blood from the head.
                         let v = &self.people[victim];
                         let head = v.fig.part_world(11).map_or(v.fig.pos + Vec3::new(0.0, 150.0, 0.0), |(_, at)| at);

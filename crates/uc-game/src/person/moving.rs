@@ -268,6 +268,11 @@ impl Person {
                 self.fig.lift = 0.0;
                 let ko = if damage >= self.health { ko::KNOCKDOWN } else { 0 };
                 self.take_hit(self.fig.pos + vec3(0.0, 0.0, 1.0), damage, ko, false, true, Weapon::None);
+                // A fall that kills (`PERSON_DEATH_TYPE_LAND`, Person.cpp:2559): there's no
+                // dive here to slam down from, so it's always `ANIM_BIGLAND_DIE`.
+                if self.knocked_out {
+                    self.fig.restart(anim::BIGLAND_DIE, Play::Once);
+                }
             }
         } else {
             self.fig.pos = vec3(to.x, y, to.y);
