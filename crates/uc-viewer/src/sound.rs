@@ -35,6 +35,16 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         Sfx::Swing => at(audio, numbered("f_knSWP", 1..=4, ".wav"), 0.3),
         Sfx::Hit { heavy } => at(audio, numbered("f_PUNCH", 1..=5, ".wav"), if heavy { 1.0 } else { 0.75 }),
         Sfx::Hurt { kind: ptype::DARCI } => at(audio, numbered("darci/hit ", 1..=5, ".WAV"), 0.8),
+        // A cop's pain (`PainSound`, Sound.cpp:520): three times in four one of the first
+        // two, else any of the five. The gangs', the hostage's, the workman's and the
+        // tramp's are in the `misc` folder, and Roper's beside his taunts, neither of which
+        // the release ships.
+        Sfx::Hurt { kind: ptype::COP } => {
+            let all = ["COP-PAIN01", "COP-PAIN02", "COP-PAIN03", "COP-PAIN03B", "COP-PAIN04"];
+            let first = audio.pick(&["a", "b", "c", "d"]) != "d";
+            let names = if first { &all[..2] } else { &all[..] };
+            at(audio, names.iter().map(|n| format!("cop/{n}.wav")).collect(), 0.8);
+        }
         Sfx::Hurt { .. } => {}
         Sfx::MibExplode => at(audio, vec!["MIBexplo1.wav".into()], 1.0),
         // The Men in Black levitate as they die (`S_MIB_LEVITATE`, Person.cpp:1140).
@@ -42,6 +52,8 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         Sfx::KnockedOut { kind } => {
             let names = match kind {
                 ptype::DARCI => numbered("darci/die ", 1..=3, ".WAV"),
+                // `DieSound`: the cops' own (`S_COP_DIE_START` to `_END`).
+                ptype::COP => ["COP-DIE01", "COP-DIE02B", "COP-DIE03", "COP-DIE04", "COP-DIE04B"].iter().map(|n| format!("cop/{n}.wav")).collect(),
                 ptype::SLAG_TART | ptype::SLAG_FATUGLY | ptype::HOSTAGE => numbered("f_fDIE", 1..=2, ".wav"),
                 _ => numbered("f_mDIE", 1..=2, ".wav"),
             };
@@ -157,5 +169,22 @@ pub fn music(mood: Mood, world: u8, fights: u32) -> Option<String> {
         Mood::Theme(Theme::Reckoning) => album("ADFoundation"),
         // The timer's tune is a one-off, not a loop: see [`TIMER`].
         Mood::Calm | Mood::Timer | Mood::Won | Mood::Lost | Mood::Chaos => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// The voices added for #298 are in the release: the cops' pain and death, and Darci's
+    /// heart giving out. Skipped without an install.
+    #[test]
+    fn the_cops_voices_and_the_heart_are_shipped() {
+        let Some(game) = uc_formats::default_install() else { return };
+        let names = ["COP-PAIN01", "COP-PAIN02", "COP-PAIN03", "COP-PAIN03B", "COP-PAIN04", "COP-DIE01", "COP-DIE02B", "COP-DIE03", "COP-DIE04", "COP-DIE04B"]
+            .iter().map(|n| format!("cop/{n}.wav"))
+            .chain(std::iter::once("borrowed/heartfail.wav".to_string()));
+        for n in names {
+            let rel = format!(r"data\sfx\1622\{}", n.replace('/', "\\"));
+            assert!(uc_formats::resolve(&game, &rel).is_some(), "{n} isn't in the install");
+        }
     }
 }
