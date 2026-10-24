@@ -62,6 +62,10 @@ pub trait Query {
     fn prim_damaged(&self, _pos: Vec3) -> bool {
         false
     }
+    /// The height of what someone at (x, y, z) would stand on there.
+    fn surface(&self, _x: f32, _z: f32, y: f32) -> f32 {
+        y
+    }
     /// The city's crime rate, 0..100 (`CRIME_RATE`).
     fn crime_rate(&self) -> u8 {
         50
@@ -290,6 +294,11 @@ fn trigger_supported(t: u8) -> bool {
 /// `EWAY_ARG_ITEM_STASHED_IN_PRIM` (fallen/Headers/eway.h): a `create_item`'s item is hidden
 /// inside the nearest prop and only turns up when someone searches it.
 const STASHED_IN_PRIM: i32 = 2;
+
+/// `EWAY_ARG_ITEM_FOLLOW_PERSON`: a `create_item`'s item turns up where the person its
+/// trigger is about is, not at the point: dropped by someone as they're killed, arrested or
+/// talked to.
+const FOLLOW_PERSON: i32 = 1;
 
 /// `IT_BARREL`: a `create_item` that puts down barrels.
 const IT_BARREL: i32 = 9;
@@ -794,6 +803,20 @@ impl Script {
                 self.commands.push(Command::Creature { way: i, kind: d[0] as u8, pos, angle })
             }
             waypoint::CREATE_ITEM => {
+                // Somewhere on the person's square, near its middle, as
+                // `find_nice_place_near_person` picks it (Person.cpp:1040, from
+                // `EWAY_DO_CREATE_ITEM`, eway.cpp:4893). The original then turns the trigger of
+                // a flagged point with any other condition into `person_used` with a `=` for
+                // `==`; the point has already gone off by then, so that changes nothing.
+                let pos = match q.thing(ep.ep_ref as usize).filter(|_| d[2] & FOLLOW_PERSON != 0) {
+                    Some(t) => {
+                        let (rx, rz) = ((self.rand() & 0x1f) as f32, (self.rand() & 0x1f) as f32);
+                        let near = vec3((t.pos.x / 256.0).floor() * 256.0 + rx + 63.0, t.pos.y, (t.pos.z / 256.0).floor() * 256.0 + rz + 63.0);
+                        // Far above or below them (a step, a ledge), it's where they are.
+                        if (q.surface(near.x, near.z, t.pos.y + 64.0) - t.pos.y).abs() > 80.0 { t.pos } else { near }
+                    }
+                    None => pos,
+                };
                 self.commands.push(Command::Item { way: i, kind: d[0] as u8, pos, stashed: d[2] & STASHED_IN_PRIM != 0 })
             }
             // A badge. The original picks which of the four at random (`alloc_special`);
