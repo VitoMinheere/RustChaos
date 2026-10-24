@@ -565,6 +565,8 @@ pub enum State {
     /// Pulling up onto a ledge (or off a ladder). The animation itself lifts the body, so
     /// `pos` moves from `start` to `end` while the drawn hips go from the edge to `to`.
     PullUp { start: Vec3, end: Vec3, to: Vec3 },
+    /// Sliding down ground too steep to stand on (`SUB_STATE_SLIPPING`), until it levels out.
+    Slip,
     /// Vaulting a low fence at a run (`SUB_STATE_RUNNING_VAULT`), from `from` to `to` on the
     /// far side as the animation goes.
     Vault { from: Vec3, to: Vec3 },
@@ -1282,7 +1284,12 @@ impl Person {
             _ => self.fig.lift = 0.0,
         }
         match self.state.clone() {
+            State::Move if self.slipping(ground, map).is_some() => {
+                self.state = State::Slip;
+                self.fig.play(anim::FALLING, Play::Loop);
+            }
             State::Move => self.step_move(me, c, snaps, ground, map, dt, events),
+            State::Slip => self.step_slip(ground, map, dt),
             State::Float { floor } => {
                 if self.fig.pos.y - floor < FLOAT_HEIGHT {
                     self.fig.pos.y = (self.fig.pos.y + FLOAT_SPEED * dt).min(floor + FLOAT_HEIGHT);

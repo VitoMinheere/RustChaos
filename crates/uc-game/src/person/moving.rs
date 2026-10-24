@@ -7,6 +7,61 @@ use crate::tracks::Foot;
 /// little more as our fighters stand a touch further apart.
 const NAD_RANGE: f32 = 120.0;
 
+/// How steep the ground is at (x, z), as `PAP_on_slope` has it (pap.cpp:459, halved as
+/// `check_on_slippy_slope` takes it): the two height differences of the triangle of the
+/// square that (x, z) is in, over 8, and the way down it. None under a building.
+pub(crate) fn slope_at(map: &Map, x: f32, z: f32) -> Option<(f32, Vec2)> {
+    let (mx, mz) = ((x / 256.0).floor() as i32, (z / 256.0).floor() as i32);
+    if !(0..127).contains(&mx) || !(0..127).contains(&mz) {
+        return None;
+    }
+    let (mx, mz) = (mx as usize, mz as usize);
+    if map.square(mx, mz).has(uc_formats::iam::flags::HIDDEN) {
+        return None;
+    }
+    let h = |a: usize, b: usize| map.corner_alt(a, b) as f32;
+    let (h0, h1, h2, h3) = (h(mx, mz), h(mx, mz + 1), h(mx + 1, mz), h(mx + 1, mz + 1));
+    let (fx, fz) = (x - mx as f32 * 256.0, z - mz as f32 * 256.0);
+    let (slope, grad) = if fx + fz < 256.0 {
+        (((h2 - h0).abs() + (h1 - h0).abs()) / 8.0, vec2(h2 - h0, h1 - h0))
+    } else {
+        (((h1 - h3).abs() + (h2 - h3).abs()) / 8.0, vec2(h3 - h1, h3 - h2))
+    };
+    Some((slope, -grad.normalize_or_zero()))
+}
+
+/// Ground steeper than this can't be stood on (`check_on_slippy_slope`'s `size`).
+const SLIPPY: f32 = 50.0;
+
+/// How fast someone slides down it: `Velocity` 50, at walking's 16 to `WALK_SPEED`.
+const SLIP_SPEED: f32 = WALK_SPEED * 50.0 / 16.0;
+
+impl Person {
+    /// Standing on open ground too steep to stand on: the way down it.
+    pub(super) fn slipping(&self, ground: &Ground, map: &Map) -> Option<Vec2> {
+        let p = self.fig.pos;
+        if (p.y - map.ground_height(p.x, p.z)).abs() > 16.0 || ground.surface(map, p.x, p.z, p.y + 8.0) > p.y + 16.0 {
+            return None;
+        }
+        slope_at(map, p.x, p.z).filter(|(s, d)| *s > SLIPPY && d.length_squared() > 0.5).map(|(_, d)| d)
+    }
+
+    /// `SUB_STATE_SLIPPING`: down the slope, facing down it, falling, until the ground is
+    /// gentle enough to stand on (`SUB_STATE_SLIPPING_END`).
+    pub(super) fn step_slip(&mut self, ground: &Ground, map: &Map, dt: f32) {
+        let Some(down) = self.slipping(ground, map) else {
+            self.state = State::Move;
+            self.idle(false);
+            return;
+        };
+        self.fig.turn_towards(down, 8.0, dt);
+        let p = self.fig.pos;
+        let to = ground.slide(vec2(p.x, p.z), p.y, down * SLIP_SPEED * dt, RADIUS);
+        let floor = ground.surface(map, to.x, to.y, p.y + STEP_HEIGHT);
+        self.fig.pos = vec3(to.x, floor, to.y);
+    }
+}
+
 impl Person {
     pub(super) fn step_crouch(&mut self, phase: u8, c: &Controls, ground: &Ground, map: &Map, dt: f32) {
         let moving = c.wish.length_squared() > 0.01;
