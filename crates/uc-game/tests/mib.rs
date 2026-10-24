@@ -346,8 +346,9 @@ fn the_wildcat_shoots_pete() {
     let (pete, wildcat) = (r.who(67), r.who(68));
     assert!(!r.g.people[pete].is_dead(), "shot before Darci came");
     r.look_at(pete, 5.0 * 256.0);
+    // A shotgun at a few squares, his aim the AI's: it can take a while.
     let mut shot = false;
-    for _ in 0..(40.0 / DT) as usize {
+    for _ in 0..(90.0 / DT) as usize {
         r.g.update(DT, &Controls::default(), &r.level);
         if r.g.people[pete].is_dead() {
             shot = true;
