@@ -196,6 +196,45 @@ impl Person {
         self.fig.set_speed(1.0);
     }
 
+    /// Standing still out of a fight: breathing, and every 400 to 655 turns a scratch or a
+    /// deeper breath (`set_person_random_idle`, Person.cpp:11669; `fn_person_idle` counts
+    /// down `Timer1`), unless something's in hand (`SpecialUse`). Roper scratches or
+    /// breathes, half and half; the cops' own idles are in Roper's set of moves, which isn't
+    /// loaded, so they just breathe.
+    pub(super) fn stand_about(&mut self, dt: f32) {
+        use uc_world::character::person as ptype;
+        let fidgeting = matches!(self.fig.anim(), anim::IDLE_SCRATCH1 | anim::IDLE_SCRATCH2);
+        if fidgeting && !self.fig.finished() {
+            return;
+        }
+        self.idle(false);
+        if self.weapon != Weapon::None || self.kind == ptype::COP {
+            return;
+        }
+        let mut roll = || {
+            self.fidget_roll = self.fidget_roll.wrapping_mul(69069).wrapping_add(1);
+            self.fidget_roll >> 16
+        };
+        let wait = |r: u32| ((r & 0xff) + 400) as f32 / 20.0;
+        let left = match self.fidget {
+            Some(t) => t - dt,
+            None => wait(roll()),
+        };
+        if left > 0.0 {
+            self.fidget = Some(left);
+            return;
+        }
+        let r = roll();
+        self.fidget = Some(wait(roll()));
+        let a = match self.kind {
+            ptype::ROPER => if r & 1 != 0 { anim::BREATHE } else { anim::IDLE_SCRATCH1 },
+            _ => [anim::IDLE_SCRATCH1, anim::IDLE_SCRATCH2, anim::BREATHE][(r % 3) as usize],
+        };
+        if a != anim::BREATHE {
+            self.fig.restart(a, Play::Once);
+        }
+    }
+
     /// Moves horizontally by `delta`, sliding along walls and following the floor. Returns
     /// false if it stepped off an edge (the caller falls). Without `drop_ok`, edges stop the
     /// person instead: the AI, and anyone fighting, never walks off a roof.
@@ -704,7 +743,7 @@ impl Person {
         } else if c.jump {
             self.jump(Vec2::ZERO);
         } else {
-            self.idle(false);
+            self.stand_about(dt);
             // A gun drawn: keep it on the target.
             if let (true, Some(t)) = (self.weapon.is_gun(), c.target) {
                 self.fig.turn_towards(flat(snaps[t].pos, self.fig.pos), 8.0, dt);
