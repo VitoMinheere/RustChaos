@@ -200,7 +200,9 @@ fn roper_headbutts_from_further() {
 }
 
 /// Sight and hearing (`can_a_see_b`, `PCOM_oscillate_tympanum`): someone with his back to
-/// Darci doesn't see her standing behind him, but turns on hearing her run up.
+/// He doesn't see her standing behind him, and pays her footsteps no heed as she runs up: in
+/// the original gang members ignore Darci's footsteps (pcom.cpp:13431), as cops do. A guard
+/// in his place hears her and turns.
 #[test]
 fn a_gang_member_with_his_back_turned() {
     let Some((level, mut g, i)) = rta_gang() else { return };
@@ -219,9 +221,18 @@ fn a_gang_member_with_his_back_turned() {
     }
     assert!(!g.people[i].aggro(), "saw her behind him");
     assert_eq!(g.people[i].taunt, None);
-    // She runs at him: he hears her and turns.
+    // She runs towards him, stopping short: he pays it no heed.
     let toward = vec2(f.x, f.y);
     let go = Controls { wish: toward, run: true, ..Default::default() };
+    let from = g.people[p].fig.pos;
+    for _ in 0..(1.0 / DT) as usize {
+        run(&mut g, &level, DT, &go);
+    }
+    assert!(!g.people[i].aggro(), "heard Darci's footsteps");
+    // A guard does hear them.
+    g.people[p].fig.pos = from;
+    g.people[i].ai = uc_game::person::AI_GUARD;
+    g.people[i].fig.angle = uc_world::character::angle_of(f);
     let mut noticed = false;
     for _ in 0..(2.0 / DT) as usize {
         run(&mut g, &level, DT, &go);
@@ -230,7 +241,7 @@ fn a_gang_member_with_his_back_turned() {
             break;
         }
     }
-    assert!(noticed, "never heard her running up");
+    assert!(noticed, "a guard never heard her running up");
 }
 
 /// Losing sight of her mid-taunt ends the taunt but not the fight (it used to drop both, and

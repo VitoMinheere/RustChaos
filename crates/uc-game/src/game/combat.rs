@@ -303,6 +303,8 @@ impl Game {
                     if Some(attacker) == self.player {
                         self.record.arrests += 1;
                     }
+                    // "Hey!" (Person.cpp:9422).
+                    self.noises.push((person::Noise::Hey, self.people[attacker].fig.pos, Some(attacker)));
                     let at = self.people[attacker].fig.pos;
                     let v = &mut self.people[victim];
                     v.state = State::Cuffed;

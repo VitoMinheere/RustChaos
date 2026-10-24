@@ -148,6 +148,7 @@ impl Person {
     /// Advances the animation, then places anything that follows it: a climber's height on a
     /// ladder goes up a rung cycle as the climbing animation loops back down.
     pub fn advance(&mut self, dt: f32, ground: &Ground) {
+        self.landed_for = (self.landed_for - dt).max(0.0);
         self.fig.advance(dt);
         self.flash = (self.flash - dt).max(0.0);
         // Footsteps: two per walk or run cycle.
@@ -257,6 +258,11 @@ impl Person {
             self.fig.pos = vec3(to.x, floor, to.y);
             self.fig.lift = (floor - p.y).max(0.0);
             self.state = State::Land { vel };
+            // `PCOM_SOUND_DROP_BIG`, `_MED` or `_DROP` by how hard they hit (`DY` under -20000,
+            // -10000 or -5000 a tick, Darci.cpp:444), or nothing.
+            let dy = -vy / 20.0 * 256.0;
+            self.landed = if dy > 20000.0 { 0x600 as f32 } else if dy > 10000.0 { 0x400 as f32 } else if dy > 5000.0 { 0x200 as f32 } else { 0.0 };
+            self.landed_for = 0.2;
             self.cues.push(Sfx::Land);
             // Both feet come down (`person_splash(p_person, -1)`).
             self.footfall = Some(Foot::Both);
