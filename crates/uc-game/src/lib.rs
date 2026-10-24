@@ -25,6 +25,7 @@ pub mod creature;
 pub mod dike;
 pub mod dirt;
 pub mod goals;
+pub mod gunfx;
 pub mod hm;
 pub mod mist;
 pub mod person;
@@ -680,6 +681,8 @@ pub struct Game {
     pub mists: Mists,
     /// Drops in the air.
     pub drops: dirt::Drops,
+    /// Sparks, casings and blood from gunfire and blows.
+    pub gunfx: gunfx::GunFx,
     /// The floor squares on the sea, drawn with the waves.
     sea: Vec<uc_world::level::SeaSquare>,
     /// Leaves, cans and snow lying about round the player.
@@ -836,6 +839,7 @@ impl Game {
             hm_clock: 0.0,
             mists: Mists::default(),
             drops: dirt::Drops::default(),
+            gunfx: gunfx::GunFx::default(),
             sea: level.sea(),
             dirt: Game::new_dirt(level),
             show: Default::default(),
@@ -1205,6 +1209,7 @@ impl Game {
             .map(|p| (p.fig.hips() - Vec3::new(0.0, 16.0, 0.0), p.facing_dir()))
             .collect();
         self.drops.update(dt, &streams, |at| level.ground.surface(&level.map, at.x, at.z, at.y + 8.0));
+        self.gunfx.update(dt, |at| level.ground.surface(&level.map, at.x, at.z, at.y + 8.0));
         let frozen = self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player);
         // A filmed conversation holds the player still too (`EWAY_cam_freeze`), but not
         // everyone else as a fly-by does.
