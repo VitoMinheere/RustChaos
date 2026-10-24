@@ -825,6 +825,9 @@ pub struct Person {
     /// pick, or whoever a gang member's mate is fighting. And for a bully, the time to the
     /// next look round for someone.
     pub(crate) victim: Option<usize>,
+    /// Where they were made and which way they faced (`HomeX`, `HomeZ`, `HomeYaw`): where
+    /// someone who stands still goes back to.
+    pub home: Option<(Vec3, f32)>,
     pub(crate) bully_clock: f32,
     /// One of the city's extra people, made by the level rather than the mission
     /// (`FLAG2_PERSON_FAKE_WANDER`): they keep to the pavements, and are moved somewhere
@@ -886,7 +889,7 @@ impl Person {
             pace: Pace::Walk,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
-            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, bully_clock: 0.0, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
+            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, bully_clock: 0.0, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }

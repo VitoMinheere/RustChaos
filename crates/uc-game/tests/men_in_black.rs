@@ -40,6 +40,8 @@ fn start(dist: f32) -> Option<(Level, Game, usize, usize)> {
     m.fig.pos = vec3(at.x, y, at.z + dist);
     m.fig.angle = uc_world::character::angle_of(vec2(0.0, -1.0));
     m.state = State::Move;
+    // And this is where he stands now, so he doesn't walk back to where the mission made him.
+    m.home = Some((m.fig.pos, m.fig.angle));
     Some((level, g, p, i))
 }
 

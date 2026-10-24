@@ -357,6 +357,16 @@ impl Game {
                 }
                 // `PCOM_MOVE_WARM_HANDS` (pcom.cpp:10461): to the nearest fire within 0x300, to
                 // stand at it, an arm's length off.
+                // Standing still (or posing) at home: more than 256 off it, back they go
+                // (`PCOM_set_person_ai_homesick`, pcom.cpp:10213), at a walk. Someone with a
+                // fight on (a robot assassin holding his mark at gunpoint) stays where he is.
+                1 | person::MOVE_DANCE | person::MOVE_HANDS_UP | person::MOVE_TIED_UP if !(p.fights() && p.foe.is_some()) => {
+                    // How far, along the ground (`PCOM_get_dist_from_home`).
+                    // Once on the way, all the way there (`PCOM_ARRIVE_DIST`, 0x40).
+                    let far = if p.goal.is_some() { 0x40 as f32 } else { 256.0 };
+                    let home = p.home.map(|(h, _)| h).filter(|h| Vec2::new(h.x - at[i].x, h.z - at[i].z).length() > far);
+                    (home, person::Pace::Walk)
+                }
                 person::MOVE_WARM_HANDS => {
                     let fire = self.pyro.fires().map(|(f, _)| f).filter(|f| (*f - at[i]).length() < 0x300 as f32)
                         .min_by(|a, b| (*a - at[i]).length().total_cmp(&(*b - at[i]).length()));
@@ -512,9 +522,28 @@ impl Game {
     /// or tied up, hands up.
     pub(crate) fn strike_poses(&mut self) {
         use uc_world::character::anim;
+        let darci = self.player().map(|p| p.fig.pos);
         for (i, p) in self.people.iter_mut().enumerate() {
             if p.player || p.removed || p.is_dead() || p.is_down() || p.aggro() || p.scared.is_some() || !matches!(p.state, State::Move) {
                 continue;
+            }
+            // Within 256 of home, standing still: turned the way they started, and put back
+            // if they're off it and nobody can see (`PCOM_teleport_home`, pcom.cpp:10230).
+            // Their pose waits until they're there (`PCOM_ARRIVE_DIST`, 0x40).
+            if let (Some((home, angle)), true) = (p.home, matches!(p.mv, 1 | 8 | 9 | 10) && !p.listening() && !(p.fights() && p.foe.is_some())) {
+                let d = Vec2::new(home.x - p.fig.pos.x, home.z - p.fig.pos.z).length();
+                if d > 256.0 || p.goal.is_some() {
+                    continue;
+                }
+                p.fig.angle = angle;
+                if d > 0x40 as f32 {
+                    if darci.is_some_and(|me| (me - p.fig.pos).length() > 20.0 * 256.0) {
+                        p.fig.pos.x = home.x;
+                        p.fig.pos.z = home.z;
+                    } else {
+                        continue;
+                    }
+                }
             }
             let a = match p.mv {
                 person::MOVE_DANCE => [anim::DANCE_BOOGIE, anim::DANCE_WOOGIE, anim::DANCE_HEADBANG, anim::DANCE_BOOGIE][i & 3],
