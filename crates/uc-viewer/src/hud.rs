@@ -195,6 +195,22 @@ impl World {
             o.rect(fx, fy, fw * search.progress(), fh, [230, 190, 60, 255]);
         }
 
+        // The health of whoever she's fighting or aiming at, over their feet
+        // (`PANEL_draw_local_health`, panel.cpp:602): 60 towards the camera and 10 down, a
+        // dark blue strip 54 by 4 of the original's 640 by 480, and in it a red bar 2 high,
+        // half a pixel to each per cent.
+        if let Some((at, frac)) = self.game.enemy_health() {
+            let cam = self.camera();
+            let eye = cam.pos * uc_world::UNIT;
+            let toward = (eye - at).normalize_or_zero() * 60.0;
+            let (p, ahead) = cam.project((at + toward - Vec3::new(0.0, 10.0, 0.0)) / uc_world::UNIT, size);
+            if ahead {
+                let k = h / 480.0;
+                o.rect(p.x - 27.0 * k, p.y, 54.0 * k, 4.0 * k, [0, 0, 0x0f, 255]);
+                o.rect(p.x - 25.0 * k, p.y + k, 50.0 * frac * k, 2.0 * k, [0xff, 0, 0, 255]);
+            }
+        }
+
         // A creature's health, under the clock: the one in the sights, or the nearest.
         if let Some((name, frac)) = self.game.creature_health() {
             let (bw, bh) = (160.0 * s, 5.0 * s);
