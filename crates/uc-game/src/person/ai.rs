@@ -35,6 +35,30 @@ impl Person {
         self.can_see(p, 8.0 * 256.0, ground)
     }
 
+    /// A noise the game made (`PCOM_oscillate_tympanum`, pcom.cpp:13240): `seen` whether they
+    /// can see where it was. Civilians run from a killer's "what you looking at"; guards,
+    /// gang members and cops go to look at a "Hey!" or that; a grenade landing sends whoever
+    /// sees it running (those that can), and the gang and cops who can't go to look.
+    pub(crate) fn hear_noise(&mut self, noise: Noise, at: Vec3, by: Option<usize>, seen: bool) {
+        if self.player || self.removed || self.is_dead() || self.is_down() {
+            return;
+        }
+        match noise {
+            Noise::GrenadeHit if seen => self.scare(None, at),
+            Noise::GrenadeHit => {
+                if matches!(self.ai, AI_GANG | AI_COP) {
+                    self.hear(at);
+                }
+            }
+            Noise::LookingAtMe if self.ai == AI_CIV => self.scare(by, at),
+            Noise::Hey | Noise::LookingAtMe => {
+                if matches!(self.ai, AI_GUARD | AI_GANG | AI_COP) {
+                    self.hear(at);
+                }
+            }
+        }
+    }
+
     /// Turned to look at something they heard (`PCOM_AI_STATE_INVESTIGATING`).
     pub(crate) fn listening(&self) -> bool {
         self.heard.is_some()
@@ -259,7 +283,10 @@ impl Person {
             self.heard = None;
             return self.wander(c, ground, dt, rand);
         }
-        if gang && !self.aggro && p.noise > 0.0 && dist < p.noise {
+        // Gang members (and cops) pay Darci's footsteps no heed; guards listen to everything
+        // (`PCOM_oscillate_tympanum`, pcom.cpp:13431).
+        let darci_feet = p.footsteps && p.kind == uc_world::character::person::DARCI;
+        if ((gang && !darci_feet) || self.ai == AI_GUARD) && !self.aggro && p.noise > 0.0 && dist < p.noise {
             self.hear(p.pos);
         }
         let notices = if gang || mib { self.can_see(&p, range, ground) } else { dist < range && (dy < 128.0 || hunter) };

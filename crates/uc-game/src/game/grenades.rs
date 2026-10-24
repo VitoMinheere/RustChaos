@@ -135,6 +135,11 @@ impl Game {
                         g.vel.z = -g.vel.z / 2.0;
                     }
                 } else {
+                    // Hitting the ground hard enough to hear (`dy` over 0x80000, grenade.cpp:259).
+                    if g.vel.y.abs() > 8.0 * 20.0 {
+                        let owner = g.owner;
+                        self.noises.push((person::Noise::GrenadeHit, old, Some(owner)));
+                    }
                     g.vel.y = g.vel.y.abs() / 2.0;
                     g.pos.y = old.y;
                     if g.vel.y <= SETTLE {

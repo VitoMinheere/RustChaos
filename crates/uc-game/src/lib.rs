@@ -693,6 +693,8 @@ pub struct Game {
     fighting: Vec<bool>,
     /// Where on the level's benches, sofas and armchairs someone can sit: (where, facing).
     seats: Vec<(Vec3, f32)>,
+    /// Noises made this turn for the AI to hear: (what, where, who made it).
+    pub(crate) noises: Vec<(person::Noise, Vec3, Option<usize>)>,
     /// The floor squares on the sea, drawn with the waves.
     sea: Vec<uc_world::level::SeaSquare>,
     /// Leaves, cans and snow lying about round the player.
@@ -854,6 +856,7 @@ impl Game {
             night: Self::raining(level),
             fighting: Vec::new(),
             seats: game::seats(level),
+            noises: Vec::new(),
             sea: level.sea(),
             dirt: Game::new_dirt(level),
             show: Default::default(),
@@ -1416,6 +1419,7 @@ impl Game {
             self.people[i].step(i, &c, &snaps, &level.ground, &level.map, dt, &mut events);
         }
         self.raise_alerts();
+        self.hear_noises(level);
         self.sit_down();
         self.strike_poses();
         self.apply(events, level);

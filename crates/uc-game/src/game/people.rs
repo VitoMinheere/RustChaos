@@ -466,7 +466,15 @@ impl Game {
         }
         for i in 0..self.people.len() {
             let p = &self.people[i];
-            if p.bent & person::BENT_GANG == 0 || !p.aggro() || fighting.get(i).copied().unwrap_or(false) {
+            if !p.aggro() || fighting.get(i).copied().unwrap_or(false) {
+                continue;
+            }
+            // A guard who's spotted someone shouts (`PCOM_SOUND_HEY`, pcom.cpp:11030).
+            if p.ai == person::AI_GUARD {
+                self.noises.push((person::Noise::Hey, p.fig.pos, Some(i)));
+            }
+            let p = &self.people[i];
+            if p.bent & person::BENT_GANG == 0 {
                 continue;
             }
             let Some(target) = p.victim.or(p.foe) else { continue };
@@ -565,6 +573,34 @@ impl Game {
             };
             if p.fig.restart(a, uc_world::Play::Once) {
                 p.state = State::Pose { anim: a };
+            }
+        }
+    }
+
+    /// The noises the game made this turn reach everyone within earshot but whoever made them
+    /// (`PCOM_oscillate_tympanum`): whether they can see where it was is a clear line from
+    /// their head. And every 64 ticks, someone after a person who's paying them no attention
+    /// says "what you looking at" (pcom.cpp:7536).
+    pub(crate) fn hear_noises(&mut self, level: &Level) {
+        let tick = (self.time * 20.0) as usize;
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            if p.player || !p.aggro() || !(tick + i).is_multiple_of(64) {
+                continue;
+            }
+            let ignored = p.foe.is_some_and(|t| !self.people[t].player && !self.people[t].aggro() && self.people[t].scared.is_none());
+            if ignored {
+                self.noises.push((person::Noise::LookingAtMe, p.fig.pos, Some(i)));
+            }
+        }
+        let eye = Vec3::new(0.0, 0x60 as f32, 0.0);
+        for (noise, at, by) in std::mem::take(&mut self.noises) {
+            for j in 0..self.people.len() {
+                if Some(j) == by || (self.people[j].fig.pos - at).length() >= noise.radius() {
+                    continue;
+                }
+                let seen = level.ground.line_of_sight(self.people[j].fig.pos + eye, at + Vec3::new(0.0, 16.0, 0.0));
+                self.people[j].hear_noise(noise, at, by, seen);
             }
         }
     }
