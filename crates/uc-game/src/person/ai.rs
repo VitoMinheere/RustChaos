@@ -313,6 +313,22 @@ impl Person {
                 return c;
             }
         }
+        // An assassin told to stand still is a sniper (`PCOM_AI_STATE_SNIPE`, pcom.cpp:11098 and
+        // `PCOM_process_snipe`): he stays where he is, gun out, and shoots his mark whenever he
+        // can see them (`can_a_see_b`, out to 8 squares). With no gun there's not much he can
+        // do but stand there.
+        if matches!(self.ai, 3 | 21) && self.mv == 1 && self.foe.is_some() {
+            if self.weapon.is_gun() && self.can_see(&p, 8.0 * 256.0, ground) {
+                self.fig.turn_towards(d, 8.0, dt);
+                self.attack_timer -= dt;
+                if self.attack_timer <= 0.0 {
+                    c.punch = true;
+                    let skill = self.skill as f32;
+                    self.attack_timer = ((2.4 - skill * 0.1).max(0.8) + (rand() % 100) as f32 / 100.0) * self.shot_wait;
+                }
+            }
+            return c;
+        }
         // Block a blow that's coming (better fighters more often).
         self.block_timer -= dt;
         if self.block_timer > 0.0 {

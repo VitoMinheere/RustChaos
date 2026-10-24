@@ -62,6 +62,10 @@ impl Game {
                         (p.colour, p.group) = (spec.colour, spec.group);
                         (p.protected, p.guilty) = (spec.invulnerable, spec.guilty);
                         p.zone = spec.zone;
+                        // "An assasin on patrol or wander acts like a sniper" (pcom.cpp:11102).
+                        if matches!(p.ai, 3 | 21) && matches!(p.mv, 2..=4) {
+                            p.mv = 1;
+                        }
                         p.home = Some((p.fig.pos, p.fig.angle));
                         // Hands up from the start, they've dropped their gun
                         // (`PCOM_create_person`, pcom.cpp:5686).
