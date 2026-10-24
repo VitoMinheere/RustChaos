@@ -188,6 +188,13 @@ impl Game {
         if matches!(q.kind, ptype::DARCI | ptype::ROPER | ptype::COP | ptype::HOSTAGE) || q.removed || q.is_dead() || q.is_down() {
             return;
         }
+        // She calls out to them (Person.cpp:18200): "Freeze!" either way one time in four,
+        // "Stop, police!" the other half.
+        if self.people[cop].kind == ptype::DARCI {
+            let line = (self.rand() & 3).min(2) as u8;
+            self.people[cop].cues.push(Sfx::Freeze(line));
+        }
+        let q = &self.people[t];
         if q.bent & person::BENT_ROBOT != 0 {
             return;
         }

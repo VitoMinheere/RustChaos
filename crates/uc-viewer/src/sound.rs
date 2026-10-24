@@ -61,6 +61,7 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
                 .collect(),
             1.0,
         ),
+        Sfx::Freeze(line) => at(audio, vec![["darci/freeze.wav", "darci/freeze tk2.wav", "darci/stop police tk2.wav"][line.min(2) as usize].to_string()], 1.0),
         Sfx::Taunt { kind } => {
             let mut names: Vec<String> = match kind {
                 ptype::DARCI => (1..=19).map(|i| format!("darci/DARCI-TAUNT{i:02}.wav")).collect(),

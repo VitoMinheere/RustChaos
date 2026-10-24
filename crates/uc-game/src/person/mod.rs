@@ -274,6 +274,9 @@ pub enum Sfx {
     Grab,
     /// Darci makes an arrest.
     Arrest,
+    /// Darci draws on someone who might be a villain: "Freeze!" (0, 1) or "Stop, police!"
+    /// (2) (`S_DARCI_FREEZE_START`, `_END`, `S_DARCI_STOP_POLICE`).
+    Freeze(u8),
     /// The player knocked someone out and crows about it.
     Taunt { kind: u8 },
     /// An enemy spots the player.
