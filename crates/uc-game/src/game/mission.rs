@@ -62,6 +62,10 @@ impl Game {
                         (p.colour, p.group) = (spec.colour, spec.group);
                         (p.protected, p.guilty) = (spec.invulnerable, spec.guilty);
                         p.zone = spec.zone;
+                        // "MIB never have a low skill" (elev.cpp:885).
+                        if matches!(p.kind, ptype::MIB1 | ptype::MIB2 | ptype::MIB3) {
+                            p.skill = 8 + p.skill / 2;
+                        }
                         // "Change guard in zone to violent youth in zone without telling
                         // Simon" (`PCOM_create_person`, pcom.cpp:5446).
                         if p.zone != 0 && p.ai == crate::person::AI_GUARD {
