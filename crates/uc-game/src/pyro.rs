@@ -23,8 +23,9 @@ pub const FIREBOMB: u8 = 64;
 /// (31 = flash, fireball, dust, streamers and a fire left burning).
 pub const CAR_BOMB: u8 = FLASH | FIREBALL | DUST | STREAMERS | FIRE;
 
-/// How long a bonfire burns (seconds). `PYRO_BONFIRE` has no set lifetime; this keeps a
-/// mission from filling up with fires.
+/// How long a fire left by a blast burns (seconds). `PYRO_BONFIRE` has no set lifetime; this
+/// keeps wrecks and bombs from filling a mission with fires. A mission's own bonfires (see
+/// [`Pyro::bonfire`]) never go out.
 const FIRE_SECS: f32 = 30.0;
 
 /// One round puff of fire, dust or smoke.
@@ -140,6 +141,17 @@ impl Pyro {
         }
         self.puffs.append(&mut made);
         self.rng = rng;
+    }
+
+    /// A bonfire a mission lights (`visual_effect`'s bit 16): it burns for good, as
+    /// `PYRO_BONFIRE` does.
+    pub fn bonfire(&mut self, pos: Vec3, scale: f32) {
+        self.fires.push((pos, scale * 0.22, f32::INFINITY, 0.0));
+    }
+
+    /// The nearest fire burning to `at`, for its crackle (`S_FIRE`, looped).
+    pub fn nearest_fire(&self, at: Vec3) -> Option<Vec3> {
+        self.fires.iter().map(|f| f.0).min_by(|a, b| a.distance_squared(at).total_cmp(&b.distance_squared(at)))
     }
 
     /// A Man in Black going up (Person.cpp:17575): a big white bloom (`POLY_PAGE_BLOOM1`,
