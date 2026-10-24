@@ -62,6 +62,15 @@ impl Game {
                         (p.colour, p.group) = (spec.colour, spec.group);
                         (p.protected, p.guilty) = (spec.invulnerable, spec.guilty);
                         p.zone = spec.zone;
+                        // Hands up from the start, they've dropped their gun
+                        // (`PCOM_create_person`, pcom.cpp:5686).
+                        if p.mv == person::MOVE_HANDS_UP && p.weapon.is_gun() {
+                            let (kind, at) = (p.weapon.item(), p.fig.pos);
+                            p.weapon = Weapon::None;
+                            if let Some(kind) = kind {
+                                self.items.push(Item { way: 0, kind, pos: at + Vec3::new(40.0, 0.0, 0.0) });
+                            }
+                        }
                         // "MIB never have a low skill" (elev.cpp:885).
                         if matches!(p.kind, ptype::MIB1 | ptype::MIB2 | ptype::MIB3) {
                             p.skill = 8 + p.skill / 2;

@@ -338,17 +338,30 @@ impl Game {
                     let hurrying = j == self.player && self.sprinting;
                     (to, if hurrying { person::Pace::Sprint } else { person::Pace::Run })
                 }
-                // `PCOM_process_patrol`: a walk, unless they're `PCOM_BENT_DILIGENT`.
+                // `PCOM_process_patrol`: a walk, unless they're `PCOM_BENT_DILIGENT`. On a
+                // random patrol (`PCOM_MOVE_PATROL_RAND`), the next point is any of the others
+                // (`EWAY_find_waypoint_rand`), picked by who and when rather than the game's
+                // chance.
                 2 | 3 => {
                     let points = script.patrol_points(p.colour, p.group);
                     let heading = p.patrol.and_then(|w| points.iter().position(|q| q.0 == w));
                     let nearest = (0..points.len()).min_by(|&a, &b| near(points[a].1).total_cmp(&near(points[b].1)));
+                    let pick = i.wrapping_mul(7919) + (self.time * 20.0) as usize;
                     let to = heading.or(nearest).map(|k| {
-                        let k = if near(points[k].1) < 256.0 { (k + 1) % points.len() } else { k };
+                        let next = if p.mv == 3 && points.len() > 1 { (k + 1 + pick % (points.len() - 1)) % points.len() } else { (k + 1) % points.len() };
+                        let k = if near(points[k].1) < 256.0 { next } else { k };
                         patrols[i] = Some(points[k].0);
                         points[k].1
                     });
                     (to, if p.bent & 2 != 0 { person::Pace::Run } else { person::Pace::Walk })
+                }
+                // `PCOM_MOVE_WARM_HANDS` (pcom.cpp:10461): to the nearest fire within 0x300, to
+                // stand at it, an arm's length off.
+                person::MOVE_WARM_HANDS => {
+                    let fire = self.pyro.fires().map(|(f, _)| f).filter(|f| (*f - at[i]).length() < 0x300 as f32)
+                        .min_by(|a, b| (*a - at[i]).length().total_cmp(&(*b - at[i]).length()));
+                    let to = fire.map(|f| f + (at[i] - f).normalize_or(Vec3::X) * 96.0).filter(|t| (*t - at[i]).length() > 48.0);
+                    (to, person::Pace::Walk)
                 }
                 _ => (None, person::Pace::Walk),
             };
@@ -491,4 +504,26 @@ pub(crate) fn seats(level: &Level) -> Vec<(Vec3, f32)> {
             Some((Vec3::new(o.x as f32 + a.sin() * away, o.y as f32, o.z as f32 + a.cos() * away), a))
         })
         .collect()
+}
+
+impl Game {
+    /// Those whose move has them pose at home strike it while they've nothing else to do
+    /// (pcom.cpp:10245): dancing, one of three dances by who they are (`dance_anim`); hands up
+    /// or tied up, hands up.
+    pub(crate) fn strike_poses(&mut self) {
+        use uc_world::character::anim;
+        for (i, p) in self.people.iter_mut().enumerate() {
+            if p.player || p.removed || p.is_dead() || p.is_down() || p.aggro() || p.scared.is_some() || !matches!(p.state, State::Move) {
+                continue;
+            }
+            let a = match p.mv {
+                person::MOVE_DANCE => [anim::DANCE_BOOGIE, anim::DANCE_WOOGIE, anim::DANCE_HEADBANG, anim::DANCE_BOOGIE][i & 3],
+                person::MOVE_HANDS_UP | person::MOVE_TIED_UP => anim::HANDS_UP,
+                _ => continue,
+            };
+            if p.fig.restart(a, uc_world::Play::Once) {
+                p.state = State::Pose { anim: a };
+            }
+        }
+    }
 }

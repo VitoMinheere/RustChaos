@@ -92,7 +92,11 @@ impl Person {
     pub fn think(&mut self, me: usize, snaps: &[Snap], ground: &Ground, dt: f32,
                  rand: &mut impl FnMut() -> u32) -> Controls {
         // Sitting down, something needing them (a fight, a fright) gets them up.
-        if matches!(self.state, State::Sit) && (self.aggro || self.scared.is_some()) {
+        // A pose ends too when their move changes to one without it (a hostage set to follow).
+        let posing = matches!(self.mv, MOVE_DANCE | MOVE_HANDS_UP | MOVE_TIED_UP);
+        if (matches!(self.state, State::Sit | State::Pose { .. }) && (self.aggro || self.scared.is_some()))
+            || (matches!(self.state, State::Pose { .. }) && !posing)
+        {
             self.state = State::Move;
             self.idle(false);
         }
