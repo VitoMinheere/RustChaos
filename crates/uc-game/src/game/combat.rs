@@ -194,6 +194,29 @@ impl Game {
                     let ko = if weapon == Weapon::Shotgun && damage >= 120 { person::ko::KNOCKDOWN } else { 0 };
                     let from = a.fig.pos;
                     if (self.rand() % 1000) as f32 / 1000.0 < chance {
+                        // Skilled people (not players) can dodge a bullet with a flip
+                        // (Person.cpp:6340): skill 7 or more, less 5 (10 for a shotgun's spread),
+                        // out of 32. The original adds 5 when the *shooter* is a Man in Black,
+                        // likely meant for the one shot at; that's kept as it shipped.
+                        let v = &self.people[victim];
+                        if !v.player && v.health > 0 && !v.is_down() && matches!(v.state, State::Move) {
+                            let mib = self.people[attacker].is_mib();
+                            let skill = v.skill as i32 + if mib { 5 } else { 0 };
+                            if skill >= 7 {
+                                let skill = skill - 5 - if weapon == Weapon::Shotgun { 5 } else { 0 };
+                                if ((self.rand() & 0x1f) as i32) < skill {
+                                    let left = self.rand() & 1 == 0;
+                                    // `PCOM_attack_happened`: a fighter goes for them, anyone
+                                    // else runs.
+                                    let from = self.people[attacker].fig.pos;
+                                    let v = &mut self.people[victim];
+                                    v.hurt_by = Some(attacker);
+                                    if v.fights() { v.go_for() } else { v.scare(Some(attacker), from) }
+                                    v.flip(left);
+                                    continue;
+                                }
+                            }
+                        }
                         let was_down = self.people[victim].is_down();
                         self.people[victim].hurt_by = Some(attacker);
                         let damage = self.hurt(victim, damage);
