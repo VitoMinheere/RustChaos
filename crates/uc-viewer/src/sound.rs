@@ -2,7 +2,7 @@
 
 use glam::Vec3;
 use uc_audio::{Audio, Listener};
-use uc_game::{Mood, Sfx};
+use uc_game::{Mood, Sfx, Theme};
 use uc_world::character::person as ptype;
 
 fn numbered(prefix: &str, n: std::ops::RangeInclusive<u32>, suffix: &str) -> Vec<String> {
@@ -123,16 +123,37 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         }
         Sfx::Won => audio.sting("GeneralMusic/Complete.wav"),
         Sfx::Lost => audio.sting("GeneralMusic/Dead2.wav"),
+        Sfx::Chaos => audio.sting(CHAOS),
     }
 }
 
-/// The music for a mood, from the mission's music world (`data\sfx\1622\musicNN\darci`).
+/// The title screen's and the menus' loop (`MUSIC_MODE_FRONTEND`, `S_TUNE_FRONTEND`).
+pub const FRONTEND: &str = "GeneralMusic/FrontLoop.wav";
+
+/// The countdown's tune (`S_TUNE_TIMER1`), played once as it drops under 30 seconds.
+pub const TIMER: &str = "GeneralMusic/Timer122.wav";
+
+/// Losing with the player still standing (`S_TUNE_CHAOS`).
+const CHAOS: &str = "GeneralMusic/ChaosTheEnd.wav";
+
+/// The music for a mood, from the mission's music world (`data\sfx\1622\musicNN\darci`):
+/// `MUSIC_play_the_mode`'s table (fallen/Source/music.cpp:166), under the names the tracks
+/// shipped as. Where a mode has two tracks the original only ever picks the first
+/// (`start + rand() % (end - start)`); here the fight themes take turns.
 pub fn music(mood: Mood, world: u8, fights: u32) -> Option<String> {
     let dir = format!("music{world:02}/darci");
+    let album = |t: &str| Some(format!("GeneralMusic/AlbumTracks/{t}.wav"));
     match mood {
         // Alternate the two fight themes from one fight to the next.
         Mood::Fight => Some(format!("{dir}/Fight{}.wav", 1 + fights % 2)),
         Mood::Sprint => Some(format!("{dir}/Sprint1.wav")),
-        Mood::Calm | Mood::Won | Mood::Lost => None,
+        Mood::Crawl => Some(format!("{dir}/Crawl.wav")),
+        Mood::Drive => Some(format!("{dir}/Driving1.wav")),
+        Mood::Theme(Theme::CombatTraining) => album("BleepTune"),
+        Mood::Theme(Theme::AssaultTraining) => album("TourDeForce"),
+        Mood::Theme(Theme::DrivingTraining) => album("OomaGabba"),
+        Mood::Theme(Theme::Reckoning) => album("ADFoundation"),
+        // The timer's tune is a one-off, not a loop: see [`TIMER`].
+        Mood::Calm | Mood::Timer | Mood::Won | Mood::Lost | Mood::Chaos => None,
     }
 }

@@ -908,9 +908,10 @@ impl App {
         if apply {
             apply_options(&self.options, self.fog, &mut self.args, self.world.as_mut(), self.sound.as_mut());
         }
-        // The outro's music under the credits, and quiet in the rest of the menu.
+        // The outro's music under the credits, and the title tune in the rest of the menu
+        // (`MUSIC_MODE_FRONTEND`, frontend.cpp:1299).
         if let Some(s) = self.sound.as_mut() {
-            s.audio.music((m.screen == menu::Screen::Credits).then_some(credits::MUSIC));
+            s.audio.music(Some(if m.screen == menu::Screen::Credits { credits::MUSIC } else { sound::FRONTEND }));
             s.audio.update(dt);
         }
         self.input.pressed.clear();

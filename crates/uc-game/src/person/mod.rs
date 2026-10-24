@@ -293,6 +293,8 @@ pub enum Sfx {
     ById { id: usize, replace: bool },
     Won,
     Lost,
+    /// Lost with the player still standing (`MUSIC_MODE_CHAOS`).
+    Chaos,
 }
 
 /// How fast someone heads for their `goal` (`PERSON_SPEED_*`, fallen/Headers/Person.h).

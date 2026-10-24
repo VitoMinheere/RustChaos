@@ -111,7 +111,10 @@ impl Sound {
                 self.fights += 1;
             }
             self.mood = mood;
-            if !matches!(mood, Mood::Won | Mood::Lost) {
+            if mood == Mood::Timer {
+                // Once, without a loop or a fade in (music.cpp:370).
+                self.audio.sting(sound::TIMER);
+            } else if !matches!(mood, Mood::Won | Mood::Lost | Mood::Chaos) {
                 // A warehouse with an ambience plays it in place of the music.
                 let track = match indoors {
                     Some(a @ 1..=4) => Some(uc_game::ware::AMBIENCE[a as usize - 1].to_string()),

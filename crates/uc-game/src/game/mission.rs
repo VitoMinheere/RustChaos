@@ -363,7 +363,15 @@ impl Game {
     pub(crate) fn finish(&mut self, o: Outcome) {
         if self.outcome.is_none() {
             let at = self.player().map_or(Vec3::ZERO, |p| p.fig.pos);
-            self.sounds.push((if o == Outcome::Won { Sfx::Won } else { Sfx::Lost }, at));
+            // Lost with the player still standing, it's the chaos tune, not the death one
+            // (Game.cpp:2377).
+            let standing = self.player().is_some_and(|p| !p.is_dead() && p.health > 0);
+            let sting = match o {
+                Outcome::Won => Sfx::Won,
+                Outcome::Lost(_) if standing => Sfx::Chaos,
+                Outcome::Lost(_) => Sfx::Lost,
+            };
+            self.sounds.push((sting, at));
             self.outcome = Some(o);
         }
     }
