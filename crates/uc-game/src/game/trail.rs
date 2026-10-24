@@ -8,6 +8,33 @@ const LEFT_FOOT: usize = 3;
 const RIGHT_FOOT: usize = 14;
 
 impl Game {
+    /// On snow, everyone standing about but the Men in Black breathes out a puff from their
+    /// head, once a breath as the animation passes its fifth frame (`fn_person_idle`,
+    /// Person.cpp:11791, `MagicFrameCheck`). The original stands people in `ANIM_STAND_READY`;
+    /// here they breathe (`ANIM_BREATHE`), which is only two frames, so the puff comes at its
+    /// last.
+    pub(crate) fn breathe_out(&mut self, level: &Level) {
+        if dirt::Ground::of(level.map.texture_set) != dirt::Ground::Snow {
+            return;
+        }
+        for p in self.people.iter_mut() {
+            let standing = matches!(p.state, State::Move)
+                && matches!(p.fig.anim(), uc_world::character::anim::BREATHE | uc_world::character::anim::IDLE_SCRATCH1 | uc_world::character::anim::IDLE_SCRATCH2);
+            if p.removed || p.is_mib() || !standing {
+                p.breathed = false;
+                continue;
+            }
+            if p.fig.frame().unwrap_or(0) < 5.min(p.fig.frames().saturating_sub(1)) {
+                p.breathed = false;
+            } else if !p.breathed {
+                p.breathed = true;
+                if let Some((_, at)) = p.fig.part_world(11) {
+                    self.pyro.breath(at);
+                }
+            }
+        }
+    }
+
     /// Prints where a foot came down this turn (`person_splash`, Person.cpp:1374), and the
     /// cars' skid marks.
     pub(crate) fn lay_prints(&mut self, level: &Level) {

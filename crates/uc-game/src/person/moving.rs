@@ -215,17 +215,17 @@ impl Person {
             self.fidget_roll = self.fidget_roll.wrapping_mul(69069).wrapping_add(1);
             self.fidget_roll >> 16
         };
-        let wait = |r: u32| ((r & 0xff) + 400) as f32 / 20.0;
+        // `set_person_idle` starts the count at 400 to 911, each fidget at 400 to 655.
         let left = match self.fidget {
             Some(t) => t - dt,
-            None => wait(roll()),
+            None => ((roll() & 0x1ff) + 400) as f32 / 20.0,
         };
         if left > 0.0 {
             self.fidget = Some(left);
             return;
         }
         let r = roll();
-        self.fidget = Some(wait(roll()));
+        self.fidget = Some(((roll() & 0xff) + 400) as f32 / 20.0);
         let a = match self.kind {
             ptype::ROPER => if r & 1 != 0 { anim::BREATHE } else { anim::IDLE_SCRATCH1 },
             _ => [anim::IDLE_SCRATCH1, anim::IDLE_SCRATCH2, anim::BREATHE][(r % 3) as usize],

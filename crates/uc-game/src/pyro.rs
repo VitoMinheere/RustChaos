@@ -166,6 +166,13 @@ impl Pyro {
         }
     }
 
+    /// A breath in the cold (Person.cpp:11791): a white puff (`POLY_PAGE_SMOKECLOUD2`,
+    /// `0x7fffffff`) of size 30 drifting off at a unit a tick, growing 1 and fading 10 a
+    /// particle tick, so gone in thirteen.
+    pub fn breath(&mut self, at: Vec3) {
+        self.puffs.push(Puff { pos: at, vel: vec3(20.0, 0.8, 20.0), radius: 30.0, grow: 20.0, age: 0.0, life: 13.0 / 20.0, smoke: true, tint: [255, 255, 255] });
+    }
+
     /// Smoke off a spinning tyre (vehicle.cpp:1491): a pale brown cloud (`0x7fc9b7a3`) of
     /// size 60, growing 10 and fading 16 a particle tick, so gone in eight.
     pub fn tyre_smoke(&mut self, at: Vec3) {

@@ -665,6 +665,11 @@ impl Figure {
         self.animator.index
     }
 
+    /// How many keyframes the current animation has.
+    pub fn frames(&self) -> usize {
+        self.animator.len
+    }
+
     /// How far through the current animation (0..1).
     pub fn progress(&self) -> f32 {
         self.animator.progress()
