@@ -191,6 +191,8 @@ pub const AI_GANG: u8 = 6;
 pub const AI_FIGHT_TEST: u8 = 12;
 /// `PCOM_AI_MIB`: the Men in Black.
 pub const AI_MIB: u8 = 18;
+/// `PCOM_AI_KILL_COLOUR`: goes for everyone of one colour.
+pub const AI_KILL_COLOUR: u8 = 17;
 /// `PCOM_AI_BULLY`: picks on whoever's about, the player or a passer-by.
 pub const AI_BULLY: u8 = 13;
 /// `PCOM_BENT_ONLY_KILL_PLAYER`: a bully who only picks on the player.
