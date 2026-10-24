@@ -2,6 +2,7 @@
 //! screens.
 
 use crate::checklist;
+use crate::bindings::{Bindings, ACTS};
 use crate::options::Options;
 use crate::credits::Credits;
 use crate::progress::{self, clock, Progress};
@@ -86,6 +87,8 @@ pub enum Screen {
     Replays,
     /// The Options screen (#201): volumes and detail.
     Options,
+    /// The Options screen's controls page (#202): what each key and button does.
+    Controls,
     /// The credits (#209), scrolling.
     Credits,
 }
@@ -180,6 +183,11 @@ pub struct Menu {
     /// The Options screen's settings while it's up, and the row chosen.
     pub(crate) options: Options,
     pub option_row: usize,
+    /// The controls page's bindings while it's up, the row chosen, and whether it's waiting
+    /// for the key or button to put there.
+    pub(crate) bindings: Bindings,
+    pub bind_row: usize,
+    pub binding: bool,
     /// Seconds on the title screen with nothing pressed, and a demo to start (#208).
     pub idle: f32,
     pub loading_demo: bool,
@@ -246,7 +254,8 @@ impl Menu {
         let mut m = Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false,
                coop: 0, address: "127.0.0.1".into(), status: String::new(), for_coop: false, lobby: None,
                replays: Vec::new(), replay_selected: 0, loading_replay: None, loading_edit: None, idle: 0.0, loading_demo: false,
-               pins, pin: 0, on_map: true, credits: Credits::default(), options: Options::load(), option_row: 0 };
+               pins, pin: 0, on_map: true, credits: Credits::default(), options: Options::load(), option_row: 0,
+               bindings: Bindings::default(), bind_row: 0, binding: false };
         m.show_map();
         m
     }
@@ -263,7 +272,7 @@ impl Menu {
         let w = self.theme.word();
         match self.screen {
             Screen::Title | Screen::Main | Screen::Credits => format!("data\\TITLE {}1.TGA", w.to_ascii_uppercase()),
-            Screen::Missions | Screen::Endless | Screen::Stats | Screen::Coop | Screen::Lobby | Screen::Replays | Screen::Options => format!("data\\map {w} darci.tga"),
+            Screen::Missions | Screen::Endless | Screen::Stats | Screen::Coop | Screen::Lobby | Screen::Replays | Screen::Options | Screen::Controls => format!("data\\map {w} darci.tga"),
         }
     }
 
@@ -675,6 +684,49 @@ impl Menu {
         }
     }
 
+    /// The controls page (the manual's Controller Configuration, p. 24): the layout to
+    /// start from, then each action with its keys and buttons. A key on two actions used at
+    /// once shows red.
+    fn controls_overlay(&self, o: &mut Overlay, w: f32, h: f32, s: f32) {
+        o.backdrop(0.0, 0.0, w, h, [255, 255, 255, 255]);
+        self.kibble(o, w, h, s);
+        o.rect(0.0, 0.0, w * 0.95, h, [0, 0, 0, 170]);
+        let (white, gold, dim, red) = ([235, 235, 225, 255], [255, 210, 70, 255], [200, 200, 190, 220], [255, 90, 70, 255]);
+        let x = 20.0 * s;
+        o.text(x, 12.0 * s, s * 2.0, gold, "CONTROLS");
+        let hint = if self.binding {
+            "Press the new key or button   Esc to leave it as it was"
+        } else {
+            "Up/Down choose   Enter rebind   Left/Right on LAYOUT starts again from it   Esc back"
+        };
+        o.text(x, 32.0 * s, s, dim, hint);
+        let b = &self.bindings;
+        let line = 12.0 * s;
+        let (top, col, pads) = (46.0 * s, x + 110.0 * s, x + 220.0 * s);
+        for k in 0..crate::bindings::ROWS {
+            let y = top + k as f32 * line + if k >= 1 { 4.0 * s } else { 0.0 };
+            if k == self.bind_row {
+                o.rect(x - 4.0 * s, y - 3.0 * s, w * 0.6 - x, line, [200, 150, 40, 200]);
+            }
+            let chosen = k == self.bind_row;
+            let (name, keys, buttons, clash) = match k {
+                0 => ("LAYOUT", (if b.classic { "CLASSIC (THE ORIGINAL'S)" } else { "MODERN (WASD AND MOUSE)" }).to_string(), String::new(), false),
+                k if k <= ACTS.len() => {
+                    let a = ACTS[k - 1];
+                    let bind = b.of(a);
+                    let keys: Vec<String> = bind.keys.iter().map(|&k| crate::bindings::key_name(k)).collect();
+                    let pads: Vec<&str> = bind.pads.iter().map(|&p| crate::bindings::button_name(p)).collect();
+                    let keys = if chosen && self.binding { "...".to_string() } else { keys.join(" / ") };
+                    (a.name(b.classic), keys, pads.join(" / "), b.clashes(a))
+                }
+                _ => ("BACK", String::new(), String::new(), false),
+            };
+            o.text(x, y, s, white, name);
+            o.text(col, y, s, if clash { red } else if chosen { white } else { gold }, &keys);
+            o.text(pads, y, s, if chosen { white } else { dim }, &buttons);
+        }
+    }
+
     /// The replays screen, with the list as it is now.
     pub fn show_replays(&mut self) {
         self.replays = replays::list();
@@ -858,6 +910,10 @@ impl Menu {
         }
         if self.screen == Screen::Options {
             self.options_overlay(&mut o, w, h, s);
+            return o;
+        }
+        if self.screen == Screen::Controls {
+            self.controls_overlay(&mut o, w, h, s);
             return o;
         }
         if self.screen == Screen::Credits {

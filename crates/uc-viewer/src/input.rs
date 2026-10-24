@@ -51,6 +51,8 @@ pub(crate) struct Input {
     /// Seconds a click is still taken as the one that gave the window back its focus, which
     /// mustn't also punch or shoot.
     pub(crate) swallow_click: f32,
+    /// What the keys and buttons do (#202).
+    pub(crate) bindings: crate::bindings::Bindings,
 }
 
 impl Input {
@@ -111,8 +113,7 @@ impl App {
         if let Some((_, g)) = gilrs.gamepads().next() {
             pad.mv = deadzone(vec2(g.value(Axis::LeftStickX), g.value(Axis::LeftStickY)));
             pad.look = deadzone(vec2(g.value(Axis::RightStickX), g.value(Axis::RightStickY)));
-            for b in [Button::South, Button::East, Button::North, Button::West, Button::RightTrigger, Button::RightTrigger2,
-                      Button::LeftTrigger, Button::LeftTrigger2] {
+            for b in crate::bindings::BUTTONS {
                 if g.is_pressed(b) {
                     pad.held.insert(b);
                 }

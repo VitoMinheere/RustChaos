@@ -53,9 +53,10 @@ impl World {
             inp.pressed.remove(&KeyCode::F12);
             self.console.show_pos = !self.console.show_pos;
         }
-        // The original's full kit: punch, kick, action, jump and right held together.
-        let kit = [KeyCode::KeyJ, KeyCode::KeyK, KeyCode::KeyE, KeyCode::Space, KeyCode::KeyD];
-        if kit.iter().all(|&k| inp.held(k)) && kit.iter().any(|&k| inp.hit(k)) {
+        // The original's full kit: punch, kick, action, jump and right held together, as
+        // they're bound.
+        let kit = [Act::Punch, Act::Kick, Act::Action, Act::Jump, Act::Right];
+        if kit.iter().all(|&a| inp.on(a)) && kit.iter().any(|&a| inp.tap(a)) {
             self.game.full_kit(&self.level);
             self.console.say("Full kit");
             self.meddled();

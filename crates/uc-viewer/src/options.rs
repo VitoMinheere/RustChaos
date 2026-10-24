@@ -30,8 +30,9 @@ impl Default for Options {
     }
 }
 
-/// The rows of the screen, top to bottom.
-pub(crate) const ROWS: usize = 13;
+/// The rows of the screen, top to bottom: the settings, then the controls' page and back.
+pub(crate) const ROWS: usize = 14;
+pub(crate) const CONTROLS_ROW: usize = 12;
 
 /// The effects and music at full volume before these were here (`Audio`'s defaults).
 const EFFECTS: f32 = 0.8;
@@ -108,6 +109,7 @@ impl Options {
             9 => ("CRINKLES", on(self.crinkles)),
             10 => ("FOG", on(self.fog)),
             11 => ("TEXTURE FILTERING", if self.linear { "SMOOTH (NEXT START)".into() } else { "CRISP (NEXT START)".into() }),
+            CONTROLS_ROW => ("CONTROLS", String::new()),
             _ => ("BACK", String::new()),
         }
     }
@@ -170,7 +172,7 @@ mod tests {
     #[test]
     fn every_row_changes_and_volumes_stop_at_the_ends() {
         let mut o = Options::default();
-        for k in 0..ROWS - 1 {
+        for k in 0..CONTROLS_ROW {
             let before = o;
             o.change(k, -1);
             assert_ne!(o, before, "row {k} ({}) didn't change", o.row(k).0);

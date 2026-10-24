@@ -44,6 +44,8 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --edit NAME       edit mission NAME's event points in the mission editor (saved edits go in the
                     progress folder's missions folder, never the install)
 
+The keys below are the default layout; Options > Controls rebinds them, or switches to the
+original's (arrows, Z X C, Space).
 Darci: WASD move (relative to the camera), Shift run, J or left mouse punch, K kick, Q block,
   E action (arrest, climb; hold while running to sprint; hold over a searchable prop or someone
   dead, out cold or arrested to search them), mouse turns the camera, wheel zoom.
