@@ -54,6 +54,8 @@ pub mod anim {
     pub const KICK_NAD_STUNNED: usize = 396;
     pub const KICK_NAD_RECOVER: usize = 397;
     pub const BLOCK_HIGH: usize = 165;
+    /// `ANIM_LEG_SWEEP`: the foot sweep from a block.
+    pub const LEG_SWEEP: usize = 219;
     pub const HIT_FRONT_HI: usize = 166;
     pub const HIT_FRONT_MID: usize = 167;
     pub const HIT_BACK_HI: usize = 168;

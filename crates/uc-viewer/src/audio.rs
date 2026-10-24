@@ -65,6 +65,7 @@ impl Sound {
         self.audio.bed(None, 0.0);
         self.audio.engine(None);
         self.audio.rotor(None);
+        self.audio.siren(None);
     }
 
     /// Plays this frame's game sounds and keeps the music in step with the action.
@@ -128,6 +129,12 @@ impl Sound {
             0.6 * fade * fade
         });
         self.audio.rotor(rotor);
+        // The nearest siren going, fading out 32 squares off.
+        let siren = world.game.siren_noise(listener.pos).map(|at| {
+            let fade = (1.0 - at.distance(listener.pos) / (32.0 * 256.0)).clamp(0.0, 1.0);
+            0.8 * fade * fade
+        });
+        self.audio.siren(siren);
         self.audio.update(dt);
     }
 }

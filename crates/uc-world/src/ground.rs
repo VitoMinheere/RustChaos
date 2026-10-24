@@ -615,6 +615,39 @@ impl Ground {
         })
     }
 
+    /// A building's wall to put her back to, standing at `pos` facing `facing`
+    /// (`can_i_hug_wall`, fallen/Source/Person.cpp:21386): an ordinary wall
+    /// (`STOREY_TYPE_NORMAL`, not a fence) her middle is level with (`check_near_facet`),
+    /// within 64 with her opposite it, which she faces to within 200 of 2048
+    /// (`am_i_facing_wall`), and tall: the roof half a square in at least 196 over her feet.
+    /// Returns the wall's ends and its normal out towards her.
+    pub fn wall_to_hug(&self, map: &Map, pos: Vec3, facing: Vec2) -> Option<(Vec2, Vec2, Vec2)> {
+        let p = vec2(pos.x, pos.z);
+        let middle = pos.y + 128.0;
+        map.facets.iter().skip(1)
+            .filter(|f| f.kind == facet_type::NORMAL && f.flags & uc_formats::iam::facet_flags::INVISIBLE == 0)
+            .filter(|f| {
+                let y0 = f.y[0] as f32;
+                let top = y0 + f.height as f32 * f.block_height as f32 * 4.0;
+                (if f.fheight != 0 { f32::MIN } else { y0 - 64.0 }..=top).contains(&middle)
+            })
+            .filter_map(|f| {
+                let (a, b) = (vec2(f.x[0] as f32, f.z[0] as f32) * 256.0, vec2(f.x[1] as f32, f.z[1] as f32) * 256.0);
+                let ab = b - a;
+                let t = (p - a).dot(ab) / ab.length_squared().max(1e-6);
+                let q = a + ab * t;
+                let into = (q - p).normalize_or_zero();
+                let ok = (0.0..=1.0).contains(&t) && (q - p).length() <= 64.0 && into.dot(facing) > radians(200.0).cos();
+                ok.then_some((a, b, -into, (q - p).length()))
+            })
+            .filter(|&(_, _, out, _)| {
+                let inside = p - out * 128.0;
+                self.map_height(map, inside.x, inside.y) >= pos.y + 196.0
+            })
+            .min_by(|x, y| x.3.total_cmp(&y.3))
+            .map(|(a, b, out, _)| (a, b, out))
+    }
+
     /// Whether nothing solid lies between `a` and `b` (eye to eye).
     pub fn line_of_sight(&self, a: Vec3, b: Vec3) -> bool {
         self.first_hit(a, b).is_none()

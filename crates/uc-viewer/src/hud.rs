@@ -100,6 +100,31 @@ impl World {
                 };
                 wx += o.text(wx, by - 2.0 * s, s, [170, 170, 160, 200], &text);
             }
+            // The inventory, for a few seconds after a weapon change (`PANEL_inventory`,
+            // DDEngine/Source/panel.cpp:4173): everything that can be taken out, in the order
+            // the weapon key goes through them, the one in hand picked out, and a key if she
+            // has one. It fades in and out (`INVENTORY_FADE_SPEED`, 32 of 256 a tick); not
+            // while driving.
+            if p.inventory > 0.0 && self.game.player_vehicle().is_none() {
+                let fade = (p.inventory.min(3.0 - p.inventory) / 0.4).clamp(0.0, 1.0);
+                let a = |c: [u8; 4]| [c[0], c[1], c[2], (c[3] as f32 * fade) as u8];
+                // On the left, below the controls help.
+                let (x, mut y) = (bx, h * 0.32);
+                let mut rows: Vec<(String, bool)> = p.carried().into_iter().map(|w| {
+                    let name = if w == uc_game::Weapon::None { "FISTS" } else { w.name() };
+                    let rounds = p.rounds_of(w).map_or(String::new(), |n| format!(" {n}"));
+                    (format!("{name}{rounds}"), w == p.weapon)
+                }).collect();
+                if p.has_key {
+                    rows.push(("KEY".to_string(), false));
+                }
+                let width = rows.iter().map(|(t, _)| Overlay::text_width(t, s)).fold(0.0, f32::max) + 12.0 * s;
+                for (text, held) in rows {
+                    o.rect(x - 2.0 * s, y - 2.0 * s, width, 11.0 * s, a(if held { [200, 150, 40, 200] } else { [0, 0, 0, 150] }));
+                    o.text(x + 4.0 * s, y, s, a(if held { white } else { [200, 200, 190, 255] }), &text);
+                    y += 12.0 * s;
+                }
+            }
             // Badge stats (gold for those raised in this mission; kept when it's won). In
             // co-op they're the host's, and only Darci's.
             let mut x = bx;
