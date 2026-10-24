@@ -64,6 +64,17 @@ pub fn ghost_page(p: u32) -> Option<u32> {
     (GHOST..2 * GHOST).contains(&p).then(|| p - GHOST)
 }
 
+/// A person's own shadow (#241): page `SMAP - k` is shadow map `k` of
+/// [`SMAP_COUNT`], drawn darkening what it falls on by its alpha times the vertex alpha, and
+/// nothing outside the map.
+pub const SMAP: u32 = u32::MAX - 4;
+pub const SMAP_COUNT: usize = 4;
+
+/// Which shadow map page `p` is, if it's one.
+pub fn smap_slot(p: u32) -> Option<usize> {
+    (SMAP + 1 - SMAP_COUNT as u32..=SMAP).contains(&p).then(|| (SMAP - p) as usize)
+}
+
 /// A reflection in the puddles (#268): page `REFLECT + p` is page `p` drawn only where a
 /// puddle shows, see-through by the vertex alpha and not hidden by the ground it lies under
 /// (`FIGURE_draw_reflection`). `REFLECT + MOON_PAGE` is the moon's, added as the moon is.

@@ -32,6 +32,7 @@ pub mod mist;
 pub mod person;
 pub mod plat;
 pub mod puddle;
+pub mod smap;
 pub mod pow;
 pub mod pyro;
 pub mod ribbon;

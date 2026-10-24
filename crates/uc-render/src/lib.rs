@@ -14,7 +14,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
 use std::collections::{BTreeMap, HashMap};
 use uc_formats::txc::Texture;
-use uc_world::{ghost_page, reflect_page, Batch, Layer, Vertex, WorldGeometry, ADDITIVE_PAGES, DECAL_PAGES, EXPLODE_PAGE, GLOW, MIST, MOON_PAGE, SHADOW, SKY_PAGE, UNTEXTURED};
+use uc_world::{ghost_page, reflect_page, smap_slot, Batch, Layer, Vertex, WorldGeometry, ADDITIVE_PAGES, DECAL_PAGES, EXPLODE_PAGE, GLOW, MIST, MOON_PAGE, SHADOW, SKY_PAGE, UNTEXTURED};
 use uc_world::geometry::PUDDLE_PAGE;
 use wgpu::util::DeviceExt;
 
@@ -93,6 +93,9 @@ pub struct Settings {
     pub crinkles: bool,
     /// The dynamic lights this frame; the nearest [`MAX_LIGHTS`] to the camera are drawn.
     pub lights: Vec<Light>,
+    /// This frame's shadow maps (#241), by page (`uc_world::SMAP`): each pixel's coverage,
+    /// square.
+    pub shadows: Vec<(u32, Vec<u8>)>,
 }
 
 /// Draw statistics for the last frame.
@@ -148,6 +151,7 @@ pub struct Renderer {
     puddle_mask_pipeline: wgpu::RenderPipeline,
     reflect_pipeline: wgpu::RenderPipeline,
     moon_reflect_pipeline: wgpu::RenderPipeline,
+    smap_pipeline: wgpu::RenderPipeline,
     shadow_tex: wgpu::BindGroup,
     mist_tex: wgpu::BindGroup,
     statics: Option<(wgpu::Buffer, wgpu::Buffer)>,
@@ -659,6 +663,9 @@ impl Renderer {
         let puddle_mask_pipeline = stencilled("puddle mask pipeline", "fs_mask", wgpu::CompareFunction::LessEqual, mark, true, None);
         let reflect_pipeline = stencilled("reflect pipeline", "fs_ghost", wgpu::CompareFunction::Always, inside, false, Some(wgpu::BlendState::ALPHA_BLENDING));
         let moon_reflect_pipeline = stencilled("moon reflect pipeline", "fs_sky", wgpu::CompareFunction::Always, inside, false, Some(additive));
+        // People's own shadows (#241): darkening by the map, nothing outside it.
+        let keep = wgpu::StencilFaceState::IGNORE;
+        let smap_pipeline = stencilled("smap pipeline", "fs_smap", wgpu::CompareFunction::LessEqual, keep, false, Some(wgpu::BlendState::ALPHA_BLENDING));
         let shadow_tex = make_texture(&device, &queue, &tex_layout, &sampler, &blob_texture());
         let mist_tex = make_texture(&device, &queue, &tex_layout, &sampler, &cloud_texture());
 
@@ -724,7 +731,7 @@ impl Renderer {
         let font = make_texture_levels(&device, &queue, &tex_layout, &font_sampler, &font_tex, 1);
         Renderer {
             device, queue, format, pipeline, globals_buf, globals_bg, tex_layout, sampler,
-            textures: HashMap::new(), white, shadow_pipeline, decal_pipeline, glow_pipeline, additive_pipeline, sprite_pipeline, ghost_depth_pipeline, ghost_pipeline, sky_pipeline, moon_pipeline, puddle_mask_pipeline, reflect_pipeline, moon_reflect_pipeline, shadow_tex, mist_tex,
+            textures: HashMap::new(), white, shadow_pipeline, decal_pipeline, glow_pipeline, additive_pipeline, sprite_pipeline, ghost_depth_pipeline, ghost_pipeline, sky_pipeline, moon_pipeline, puddle_mask_pipeline, reflect_pipeline, moon_reflect_pipeline, smap_pipeline, shadow_tex, mist_tex,
             statics: None, chunks: Vec::new(), dynamic: None, targets: None,
             overlay_pipeline, screen_buf, screen_bg, font, overlay_buf: None, backdrop: None, minimap: None, faces: [None, None], stats: Stats::default(),
         }
@@ -980,6 +987,12 @@ impl Renderer {
         };
         self.queue.write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
         let dyn_ranges = if s.layers.contains(&Layer::Character) { self.upload_dynamic(dynamic) } else { Vec::new() };
+        for (page, cover) in &s.shadows {
+            let side = (cover.len() as f32).sqrt() as u32;
+            let rgba = cover.iter().flat_map(|&c| [255, 255, 255, c]).collect();
+            let t = self.make_texture(&Texture { width: side, height: side, has_alpha: true, rgba });
+            self.textures.insert(*page, t);
+        }
         self.queue.write_buffer(&self.screen_buf, 0, bytemuck::cast_slice(&[size.0 as f32, size.1 as f32, 0.0, 0.0]));
         let overlay_count = self.upload_overlay(overlay);
 
@@ -1049,7 +1062,7 @@ impl Renderer {
             if let (Some((vb, ib, _, _)), false) = (&self.dynamic, dyn_ranges.is_empty()) {
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
-                for &(page, first, count) in dyn_ranges.iter().filter(|r| !matches!(r.0, SHADOW | GLOW | MIST | SKY_PAGE | MOON_PAGE | EXPLODE_PAGE) && !DECAL_PAGES.contains(&r.0) && !ADDITIVE_PAGES.contains(&r.0) && ghost_page(r.0).is_none() && reflect_page(r.0).is_none()) {
+                for &(page, first, count) in dyn_ranges.iter().filter(|r| !matches!(r.0, SHADOW | GLOW | MIST | SKY_PAGE | MOON_PAGE | EXPLODE_PAGE) && !DECAL_PAGES.contains(&r.0) && !ADDITIVE_PAGES.contains(&r.0) && ghost_page(r.0).is_none() && reflect_page(r.0).is_none() && smap_slot(r.0).is_none()) {
                     pass.set_bind_group(1, self.textures.get(&page).unwrap_or(&self.white), &[]);
                     pass.draw_indexed(first..first + count, 0, 0..1);
                     stats.draw_calls += 1;
@@ -1078,6 +1091,15 @@ impl Renderer {
                 for &(page, first, count) in dyn_ranges.iter().filter(|r| DECAL_PAGES.contains(&r.0)) {
                     let Some(tex) = self.textures.get(&page) else { continue };
                     pass.set_pipeline(&self.decal_pipeline);
+                    pass.set_bind_group(1, tex, &[]);
+                    pass.draw_indexed(first..first + count, 0, 0..1);
+                    stats.draw_calls += 1;
+                    stats.triangles += count as usize / 3;
+                }
+                // People's own shadows, over the ground and walls they fall on.
+                for &(page, first, count) in dyn_ranges.iter().filter(|r| smap_slot(r.0).is_some()) {
+                    let Some(tex) = self.textures.get(&page) else { continue };
+                    pass.set_pipeline(&self.smap_pipeline);
                     pass.set_bind_group(1, tex, &[]);
                     pass.draw_indexed(first..first + count, 0, 0..1);
                     stats.draw_calls += 1;

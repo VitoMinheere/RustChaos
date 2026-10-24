@@ -324,7 +324,8 @@ impl World {
         let lights = self.game.lights().into_iter()
             .map(|l| uc_render::Light { pos: l.pos / uc_world::UNIT, radius: l.radius / uc_world::UNIT, rgb: l.rgb })
             .collect();
-        Settings { sky: self.level.sky, fog: self.args.fog, layers, crinkles, lights }
+        let shadows = self.game.shadow_maps();
+        Settings { sky: self.level.sky, fog: self.args.fog, layers, crinkles, lights, shadows }
     }
 
     pub(crate) fn eye(&self) -> Option<Vec3> {
@@ -456,7 +457,7 @@ impl World {
         let mut sea = BTreeMap::new();
         self.game.draw_sea(&mut sea);
         let shot = |r: &mut Renderer, cam: &Camera| {
-            r.render_to_image((n, n), cam, &Settings { sky: self.level.sky, fog: None, layers: layers.clone(), crinkles: false, lights: Vec::new() }, &sea, &Overlay::new())
+            r.render_to_image((n, n), cam, &Settings { sky: self.level.sky, fog: None, layers: layers.clone(), crinkles: false, lights: Vec::new(), shadows: Vec::new() }, &sea, &Overlay::new())
         };
         let mut rgba = shot(r, &top);
         // Warehouse roofs (and some ceilings) are black from above, as on PC: there, show the

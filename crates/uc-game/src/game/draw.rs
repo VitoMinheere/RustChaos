@@ -38,7 +38,8 @@ impl Game {
         let scoped = self.snipe.is_some();
         for p in self.people.iter().filter(|p| !p.removed && !matches!(p.state, State::InCar { .. }) && !(scoped && p.player)) {
             p.fig.append_batches(&mut out, lighter.as_ref());
-            if show.shadows {
+            // People cast their own shapes (below); the knocked out still bleed a pool.
+            if show.shadows && p.blood().is_some() {
                 shadow(&mut out, p, level);
             }
             // The weapon in hand, and a muzzle flash just after a shot. The Men in Black's own
@@ -55,6 +56,9 @@ impl Game {
                     }
                 }
             }
+        }
+        if show.shadows {
+            self.cast_shadows(&mut out, level);
         }
         self.reflections(&mut out, level, eye);
         // Cars: body and wheels (front wheels turned by the steering), and a long shadow.
@@ -720,6 +724,107 @@ impl Game {
         }
     }
 
+    /// The people casting their own shadows this frame (aeng.cpp:7770): the four nearest the
+    /// camera's focus (Darci, or her car), across plus along, within six squares of it, and
+    /// their maps.
+    pub fn shadow_casters(&self) -> Vec<(usize, smap::Smap)> {
+        let Some(focus) = self.player_vehicle().map(|v| v.pos).or(self.player().map(|p| p.fig.pos)) else { return Vec::new() };
+        let scoped = self.snipe.is_some();
+        let mut near: Vec<(usize, f32)> = self.people.iter().enumerate()
+            .filter(|(_, p)| !p.removed && !matches!(p.state, State::InCar { .. }) && !(scoped && p.player))
+            .map(|(i, p)| (i, (p.fig.pos.x - focus.x).abs() + (p.fig.pos.z - focus.z).abs()))
+            .filter(|&(_, d)| d < smap::RANGE)
+            .collect();
+        near.sort_by(|a, b| a.1.total_cmp(&b.1));
+        near.truncate(smap::MAX);
+        near.into_iter().filter_map(|(i, _)| {
+            let p = &self.people[i];
+            let mut parts = BTreeMap::new();
+            p.fig.append_batches(&mut parts, None);
+            let tris: Vec<[Vec3; 3]> = parts.values()
+                .flat_map(|b| b.indices.as_chunks::<3>().0.iter().map(|t| t.map(|k| Vec3::from(b.vertices[k as usize].pos) * uc_world::UNIT)))
+                .collect();
+            smap::Smap::new(&tris, p.body_pos()).map(|m| (i, m))
+        }).collect()
+    }
+
+    /// The shadow maps to draw with this frame, by page: each pixel's coverage.
+    pub fn shadow_maps(&self) -> Vec<(u32, Vec<u8>)> {
+        if !self.show.shadows {
+            return Vec::new();
+        }
+        self.shadow_casters().into_iter().enumerate().map(|(k, (_, m))| (uc_world::SMAP - k as u32, m.pixels)).collect()
+    }
+
+    /// Each caster's map laid over what it falls on (aeng.cpp:7958-8300): the ground of the
+    /// three by three squares round them (or the roof they're on), and the walls beside them,
+    /// each polygon clipped to the map so its fade from the person comes out right.
+    fn cast_shadows(&self, out: &mut BTreeMap<u32, Batch>, level: &Level) {
+        use uc_formats::iam::{facet_type, flags};
+        for (k, (i, m)) in self.shadow_casters().into_iter().enumerate() {
+            let p = &self.people[i];
+            let at = p.body_pos();
+            let page = out.entry(uc_world::SMAP - k as u32).or_default();
+            let mut lay = |poly: &[Vec3], normal: Vec3| {
+                if !m.falls_on(poly, normal) {
+                    return;
+                }
+                let clipped = clip(&m, poly);
+                for t in 1..clipped.len().saturating_sub(1) {
+                    let tri = [clipped[0], clipped[t], clipped[t + 1]];
+                    // A touch off the surface, towards the light.
+                    let lift = normal.normalize_or_zero() * 1.5;
+                    page.tri(tri.map(|q| (q + lift) / uc_world::UNIT), tri.map(|q| m.uv(q)), tri.map(|q| [255, 255, 255, m.fade(q)]));
+                }
+            };
+            let (mx, mz) = ((at.x / 256.0).floor() as i32, (at.z / 256.0).floor() as i32);
+            for dx in -1..=1 {
+                for dz in -1..=1 {
+                    let (sx, sz) = (mx + dx, mz + dz);
+                    if !(0..127).contains(&sx) || !(0..127).contains(&sz) || level.map.square(sx as usize, sz as usize).has(flags::WATER) {
+                        continue;
+                    }
+                    // The surface they're on, each corner sampled just inside the square.
+                    let (x0, z0) = (sx as f32 * 256.0, sz as f32 * 256.0);
+                    let corner = |cx: f32, cz: f32| {
+                        let (x, z) = (x0 + cx * 256.0, z0 + cz * 256.0);
+                        let (ix, iz) = (x0 + 1.0 + cx * 254.0, z0 + 1.0 + cz * 254.0);
+                        Vec3::new(x, level.ground.surface(&level.map, ix, iz, at.y + 64.0), z)
+                    };
+                    let (a, b, c, d) = (corner(0.0, 0.0), corner(1.0, 0.0), corner(1.0, 1.0), corner(0.0, 1.0));
+                    for tri in [[a, d, c], [a, c, b]] {
+                        let n = (tri[1] - tri[0]).cross(tri[2] - tri[0]);
+                        lay(&tri, if n.y < 0.0 { -n } else { n });
+                    }
+                }
+            }
+            // The walls beside them (`STOREY_TYPE_NORMAL` facets), each the height of its
+            // storeys and, with foundations, going down into the ground.
+            for f in level.map.facets.iter().skip(1).filter(|f| f.kind == facet_type::NORMAL) {
+                let (e0, e1) = (Vec3::new(f.x[0] as f32 * 256.0, 0.0, f.z[0] as f32 * 256.0), Vec3::new(f.x[1] as f32 * 256.0, 0.0, f.z[1] as f32 * 256.0));
+                let along = e1 - e0;
+                let t = ((Vec3::new(at.x, 0.0, at.z) - e0).dot(along) / along.length_squared().max(1.0)).clamp(0.0, 1.0);
+                let side = Vec3::new(at.x, 0.0, at.z) - (e0 + along * t);
+                if side.length() > 320.0 {
+                    continue;
+                }
+                let h = ((f.block_height as u32) << 4) as f32 * (f.height >> 2) as f32;
+                let deep = if f.fheight != 0 { 512.0 } else { 0.0 };
+                let (y0, y1) = (f.y[0] as f32, f.y[1] as f32);
+                let poly = [
+                    Vec3::new(e1.x, y1 - deep, e1.z), Vec3::new(e1.x, y1 + h, e1.z),
+                    Vec3::new(e0.x, y0 + h, e0.z), Vec3::new(e0.x, y0 - deep, e0.z),
+                ];
+                // Facing the side they're on.
+                let mut n = Vec3::new(-along.z, 0.0, along.x);
+                if n.dot(side) < 0.0 {
+                    n = -n;
+                }
+                lay(&poly, n);
+            }
+        }
+    }
+
     /// People standing on a puddle, upside down in it (`FIGURE_draw_reflection`, aeng.cpp:8393):
     /// those in view within 0x600 of the camera (as the original measures, across plus along)
     /// whose square has a puddle on it, mirrored in the puddle's surface and lit as they are.
@@ -751,6 +856,38 @@ impl Game {
             }
         }
     }
+}
+
+/// `poly` clipped to where shadow map `m` covers (`SMAP_project_onto_poly`'s clipping to
+/// `SMAP_u_min` and the rest), a point added where an edge crosses.
+fn clip(m: &smap::Smap, poly: &[Vec3]) -> Vec<Vec3> {
+    let mut pts = poly.to_vec();
+    for (axis, keep_above) in [(0, true), (0, false), (1, true), (1, false)] {
+        if pts.is_empty() {
+            break;
+        }
+        // The map's edge a pixel in, where the figure stops.
+        let (lo, hi) = (1.0 / smap::RES as f32, 1.0 - 1.0 / smap::RES as f32);
+        let inside = |q: Vec3| {
+            let c = m.uv(q)[axis];
+            if keep_above { c >= lo } else { c <= hi }
+        };
+        let mut next = Vec::with_capacity(pts.len() + 2);
+        for j in 0..pts.len() {
+            let (a, b) = (pts[j], pts[(j + 1) % pts.len()]);
+            let (ia, ib) = (inside(a), inside(b));
+            if ia {
+                next.push(a);
+            }
+            if ia != ib {
+                let (ca, cb) = (m.uv(a)[axis], m.uv(b)[axis]);
+                let edge = if keep_above { lo } else { hi };
+                next.push(a + (b - a) * ((edge - ca) / (cb - ca)));
+            }
+        }
+        pts = next;
+    }
+    pts
 }
 
 /// The sniper rifle's look: the AK-47's model half as long again, the barrel end (the
