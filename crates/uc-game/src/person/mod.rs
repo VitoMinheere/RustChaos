@@ -15,6 +15,8 @@ mod ai;
 mod carry;
 mod climb;
 mod fight;
+mod hug;
+pub use hug::Hug;
 mod moving;
 
 /// `PCOM_COMBAT_*`: which finishing moves knock out a fight-test dummy.
@@ -572,6 +574,9 @@ pub enum State {
     /// Crouched, for as long as action is held (`set_person_croutch`): phase 0 going down,
     /// 1 down, 2 crawling (`SUB_STATE_CRAWLING`), 3 getting up (`SUB_STATE_IDLE_UNCROUCH`).
     Crouch { phase: u8 },
+    /// Back to a wall (`STATE_HUG_WALL`, #205): the wall from `a` to `b`, `out` its normal
+    /// (the way she faces), and what she's doing against it.
+    HugWall { a: Vec2, b: Vec2, out: Vec2, hug: Hug },
 }
 
 /// What a person did this frame that affects somebody else.
@@ -702,6 +707,9 @@ pub struct Person {
     pub explosives: u8,
     /// Carrying a key (`SPECIAL_KEY`): cars locked with a coloured key open for them.
     pub has_key: bool,
+    /// Seconds left of the inventory panel shown after a weapon change
+    /// (`CONTROLS_inventory_mode`, 3000 ms, fallen/Source/Controls.cpp:2386).
+    pub inventory: f32,
     pub(crate) down_timer: f32,
     block_timer: f32,
     /// Seconds before a cable can be grabbed again after letting go.
@@ -821,7 +829,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, truce: false, colour: 0, group: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
-            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
+            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }
 
@@ -870,6 +878,15 @@ impl Person {
         self.weapon.slot().map(|s| if self.player { self.ammo[s] } else { u32::MAX })
     }
 
+    /// Rounds left for weapon `w`, carried or in hand: a gun's, the charges' or the grenades'.
+    pub fn rounds_of(&self, w: Weapon) -> Option<u32> {
+        match w {
+            Weapon::Explosives => Some(self.explosives as u32),
+            Weapon::Grenade => Some(self.grenades as u32),
+            _ => w.slot().map(|s| self.ammo[s]),
+        }
+    }
+
     /// Everything carried besides what's in hand, with the rounds left in each gun: the
     /// original's panel lists these too (`PANEL_ADDWEAPON`), so a weapon picked up or handed
     /// over at the start can be seen without cycling to it.
@@ -884,16 +901,35 @@ impl Person {
         melee.into_iter().chain(guns).chain(charges).chain(grenades).chain(hook).filter(|&(w, _)| w != self.weapon).collect()
     }
 
-    /// Puts away what's in hand and takes out the next weapon carried (bare hands last).
-    pub fn next_weapon(&mut self) {
-        let carried: Vec<Weapon> = [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Sniper, Weapon::Explosives, Weapon::Grenade, Weapon::Hook]
+    /// What can be taken out, in the order the weapon key goes through them: bare hands
+    /// first, as the original's panel lists them (`PANEL_inventory`).
+    pub fn carried(&self) -> Vec<Weapon> {
+        [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Sniper, Weapon::Explosives, Weapon::Grenade, Weapon::Hook]
             .into_iter()
             .enumerate()
             .filter(|&(k, w)| self.has(w) && (k == 0 || w != Weapon::None))
             .map(|(_, w)| w)
-            .collect();
+            .collect()
+    }
+
+    /// The best weapon to take out bare-handed (`CONTROLS_get_best_item`,
+    /// fallen/Source/Controls.cpp:1140): the AK-47, then the shotgun, then the pistol, each
+    /// with rounds left, then the knife, the bat and a grenade.
+    fn best_weapon(&self) -> Option<Weapon> {
+        let loaded = |w: Weapon| self.has(w) && w.slot().is_some_and(|s| self.ammo[s] > 0);
+        [Weapon::Ak47, Weapon::Shotgun, Weapon::Pistol].into_iter().find(|&w| loaded(w))
+            .or_else(|| [Weapon::Knife, Weapon::Bat, Weapon::Grenade].into_iter().find(|&w| self.has(w)))
+    }
+
+    /// Puts away what's in hand and takes out the next weapon carried (bare hands last), and
+    /// shows the inventory. Bare-handed with it not on show, the best weapon comes out
+    /// instead (Controls.cpp:2370).
+    pub fn next_weapon(&mut self) {
+        let carried = self.carried();
+        let best = (self.weapon == Weapon::None && self.inventory <= 0.0).then(|| self.best_weapon()).flatten();
         let at = carried.iter().position(|&w| w == self.weapon).unwrap_or(0);
-        self.weapon = carried[(at + 1) % carried.len()];
+        self.weapon = best.unwrap_or(carried[(at + 1) % carried.len()]);
+        self.inventory = 3.0;
     }
 
     /// An enemy that has noticed the player and is fighting.
@@ -1067,7 +1103,7 @@ impl Person {
             pos: if self.is_down() || matches!(self.state, State::Injured) { self.body_pos() } else { self.fig.pos },
             facing: self.fig.facing(),
             present: !self.removed,
-            standing: !self.removed && matches!(self.state, State::Move | State::Attack { .. } | State::Hurt | State::Land { .. } | State::Block { .. } | State::Shoot { .. }),
+            standing: !self.removed && matches!(self.state, State::Move | State::Attack { .. } | State::Hurt | State::Land { .. } | State::Block { .. } | State::Shoot { .. } | State::HugWall { .. }),
             down: self.is_down(),
             arrested: self.arrested,
             arrestable: self.arrestable(),
@@ -1122,6 +1158,7 @@ impl Person {
         self.sprinting = false;
         if self.player {
             self.breathe(c, dt);
+            self.inventory = (self.inventory - dt).max(0.0);
         }
         // Jumps, landings and knockdowns draw the body offset from where the animation puts it.
         self.fig.cancel_rise = matches!(self.state, State::Fall { .. } | State::Land { .. });
@@ -1187,6 +1224,7 @@ impl Person {
             }
             State::Dangle { to, dir, shift } => self.step_dangle(to, dir, shift, c, ground, map),
             State::Carry { victim, phase } => self.step_carry(victim, phase, c, ground, map, dt),
+            State::HugWall { a, b, out, hug } => self.step_hug(a, b, out, hug, c, ground, map, dt),
             State::Crouch { phase } => {
                 // Up from a crouch or a crawl straight into the takedown, if someone's back
                 // is to her.

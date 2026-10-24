@@ -48,6 +48,8 @@ Darci: WASD move (relative to the camera), Shift run, J or left mouse punch, K k
   E action (arrest, climb; hold while running to sprint; hold over a searchable prop or someone
   dead, out cold or arrested to search them), mouse turns the camera, wheel zoom.
   F11 or Alt+Enter: full screen or a window.
+  E facing a building's wall: back to it; move along it to edge sideways, at its end she looks
+  round the corner and E leaps out; walk away to leave it.
   C or Left Ctrl crouch (hold; move to crawl). Punch someone with their back to her, close by,
   to knock them out cold from behind (crouching or crawling up is quietest).
   G next weapon. With a gun: punch fires (hold for the AK-47) at the bracketed target,
@@ -56,10 +58,14 @@ Darci: WASD move (relative to the camera), Shift run, J or left mouse punch, K k
   Kick while running: sliding tackle. Punch while walking into someone: grab, then punch
   or kick. Back/side + kick in a fight: back or side kick. Backing off from a blow blocks it;
   kick from a block sweeps their feet. Three punches or kicks in time: combo.
+In a car: W/S speed, A/D steer, Space handbrake, K siren (police car, ambulance, meat wagon),
+  E get out.
 Gamepad: left stick move (push fully to run), right stick camera, A/Cross jump,
   X/Square punch, Y/Triangle kick, B/Circle action (hold while running to sprint), LB block,
   RB next weapon, right stick click next target, D-pad down crouch,
   Start pause, Back/Select free camera.
+Camera (the original's keys): hold F to look round (W/S look down/up, A/D turn), F5-F8 camera
+  heights, Delete / Page Down swing it round, End puts it behind her.
 Mouse: M switches between mouse look (default: the cursor is captured) and right-drag look.
 Hold Tab for the mission's checklist: objectives, side objectives and badges.
 Free camera (V): mouse look, WASD move, Space/E up, C/Q down, Shift fast,

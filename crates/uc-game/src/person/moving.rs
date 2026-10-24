@@ -360,6 +360,15 @@ impl Person {
         if self.player && c.punch && self.takedown(me, snaps, events) {
             return;
         }
+        // Action standing in front of a building's wall: back to it (interfac.cpp:2063,
+        // before crouching).
+        if self.player && c.action && !moving && !c.crouch {
+            if let Some((a, b, out)) = ground.wall_to_hug(map, self.fig.pos, self.fig.facing()) {
+                if self.start_hug(a, b, out) {
+                    return;
+                }
+            }
+        }
         if self.player && ((c.action && !moving) || c.crouch) {
             let a = match self.weapon {
                 _ if !self.gun_out() => anim::CROUTCH_DOWN,

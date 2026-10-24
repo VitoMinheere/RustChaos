@@ -34,6 +34,25 @@ pub const TYPES: [(u8, u8, f32, f32, f32); 9] = [
     (27, 87, 120.0, 150.0, -165.0),  // Wildcat van
 ];
 
+/// The flashing lights of the types with a light bar (`veh_info`'s `FLX`, `FLY`, `FLZ` and
+/// `FLRED`, fallen/Source/vehicle.cpp:181): the police car, the ambulance and the meat wagon,
+/// which are also the types with a siren (`siren`, vehicle.cpp:3548). Each is a pair of
+/// lights `FLZ` either side of the middle and `FLX` back from it, in the original's car
+/// space, and `FLY` up from the car's position. That's `BodyOffset` above the body's origin:
+/// 64 for the police car (0x4000) and 104 for the vans (0x6800), which the heights here
+/// include. Both lights are red when `FLRED` is set; otherwise the first is blue.
+pub const LIGHT_BARS: [Option<(f32, f32, f32, bool)>; 9] = [
+    None,
+    None,
+    None,
+    Some((0.0, 70.0 + 64.0, 40.0, false)),    // police
+    Some((-40.0, 210.0 + 104.0, 50.0, true)), // ambulance
+    None,
+    Some((50.0, 140.0 + 104.0, 40.0, false)), // meat wagon
+    None,
+    None,
+];
+
 /// How far a wheel's middle is above a car body's origin (see [`TYPES`]): the spring at rest,
 /// 51 less its length of 107, from a body drawn 64 down.
 pub const WHEEL_ABOVE_BODY: f32 = 8.0;
@@ -134,6 +153,9 @@ pub struct Drive {
     /// `VEH_FASTER`: the foot down hard. The player's pedals always are (`INPUT_CAR_GOFASTER`
     /// is either pedal, interfac.cpp:5865); the people driving round never are (pcom.cpp:14681).
     pub faster: bool,
+    /// `VEH_SIREN`: pressed this turn, switching the siren on or off (the manual's pursuit
+    /// mode). Only the player has it (`INPUT_CAR_SIREN`, interfac.cpp:5866).
+    pub siren: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -175,13 +197,15 @@ pub struct Vehicle {
     pub smokin: bool,
     /// `Dir < 0`: put in reverse, till it stops; pressing on then brakes rather than spins.
     reverse: bool,
+    /// `Siren`: the siren going and the light bar flashing.
+    pub siren: bool,
 }
 
 impl Vehicle {
     pub fn new(way: usize, kind: u8, pos: Vec3, yaw: f32, key: Key) -> Vehicle {
         Vehicle {
             way, kind: kind.min(8), pos, yaw, speed: 0.0, slip: 0.0, slide: 0.0, steer: 0.0, health: 300, driver: None, stalled: false,
-            key, pitch: 0.0, roll: 0.0, wheel_spin: 0.0, smokin: false, reverse: false,
+            key, pitch: 0.0, roll: 0.0, wheel_spin: 0.0, smokin: false, reverse: false, siren: false,
         }
     }
 
@@ -205,6 +229,30 @@ impl Vehicle {
         (self.pos, self.yaw) = (pos, yaw);
         (self.speed, self.slip, self.slide, self.steer, self.pitch, self.roll) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         (self.smokin, self.reverse) = (false, false);
+    }
+
+    /// Whether it has a siren and a light bar.
+    pub fn has_siren(&self) -> bool {
+        LIGHT_BARS[self.kind as usize].is_some()
+    }
+
+    /// The siren for the turn (`siren`, vehicle.cpp:3548): switched by the driver's `VEH_SIREN`,
+    /// and off with nobody at the wheel (`pedals`, vehicle.cpp:3587; `do_car_input`, :3716).
+    pub fn work_siren(&mut self, d: Drive) {
+        if self.driver.is_none() {
+            self.siren = false;
+        } else if d.siren && self.has_siren() {
+            self.siren = !self.siren;
+        }
+    }
+
+    /// The light bar's two lights in the world, and whether the first is red (see
+    /// [`LIGHT_BARS`]), for a body drawn `lift` up. The original's car space has x back and z
+    /// to the side, which in the body prim are z and x.
+    pub fn light_bar(&self, lift: f32) -> Option<([Vec3; 2], bool)> {
+        let (x, y, z, red) = LIGHT_BARS[self.kind as usize]?;
+        let at = |side: f32| self.body_point(vec3(side, y, x), lift);
+        Some(([at(z), at(-z)], red))
     }
 
     /// Smoking and laying skid marks: spinning its wheels, or sliding on the handbrake (as the
