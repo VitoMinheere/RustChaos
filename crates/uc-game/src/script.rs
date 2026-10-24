@@ -36,6 +36,10 @@ pub trait Query {
     fn users_pos(&self) -> Vec<Vec3> {
         if self.player_used() { self.players_pos() } else { Vec::new() }
     }
+    /// A conversation is being said, filmed or overheard (`EWAY_conv_active`).
+    fn talking(&self) -> bool {
+        false
+    }
     /// The state of the person created by event point `way`, if it exists.
     fn person(&self, way: usize) -> Option<PersonState>;
     /// Where the person or vehicle created by event point `way` is.
@@ -631,6 +635,8 @@ impl Script {
                 if r1 != 0 && !self.is_active(r1) {
                     return false;
                 }
+                // Timers stop during conversations (eway.cpp:2569).
+                let dt = if q.talking() { 0.0 } else { dt };
                 let w = self.ways[i].as_mut().unwrap();
                 w.countdown = (w.countdown - dt).max(0.0);
                 w.countdown <= 0.0

@@ -477,6 +477,9 @@ impl script::Query for Scene<'_> {
     fn users_pos(&self) -> Vec<Vec3> {
         self.game.users_pos()
     }
+    fn talking(&self) -> bool {
+        self.game.talking()
+    }
     fn person(&self, way: usize) -> Option<script::PersonState> {
         self.game.person(way)
     }
@@ -555,6 +558,10 @@ impl script::Query for Game {
 
     fn users_pos(&self) -> Vec<Vec3> {
         self.used.iter().map(|&i| self.people[i].fig.pos).collect()
+    }
+
+    fn talking(&self) -> bool {
+        self.convo.is_some()
     }
 
     fn person(&self, way: usize) -> Option<script::PersonState> {
