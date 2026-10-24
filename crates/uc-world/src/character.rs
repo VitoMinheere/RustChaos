@@ -34,6 +34,8 @@ pub mod anim {
     pub const RUN: usize = 119;
     pub const MID_AIR: usize = 122;
     pub const BREATHE: usize = 124;
+    pub const IDLE_SCRATCH1: usize = 77;
+    pub const IDLE_SCRATCH2: usize = 78;
     pub const CROUTCH_DOWN: usize = 143;
     pub const CRAWL: usize = 144;
     pub const IDLE_CROUTCH: usize = 222;
