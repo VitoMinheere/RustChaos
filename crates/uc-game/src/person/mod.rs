@@ -567,6 +567,8 @@ pub enum State {
     PullUp { start: Vec3, end: Vec3, to: Vec3 },
     /// Sliding down ground too steep to stand on (`SUB_STATE_SLIPPING`), until it levels out.
     Slip,
+    /// A flip to the side, out of a bullet's way (`SUB_STATE_FLIPING`).
+    Flip { left: bool },
     /// Vaulting a low fence at a run (`SUB_STATE_RUNNING_VAULT`), from `from` to `to` on the
     /// far side as the animation goes.
     Vault { from: Vec3, to: Vec3 },
@@ -1290,6 +1292,7 @@ impl Person {
             }
             State::Move => self.step_move(me, c, snaps, ground, map, dt, events),
             State::Slip => self.step_slip(ground, map, dt),
+            State::Flip { left } => self.step_flip(left, ground, map, dt),
             State::Float { floor } => {
                 if self.fig.pos.y - floor < FLOAT_HEIGHT {
                     self.fig.pos.y = (self.fig.pos.y + FLOAT_SPEED * dt).min(floor + FLOAT_HEIGHT);

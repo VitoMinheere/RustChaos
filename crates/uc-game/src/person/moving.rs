@@ -46,6 +46,34 @@ impl Person {
         slope_at(map, p.x, p.z).filter(|(s, d)| *s > SLIPPY && d.length_squared() > 0.5).map(|(_, d)| d)
     }
 
+    /// Flips to the side out of a bullet's way (`set_person_flip`, Person.cpp:7875).
+    pub(crate) fn flip(&mut self, left: bool) {
+        if self.fig.restart(if left { anim::FLIP_LEFT } else { anim::FLIP_RIGHT }, Play::Once) {
+            self.state = State::Flip { left };
+        }
+    }
+
+    /// `SUB_STATE_FLIPING` (Person.cpp:16273): sideways, at `Velocity` 50 from the second frame
+    /// and 20 after the fifth, until the eleventh; then back on their feet.
+    pub(super) fn step_flip(&mut self, left: bool, ground: &Ground, map: &Map, dt: f32) {
+        if self.fig.finished() {
+            self.state = State::Move;
+            self.idle(true);
+            return;
+        }
+        let frame = self.fig.frame().unwrap_or(0);
+        let velocity = match frame {
+            0 | 1 => 0.0,
+            2..=5 => 50.0,
+            _ => 20.0,
+        };
+        if frame < 11 && velocity > 0.0 {
+            let f = self.fig.facing();
+            let side = if left { vec2(-f.y, f.x) } else { vec2(f.y, -f.x) };
+            self.walk(side * velocity * WALK_SPEED / 16.0 * dt, ground, map, false);
+        }
+    }
+
     /// `SUB_STATE_SLIPPING`: down the slope, facing down it, falling, until the ground is
     /// gentle enough to stand on (`SUB_STATE_SLIPPING_END`).
     pub(super) fn step_slip(&mut self, ground: &Ground, map: &Map, dt: f32) {
