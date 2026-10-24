@@ -41,13 +41,19 @@ pub const TYREMARK_PAGE: u32 = 22 * 64 + 33;
 pub const TYRETRACK_PAGE: u32 = 22 * 64 + 60;
 /// Pages drawn as marks on the ground: blended over it by their alpha times the vertex
 /// alpha, tinted by the vertex colour (`POLY_PAGE_FOOTPRINT`, `_TYRESKID`, `_TYRETRACK`).
-pub const DECAL_PAGES: [u32; 3] = [FOOTPRINT_PAGE, TYREMARK_PAGE, TYRETRACK_PAGE];
+pub const DECAL_PAGES: [u32; 4] = [FOOTPRINT_PAGE, TYREMARK_PAGE, TYRETRACK_PAGE, PUDDLE_PAGE];
+/// `TEXTURE_page_puddle` (`TEXTURE_NUM_STANDARD + 4`): `puddle01.tga`, a puddle blended over
+/// the ground by its alpha (`POLY_PAGE_PUDDLE`).
+pub const PUDDLE_PAGE: u32 = 22 * 64 + 4;
+/// `TEXTURE_page_drip` (`TEXTURE_NUM_STANDARD + 5`): `drip.tga`, a ring added to the scene
+/// one to one (`POLY_PAGE_DRIP`).
+pub const DRIP_PAGE: u32 = 22 * 64 + 5;
 /// `TEXTURE_page_smoker` (`TEXTURE_NUM_STANDARD + 40`): `smoker2.tga`, the bike's exhaust.
 pub const SMOKER_PAGE: u32 = 22 * 64 + 40;
 /// Pages added to the scene rather than blended over it: the texture times the vertex colour
 /// times the vertex alpha, with the texture wrapping (`POLY_PAGE_SMOKER`: `D3DBLEND_SRCALPHA`
 /// to `D3DBLEND_ONE`, which `RS_AlphaPremult` makes one to one).
-pub const ADDITIVE_PAGES: [u32; 1] = [SMOKER_PAGE];
+pub const ADDITIVE_PAGES: [u32; 2] = [SMOKER_PAGE, DRIP_PAGE];
 /// A ghost (#186): page `GHOST + p` is page `p` drawn see-through, by the vertex alpha, over
 /// the rest of the scene. Real pages are far below it, the special ones above (see
 /// [`ghost_page`]).
