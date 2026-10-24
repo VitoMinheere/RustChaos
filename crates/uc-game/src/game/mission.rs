@@ -61,6 +61,12 @@ impl Game {
                         p.other = spec.other;
                         (p.colour, p.group) = (spec.colour, spec.group);
                         (p.protected, p.guilty) = (spec.invulnerable, spec.guilty);
+                        p.zone = spec.zone;
+                        // "Change guard in zone to violent youth in zone without telling
+                        // Simon" (`PCOM_create_person`, pcom.cpp:5446).
+                        if p.zone != 0 && p.ai == crate::person::AI_GUARD {
+                            p.ai = crate::person::AI_GANG;
+                        }
                         p.give(p.weapon);
                         let change = self.difficulty().skill_change();
                         self.tune(i, change);

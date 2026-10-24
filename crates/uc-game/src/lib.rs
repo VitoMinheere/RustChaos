@@ -1212,6 +1212,9 @@ impl Game {
 
         let player = self.player;
         let mut snaps: Vec<_> = self.people.iter().map(|p| p.snap()).collect();
+        for s in &mut snaps {
+            s.zone = level.mission.zones_at(s.pos.x, s.pos.z);
+        }
         // Nobody arrests their own bodyguards (`find_arrestee`): those guarding the player,
         // whose `other` point is the player's, or none at all.
         for (s, p) in snaps.iter_mut().zip(&self.people) {
