@@ -130,6 +130,12 @@ fn a_sliding_car_skids() {
     let skids = r.marks(TYREMARK_PAGE) - off;
     println!("{skids} skid marks");
     assert!(skids >= 8, "only {skids} skid marks");
+    // On the road under the car, not up on its roof.
+    let road = r.g.vehicles[0].pos.y;
+    for t in r.g.tracks.list.iter().filter(|t| t.page == TYREMARK_PAGE) {
+        let floor = r.level.ground.road(&r.level.map, t.at.x, t.at.z, t.at.y);
+        assert!((t.at.y - floor - 5.0).abs() < 1.0 && t.at.y < road + 40.0, "a skid at {} over road at {floor}", t.at.y);
+    }
 }
 
 /// Pulling away hard spins the wheels (`Smokin`, vehicle.cpp:3625): smoke and skid marks
