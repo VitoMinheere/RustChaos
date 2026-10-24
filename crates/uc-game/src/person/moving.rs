@@ -382,7 +382,8 @@ impl Person {
             self.state = State::PickUp { got: false };
             return;
         }
-        if self.player && ((c.action && !moving) || c.crouch) {
+        // (The AI only ever crouches to crawl after someone who is.)
+        if (self.player && c.action && !moving) || c.crouch {
             let a = match self.weapon {
                 _ if !self.gun_out() => anim::CROUTCH_DOWN,
                 Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper => anim::SHOTGUN_DUCK,

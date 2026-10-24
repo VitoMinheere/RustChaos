@@ -88,6 +88,56 @@ impl Game {
     }
 
     /// Drivers who have walked up to their car's door get in (`PCOM_process_findcar`).
+    /// Followers ride along (`PCOM_AI_STATE_HITCH`, `PCOM_process_hitch`, pcom.cpp:9358):
+    /// one who reaches the car of whoever they follow gets in as a passenger, three at most
+    /// to a car, and rides with it, out of sight; when the one they follow gets out, or the
+    /// car is wrecked, they get out too, at the passenger door (`PCOM_process_following`).
+    pub(crate) fn hitch_rides(&mut self, level: &Level) {
+        let leader = |g: &Game, i: usize| {
+            let p = &g.people[i];
+            if p.follow == 0 { g.player } else { g.by_way.get(&p.follow).copied() }
+        };
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            if p.player || p.removed || p.is_dead() || p.mv != person::MOVE_FOLLOW {
+                continue;
+            }
+            let theirs = leader(self, i).and_then(|j| match self.people[j].state {
+                State::InCar { vehicle } => Some(vehicle),
+                _ => None,
+            });
+            match (p.state.clone(), theirs) {
+                // Riding along: with the car.
+                (State::InCar { vehicle }, Some(v)) if vehicle == v && !self.vehicles[v].wrecked() && self.vehicles[v].driver != Some(i) => {
+                    self.people[i].fig.pos = self.vehicles[v].pos;
+                }
+                // Their leader's out, or the car's gone: out they get.
+                (State::InCar { vehicle }, _) if self.vehicles[vehicle].driver != Some(i) => {
+                    let door = self.vehicles[vehicle].to_world(-200.0, 20.0);
+                    let y = level.ground.surface(&level.map, door.x, door.y, self.vehicles[vehicle].pos.y + 64.0);
+                    let p = &mut self.people[i];
+                    p.fig.pos = Vec3::new(door.x, y, door.y);
+                    p.state = State::Move;
+                    p.fig.restart_now(uc_world::character::anim::BREATHE, uc_world::Play::Loop);
+                }
+                (State::Move, Some(v)) if !self.vehicles[v].wrecked() => {
+                    let car = &self.vehicles[v];
+                    let near = [car.door(), car.to_world(-200.0, 20.0)].iter().any(|d| Vec2::new(p.fig.pos.x - d.x, p.fig.pos.z - d.y).length() < 150.0);
+                    let riding = self.people.iter().enumerate()
+                        .filter(|(k, q)| matches!(q.state, State::InCar { vehicle } if vehicle == v) && car.driver != Some(*k))
+                        .count();
+                    if near && riding < 3 {
+                        let p = &mut self.people[i];
+                        p.state = State::InCar { vehicle: v };
+                        p.fig.pos = car.pos;
+                        p.cues.push(Sfx::CarDoor);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     pub(crate) fn board_cars(&mut self, level: &Level) {
         for i in 0..self.people.len() {
             let p = &self.people[i];
