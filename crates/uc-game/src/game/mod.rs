@@ -6,6 +6,7 @@ mod creatures;
 mod dogs;
 mod setpieces;
 mod people;
+pub(crate) use people::seats;
 pub(crate) use people::Routes;
 mod cars;
 pub(crate) use cars::Streets;

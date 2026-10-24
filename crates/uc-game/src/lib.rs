@@ -691,6 +691,8 @@ pub struct Game {
     pub night: bool,
     /// Who was in a fight last turn, for the gangs to see who's just gone into one.
     fighting: Vec<bool>,
+    /// Where on the level's benches, sofas and armchairs someone can sit: (where, facing).
+    seats: Vec<(Vec3, f32)>,
     /// The floor squares on the sea, drawn with the waves.
     sea: Vec<uc_world::level::SeaSquare>,
     /// Leaves, cans and snow lying about round the player.
@@ -851,6 +853,7 @@ impl Game {
             puddles: puddle::Puddles::default(),
             night: Self::raining(level),
             fighting: Vec::new(),
+            seats: game::seats(level),
             sea: level.sea(),
             dirt: Game::new_dirt(level),
             show: Default::default(),
@@ -1412,6 +1415,7 @@ impl Game {
             self.people[i].step(i, &c, &snaps, &level.ground, &level.map, dt, &mut events);
         }
         self.raise_alerts();
+        self.sit_down();
         self.apply(events, level);
         self.back_up_gangs();
         for s in 0..seats {

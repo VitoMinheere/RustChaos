@@ -443,4 +443,52 @@ impl Game {
         }
         self.fighting = self.people.iter().map(|p| p.aggro()).collect();
     }
+
+    /// The lazy sit down (`PCOM_BENT_LAZY` standing still at home, pcom.cpp:10286): every 64
+    /// ticks each looks for the nearest bench, sofa or armchair within 0x200 (x and z plus
+    /// twice the height) and sits on it, put straight there
+    /// (`PCOM_position_person_to_sit_on_prim`), unless the player is near enough to see them
+    /// jump there: then only if it's within 0x50 already.
+    pub(crate) fn sit_down(&mut self) {
+        let tick = (self.time * 20.0) as usize;
+        let darci = self.player().map(|p| p.fig.pos);
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            if !(tick + i).is_multiple_of(64) || p.bent & person::BENT_LAZY == 0 || p.player || p.removed || p.is_dead() || p.is_down()
+                || p.mv != 1 || p.aggro() || p.scared.is_some() || !matches!(p.state, State::Move)
+            {
+                continue;
+            }
+            let at = p.fig.pos;
+            let score = |s: &Vec3| (s.x - at.x).abs() + (s.z - at.z).abs() + 2.0 * (s.y - at.y).abs();
+            let Some(&(seat, angle)) = self.seats.iter().filter(|(s, _)| score(s) < 0x200 as f32).min_by(|a, b| score(&a.0).total_cmp(&score(&b.0))) else {
+                continue;
+            };
+            let seen = darci.is_some_and(|d| (d - at).length() < 20.0 * 256.0);
+            if seen && (seat.x - at.x).abs() + (seat.z - at.z).abs() > 0x50 as f32 {
+                continue;
+            }
+            let p = &mut self.people[i];
+            p.fig.pos = seat;
+            p.fig.angle = angle;
+            p.state = State::Sit;
+            p.fig.restart(uc_world::character::anim::SIT_DOWN, uc_world::Play::Once);
+        }
+    }
+}
+
+/// Where someone can sit on the level's benches (`PRIM_OBJ_PARK_BENCH`), armchairs and sofas
+/// (`_ARMCHAIR`, `_SOFA`): in front of each by 0x20 less than its depth, facing the way it
+/// does, at its height (`PCOM_position_person_to_sit_on_prim`, pcom.cpp:1020).
+pub(crate) fn seats(level: &Level) -> Vec<(Vec3, f32)> {
+    let mut depth: std::collections::HashMap<u8, Option<f32>> = std::collections::HashMap::new();
+    level.map.objects.iter()
+        .filter(|o| matches!(o.prim, 89 | 101 | 105))
+        .filter_map(|o| {
+            let min_z = *depth.entry(o.prim).or_insert_with(|| uc_world::level::load_prim(&level.game, o.prim).map(|p| uc_world::level::prim_bounds(&p).0.z));
+            let away = min_z? - 0x20 as f32;
+            let a = uc_formats::units::radians(o.yaw as f32);
+            Some((Vec3::new(o.x as f32 + a.sin() * away, o.y as f32, o.z as f32 + a.cos() * away), a))
+        })
+        .collect()
 }

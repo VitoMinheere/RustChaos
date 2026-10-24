@@ -60,6 +60,8 @@ pub mod anim {
     pub const HIT_FRONT_MID: usize = 167;
     pub const HIT_BACK_HI: usize = 168;
     pub const HIT_BACK_MID: usize = 169;
+    /// Sitting down on a bench, a sofa or an armchair, and staying there (`ANIM_SIT_DOWN`).
+    pub const SIT_DOWN: usize = 337;
     /// Knocked dead by a blast, a car or fire, standing on the ground
     /// (`PERSON_DEATH_TYPE_OTHER`): from the front, onto the back; from behind, flat out.
     pub const KO_BACK: usize = 33;

@@ -91,6 +91,11 @@ impl Person {
     /// AI: decide this frame's controls, against its `foe` (see `Person::foe`).
     pub fn think(&mut self, me: usize, snaps: &[Snap], ground: &Ground, dt: f32,
                  rand: &mut impl FnMut() -> u32) -> Controls {
+        // Sitting down, something needing them (a fight, a fright) gets them up.
+        if matches!(self.state, State::Sit) && (self.aggro || self.scared.is_some()) {
+            self.state = State::Move;
+            self.idle(false);
+        }
         let mut c = self.decide(me, snaps, ground, dt, rand);
         // At a route's jump: run at the edge and jump; at a ladder, walk into it.
         if let Some((at, dir, jump)) = self.leap {
@@ -291,6 +296,8 @@ impl Person {
                 Taunt::Doing if rand() & 1 == 1 && !p.in_car => None,
                 Taunt::Doing => Some(Taunt::Pause((rand() & 0xf) as f32 / 10.0)),
                 Taunt::Pause(left) if left > dt => Some(Taunt::Pause(left - dt)),
+                // "Lazy people dont taunt" (pcom.cpp:9546): once is enough.
+                Taunt::Pause(_) if self.bent & BENT_LAZY != 0 => None,
                 Taunt::Pause(_) => Some(Taunt::Now),
             };
             if self.taunt.is_some() {
