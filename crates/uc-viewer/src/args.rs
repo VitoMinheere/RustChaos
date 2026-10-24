@@ -82,6 +82,9 @@ Co-op: the host is Darci (or whoever the mission's player is) and the other play
 
 #[derive(Clone)]
 pub(crate) struct Args {
+    /// The Options screen's (#201): rain drawn, and which other extras.
+    pub(crate) rain: bool,
+    pub(crate) show: uc_game::Show,
     pub(crate) game: PathBuf,
     pub(crate) mission: String,
     /// `--mission` was given: go straight in (else start at the menu).
@@ -158,6 +161,8 @@ impl Default for Args {
             fullbright: false,
             fog: Some((20.0, 40.0)),
             crinkles: true,
+            rain: true,
+            show: uc_game::Show::default(),
             no_character: false,
             cam: None,
             screenshot: None,

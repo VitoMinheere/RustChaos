@@ -17,6 +17,7 @@ mod ghosts;
 mod hud;
 mod input;
 mod menu;
+mod options;
 mod pause;
 mod progress;
 mod replays;
@@ -80,6 +81,11 @@ struct App {
     input: Input,
     last: Instant,
     title_timer: f32,
+    /// The Options screen's settings (#201), and the fog they put back when it's switched on.
+    options: options::Options,
+    fog: Option<(f32, f32)>,
+    /// The command line as given, whose switches go over the options for this run.
+    cli: Args,
     /// The next of the title screen's demos to try (#208).
     demo_next: usize,
     /// The image behind the menu now (to change it when the screen does).
@@ -147,6 +153,7 @@ impl App {
         let Some(w) = self.world.as_mut() else { return };
         let delta = inp.mouse;
         w.checklist = inp.held(KeyCode::Tab);
+        w.game.show = w.args.show;
         if (inp.hit(KeyCode::KeyV) || pad.hit(Button::Select)) && w.game.player.is_some() && w.editor.is_none() {
             w.third_person = !w.third_person;
             if let (false, Some(eye)) = (w.third_person, w.eye()) {
@@ -651,6 +658,7 @@ impl App {
         let go = inp.hit(KeyCode::Enter) || inp.hit(KeyCode::NumpadEnter) || inp.hit(KeyCode::Space)
             || inp.pad.hit(Button::South) || inp.pad.hit(Button::Start);
         let back = inp.hit(KeyCode::Escape) || inp.pad.hit(Button::East);
+        let mut apply = false;
         match m.screen {
             // Any key from the title. Left alone long enough, a demo plays.
             menu::Screen::Title => {
@@ -687,6 +695,7 @@ impl App {
                         "CAPTURE THE FLAG" => m.loading_ctf = true,
                         "STATS" => m.screen = menu::Screen::Stats,
                         "REPLAYS" => m.show_replays(),
+                        "OPTIONS" => (m.screen, m.options, m.option_row) = (menu::Screen::Options, options::Options::load(), 0),
                         "CREDITS" => m.show_credits(),
                         "DIFFICULTY" => {
                             let all = uc_game::Difficulty::ALL;
@@ -769,6 +778,32 @@ impl App {
                     m.screen = menu::Screen::Main;
                 }
             }
+            menu::Screen::Options => {
+                let rows = options::ROWS;
+                if up {
+                    m.option_row = (m.option_row + rows - 1) % rows;
+                }
+                if down {
+                    m.option_row = (m.option_row + 1) % rows;
+                }
+                let left = inp.hit(KeyCode::ArrowLeft) || inp.hit(KeyCode::KeyA) || inp.pad.hit(Button::DPadLeft);
+                let right = inp.hit(KeyCode::ArrowRight) || inp.hit(KeyCode::KeyD) || inp.pad.hit(Button::DPadRight);
+                let leave = back || (go && m.option_row == rows - 1);
+                if (left || right || go) && !leave {
+                    m.options.change(m.option_row, if left { -1 } else { 1 });
+                }
+                // Each change heard (and seen) straight away, the command line's switches over
+                // them; kept (as set here) on the way out.
+                let now = m.options.with_args(&self.cli);
+                if now != self.options {
+                    self.options = now;
+                    apply = true;
+                }
+                if leave {
+                    m.options.save();
+                    m.screen = menu::Screen::Main;
+                }
+            }
             menu::Screen::Credits => {
                 if back || go {
                     m.screen = menu::Screen::Main;
@@ -820,6 +855,9 @@ impl App {
                     m.loading_endless = Some(m.map_selected);
                 }
             }
+        }
+        if apply {
+            apply_options(&self.options, self.fog, &mut self.args, self.world.as_mut(), self.sound.as_mut());
         }
         // The outro's music under the credits, and quiet in the rest of the menu.
         if let Some(s) = self.sound.as_mut() {
@@ -1288,6 +1326,19 @@ fn dump_pages(world: &World, dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// The Options screen's settings put to work: into the arguments new worlds are made from,
+/// the world being played (its crinkles, fog, rain and extras) and the sound's volumes.
+fn apply_options(o: &options::Options, fog: Option<(f32, f32)>, args: &mut Args, world: Option<&mut World>, sound: Option<&mut Sound>) {
+    o.apply_to(args, fog);
+    if let Some(w) = world {
+        w.crinkles = o.crinkles;
+        o.apply_to(&mut w.args, fog);
+    }
+    if let Some(s) = sound {
+        (s.audio.sfx_volume, s.audio.music_volume) = o.volumes();
+    }
+}
+
 /// Choosing a mission, on the city map or in the list: Tab switches between them. On the map
 /// Left and Right go from pin to pin and Up and Down through a pin's missions.
 fn mission_keys(m: &mut menu::Menu, inp: &Input, up: bool, down: bool) {
@@ -1318,7 +1369,12 @@ fn mission_keys(m: &mut menu::Menu, inp: &Input, up: bool, down: bool) {
 }
 
 fn run() -> Result<(), String> {
-    let args = parse_args()?;
+    let mut args = parse_args()?;
+    // The Options screen's settings, with the command line's switches over them for this run.
+    let fog = args.fog.or(Some((20.0, 40.0)));
+    let cli = args.clone();
+    let options = options::Options::load().with_args(&args);
+    options.apply_to(&mut args, fog);
     let screenshot = args.screenshot.clone();
     let dump = args.dump_pages.clone();
     // `--screenshot` without `--mission`: the menu.
@@ -1351,6 +1407,7 @@ fn run() -> Result<(), String> {
     }
     let el = EventLoop::new().map_err(|e| e.to_string())?;
     let mut sound = Sound::new(&args);
+    apply_options(&options, fog, &mut args, None, sound.as_mut());
     let pads = Gilrs::new().map_err(|e| eprintln!("gamepads unavailable: {e}")).ok();
     // Co-op from the command line: hosting (the mission chosen straight away, with
     // --mission) or joining, then the lobby until the game starts.
@@ -1392,7 +1449,7 @@ fn run() -> Result<(), String> {
         (None, Some(menu::Menu::new(&args.game)))
     };
     let mut app = App {
-        world, menu, args, gfx: None, sound, pads, input: Input::default(), last: Instant::now(), title_timer: 0.0, demo_next: 0, backdrop: String::new(),
+        world, menu, args, gfx: None, sound, pads, input: Input::default(), last: Instant::now(), title_timer: 0.0, options, fog, cli, demo_next: 0, backdrop: String::new(),
         frames: 0, shots: 0, coop, hosting, editing: None,
     };
     el.run_app(&mut app).map_err(|e| e.to_string())
