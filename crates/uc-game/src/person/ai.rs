@@ -310,7 +310,15 @@ impl Person {
         }
         let here = vec2(self.fig.pos.x, self.fig.pos.z);
         let (spot, left) = self.wander;
-        let left = left - dt;
+        // Held up on the way: somewhere else (straight away, for the city's extra people),
+        // turned round, as the next place is picked ahead of them.
+        let left = if spot.is_some() && self.blocked > 1.0 {
+            self.blocked = 0.0;
+            self.fig.angle += std::f32::consts::PI;
+            0.0
+        } else {
+            left - dt
+        };
         match spot {
             Some(s) if left > 0.0 && (s - here).length() > 40.0 => {
                 c.wish = (s - here).normalize_or_zero();

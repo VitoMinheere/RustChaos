@@ -526,6 +526,15 @@ impl Person {
                 self.jump(dir * speed);
                 return;
             }
+            // The AI held up a while stands there for up to three seconds, then tries again.
+            if !self.player && self.blocked > 0.5 {
+                self.blocked += dt;
+                if self.blocked < 3.0 {
+                    self.idle(false);
+                    return;
+                }
+                (self.blocked, self.walk_check) = (0.0, (self.fig.pos, 0.0));
+            }
             // Running with a gun: the jog that keeps it up.
             let jog = match self.weapon {
                 Weapon::Pistol => Some(anim::PISTOL_JOG),
@@ -549,6 +558,21 @@ impl Person {
                 if let Some((i, at, over)) = ground.fence_ahead(self.fig.pos, dir, RADIUS + 30.0) {
                     let f = ground.fences[i];
                     self.climb_fence(at, over, f.y1);
+                    return;
+                }
+            }
+            // Getting nowhere (the AI): under a quarter of the way they'd walk, over half a
+            // second, counting what pushed them back (a car they're walking into shoves
+            // them out of it).
+            if !self.player {
+                let (from, t) = self.walk_check;
+                let t = t + dt;
+                if t >= 0.5 {
+                    let net = flat(self.fig.pos, from).length();
+                    self.blocked = if net < speed * t * 0.25 { self.blocked + t } else { 0.0 };
+                    self.walk_check = (self.fig.pos, 0.0);
+                } else {
+                    self.walk_check = (from, t);
                 }
             }
         } else if c.jump {
