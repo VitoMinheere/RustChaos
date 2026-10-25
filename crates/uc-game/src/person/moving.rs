@@ -196,6 +196,22 @@ impl Person {
         self.fig.set_speed(1.0);
     }
 
+    /// The aim pose turned `twist` (-255 to 255 of 2048) to the left or right: between the
+    /// first frames of aiming ahead and pointing that way. Pistols and the rest point their
+    /// own ways (the shotgun's left and right are the other way round).
+    fn twist_to(&mut self, twist: f32) {
+        let pistol = !matches!(self.weapon, Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper);
+        let (ahead, left, right) = if pistol {
+            (anim::PISTOL_AIM, anim::POINT_GUN_LEFT, anim::POINT_GUN_RIGHT)
+        } else {
+            (anim::SHOTGUN_AIM, anim::POINT_SHOTGUN_RIGHT, anim::POINT_SHOTGUN_LEFT)
+        };
+        let side = if twist < 0.0 { left } else { right };
+        if let (Some(a), Some(b)) = (self.fig.first_keyframe(ahead), self.fig.first_keyframe(side)) {
+            self.fig.show_keyframes(a, b, twist.abs().min(255.0));
+        }
+    }
+
     /// Standing still out of a fight: breathing, and every 400 to 655 turns a scratch or a
     /// deeper breath (`set_person_random_idle`, Person.cpp:11669; `fn_person_idle` counts
     /// down `Timer1`), unless something's in hand (`SpecialUse`). Roper scratches or
@@ -779,9 +795,18 @@ impl Person {
             self.jump(Vec2::ZERO);
         } else {
             self.stand_about(dt);
-            // A gun drawn: keep it on the target.
+            // A gun drawn: keep it on the target. The player's upper body twists to it
+            // (`twist_darci_body_to_angle`, Person.cpp:17836), seven eighths of the way, up to
+            // 255 of 2048 either side; she only turns to it when it's further round than that.
             if let (true, Some(t)) = (self.weapon.is_gun(), c.target) {
-                self.fig.turn_towards(flat(snaps[t].pos, self.fig.pos), 8.0, dt);
+                let to = flat(snaps[t].pos, self.fig.pos);
+                let off = (uc_world::character::angle_of(to) - self.fig.angle + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+                let twist = off * 2048.0 / std::f32::consts::TAU * 7.0 / 8.0;
+                if !self.player || twist.abs() > 255.0 {
+                    self.fig.turn_towards(to, 8.0, dt);
+                } else {
+                    self.twist_to(twist);
+                }
             }
             // Stand on whatever is underneath (something may have moved us).
             let p = self.fig.pos;
