@@ -58,3 +58,33 @@ fn one_who_only_picks_on_the_player_leaves_them_be() {
     assert_eq!(r.g.people[b].foe, None, "with the player far off he has nobody to pick on");
     assert!(!r.g.people[b].aggro());
 }
+
+/// A cop in sight of a bully shooting at someone comes after him (#292, `do_arrests`).
+#[test]
+fn a_cop_who_sees_it_comes_for_the_bully() {
+    let Some((mut r, b, v)) = setup(0) else { return };
+    let cop = r.g.people.iter().position(|q| q.fake && q.ai == AI_CIV && !q.is_dead() && ![b, v].contains(&r.g.people.iter().position(|o| std::ptr::eq(o, q)).unwrap()))
+        .expect("someone for a cop");
+    // Down the street towards the passer-by, a little to one side: in the bully's view (the
+    // street is clear that far) and within 0x800 of him.
+    let (at, to) = (r.g.people[b].fig.pos, r.g.people[v].fig.pos);
+    let along = (to - at).normalize();
+    let spot = at + along * 700.0 + vec3(along.z, 0.0, -along.x) * 60.0;
+    let y = r.level.ground.surface(&r.level.map, spot.x, spot.z, spot.y + 64.0);
+    let q = &mut r.g.people[cop];
+    (q.ai, q.kind, q.mv, q.fake, q.home) = (uc_game::person::AI_COP, ptype::COP, 1, false, None);
+    q.fig.pos = vec3(spot.x, y, spot.z);
+    // A gun, so he opens fire on the passer-by: a villain shooting calls in the police.
+    r.g.people[b].give(uc_game::Weapon::Pistol);
+    r.g.people[b].weapon = uc_game::Weapon::Pistol;
+    let mut came = false;
+    for _ in 0..(10.0 / common::DT) as usize {
+        r.play(common::DT, Controls::default());
+        if r.g.people[cop].foe == Some(b) && r.g.people[cop].aggro() {
+            came = true;
+            break;
+        }
+    }
+    assert!(came, "the cop let him be");
+    assert!(r.g.people[b].felon, "not made a felon");
+}
