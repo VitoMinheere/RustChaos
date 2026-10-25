@@ -227,6 +227,7 @@ impl Person {
             if d.x.abs() + d.y.abs() > far {
                 self.scared = None;
                 self.wander = (None, 0.0);
+                self.sized_up = false;
             } else {
                 // Along the way the game found to somewhere away from it, or just away.
                 let to = self.via.or(s.goal).map(|v| flat(v, self.fig.pos)).unwrap_or(d);
@@ -364,6 +365,24 @@ impl Person {
                 }
             }
             return c;
+        }
+        // Going for someone with a gun on them (`PCOM_set_person_ai_navtokill`, pcom.cpp:4294:
+        // they can see them, a gun in hand, pointing within 256 of 2048 of them): without a
+        // gun, and not a thug who fights back, half the time they run for it instead. Cops
+        // and the city's extra people don't. They look again once they've stopped running.
+        if !self.aggro {
+            self.sized_up = false;
+        } else if !self.sized_up {
+            self.sized_up = true;
+            let aimed = p.gun_out && (-d).normalize_or_zero().dot(p.facing) > (256.0 / 2048.0 * std::f32::consts::TAU).cos()
+                && ground.line_of_sight(p.pos + vec3(0.0, 140.0, 0.0), self.fig.pos + vec3(0.0, 140.0, 0.0));
+            use uc_world::character::person as ptype;
+            let thug = matches!(self.kind, ptype::THUG_RASTA | ptype::THUG_GREY | ptype::THUG_RED);
+            let fights_back = thug && self.bent & BENT_FIGHT_BACK != 0;
+            if aimed && !self.weapon.is_gun() && !fights_back && !self.fake && self.kind != ptype::COP && rand() & 4 != 0 {
+                self.scared = Some(Scare { by: player, at: p.pos, time: 0.0, goal: None });
+                return c;
+            }
         }
         // Block a blow that's coming (better fighters more often).
         self.block_timer -= dt;

@@ -3,7 +3,7 @@
 //! in front of Darci, her pistol on him. Skipped without an install.
 
 use glam::vec3;
-use uc_game::person::{AI_CIV, AI_GANG};
+use uc_game::person::{AI_CIV, AI_GANG, BENT_FIGHT_BACK};
 use uc_game::{Controls, Game, State, Weapon};
 use uc_world::character::person as ptype;
 use uc_world::{Level, LoadOptions};
@@ -34,6 +34,8 @@ fn flips(skill: u8, secs: f32) -> Option<bool> {
     let q = &mut g.people[i];
     (q.ai, q.kind, q.mv, q.fake, q.skill, q.max_health) = (AI_GANG, ptype::THUG_RED, 1, false, skill, 10_000);
     q.health = 10_000;
+    // One who fights back, so doesn't run from her gun (#304).
+    q.bent = BENT_FIGHT_BACK;
     q.fig.pos = vec3(at.x, y, at.z);
     let mut flipped = false;
     for _ in 0..(secs / DT) as usize {
