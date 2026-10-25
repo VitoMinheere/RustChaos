@@ -59,7 +59,14 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
             };
             at(audio, names, 0.9);
         }
-        Sfx::Footstep { player } => at(audio, numbered("Footsteps/HardStep", 1..=4, ".wav"), if player { 0.3 } else { 0.2 }),
+        Sfx::Footstep { player, sound } => {
+            let names = match sound {
+                Some((a, b)) => (a..=b).filter_map(uc_audio::sounds::name).map(|n| n.replace('\\', "/")).collect(),
+                None => Vec::new(),
+            };
+            let names = if names.is_empty() { numbered("Footsteps/HardStep", 1..=4, ".wav") } else { names };
+            at(audio, names, if player { 0.3 } else { 0.2 });
+        }
         // Only Darci grunts with the effort: the gangs have no such recordings.
         Sfx::Jump { kind: ptype::DARCI } => at(audio, numbered("darci/effort ", 1..=3, ".WAV"), 0.6),
         Sfx::Jump { .. } => {}

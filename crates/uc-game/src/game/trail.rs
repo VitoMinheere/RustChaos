@@ -70,6 +70,32 @@ impl Game {
         }
     }
 
+    /// What each footstep this turn sounds like (`footstep_wave`, Person.cpp:1195): soft for
+    /// the player in a warehouse, wet in a puddle, else the floor texture's own.
+    pub(crate) fn step_sounds(&mut self, level: &Level) {
+        let indoors = self.indoors.is_some();
+        for p in self.people.iter_mut() {
+            let at = p.fig.pos;
+            let range = if indoors && p.player {
+                steps::SOFT
+            } else if self.puddles.in_puddle(at.x, at.z) {
+                steps::PUDDLE
+            } else {
+                let (mx, mz) = ((at.x / 256.0) as i32, (at.z / 256.0) as i32);
+                if (0..128).contains(&mx) && (0..128).contains(&mz) {
+                    self.steps.on_page(level.map.square(mx as usize, mz as usize).page() as u32)
+                } else {
+                    steps::ROAD
+                }
+            };
+            for c in p.cues.iter_mut() {
+                if let Sfx::Footstep { sound: s @ None, .. } = c {
+                    *s = Some(range);
+                }
+            }
+        }
+    }
+
     /// On snow, everyone standing about but the Men in Black breathes out a puff from their
     /// head, once a breath as the animation passes its fifth frame (`fn_person_idle`,
     /// Person.cpp:11791, `MagicFrameCheck`). The original stands people in `ANIM_STAND_READY`;

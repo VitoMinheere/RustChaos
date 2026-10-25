@@ -267,7 +267,9 @@ pub enum Sfx {
     /// Someone (of `PERSON_*` type `kind`) is hurt but stays up.
     Hurt { kind: u8 },
     KnockedOut { kind: u8 },
-    Footstep { player: bool },
+    /// A foot coming down: the player's, and the run of sound ids for what it's on
+    /// ([`crate::steps`]), which the game fills in.
+    Footstep { player: bool, sound: Option<(usize, usize)> },
     /// The effort of a jump, from whoever made it.
     Jump { kind: u8 },
     Land,
