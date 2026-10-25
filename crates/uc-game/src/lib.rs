@@ -508,6 +508,11 @@ impl Difficulty {
 /// at its own twenty a second still do, on their own clocks.
 pub const TURN: f32 = 1.0 / 30.0;
 
+/// The prims that are a switch to press (`PRIM_OBJ_SWITCH_OFF`) and a valve to turn
+/// (`PRIM_OBJ_VALVE`).
+const PRIM_SWITCH_OFF: u8 = 216;
+const PRIM_VALVE: u8 = 196;
+
 /// Where everything that moves is, and which way it faces: kept from the start of each turn
 /// to draw between turns.
 #[derive(Debug, Clone, Default)]
@@ -1164,8 +1169,20 @@ impl Game {
         }
         self.messages.retain(|m| m.left > 0.0);
         self.used = (0..seats).filter(|&s| seat_input(s).action).filter_map(|s| self.seat_person(s)).collect();
-        for &i in &self.used {
+        for &i in &self.used.clone() {
             self.switches.flip_near(self.people[i].fig.pos);
+            // A switch or a valve on the map (`OB_find_type`, `FIND_OB_SWITCH_OR_VALVE`,
+            // within 0x180): she presses or turns it.
+            let at = self.people[i].fig.pos;
+            let near = level.map.objects.iter()
+                .filter(|o| matches!(o.prim, PRIM_SWITCH_OFF | PRIM_VALVE))
+                .map(|o| (o, Vec3::new(o.x as f32, o.y as f32, o.z as f32)))
+                .filter(|(_, p)| (*p - at).length() < 0x180 as f32)
+                .min_by(|a, b| (a.1 - at).length().total_cmp(&(b.1 - at).length()));
+            if let Some((o, p)) = near {
+                let (yaw, switch) = (o.yaw, o.prim == PRIM_SWITCH_OFF);
+                self.people[i].work_switch(p, yaw, switch);
+            }
         }
         for s in 0..seats {
             self.focus(s);
