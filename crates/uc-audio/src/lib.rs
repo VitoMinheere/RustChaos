@@ -152,6 +152,8 @@ pub struct Audio {
     siren: Option<Arc<Control>>,
     /// A fire's crackle (`S_FIRE`), looped while one's burning near.
     crackle: Option<Arc<Control>>,
+    /// A broken hydrant's hiss (`S_FIRE_HYDRANT`), looped while one's gushing near.
+    gush: Option<Arc<Control>>,
     rng: u32,
     /// The line being said, and the ones waiting behind it. A mission's voices are said one
     /// at a time: skipping a fly-by or a message brings the next one up before this one has
@@ -181,7 +183,7 @@ impl Audio {
         let mut sink = rodio::DeviceSinkBuilder::open_default_sink().map_err(|e| format!("no audio device: {e}"))?;
         sink.log_on_drop(false);
         Ok(Audio {
-            sink, game: game.to_path_buf(), cache: HashMap::new(), music: Vec::new(), ambience: None, bed: None, engine: None, rotor: None, siren: None, crackle: None, rng: 12345,
+            sink, game: game.to_path_buf(), cache: HashMap::new(), music: Vec::new(), ambience: None, bed: None, engine: None, rotor: None, siren: None, crackle: None, gush: None, rng: 12345,
             speaking: None, waiting: VecDeque::new(), effect: None,
             sfx_volume: 0.8, music_volume: 0.55,
         })
@@ -373,6 +375,12 @@ impl Audio {
     pub fn crackle(&mut self, volume: Option<f32>) {
         let held = self.crackle.take();
         self.crackle = self.hum(held, "General/FireCrackle1.wav", volume);
+    }
+
+    /// A broken hydrant's hiss at `volume` (`Some`), or none near (`None`).
+    pub fn gush(&mut self, volume: Option<f32>) {
+        let held = self.gush.take();
+        self.gush = self.hum(held, "General/FireHydrant.wav", volume);
     }
 
     /// Loop `name` at `volume` (started if `held` isn't playing yet), or stops `held` with no

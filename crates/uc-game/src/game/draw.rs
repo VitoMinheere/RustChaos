@@ -250,7 +250,7 @@ impl Game {
             });
         }
         // Drops: small streaks along their way, added like the original's droplet page, in
-        // `DIRT_TYPE_URINE`'s colour.
+        // `DIRT_TYPE_URINE`'s colour or `DIRT_TYPE_WATER`'s (aeng.cpp:3749).
         for d in &self.drops.drops {
             let along = d.vel.normalize_or(Vec3::NEG_Y) * 6.0;
             let across = (d.pos - eye).cross(along).normalize_or(Vec3::X) * 1.5;
@@ -258,7 +258,7 @@ impl Game {
             out.entry(uc_world::GLOW).or_default().quad(
                 [corner(-1.0, -1.0), corner(-1.0, 1.0), corner(1.0, -1.0), corner(1.0, 1.0)],
                 [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
-                [[0x77, 0x55, 0x33, 255]; 4],
+                [if d.water { [0x22, 0x44, 0x55, 255] } else { [0x77, 0x55, 0x33, 255] }; 4],
             );
         }
         // Puddles (`AENG_draw_puddles`, aeng.cpp:8600): each corner as the original numbers

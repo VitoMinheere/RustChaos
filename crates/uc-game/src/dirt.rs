@@ -31,6 +31,8 @@ pub struct Drop {
     pub pos: Vec3,
     pub vel: Vec3,
     age: f32,
+    /// Water (`DIRT_TYPE_WATER`) rather than urine.
+    pub water: bool,
 }
 
 /// Every drop in the air.
@@ -55,6 +57,11 @@ impl Drops {
         rand(&mut self.rng) as f32 / 32768.0 - 1.0
     }
 
+    /// Throws one drop from `at` at `vel` (units a second).
+    pub fn throw(&mut self, at: Vec3, vel: Vec3) {
+        self.drops.push(Drop { pos: at, vel, age: 0.0, water: true });
+    }
+
     /// Moves the drops on, letting go of those that reach the ground (`ground` says how high
     /// it is under a point), and throws a new one from each of `streams`: (where, which way
     /// the person faces), one per tick.
@@ -71,7 +78,7 @@ impl Drops {
             for &(at, facing) in streams {
                 let jitter = vec3(self.nudge(), self.nudge(), self.nudge()) * NUDGE;
                 let vel = vec3(facing.x * FORWARD, -DOWN, facing.y * FORWARD) + jitter;
-                self.drops.push(Drop { pos: at, vel, age: 0.0 });
+                self.drops.push(Drop { pos: at, vel, age: 0.0, water: false });
             }
         }
     }

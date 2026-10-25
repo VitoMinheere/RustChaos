@@ -148,6 +148,38 @@ impl Game {
         }
     }
 
+    /// The hydrants' water (`OB_process`, ob.cpp:228), a tick at a time, 20 a second: a drop a
+    /// tick along the jet, a unit a tick out and up, and another two either side of it while
+    /// more than ten and five seconds are left. Then it dries up.
+    pub(crate) fn gush(&mut self) {
+        if self.hydrants.is_empty() || (self.time * 20.0) as u64 == ((self.time - TURN) * 20.0) as u64 {
+            return;
+        }
+        for h in &mut self.hydrants {
+            h.2 -= 1.0 / 20.0;
+        }
+        self.hydrants.retain(|h| h.2 > 0.0);
+        for &(at, yaw, left) in &self.hydrants.clone() {
+            // `DIRT_new_water`'s speeds are sixteenths of a unit a tick: (SIN >> 12, 16, COS >> 12).
+            let (dx, dz) = (yaw.sin() * 16.0, yaw.cos() * 16.0);
+            let mut jet = vec![(dx, 16.0, dz)];
+            if left > 5.0 {
+                jet.push((dx + 1.0, 15.0, dz - 1.0));
+                if left > 10.0 {
+                    jet.push((dx - 1.0, 17.0, dz + 1.0));
+                }
+            }
+            for (x, y, z) in jet {
+                self.drops.throw(at, Vec3::new(x, y, z) / 16.0 * 20.0);
+            }
+        }
+    }
+
+    /// The nearest hydrant gushing to `at`, for its hiss (`S_FIRE_HYDRANT`, looped).
+    pub fn hydrant_noise(&self, at: Vec3) -> Option<Vec3> {
+        self.hydrants.iter().map(|h| h.0).min_by(|a, b| a.distance_squared(at).total_cmp(&b.distance_squared(at)))
+    }
+
     /// Fires burn (#297, collide.cpp:6237; Person.cpp:4342), a tick at a time, 20 a second.
     /// Anyone within 100 of one (the longer side and half the shorter) with their left foot
     /// within 0x50 of its height catches alight and loses 30 health a tick while they stay
@@ -245,14 +277,25 @@ impl Game {
     }
 
     /// `OB_damage`: the prop is marked damaged, and one that explodes (or a lamppost) goes up
-    /// in a firebomb the first time, with a shockwave of its own.
-    pub(crate) fn damage_prop(&mut self, level: &Level, i: usize) {
+    /// in a firebomb the first time, with a shockwave of its own; a hydrant gushes.
+    pub fn damage_prop(&mut self, level: &Level, i: usize) {
+        /// `PRIM_OBJ_HYDRANT`.
+        const HYDRANT: u8 = 228;
         let (damage, flag) = level.ground.prop_damage.get(i).copied().unwrap_or_default();
         if damage & DAMAGABLE == 0 {
             return;
         }
         // Marked before the blast, so the shockwave it sets off doesn't set it off again.
         let first = self.damaged.insert(i);
+        // A hydrant gushes for fifteen seconds (`OB_damage`, ob.cpp:1551), its jet a
+        // quarter turn off one way or the other, ahead or behind, as it leaned.
+        let o = &level.map.objects[i];
+        if o.prim == HYDRANT {
+            let lean = [1024 + 256, 1024 - 256, 256, -256][(self.rand() & 3) as usize];
+            let at = Vec3::new(o.x as f32, o.y as f32, o.z as f32);
+            self.hydrants.retain(|h| h.0 != at);
+            self.hydrants.push((at, uc_formats::units::radians((o.yaw + lean) as f32), 15.0));
+        }
         if first && (damage & EXPLODES != 0 || flag & LAMPOST != 0) {
             let o = &level.map.objects[i];
             let at = Vec3::new(o.x as f32, o.y as f32, o.z as f32);
