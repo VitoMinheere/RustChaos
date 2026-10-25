@@ -289,6 +289,8 @@ pub enum Sfx {
     ConversationLine(usize, usize),
     /// A blow blocked.
     Block,
+    /// A gang member set to guard heard something (`SOUND_Curious`): "Huh?", "Who's there?".
+    Curious { kind: u8 },
     /// Someone plunging to their death screams (`ScreamFallSound`, Sound.cpp:600).
     ScreamFall { kind: u8 },
     Stab,
@@ -666,6 +668,25 @@ pub enum Event {
     PickUp { who: usize },
 }
 
+/// Looking into a sound (`PCOM_AI_STATE_INVESTIGATING`, pcom.cpp:7768): where it came from,
+/// how far along they are, and for how long.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Heard {
+    pub at: Vec3,
+    pub phase: Investigate,
+    pub time: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Investigate {
+    /// `PCOM_AI_SUBSTATE_SUPRISED`: turned to it for a second.
+    Surprised,
+    /// `_WALKOVER`: walking over to where it came from.
+    WalkOver,
+    /// `_LOOK`: looking left and right for trouble.
+    Look,
+}
+
 /// What everyone else needs to know about a person this frame.
 #[derive(Debug, Clone, Copy)]
 pub struct Snap {
@@ -923,7 +944,7 @@ pub struct Person {
     pub(crate) crackle: f32,
     /// Heard something there, and looking that way for this many seconds more
     /// (`PCOM_AI_STATE_INVESTIGATING`).
-    pub heard: Option<(Vec3, f32)>,
+    pub heard: Option<Heard>,
     aggro: bool,
     attack_timer: f32,
     /// Sounds made this frame (collected by the game).
