@@ -407,7 +407,19 @@ impl Person {
         } else if dist < 80.0 {
             c.wish = -d / dist.max(1.0) * 0.5;
         }
-        c.run = hunter && dist > 600.0;
+        // After someone running, a hunter runs too, and once both are running within 0xc0 of
+        // each other goes in with a sliding tackle (pcom.cpp:8681): if they can see them, not
+        // if they're a fight-test dummy, and at the player only one turn in eight.
+        c.run = hunter && (dist > 600.0 || p.footsteps);
+        let flat_out = self.fig.anim() == anim::RUN;
+        if c.run && p.footsteps && flat_out && dist < 0xc0 as f32 && !self.is_dummy() && (!p.player || rand().is_multiple_of(8)) {
+            let eye = vec3(0.0, 140.0, 0.0);
+            if ground.line_of_sight(self.fig.pos + eye, p.pos + eye) {
+                c.wish = towards;
+                c.kick = true;
+                return c;
+            }
+        }
         self.attack_timer -= dt;
         // Take turns, like the original's gang attacks: nobody swings while another does. A
         // bodyguard doesn't wait for the gang's turn to be over.
