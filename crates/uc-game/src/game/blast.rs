@@ -148,6 +148,57 @@ impl Game {
         }
     }
 
+    /// Fires burn (#297, collide.cpp:6237; Person.cpp:4342), a tick at a time, 20 a second.
+    /// Anyone within 100 of one (the longer side and half the shorter) with their left foot
+    /// within 0x50 of its height catches alight and loses 30 health a tick while they stay
+    /// in it, flames licking up them; at none, they die as a blast kills
+    /// (`PERSON_DEATH_TYPE_OTHER`). A wandering civilian within 200 runs from it instead.
+    /// Nobody invulnerable, and nobody only the player may hurt, catches.
+    pub(crate) fn burn(&mut self, level: &Level) {
+        if (self.time * 20.0) as u64 == ((self.time - TURN) * 20.0) as u64 {
+            return;
+        }
+        let fires: Vec<Vec3> = self.pyro.fires().map(|(f, _)| f).collect();
+        if fires.is_empty() {
+            return;
+        }
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            if p.removed || p.is_dead() || p.invulnerable || p.bent & person::BENT_PLAYERKILL != 0 || matches!(p.state, State::InCar { .. }) {
+                continue;
+            }
+            let wanderer = p.ai == person::AI_CIV || p.mv == person::MOVE_WANDER;
+            let foot = p.fig.part_world(3).map_or(p.fig.pos.y, |(_, at)| at.y);
+            let mut burning = None;
+            for &f in &fires {
+                let (dx, dz) = ((p.fig.pos.x - f.x).abs(), (p.fig.pos.z - f.z).abs());
+                let dist = dx.max(dz) + dx.min(dz) / 2.0;
+                if wanderer && dist < 200.0 {
+                    self.people[i].scare(None, f);
+                    burning = None;
+                    break;
+                }
+                if dist < 100.0 && (foot - f.y).abs() < 0x50 as f32 {
+                    burning = Some(f);
+                }
+            }
+            let Some(fire) = burning else { continue };
+            for part in [0, 4, 11] {
+                if let Some((_, at)) = self.people[i].fig.part_world(part) {
+                    self.pyro.lick(at, 40.0);
+                }
+            }
+            let hit = self.hurt(i, 30);
+            if self.people[i].health > hit {
+                self.people[i].health -= hit;
+            } else {
+                let (behind, was) = (self.people[i].hit_from_behind(fire), self.people[i].is_dead());
+                self.people[i].take_hit(fire, hit, person::ko::KNOCKDOWN, false, false, Weapon::None);
+                self.knocked_dead(i, behind, was, level);
+            }
+        }
+    }
+
     /// Someone a blast or a car has just killed, on the ground, falls as such a death does
     /// (`PERSON_DEATH_TYPE_OTHER`, Person.cpp:2585: within 0x20 of the floor); in the air
     /// they keep the knockdown they were given.
