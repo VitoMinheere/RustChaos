@@ -14,8 +14,9 @@
 //! What they reflect, the moon and the people standing in them (#268), is drawn with the
 //! rest of the game (see `Game::batches`), and shown by the renderer only where a puddle is.
 //!
-//! Not done: the ripples a splash sets going in the puddle's own picture (`PUDDLE_splash`,
-//! drawn as a wobble of the screen behind it).
+//! A splash (a foot, or one rain drop in four) sets a puddle rippling (`PUDDLE_splash`), which
+//! wobbles the reflections in it for a couple of seconds as it dies down. The original
+//! wobbles the screen behind it; here the reflected figure is shifted instead.
 
 use crate::rand;
 use glam::{vec3, Vec3};
@@ -47,7 +48,14 @@ pub struct Puddle {
     kind: u8,
     /// The texture runs across the puddle, not along it (`rotate_uvs`).
     pub rotate: bool,
+    /// How hard it's rippling, the two waves' strengths (`s1`, `s2`), each dying down by one
+    /// a tick (`PUDDLE_process`).
+    pub ripple: (u8, u8),
 }
+
+/// `PUDDLE_ripple`, the one the release keeps: how the two waves run down the picture
+/// (`y1`, `y2`) and on in time (`g1`, `g2`), and how hard they start (`s1`, `s2`).
+pub const RIPPLE: [u8; 6] = [62, 137, 17, 178, 40, 45];
 
 impl Puddle {
     /// The texture's corners for `a` and `b`, 0 to 1.
@@ -206,7 +214,7 @@ impl Puddles {
         if hi - lo > 16.0 {
             return;
         }
-        self.puddles.push(Puddle { a, b, y, kind, rotate });
+        self.puddles.push(Puddle { a, b, y, kind, rotate, ripple: (0, 0) });
         // `PUDDLE_EXTEND_REFLECTION`: 128 round it.
         let (x1, x2) = (a.0.min(b.0) - 128.0, a.0.max(b.0) + 128.0);
         let (z1, z2) = (a.1.min(b.1) - 128.0, a.1.max(b.1) + 128.0);
@@ -239,6 +247,20 @@ impl Puddles {
         if self.in_puddle(x, z) {
             self.drip(vec3(x, at.y, z));
         }
+        self.ripple(at);
+    }
+
+    /// `PUDDLE_splash` (puddle.cpp:714): the puddle `at` is in, within 32 of its height, starts
+    /// rippling.
+    pub fn ripple(&mut self, at: Vec3) {
+        if !self.reflective((at.x / 256.0) as i32, (at.z / 256.0) as i32) {
+            return;
+        }
+        for p in &mut self.puddles {
+            if (p.y - at.y).abs() <= 32.0 && p.contains(at.x, at.z) {
+                p.ripple = (RIPPLE[4], RIPPLE[5]);
+            }
+        }
     }
 
     /// The drips spread and fade a tick at a time (`DRIP_process`), and while it rains each
@@ -251,6 +273,9 @@ impl Puddles {
                 d.fade -= 16.0;
                 d.size += 4.0;
             }
+            for p in &mut self.puddles {
+                p.ripple = (p.ripple.0.saturating_sub(1), p.ripple.1.saturating_sub(1));
+            }
             self.drips.retain(|d| d.fade > 0.0);
             let Some(at) = near.filter(|_| raining) else { continue };
             for k in 0..self.puddles.len() {
@@ -260,7 +285,12 @@ impl Puddles {
                     continue;
                 }
                 let (u, v) = ((self.roll() & 0xff) as f32 / 256.0, (self.roll() & 0xff) as f32 / 256.0);
-                self.drip(vec3(p.a.0 + (p.b.0 - p.a.0) * u, p.y, p.a.1 + (p.b.1 - p.a.1) * v));
+                let at = vec3(p.a.0 + (p.b.0 - p.a.0) * u, p.y, p.a.1 + (p.b.1 - p.a.1) * v);
+                self.drip(at);
+                // One drop in four sets it rippling (`rand() & 0x11`, aeng.cpp:8677).
+                if self.roll() & 0x11 == 0 {
+                    self.ripple(at);
+                }
             }
         }
     }

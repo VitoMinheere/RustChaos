@@ -843,6 +843,20 @@ impl Game {
                 pd.a.0.min(pd.b.0) < sx + 256.0 && pd.a.0.max(pd.b.0) > sx && pd.a.1.min(pd.b.1) < sz + 256.0 && pd.a.1.max(pd.b.1) > sz
             }) else { continue };
             let mirror = 2.0 * pd.y / uc_world::UNIT;
+            // A rippling puddle wobbles what it shows (`WIBBLE_simple`, wibble.cpp:13): each
+            // line shifted by two waves running down it and on in time, by up to a sixteenth
+            // of their strengths each. A line here is two units of height, and a shift a
+            // couple of units across the camera's view.
+            let (s1, s2) = pd.ripple;
+            let right = (at - eye).cross(Vec3::Y).normalize_or_zero() / uc_world::UNIT;
+            let [y1, y2, g1, g2, ..] = puddle::RIPPLE.map(|k| k as f32);
+            let turn = self.time * 20.0;
+            let wobble = |y: f32| {
+                let line = y * uc_world::UNIT / 2.0;
+                let a1 = (line * y1 + turn * g1) * std::f32::consts::TAU / 2048.0;
+                let a2 = (line * y2 + turn * g2) * std::f32::consts::TAU / 2048.0;
+                (a1.sin() * s1 as f32 + a2.cos() * s2 as f32) / 8.0 * 2.0
+            };
             let mut mine = BTreeMap::new();
             p.fig.append_batches(&mut mine, lighter.as_ref());
             for (page, b) in mine {
@@ -850,6 +864,11 @@ impl Game {
                 let base = into.vertices.len() as u32;
                 into.vertices.extend(b.vertices.into_iter().map(|mut v| {
                     v.pos[1] = mirror - v.pos[1];
+                    if s1 | s2 != 0 {
+                        let shift = right * wobble(v.pos[1]);
+                        v.pos[0] += shift.x;
+                        v.pos[2] += shift.z;
+                    }
                     v
                 }));
                 into.indices.extend(b.indices.into_iter().map(|i| i + base));
