@@ -278,7 +278,7 @@ impl Person {
             && matches!(self.fig.anim(), anim::WALK | anim::RUN | anim::PISTOL_JOG | anim::AK_JOG | anim::FIGHT_STEP_N | anim::FIGHT_STEP_S | anim::FIGHT_STEP_E | anim::FIGHT_STEP_W);
         let phase = self.fig.loops().floor() + self.fig.progress();
         if walking && (phase * 2.0).floor() != (self.step_phase * 2.0).floor() {
-            self.cues.push(Sfx::Footstep { player: self.player });
+            self.cues.push(Sfx::Footstep { player: self.player, sound: None });
             // Walking and running leave prints, the right foot then the left (Person.cpp:15457),
             // but not the steps of a fight.
             if matches!(self.fig.anim(), anim::WALK | anim::RUN | anim::PISTOL_JOG | anim::AK_JOG) {

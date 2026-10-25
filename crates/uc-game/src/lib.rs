@@ -33,6 +33,7 @@ pub mod person;
 pub mod plat;
 pub mod puddle;
 pub mod smap;
+pub mod steps;
 pub mod pow;
 pub mod pyro;
 pub mod ribbon;
@@ -693,6 +694,8 @@ pub struct Game {
     pub gunfx: gunfx::GunFx,
     /// The puddles a rainy level has, and the drips in them.
     pub puddles: puddle::Puddles,
+    /// What footsteps sound like on each floor texture.
+    steps: steps::Steps,
     /// It's night (`NIGHT_FLAG_DAYTIME` clear): the cars have their lights on.
     pub night: bool,
     /// Who was in a fight last turn, for the gangs to see who's just gone into one.
@@ -859,6 +862,7 @@ impl Game {
             drops: dirt::Drops::default(),
             gunfx: gunfx::GunFx::default(),
             puddles: puddle::Puddles::default(),
+            steps: steps::Steps::load(&level.game, level.map.texture_set),
             night: Self::raining(level),
             fighting: Vec::new(),
             seats: game::seats(level),
@@ -1469,6 +1473,7 @@ impl Game {
         self.men_in_black(dt, level);
         self.blow_dirt(dt, level);
         self.lay_prints(level);
+        self.step_sounds(level);
         self.breathe_out(level);
         self.bleed(level);
         self.splatter(level);
