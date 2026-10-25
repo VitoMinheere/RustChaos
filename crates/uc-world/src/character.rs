@@ -135,6 +135,11 @@ pub mod anim {
     pub const KNIFE_FIGHT_READY: usize = 276;
     pub const PISTOL_SHOOT: usize = 297;
     pub const PISTOL_AIM: usize = 298;
+    /// The pistol pointed off to the left and right of ahead, and the shotgun's.
+    pub const POINT_GUN_LEFT: usize = 290;
+    pub const POINT_GUN_RIGHT: usize = 292;
+    pub const POINT_SHOTGUN_LEFT: usize = 294;
+    pub const POINT_SHOTGUN_RIGHT: usize = 295;
     pub const PISTOL_JOG: usize = 267;
     pub const SHOTGUN_FIRE: usize = 210;
     pub const SHOTGUN_AIM: usize = 293;
@@ -681,6 +686,11 @@ impl Figure {
     /// How far through the current animation (0..1).
     pub fn progress(&self) -> f32 {
         self.animator.progress()
+    }
+
+    /// The first keyframe of animation `id`, if this figure has it.
+    pub fn first_keyframe(&self, id: usize) -> Option<usize> {
+        self.anims.anims.get(id).copied().flatten()
     }
 
     /// The pose shown: the two keyframes it's between and how far from the first (0..256).
