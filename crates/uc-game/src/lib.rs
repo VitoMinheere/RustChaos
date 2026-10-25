@@ -1474,6 +1474,7 @@ impl Game {
         self.blow_dirt(dt, level);
         self.lay_prints(level);
         self.step_sounds(level);
+        self.burn(level);
         self.breathe_out(level);
         self.bleed(level);
         self.splatter(level);

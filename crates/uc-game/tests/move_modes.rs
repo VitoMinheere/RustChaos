@@ -45,7 +45,9 @@ fn cold_hands_go_to_the_fire() {
     let at = fire + vec3(500.0, 0.0, 0.0);
     let y = r.level.ground.surface(&r.level.map, at.x, at.z, at.y + 64.0);
     let q = &mut r.g.people[i];
-    (q.mv, q.fake) = (MOVE_WARM_HANDS, false);
+    // As Officer Training's one is, someone who isn't a civilian: a civilian would run from
+    // the fire before getting there (collide.cpp:6261, #297).
+    (q.mv, q.fake, q.ai) = (MOVE_WARM_HANDS, false, 5);
     q.fig.pos = vec3(at.x, y, at.z);
     r.play(10.0, Controls::default());
     let d = (r.g.people[i].fig.pos - fire).length();
