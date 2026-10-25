@@ -70,6 +70,7 @@ impl Sound {
         self.audio.rotor(None);
         self.audio.siren(None);
         self.audio.crackle(None);
+        self.audio.gush(None);
     }
 
     /// Plays this frame's game sounds and keeps the music in step with the action.
@@ -154,6 +155,12 @@ impl Sound {
             (fade > 0.0).then_some(0.7 * fade * fade)
         });
         self.audio.crackle(crackle);
+        // The nearest broken hydrant, fading out 12 squares off.
+        let gush = world.game.hydrant_noise(listener.pos).and_then(|at| {
+            let fade = (1.0 - at.distance(listener.pos) / (12.0 * 256.0)).clamp(0.0, 1.0);
+            (fade > 0.0).then_some(0.7 * fade * fade)
+        });
+        self.audio.gush(gush);
         self.audio.update(dt);
     }
 }

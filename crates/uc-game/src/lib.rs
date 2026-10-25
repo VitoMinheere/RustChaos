@@ -618,6 +618,9 @@ pub struct Game {
     pub show_crime_rate: bool,
     /// Props damaged (`OB_FLAG_DAMAGED`), as indices into the map's objects.
     pub damaged: BTreeSet<usize>,
+    /// Hydrants knocked over and gushing: where, which way the jet goes (radians, as a
+    /// facing), and the seconds left of it.
+    pub hydrants: Vec<(Vec3, f32, f32)>,
     /// How long nothing has happened (`timer_bored`, Person.cpp:3762): seconds since the
     /// player last fought, shot at someone or watched a scene.
     pub bored: f32,
@@ -817,6 +820,7 @@ impl Game {
             red_marks: 0,
             show_crime_rate: level.mission.flags & MISSION_FLAG_SHOW_CRIMERATE != 0,
             damaged: BTreeSet::new(),
+            hydrants: Vec::new(),
             bored: 0.0,
             grenades: Vec::new(),
             primed: None,
@@ -1475,6 +1479,7 @@ impl Game {
         self.lay_prints(level);
         self.step_sounds(level);
         self.burn(level);
+        self.gush();
         self.breathe_out(level);
         self.bleed(level);
         self.splatter(level);
