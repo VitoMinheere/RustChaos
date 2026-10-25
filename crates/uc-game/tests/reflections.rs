@@ -88,3 +88,25 @@ fn the_moon_is_in_the_puddles_at_night() {
     };
     assert!((span(under) / span(moon) - 0.5).abs() < 0.05, "{} against {}", span(under), span(moon));
 }
+
+#[test]
+fn a_splash_sets_the_puddle_rippling_and_her_reflection_wobbling() {
+    let Some((level, mut g, _)) = in_a_puddle() else { return };
+    let me = g.player.unwrap();
+    let at = g.people[me].fig.pos;
+    let eye = at + Vec3::new(0.0, 300.0, -600.0);
+    let k = g.puddles.puddles.iter().position(|p| p.contains(at.x, at.z)).expect("her puddle");
+    g.puddles.puddles[k].ripple = (0, 0);
+    let calm = reflected(&g, &level, eye);
+    g.puddles.ripple(at);
+    assert_eq!(g.puddles.puddles[k].ripple, (40, 45), "no ripple");
+    let rippled = reflected(&g, &level, eye);
+    assert_eq!(calm.len(), rippled.len());
+    let moved = calm.iter().zip(&rippled).map(|(a, b)| (*a - *b).length()).fold(0.0, f32::max);
+    assert!(moved > 1.0 && moved < 40.0, "the reflection moved {moved}");
+    // It dies down a tick at a time: gone in under three seconds.
+    for _ in 0..90 {
+        g.puddles.update(1.0 / 30.0, false, None);
+    }
+    assert_eq!(g.puddles.puddles[k].ripple, (0, 0));
+}
