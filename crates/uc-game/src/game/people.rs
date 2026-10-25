@@ -450,6 +450,43 @@ impl Game {
         }
     }
 
+    /// `PCOM_call_cop_to_arrest_me(.., 1)`: `i` is up to no good; a cop may come for them
+    /// once the turn is over.
+    pub(crate) fn call_cop(&mut self, i: usize) {
+        /// `MAX_ARREST_ME` (PC).
+        const MAX_ARREST_ME: usize = 5;
+        if self.arrest_me.len() < MAX_ARREST_ME && !self.arrest_me.contains(&i) {
+            self.arrest_me.push(i);
+        }
+    }
+
+    /// `do_arrests` (Thing.cpp:1224, pcom.cpp:5963): for each villain called in, every cop
+    /// within 0x800 who is doing nothing much and whom the villain can see marks them a
+    /// felon and comes after them, calling it out. A tramp isn't worth it. A cop at the wheel
+    /// would first get out of the car; here only cops on foot come.
+    pub(crate) fn do_arrests(&mut self, level: &Level) {
+        for v in std::mem::take(&mut self.arrest_me) {
+            let p = &self.people[v];
+            if p.removed || p.is_dead() || p.kind == uc_world::character::person::TRAMP {
+                continue;
+            }
+            let at = p.fig.pos;
+            let cops: Vec<usize> = (0..self.people.len())
+                .filter(|&j| {
+                    let c = &self.people[j];
+                    j != v && c.ai == person::AI_COP && !matches!(c.state, State::InCar { .. }) && c.doing_nothing_important()
+                        && c.victim.is_none() && (c.fig.pos - at).length() < 0x800 as f32
+                })
+                .filter(|&j| self.can_a_see_b(v, j, level))
+                .collect();
+            for j in cops {
+                self.people[v].felon = true;
+                self.people[j].bully_after(v);
+                self.people[j].cues.push(Sfx::CopArrest);
+            }
+        }
+    }
+
     /// A gang member who has just gone into a fight brings in the rest of their gang: every
     /// one of their colour who isn't busy fighting goes for the same person, however far off
     /// (`PCOM_alert_my_gang_to_a_fight`, pcom.cpp:1781, from `PCOM_set_person_ai_kill_person`).

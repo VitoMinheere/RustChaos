@@ -289,6 +289,8 @@ pub enum Sfx {
     ConversationLine(usize, usize),
     /// A blow blocked.
     Block,
+    /// A cop goes after a felon (`S_COP_ARREST_START` to `_END`).
+    CopArrest,
     /// A gang member set to guard heard something (`SOUND_Curious`): "Huh?", "Who's there?".
     Curious { kind: u8 },
     /// Someone plunging to their death screams (`ScreamFallSound`, Sound.cpp:600).
@@ -924,6 +926,8 @@ pub struct Person {
     /// Has looked, since going for someone, at whether they've a gun on them
     /// (`PCOM_set_person_ai_navtokill`).
     pub(crate) sized_up: bool,
+    /// Wanted by the police (`FLAG_PERSON_FELON`).
+    pub felon: bool,
     pub(crate) splattered: bool,
     /// One of the city's extra people, made by the level rather than the mission
     /// (`FLAG2_PERSON_FAKE_WANDER`): they keep to the pavements, and are moved somewhere
@@ -985,7 +989,7 @@ impl Person {
             pace: Pace::Walk,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
-            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, breathed: false, screamed: false, splattered: false, sized_up: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
+            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, breathed: false, screamed: false, splattered: false, sized_up: false, felon: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }
@@ -1217,6 +1221,18 @@ impl Person {
         matches!(self.ai, AI_DRIVER | AI_COP_DRIVER) && self.scared.is_none()
     }
 
+    /// `might_i_be_a_villain` (Person.cpp:17917): anyone but Darci, Roper, a cop or a hostage.
+    pub fn might_be_a_villain(&self) -> bool {
+        use uc_world::character::person as ptype;
+        !matches!(self.kind, ptype::DARCI | ptype::ROPER | ptype::COP | ptype::HOSTAGE)
+    }
+
+    /// `am_i_a_thug`: one of the three gangs.
+    pub fn thug(&self) -> bool {
+        use uc_world::character::person as ptype;
+        matches!(self.kind, ptype::THUG_RASTA | ptype::THUG_GREY | ptype::THUG_RED)
+    }
+
     pub fn is_dummy(&self) -> bool {
         self.ai == crate::script::PCOM_AI_FIGHT_TEST
     }
@@ -1238,6 +1254,8 @@ impl Person {
     /// has someone to see off (`PCOM_find_bodyguard_victim` hands them a target).
     pub fn fights(&self) -> bool {
         self.hostile() || (self.ai == AI_BODYGUARD && self.bent & BENT_ROBOT == 0 && self.foe.is_some())
+            // A cop after a felon (`PCOM_AI_STATE_ARREST`).
+            || (self.ai == AI_COP && self.victim.is_some())
     }
 
     /// How close the player must come before this enemy notices (world units): guards watch

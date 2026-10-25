@@ -16,6 +16,14 @@ impl Game {
                 self.gunshot(*attacker);
                 self.muzzle_fx(*attacker);
             }
+            // A villain shooting (Person.cpp:6785), or a thug going for someone who isn't a
+            // thug (pcom.cpp:4281), asks for a cop to come after them
+            // (`PCOM_call_cop_to_arrest_me`).
+            match &e {
+                Event::Shot { attacker, .. } if Some(*attacker) != self.player && self.people[*attacker].might_be_a_villain() => self.call_cop(*attacker),
+                Event::Hit { attacker, victim, .. } if Some(*attacker) != self.player && self.people[*attacker].thug() && !self.people[*victim].thug() => self.call_cop(*attacker),
+                _ => {}
+            }
             match e {
                 // People in the same gang like each other: their blows and shots don't land
                 // on each other (`people_allowed_to_hit_each_other`, combat.cpp:2700).

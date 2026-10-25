@@ -621,6 +621,9 @@ pub struct Game {
     /// Hydrants knocked over and gushing: where, which way the jet goes (radians, as a
     /// facing), and the seconds left of it.
     pub hydrants: Vec<(Vec3, f32, f32)>,
+    /// Villains seen at it this turn, for a cop to come after (`arrest_me`, at most
+    /// `MAX_ARREST_ME`).
+    arrest_me: Vec<usize>,
     /// How long nothing has happened (`timer_bored`, Person.cpp:3762): seconds since the
     /// player last fought, shot at someone or watched a scene.
     pub bored: f32,
@@ -821,6 +824,7 @@ impl Game {
             show_crime_rate: level.mission.flags & MISSION_FLAG_SHOW_CRIMERATE != 0,
             damaged: BTreeSet::new(),
             hydrants: Vec::new(),
+            arrest_me: Vec::new(),
             bored: 0.0,
             grenades: Vec::new(),
             primed: None,
@@ -1480,6 +1484,7 @@ impl Game {
         self.step_sounds(level);
         self.burn(level);
         self.gush();
+        self.do_arrests(level);
         self.breathe_out(level);
         self.bleed(level);
         self.splatter(level);

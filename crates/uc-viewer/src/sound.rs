@@ -70,6 +70,7 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         // Only Darci grunts with the effort: the gangs have no such recordings.
         Sfx::Jump { kind: ptype::DARCI } => at(audio, numbered("darci/effort ", 1..=3, ".WAV"), 0.6),
         Sfx::Jump { .. } => {}
+        Sfx::CopArrest => at(audio, numbered("cop/COP-ARREST0", 1..=4, ".wav"), 0.9),
         // `SOUND_Curious`: the gangs' uncertain lines (`S_BTHUG_UNCERTAIN_START` and on).
         Sfx::Curious { kind } => {
             let range = match kind {
