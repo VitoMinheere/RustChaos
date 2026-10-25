@@ -7,8 +7,60 @@ impl Person {
     /// player turns to look (`PCOM_set_person_ai_investigate`).
     pub fn hear(&mut self, at: Vec3) {
         if self.hostile() && !self.aggro && !self.removed && !self.is_dead() && !self.is_down() {
-            self.heard = Some((at, 2.0));
+            if self.heard.is_none() && self.ai == AI_GUARD {
+                self.cues.push(Sfx::Curious { kind: self.kind });
+            }
+            // The sound's square, its middle (`pcom_ai_arg` keeps the mapsquare).
+            let at = Vec3::new((at.x / 256.0).floor() * 256.0 + 128.0, at.y, (at.z / 256.0).floor() * 256.0 + 128.0);
+            self.heard = Some(Heard { at, phase: Investigate::Surprised, time: 0.0 });
         }
+    }
+
+    /// `PCOM_process_investigating` (pcom.cpp:7768): a second turned to the sound, then, unless
+    /// they can see where it came from from here, a walk over to it (to within 0x40), and
+    /// there a look round: a quarter turn left after one second, half a turn right after three,
+    /// and after five back to what they were doing, which takes them home. The original
+    /// sometimes goes on to a likely hiding place first; here it doesn't.
+    fn investigate(&mut self, mut h: Heard, mut c: Controls, ground: &Ground, dt: f32) -> Controls {
+        let before = h.time;
+        h.time += dt;
+        let to = flat(h.at, self.fig.pos);
+        match h.phase {
+            Investigate::Surprised => {
+                self.fig.turn_towards(to, 6.0, dt);
+                if h.time > 1.0 {
+                    // From head height to a little over where it came from (0x60 + 0x80 up).
+                    let seen = ground.line_of_sight(self.fig.pos + vec3(0.0, 0x60 as f32, 0.0), h.at + vec3(0.0, 0xe0 as f32, 0.0));
+                    if seen {
+                        self.heard = None;
+                        return c;
+                    }
+                    h = Heard { phase: Investigate::WalkOver, time: 0.0, ..h };
+                }
+            }
+            Investigate::WalkOver => {
+                if to.length() < 0x40 as f32 || h.time > 20.0 || self.blocked > 2.0 {
+                    h = Heard { phase: Investigate::Look, time: 0.0, ..h };
+                } else {
+                    c.wish = to.normalize_or_zero();
+                }
+            }
+            Investigate::Look => {
+                let quarter = std::f32::consts::FRAC_PI_2;
+                if before < 1.0 && h.time >= 1.0 {
+                    self.fig.angle -= quarter;
+                }
+                if before < 3.0 && h.time >= 3.0 {
+                    self.fig.angle += 2.0 * quarter;
+                }
+                if h.time > 5.0 {
+                    self.heard = None;
+                    return c;
+                }
+            }
+        }
+        self.heard = Some(h);
+        c
     }
 
     /// `can_a_see_b` (Person.cpp:3198), with its range capped at `range`: within it, half that
@@ -301,10 +353,8 @@ impl Person {
         }
         let notices = if gang || mib { self.can_see(&p, range, ground) } else { dist < range && (dy < 128.0 || hunter) };
         if !self.aggro && !notices {
-            if let Some((at, left)) = self.heard {
-                self.heard = (left > dt).then_some((at, left - dt));
-                self.fig.turn_towards(flat(at, self.fig.pos), 6.0, dt);
-                return c;
+            if let Some(h) = self.heard {
+                return self.investigate(h, c, ground, dt);
             }
         }
         if !self.aggro && notices && !self.truce {

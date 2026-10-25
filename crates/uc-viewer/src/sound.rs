@@ -70,6 +70,18 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         // Only Darci grunts with the effort: the gangs have no such recordings.
         Sfx::Jump { kind: ptype::DARCI } => at(audio, numbered("darci/effort ", 1..=3, ".WAV"), 0.6),
         Sfx::Jump { .. } => {}
+        // `SOUND_Curious`: the gangs' uncertain lines (`S_BTHUG_UNCERTAIN_START` and on).
+        Sfx::Curious { kind } => {
+            let range = match kind {
+                ptype::THUG_RASTA => Some(210..=216),
+                ptype::THUG_GREY => Some(223..=231),
+                ptype::THUG_RED => Some(238..=245),
+                _ => None,
+            };
+            if let Some(r) = range {
+                at(audio, r.filter_map(uc_audio::sounds::name).map(|n| n.replace('\\', "/")).collect(), 0.9);
+            }
+        }
         // Darci's; Roper's (which the original gives the civilians too) aren't shipped.
         Sfx::ScreamFall { kind: ptype::DARCI } => at(audio, vec!["darci/scream fall.WAV".into(), "darci/scream fall 2.WAV".into()], 1.0),
         Sfx::ScreamFall { .. } => {}
