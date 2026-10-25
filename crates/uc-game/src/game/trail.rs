@@ -13,6 +13,10 @@ impl Game {
     /// less health left, the more often. A splash is 1 to 32 across, at any angle, a few
     /// units off the foot and just over the ground.
     pub(crate) fn bleed(&mut self, level: &Level) {
+        // The odds are the original's per tick, 20 a second, not per turn here.
+        if (self.time * 20.0) as u64 == ((self.time - TURN) * 20.0) as u64 {
+            return;
+        }
         for i in 0..self.people.len() {
             let p = &self.people[i];
             if p.removed || p.is_dead() || p.health <= 0 || p.health >= p.max_health / 4 || matches!(p.state, State::InCar { .. }) {
