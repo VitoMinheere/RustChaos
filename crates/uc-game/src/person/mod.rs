@@ -626,6 +626,9 @@ pub enum State {
     Crouch { phase: u8 },
     /// Bending down for a can (`SUB_STATE_CANNING_PICKUP`): whether it's in her hand yet.
     PickUp { got: bool },
+    /// Pressing a switch or turning a valve (`set_person_do_a_simple_anim`), then on as
+    /// before: the animations to play in turn.
+    Press { then: Option<usize> },
     /// Back to a wall (`STATE_HUG_WALL`, #205): the wall from `a` to `b`, `out` its normal
     /// (the way she faces), and what she's doing against it.
     HugWall { a: Vec2, b: Vec2, out: Vec2, hug: Hug },
@@ -968,6 +971,42 @@ impl Person {
     /// holstered otherwise).
     pub fn gun_out(&self) -> bool {
         self.player || self.aggro || matches!(self.state, State::Shoot { .. })
+    }
+
+    /// Steps up to a switch (`PRIM_OBJ_SWITCH_OFF`, `switch`) or a valve at `ob` facing `yaw`
+    /// (0..2047), and presses it or turns it (interfac.cpp:1665): if she's within 0x40 of
+    /// where it's worked from, a quarter or three quarters of a square in front of it, and
+    /// faces it to within 200 of 2048. Returns whether she did.
+    pub fn work_switch(&mut self, ob: Vec3, yaw: i32, switch: bool) -> bool {
+        if !matches!(self.state, State::Move) {
+            return false;
+        }
+        let a = yaw as f32 * std::f32::consts::TAU / 2048.0;
+        let out = vec3(a.sin(), 0.0, a.cos());
+        let want = ob + out * if switch { 64.0 } else { 256.0 - 64.0 };
+        let (dx, dz) = ((want.x - self.fig.pos.x).abs(), (want.z - self.fig.pos.z).abs());
+        // `QDIST2`: the longer side and half the shorter.
+        if dx.max(dz) + dx.min(dz) / 2.0 >= 0x40 as f32 {
+            return false;
+        }
+        let mine = (self.fig.angle / std::f32::consts::TAU * 2048.0).round() as i32;
+        let mut dangle = (mine - yaw).rem_euclid(2048);
+        if dangle > 1024 {
+            dangle -= 2048;
+        }
+        if dangle.abs() >= 200 {
+            return false;
+        }
+        self.fig.pos = vec3(want.x, self.fig.pos.y, want.z);
+        self.fig.angle = a;
+        if switch {
+            self.fig.restart(anim::BUTTON, Play::Once);
+            self.state = State::Press { then: None };
+        } else {
+            self.fig.restart(anim::VALVE_LOOP, Play::Once);
+            self.state = State::Press { then: Some(anim::VALVE_END) };
+        }
+        true
     }
 
     /// Picks up weapon `w` (a gun comes loaded).
@@ -1517,6 +1556,20 @@ impl Person {
                 }
             }
             State::Rope { at, dir, top, to, y0, loops0 } => self.step_rope(at, dir, top, to, y0, loops0, c),
+            State::Press { then } => {
+                if self.fig.finished() {
+                    match then {
+                        Some(a) => {
+                            self.fig.restart(a, Play::Once);
+                            self.state = State::Press { then: None };
+                        }
+                        None => {
+                            self.state = State::Move;
+                            self.idle(false);
+                        }
+                    }
+                }
+            }
             State::PickUp { got } => {
                 // The fourth frame picks it up (`FrameIndex == 3`, Person.cpp:20722).
                 if !got && self.fig.frame().is_some_and(|f| f >= 3) {
