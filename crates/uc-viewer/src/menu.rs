@@ -1044,7 +1044,7 @@ impl Menu {
 /// order (`suggest_order`, fallen/Source/frontend.cpp:259): (mission, title, briefing).
 /// `urban.sty` has neither, so the titles are this project's and the briefings are written
 /// from the missions' opening messages.
-const UNRELEASED: [(&str, &str, &str); 6] = [
+const UNRELEASED: [(&str, &str, &str); 7] = [
     ("FreeCD1", "Construction Site Siege",
      "The local Wildcat chapter have stormed the construction site and taken some workers hostage, \
       and they've spread out all over this section of town. We want those hostages ALIVE, Stern!\r\
@@ -1078,6 +1078,14 @@ const UNRELEASED: [(&str, &str, &str); 6] = [
      "Terminate the dock operator and get to the chopper for extraction. The extraction site is \
       on the most southern part of this sector.\r\
       - Take out the dock operator.\r- Meet the chopper at the rendezvous point."),
+    // An earlier Gatecrasher on a map of its own (`bball1.iam`), finished but untitled: the
+    // briefing is from its opening message. Its club is The Purple Palace, and it's won only
+    // with all three gang bosses down and at least one of them arrested.
+    ("bball1", "The Purple Palace",
+     "Get into the Union City baseball ground, and be sure to apprehend at least one of the gang \
+      superiors. The gate's Wild Bill's patch: nobody gets in unless he says so.\r\
+      - Find Wild Bill and get him to let you in.\r\
+      - Take down all three gang bosses, and bring at least one of them in alive."),
 ];
 
 /// `text` cut short with "..." to fit `width` at scale `s`.
