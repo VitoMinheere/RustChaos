@@ -10,7 +10,7 @@ use uc_formats::units::radians;
 use crate::ground::Ground;
 use crate::level::Level;
 use glam::{vec2, Vec2};
-use uc_formats::iam::{flags, Map, MAP_SIZE};
+use uc_formats::iam::{flags, Map, BUILDING_TYPE_WAREHOUSE, MAP_SIZE};
 
 /// `MAV_ACTION_*`: what to do to get to the next square.
 pub const GOTO: u8 = 0;
@@ -126,10 +126,25 @@ pub fn keep_off_nogo(map: &Map, p: Vec2) -> Vec2 {
 impl Mav {
     /// `MAV_calc_height_array` (warehouses included) and `MAV_precalculate` for a level.
     pub fn new(level: &Level) -> Mav {
-        let height = heights(&level.map, level);
+        let height = heights(&level.map, level, false);
         let mut mav = Mav { height, opts: vec![[0; 4]; MAP_SIZE * MAP_SIZE] };
-        mav.precalculate(&level.map, &level.ground);
+        mav.precalculate(&level.map, &level.ground, false);
         mav
+    }
+
+    /// The navigation map for getting about inside the warehouses (`BUILDING_TYPE_WAREHOUSE`),
+    /// or None for a map without any: as [`Mav::new`], but with their roofs left off, so
+    /// that what's under them is their floors (`MAV_calc_height_array(TRUE)`, which
+    /// `WARE_init` gives `MAV_precalculate_warehouse_nav`). The original keeps a map like it
+    /// for each warehouse and goes in and out by their doors; this one has the streets round
+    /// them too, which come to the same thing.
+    pub fn inside(level: &Level) -> Option<Mav> {
+        level.map.buildings.iter().any(|b| b.kind == BUILDING_TYPE_WAREHOUSE).then(|| {
+            let height = heights(&level.map, level, true);
+            let mut mav = Mav { height, opts: vec![[0; 4]; MAP_SIZE * MAP_SIZE] };
+            mav.precalculate(&level.map, &level.ground, true);
+            mav
+        })
     }
 
     /// `MAVHEIGHT`.
@@ -142,13 +157,15 @@ impl Mav {
         self.opts[idx(x, z)][dir]
     }
 
-    fn precalculate(&mut self, map: &Map, ground: &Ground) {
+    fn precalculate(&mut self, map: &Map, ground: &Ground, inside: bool) {
         let hidden = |x: i32, z: i32| map.square(x as usize, z as usize).has(flags::HIDDEN);
         // `PAP_calc_map_height_at` at a square's middle, plus 0x50: the height a line of
-        // sight is tested at.
+        // sight is tested at. Inside, the floor under the warehouse's roof.
+        let heights = self.height.clone();
         let eye = |x: i32, z: i32| {
             let (cx, cz) = (x as f32 * 256.0 + 128.0, z as f32 * 256.0 + 128.0);
-            ground.surface(map, cx, cz, f32::MAX / 2.0) + 0x50 as f32
+            let top = if inside { ((heights[idx(x, z)] as i32) << 6) as f32 } else { f32::MAX / 2.0 };
+            ground.surface(map, cx, cz, top) + 0x50 as f32
         };
         let middle = |x: i32, z: i32| vec2(x as f32 * 256.0 + 128.0, z as f32 * 256.0 + 128.0);
         // The walls (and closed doors) and climbable fences by the map squares their bounding
@@ -463,15 +480,16 @@ impl Mav {
 
 /// `MAV_calc_height_array`: the ground at each square's middle, a rooftop's own height, the
 /// highest walkable roof face over a building, and squares inside a building with no roof
-/// off limits at the top of the scale.
-fn heights(map: &Map, level: &Level) -> Vec<i8> {
+/// off limits at the top of the scale. With `ignore_warehouses`, the warehouses' roof faces
+/// are left out and the ground is under them.
+fn heights(map: &Map, level: &Level, ignore_warehouses: bool) -> Vec<i8> {
     let mut h = vec![0i8; MAP_SIZE * MAP_SIZE];
     for x in 0..MAP_SIZE {
         for z in 0..MAP_SIZE {
             let sq = map.square(x, z);
             h[x * MAP_SIZE + z] = if sq.has(flags::ROOF_EXISTS) {
                 sq.height
-            } else if sq.has(flags::HIDDEN) {
+            } else if sq.has(flags::HIDDEN) && !ignore_warehouses {
                 -127
             } else {
                 let y = map.ground_height(x as f32 * 256.0 + 128.0, z as f32 * 256.0 + 128.0) as i32;
@@ -479,7 +497,8 @@ fn heights(map: &Map, level: &Level) -> Vec<i8> {
             };
         }
     }
-    for rf in &map.roof_faces {
+    let warehouse = |b: u16| map.buildings.get(b as usize).is_some_and(|b| b.kind == BUILDING_TYPE_WAREHOUSE);
+    for rf in map.roof_faces.iter().filter(|rf| !(ignore_warehouses && warehouse(rf.building))) {
         let (x, z) = ((rf.rx & 127) as usize, (rf.rz & 127) as usize);
         let y = (rf.y as i32 / 0x40).clamp(-127, 127) as i8;
         if h[x * MAP_SIZE + z] < y {

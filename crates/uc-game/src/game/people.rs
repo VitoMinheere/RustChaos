@@ -51,12 +51,14 @@ pub(crate) struct Route {
 /// Route-finding: the navigation map (`MAV_precalculate`) and each person's last route.
 pub(crate) struct Routes {
     pub(crate) mav: uc_world::mav::Mav,
+    /// The one for inside the warehouses ([`uc_world::mav::Mav::inside`]), if there are any.
+    pub(crate) inside: Option<uc_world::mav::Mav>,
     pub(crate) ways: HashMap<usize, Route>,
 }
 
 impl Routes {
     pub(crate) fn new(level: &Level) -> Routes {
-        Routes { mav: uc_world::mav::Mav::new(level), ways: HashMap::new() }
+        Routes { mav: uc_world::mav::Mav::new(level), inside: uc_world::mav::Mav::inside(level), ways: HashMap::new() }
     }
 }
 
@@ -208,7 +210,11 @@ impl Game {
                 return Some(middle(a));
             }
         }
-        if a == b || self.routes.mav.can_walk(a, b) {
+        // In a warehouse, or going into one: by the map of their floors (`WARE_mav_inside`,
+        // `WARE_mav_enter`).
+        let indoors = |at: Vec3| self.wares.under_roof(&level.map, &level.ground, at).is_some();
+        let mav = self.routes.inside.as_ref().filter(|_| indoors(from) || indoors(to)).unwrap_or(&self.routes.mav);
+        if a == b || mav.can_walk(a, b) {
             return None;
         }
         let route = match self.routes.ways.get(&i) {
@@ -216,7 +222,7 @@ impl Game {
             _ => {
                 let mut rng = self.rngs.mav;
                 let caps = caps_of(&self.people[i], &self.streets.wand);
-                let (act, _) = self.routes.mav.route(a, b, caps, &mut || rand(&mut rng));
+                let (act, _) = mav.route(a, b, caps, &mut || rand(&mut rng));
                 self.rngs.mav = rng;
                 // Over a fence: to the square it's climbed from first (`dest`), then straight
                 // at it, and the walker climbs it.
@@ -292,7 +298,7 @@ impl Game {
 
     /// Where each person is walking to when they aren't fighting: `PCOM_process_patrol`
     /// (move 2 or 3) heads for the nearest active point of their colour and group, and once
-    /// there (within a square), the next one by number, and so on (it keeps to the one it's
+    /// there, the next one by number, and so on (it keeps to the one it's
     /// heading for, not the nearest, which would turn it back once it's left a point); `PCOM_MOVE_FOLLOW` (move 5) keeps up
     /// with the person their `follow` point created, the player by default.
     pub(crate) fn walk_goals(&mut self) {
@@ -363,7 +369,18 @@ impl Game {
                     let pick = i.wrapping_mul(7919) + (self.time * 20.0) as usize;
                     let to = heading.or(nearest).map(|k| {
                         let next = if p.mv == 3 && points.len() > 1 { (k + 1 + pick % (points.len() - 1)) % points.len() } else { (k + 1) % points.len() };
-                        let k = if near(points[k].1) < 256.0 { next } else { k };
+                        // On the way to a point: there within `PCOM_ARRIVE_DIST`, or a square if
+                        // they've been sliding along a wall a while (`PCOM_finished_nav`, which
+                        // measures from the middle of its square, where the original's walk
+                        // ends; here the walk is to the point). Setting out: one within a
+                        // square of the nearest is passed over for the next.
+                        let arrived = if heading.is_some() {
+                            let d = Vec2::new(points[k].1.x - at[i].x, points[k].1.z - at[i].z).length();
+                            d < ARRIVE || p.slide_odd > 20 && d < 256.0
+                        } else {
+                            near(points[k].1) < 256.0
+                        };
+                        let k = if arrived { next } else { k };
                         patrols[i] = Some(points[k].0);
                         points[k].1
                     });
@@ -611,6 +628,40 @@ impl Game {
             };
             if p.fig.restart(a, uc_world::Play::Once) {
                 p.state = State::Pose { anim: a };
+            }
+        }
+    }
+
+    /// A player stood about for three seconds (`PCOM_get_duration(30)`) with the nearest
+    /// person within 0x200 dancing dances along: turned to them, the same dance
+    /// (`PCOM_process_person`, pcom.cpp:12866). `playing` is each player with their controls.
+    pub(crate) fn join_dance(&mut self, dt: f32, playing: &[(usize, Controls, bool)]) {
+        use uc_world::character::anim;
+        for &(i, ref c, _) in playing {
+            let me = &mut self.people[i];
+            if !me.player || !matches!(me.state, State::Move) || c.any() {
+                me.idle_for = 0.0;
+                continue;
+            }
+            me.idle_for += dt;
+            if me.idle_for <= 3.0 {
+                continue;
+            }
+            me.idle_for = 0.0;
+            let at = me.fig.pos;
+            let near = self.people.iter().enumerate()
+                .filter(|&(j, o)| j != i && !o.removed && (o.fig.pos - at).length() < 0x200 as f32)
+                .min_by(|a, b| (a.1.fig.pos - at).length().total_cmp(&(b.1.fig.pos - at).length()));
+            let Some((_, o)) = near else { continue };
+            let State::Pose { anim: a } = o.state else { continue };
+            if !matches!(a, anim::DANCE_BOOGIE | anim::DANCE_WOOGIE | anim::DANCE_HEADBANG) {
+                continue;
+            }
+            let to = o.fig.pos;
+            let me = &mut self.people[i];
+            me.fig.angle = uc_world::character::angle_of(Vec2::new(to.x - at.x, to.z - at.z));
+            if me.fig.restart(a, uc_world::Play::Once) {
+                me.state = State::Pose { anim: a };
             }
         }
     }
