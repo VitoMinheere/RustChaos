@@ -1044,7 +1044,7 @@ impl Menu {
 /// order (`suggest_order`, fallen/Source/frontend.cpp:259): (mission, title, briefing).
 /// `urban.sty` has neither, so the titles are this project's and the briefings are written
 /// from the missions' opening messages.
-const UNRELEASED: [(&str, &str, &str); 7] = [
+const UNRELEASED: [(&str, &str, &str); 8] = [
     ("FreeCD1", "Construction Site Siege",
      "The local Wildcat chapter have stormed the construction site and taken some workers hostage, \
       and they've spread out all over this section of town. We want those hostages ALIVE, Stern!\r\
@@ -1086,6 +1086,15 @@ const UNRELEASED: [(&str, &str, &str); 7] = [
       superiors. The gate's Wild Bill's patch: nobody gets in unless he says so.\r\
       - Find Wild Bill and get him to let you in.\r\
       - Take down all three gang bosses, and bring at least one of them in alive."),
+    // An early Mako mission on Gangland's map, untitled and with no opening message: the
+    // briefing is made up from its script. Mako robs a store of a drop-off's files and gets
+    // them away in a van.
+    ("Gang order3", "Getaway Van",
+     "There's been a drop-off at the store, Mako: some files we want, and we want 'em now. Get \
+      one of the boys along, pick up what the guy at the den's got for you, and shake the store \
+      down. Then get to the van.\r\
+      - Get the files off the man at the store, alive.\r\
+      - Take the getaway van to the hideout."),
 ];
 
 /// `text` cut short with "..." to fit `width` at scale `s`.
