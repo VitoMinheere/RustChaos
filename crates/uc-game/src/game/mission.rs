@@ -161,7 +161,13 @@ impl Game {
                     self.mines.push(Mine { way, pos: Vec3::new(pos.x, y, pos.z), fuse: None, gone: false });
                 }
                 Command::Item { way, kind, pos, stashed } => {
-                    let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
+                    // On the surface nearest its point, as people are made, when there's one
+                    // within reach: `EWAY_create_item` leaves it at the point's own height,
+                    // which can be a little under the roof it's meant to lie on (Roper's
+                    // explosives in Transmit1, 128 under his). Else on whatever is under it.
+                    let near = level.ground.spawn_height(&level.map, pos.x, pos.z, pos.y);
+                    let under = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
+                    let y = if near == pos.y && under < near - uc_world::ground::STEP_HEIGHT { under } else { near };
                     let item = Item { way, kind, pos: Vec3::new(pos.x, y, pos.z) };
                     // A stashed item goes into the nearest prop within eight squares, which
                     // becomes searchable; with none that near it is left lying in the open

@@ -218,8 +218,8 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
     [Some(dir.join(mission).join(&file)), world, Some(dir.join(&file))].into_iter().flatten().find(|p| p.is_file())
 }
 
-/// What the two unfinished missions never got (not in the original): an ending, and
-/// beacons for the objectives, which neither has a single one of.
+/// What the unfinished missions never got (not in the original): an ending, and beacons for
+/// the objectives, which none has a single one of.
 ///
 /// Takeover1 sends Darci to bring two hostages out to the extraction point, and says "Worker
 /// 1 rescued." and "Worker 2 rescued." as each gets there (points 65 and 64), but nothing
@@ -228,10 +228,43 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 ///
 /// subdock1 has a beacon on the dock operator (point 37), and one on the rendezvous (point
 /// 42) once the chopper (41) comes.
-pub fn finish_unfinished(mission: &mut Mission) {
+///
+/// gang3, an early Gang order3, sends Mako to shake the man in the store (point 134) down
+/// for the files from a drop-off and says "Good work!" (point 138) once he's back at the
+/// den with them, but nothing ends it: here an `end_game_win` point goes off with it. The
+/// man has a beacon until the files are in hand (point 139), the den one from then on.
+///
+/// Crimescene follows the trail of a shooting to Harley Blvd, where the brutes who knew of
+/// it were to meet "some geek" (point 76), and stops there, with a workman (point 79) and two
+/// Wildcats minding him. Here the workman is the geek: arresting him once the trail has led
+/// there wins, and killing him, the only lead, loses. He has a beacon from then on.
+///
+/// police5 has someone bomb Darci's station, and five Wildcats out beating people up in the
+/// West District, each with a point that goes off when he's arrested (146 to 150), but
+/// nothing ends it: here arresting all five wins, and killing any of them loses. Each has a
+/// beacon until he's brought in.
+///
+/// Transmit1's `prim_damaged` point (120), which wins it once the transmitter on the TV
+/// building is blown up, is just over the edge of the map's block of props from the
+/// transmitter's: `EWAY_create_cond` looks for the nearest prop in the point's own block,
+/// so in the original it watches a prop that can't be damaged, and the mission can't be
+/// won. Here the point is on the transmitter.
+///
+/// `mission_name` is the mission's file name: gang3's own name is "Gang order3", whose
+/// mission it was made from.
+pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
     use uc_formats::ucm::{on_trigger, trigger, waypoint, EventPoint};
-    let name = mission.mission_name.to_ascii_lowercase();
-    if !matches!(name.as_str(), "takeover1" | "subdock1") || mission.event_points.iter().any(|e| e.used != 0 && e.kind == waypoint::NAV_BEACON) {
+    let name = mission_name.to_ascii_lowercase();
+    if name == "transmit1" {
+        if let Some(e) = mission.event_points.iter_mut().find(|e| e.index == 120 && e.used != 0 && e.trigger == trigger::PRIM_DAMAGED) {
+            (e.x, e.z) = (20228, 18180);
+        }
+        return;
+    }
+    // Not twice: an edited mission keeps what it was given.
+    let has = |kind: u8| mission.event_points.iter().any(|e| e.used != 0 && e.kind == kind);
+    let done = if matches!(name.as_str(), "crimescene" | "police5") { has(waypoint::END_GAME_WIN) } else { has(waypoint::NAV_BEACON) };
+    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5") || done {
         return;
     }
     let point = |m: &Mission, i: usize| m.event_points.iter().find(|e| e.index == i && e.used != 0).cloned();
@@ -253,6 +286,53 @@ pub fn finish_unfinished(mission: &mut Mission) {
             add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
         }
         add_point(mission, beacon(&one, 0), Some("Extraction point"));
+    } else if name == "crimescene" || name == "police5" {
+        // Who's to be brought in, with the point that goes off when they're arrested, what
+        // they're called, what's said once it's done and what if one's killed, and the point
+        // they're wanted from (0 for the start).
+        type Wanted = Vec<(usize, Option<usize>)>;
+        let (wanted, label, done_text, lost_text, from): (Wanted, &str, &str, &str, usize) = if name == "crimescene" {
+            (vec![(79, None)], "The geek",
+             "You're the geek them brutes were meetin', huh? You an' me are gonna have a little talk about 24th Street...",
+             "D'arci, you just killed our only lead on that shooting!", 75)
+        } else {
+            (vec![(93, Some(148)), (94, Some(146)), (137, Some(147)), (138, Some(149)), (139, Some(150))], "Wildcat",
+             "That's the last of 'em, Stern. Now maybe we'll find out who bombed the station.",
+             "We needed those Wildcats alive, Stern! Now we'll never find out who bombed the station.", 0)
+        };
+        let Some(start) = point(mission, wanted[0].0) else { return };
+        let say = |text_from: &EventPoint, secs: i32| EventPoint { kind: waypoint::MESSAGE, data: [0, secs, 0, 0, 0, 0, 0, 0, 0, 0], ..at(text_from) };
+        let mut got = Vec::new();
+        for &(who, arrested) in &wanted {
+            let Some(w) = point(mission, who) else { return };
+            let arrested = arrested.unwrap_or_else(|| add_point(mission, EventPoint { kind: waypoint::SIMPLE, trigger: trigger::PERSON_ARRESTED, ep_ref: who as u16, ..at(&w) }, None));
+            let b = add_point(mission, EventPoint { trigger: if from == 0 { trigger::NONE } else { trigger::DEPENDENCY }, ep_ref: from as u16, ..beacon(&w, who) }, Some(label));
+            let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: arrested as u16, ..at(&w) };
+            add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
+            let killed = EventPoint { trigger: trigger::KILLED_NOT_ARRESTED, ep_ref: who as u16, ..say(&w, 6) };
+            let killed = add_point(mission, killed, Some(lost_text));
+            add_point(mission, EventPoint { kind: waypoint::END_GAME_LOSE, trigger: trigger::DEPENDENCY, ep_ref: killed as u16, ..at(&w) }, None);
+            got.push(arrested);
+        }
+        // All of them in: an `and` of each with the ones before.
+        let mut all = got[0];
+        for &g in &got[1..] {
+            all = add_point(mission, EventPoint { kind: waypoint::SIMPLE, trigger: trigger::BOOLEAN_AND, ep_ref: all as u16, ep_ref_bool: g as u16, ..at(&start) }, None);
+        }
+        if from != 0 {
+            all = add_point(mission, EventPoint { kind: waypoint::SIMPLE, trigger: trigger::BOOLEAN_AND, ep_ref: from as u16, ep_ref_bool: all as u16, ..at(&start) }, None);
+        }
+        let said = add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: all as u16, ..say(&start, 6) }, Some(done_text));
+        add_point(mission, EventPoint { kind: waypoint::END_GAME_WIN, trigger: trigger::DEPENDENCY, ep_ref: said as u16, ..at(&start) }, None);
+    } else if name == "gang3" {
+        let (Some(man), Some(files), Some(den), Some(good)) = (point(mission, 134), point(mission, 139), point(mission, 137), point(mission, 138)) else { return };
+        if !mission.event_points.iter().any(|e| e.used != 0 && e.kind == waypoint::END_GAME_WIN) {
+            add_point(mission, EventPoint { kind: waypoint::END_GAME_WIN, trigger: trigger::DEPENDENCY, ep_ref: good.index as u16, ..at(&good) }, None);
+        }
+        let b = add_point(mission, beacon(&man, 134), Some("The store"));
+        let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: files.index as u16, ..at(&files) };
+        add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
+        add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: files.index as u16, ..beacon(&den, 0) }, Some("The den"));
     } else {
         let (Some(op), Some(chopper), Some(rendezvous)) = (point(mission, 37), point(mission, 41), point(mission, 42)) else { return };
         add_point(mission, beacon(&op, 37), Some("Dock operator"));
@@ -272,11 +352,24 @@ fn add_point(mission: &mut Mission, ep: uc_formats::ucm::EventPoint, text: Optio
     index
 }
 
+/// The map a mission is played on when the install hasn't got its own: that of the mission
+/// it became. Finale1b's `Rooftest.iam` is missing, and Day Of Reckoning has its
+/// `Rooftest2.iam`.
+pub fn stand_in_map(mission_name: &str) -> Option<&'static str> {
+    const STAND_INS: [(&str, &str); 1] = [("Finale1b", r"Data\Rooftest2.iam")];
+    STAND_INS.iter().find(|(m, _)| m.eq_ignore_ascii_case(mission_name)).map(|&(_, map)| map)
+}
+
 impl Level {
     pub fn load(game: &Path, mission_name: &str, opt: &LoadOptions) -> Result<Level, String> {
         let mut mission = Mission::parse(&read(game, &format!("levels\\{mission_name}.ucm"))?)
             .map_err(|e| format!("{mission_name}.ucm: {e}"))?;
-        finish_unfinished(&mut mission);
+        finish_unfinished(mission_name, &mut mission);
+        if read(game, &mission.map).is_err() {
+            if let Some(map) = stand_in_map(mission_name) {
+                mission.map = map.to_string();
+            }
+        }
         Level::load_with_mission(game, mission_name, mission, opt)
     }
 
