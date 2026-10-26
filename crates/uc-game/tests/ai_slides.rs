@@ -14,6 +14,8 @@ fn a_hunter_slides_into_her_as_she_runs() {
     r.play(1.0, Controls::default());
     let pi = r.player();
     let h = r.g.people.iter().position(|q| q.fake && q.ai == uc_game::person::AI_CIV && !q.is_dead()).expect("no crowd");
+    // Out in the street, not in the station she starts in, with room to run along +x.
+    r.stand(vec3(87.5 * 256.0, 0.0, 103.5 * 256.0));
     let me = r.g.people[pi].fig.pos;
     // Facing along +x, with the hunter a few squares behind her.
     r.g.people[pi].fig.angle = uc_world::character::angle_of(vec2(1.0, 0.0));
