@@ -147,6 +147,10 @@ pub mod anim {
     pub const AK_JOG: usize = 266;
     pub const ARREST_CROUTCH: usize = 282;
     pub const ARREST_BE_CUFFED: usize = 283;
+    /// `ANIM_ARREST_STRUGGLE`: lying cuffed, trying to get free.
+    pub const ARREST_STRUGGLE: usize = 284;
+    /// `ANIM_ARREST_ROLL`: rolled over from the back onto the front to be cuffed.
+    pub const ARREST_ROLL: usize = 285;
     /// `ANIM_INJURED_LOOP`: lying hurt (`set_person_injured`).
     pub const INJURED_LOOP: usize = 386;
     /// `ANIM_END` + n (fallen/Headers/animate.h): carrying someone, and `_V` being carried.
@@ -409,6 +413,21 @@ impl Animator {
         self.next = if self.len > 1 { chunk.keyframes[self.start].next.unwrap_or(self.start) } else { self.start };
         self.index = Some(0);
         true
+    }
+
+    /// Moves on `n` keyframes straight away (`advance_keyframe` `n` times), stopping short of
+    /// the last.
+    fn skip(&mut self, chunk: &AnimChunk, n: usize) {
+        for _ in 0..n {
+            let i = self.index.map_or(0, |i| i + 1);
+            if i + 1 >= self.len {
+                break;
+            }
+            self.cur = self.next;
+            self.index = Some(i);
+            self.next = chunk.keyframes[self.cur].next.unwrap_or(self.start);
+        }
+        self.tween = 0.0;
     }
 
     /// Moves on by `dt`; returns how many keyframes it passed and whether it came to the end
@@ -713,6 +732,11 @@ impl Figure {
 
     pub fn advance(&mut self, dt: f32) {
         self.animator.advance(&self.anims, dt);
+    }
+
+    /// Moves the animation on `n` keyframes at once.
+    pub fn skip_keyframes(&mut self, n: usize) {
+        self.animator.skip(&self.anims, n);
     }
 
     /// Like [`Figure::advance`], for things that count keyframes: how many it passed, and

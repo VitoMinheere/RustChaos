@@ -219,10 +219,51 @@ impl Person {
         self.health = 0;
         self.knocked_out = true;
         self.cues.push(Sfx::KnockedOut { kind: self.kind });
-        // On their front after a blow from behind (`person_is_lying_on_what`, Person.cpp:1160).
-        let front = matches!(self.fig.anim(), anim::KD_FRONT_LOW | anim::KD_FRONT_MID | anim::KD_FRONT_LAND
-            | anim::KO_BEHIND_BIG | anim::PISTOL_WHIP_TAKE | anim::FIGHT_STOMPED_BACK);
+        let front = self.lying_on_front();
         self.fig.restart_locked(if front { anim::FIGHT_STOMPED_BACK } else { anim::FIGHT_STOMPED_FRONT }, Play::Once);
+    }
+
+    /// Lying on their front, by what put them down (`person_is_lying_on_what`,
+    /// Person.cpp:1157): a blow from behind, a stamp, a takedown, lying down with their hands
+    /// up. On their back otherwise (a thrown victim among them).
+    pub(crate) fn lying_on_front(&self) -> bool {
+        matches!(self.fig.anim(), anim::KD_FRONT_LOW | anim::KD_FRONT_MID | anim::KD_FRONT_LAND
+            | anim::KO_BEHIND_BIG | anim::PISTOL_WHIP_TAKE | anim::FIGHT_STOMPED_BACK | anim::HANDS_UP_LIE)
+    }
+
+    /// Being cuffed (`set_person_arrest`, Person.cpp:9322): rolled over onto the front first
+    /// if on the back (`ANIM_ARREST_ROLL`), else cuffed as they lie, the body kept where it is
+    /// (`set_locked_anim`). From now on they struggle now and then, each on a beat of their
+    /// own (`PTIME`, a byte that starts at random and counts game turns).
+    pub(crate) fn be_cuffed(&mut self) {
+        self.state = State::Cuffed;
+        self.struggle = (self.fidget_roll >> 8 & 0xff) as f32 / 20.0;
+        let a = if self.lying_on_front() { anim::ARREST_BE_CUFFED } else { anim::ARREST_ROLL };
+        self.fig.restart_locked(a, Play::Once);
+    }
+
+    /// `step` in [`State::Cuffed`] (`fn_person_dead`, Person.cpp:17419). Rolled over, they're
+    /// turned round with it and cuffed from three keyframes in (`SUB_STATE_DEAD_ARREST_TURN_
+    /// OVER`). Cuffed, every 256 turns, once still, a struggle (`SUB_STATE_DEAD_ARRESTED`).
+    pub(super) fn step_cuffed(&mut self, dt: f32) {
+        self.struggle -= dt;
+        let beat = self.struggle <= 0.0;
+        if beat {
+            self.struggle += 256.0 / 20.0;
+        }
+        if !self.fig.finished() {
+            return;
+        }
+        if self.fig.anim() == anim::ARREST_ROLL {
+            let hips = self.fig.hips();
+            self.fig.angle += std::f32::consts::PI;
+            self.fig.restart_now(anim::ARREST_BE_CUFFED, Play::Once);
+            self.fig.skip_keyframes(3);
+            let now = self.fig.hips();
+            self.fig.pos += vec3(hips.x - now.x, 0.0, hips.z - now.z);
+        } else if beat {
+            self.fig.restart_locked(anim::ARREST_STRUGGLE, Play::Once);
+        }
     }
 
     /// Whether a blow or a shot from `from` comes from behind them.
@@ -234,7 +275,7 @@ impl Person {
     pub(super) fn step_down(&mut self, ground: &Ground, map: &Map, dt: f32) {
         // Knocked down, not out: get up after a while (unless arrested meanwhile).
         self.down_timer += dt;
-        let lying = matches!(self.fig.anim(), anim::KD_FRONT_LAND | anim::KD_BACK_LAND);
+        let lying = matches!(self.fig.anim(), anim::KD_FRONT_LAND | anim::KD_BACK_LAND | anim::GRAB_ARM_THROWV);
         if !self.knocked_out && !self.out_cold && lying && self.fig.finished() && self.down_timer > 2.5 {
             self.fig.restart_locked(anim::QUICK_GET_UP, Play::Once);
             self.fig.lift = 0.0;
@@ -381,13 +422,17 @@ impl Person {
             }
             self.down_timer = 0.0;
             self.state = State::Down;
-            let a = match (front, low) {
-                (true, true) => anim::KD_FRONT_LOW,
-                (false, true) => anim::KD_BACK_LOW,
-                (true, false) => anim::KD_FRONT_MID,
-                (false, false) => anim::KD_BACK_MID,
-            };
-            self.fig.restart(a, Play::Once);
+            // Thrown, the throw lays them out as it goes, where it puts them
+            // (`PERSON_DEATH_TYPE_STAY_ALIVE_PRONE`, which starts no animation of its own).
+            if self.fig.anim() != anim::GRAB_ARM_THROWV {
+                let a = match (front, low) {
+                    (true, true) => anim::KD_FRONT_LOW,
+                    (false, true) => anim::KD_BACK_LOW,
+                    (true, false) => anim::KD_FRONT_MID,
+                    (false, false) => anim::KD_BACK_MID,
+                };
+                self.fig.restart(a, Play::Once);
+            }
         } else {
             self.state = State::Hurt;
             let a = match (front, high) {

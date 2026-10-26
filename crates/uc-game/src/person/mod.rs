@@ -918,6 +918,8 @@ pub struct Person {
     /// dice it's rolled with.
     pub(crate) fidget: Option<f32>,
     fidget_roll: u32,
+    /// Cuffed: seconds to the next chance to struggle (`PTIME` coming round to 0).
+    pub(crate) struggle: f32,
     /// This breath's puff is out (`FLAG2_SYNC_SOUNDFX` for `MagicFrameCheck`).
     pub(crate) breathed: bool,
     /// Plunging to their death: they've screamed. Landed from it: the blood to splash
@@ -989,7 +991,7 @@ impl Person {
             pace: Pace::Walk,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
-            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, breathed: false, screamed: false, splattered: false, sized_up: false, felon: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
+            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, struggle: 0.0, breathed: false, screamed: false, splattered: false, sized_up: false, felon: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }
@@ -1398,7 +1400,7 @@ impl Person {
                 let l = self.fig.lift;
                 self.fig.lift = (l - 600.0 * dt).max(0.0);
             }
-            State::Down => {
+            State::Down | State::Cuffed => {
                 // Settle a knockdown's height change onto the floor, at falling speed.
                 let l = self.fig.lift;
                 self.fig.lift = l.signum() * (l.abs() - 900.0 * dt).max(0.0);
@@ -1513,7 +1515,8 @@ impl Person {
                 }
             }
             State::Down => self.step_down(ground, map, dt),
-            State::Cuffed | State::Held { .. } | State::InCar { .. } => {}
+            State::Cuffed => self.step_cuffed(dt),
+            State::Held { .. } | State::InCar { .. } => {}
             State::Fall { vy, vel } => self.step_fall(vy, vel, c, ground, map, dt),
             State::Vault { from, to } => {
                 self.fig.pos = from.lerp(to, self.fig.progress());

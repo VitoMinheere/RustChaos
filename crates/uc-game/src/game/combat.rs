@@ -345,11 +345,7 @@ impl Game {
                     }
                     // "Hey!" (Person.cpp:9422).
                     self.noises.push((person::Noise::Hey, self.people[attacker].fig.pos, Some(attacker)));
-                    let at = self.people[attacker].fig.pos;
-                    let v = &mut self.people[victim];
-                    v.state = State::Cuffed;
-                    v.face_towards(at);
-                    v.fig.restart(uc_world::character::anim::ARREST_BE_CUFFED, uc_world::Play::Once);
+                    self.people[victim].be_cuffed();
                 }
                 Event::Arrested { victim } => {
                     self.people[victim].arrested = true;
