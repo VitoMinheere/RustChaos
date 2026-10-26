@@ -284,10 +284,9 @@ impl Ground {
             let (x, z) = ((rf.rx & 127) as usize, (rf.rz & 127) as usize);
             let y0 = rf.y as f32;
             let d = |i: usize| ((rf.dy[i] as i32) << ROOF_SHIFT) as f32;
-            // A rooftop's own height stands for its faces.
-            if !map.square(x, z).has(flags::ROOF_EXISTS) {
-                roofs.entry((x, z)).or_insert_with(Vec::new).push([y0, y0 + d(0), y0 + d(2), y0 + d(1)]);
-            }
+            // On a rooftop's square too: Gang order3's store has its floor 256 up under a
+            // rooftop at 1536 (`MAV_calc_height_array` raises any square to its faces).
+            roofs.entry((x, z)).or_insert_with(Vec::new).push([y0, y0 + d(0), y0 + d(2), y0 + d(1)]);
         }
         let ladders = map
             .facets
