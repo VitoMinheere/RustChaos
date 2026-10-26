@@ -119,7 +119,7 @@ fn the_doorman_phones_wild_bill_and_bill_calls_georgie() {
 }
 
 /// Darci stood about next to a dancer in the club for three seconds dances along, the same
-/// dance, until she's asked to move.
+/// dance, on and on as they do, until she's asked to move.
 #[test]
 fn darci_dances_along_with_the_club_goers() {
     let Some(mut r) = start() else { return };
@@ -134,6 +134,12 @@ fn darci_dances_along_with_the_club_goers() {
     assert!(matches!(r.g.people[me].state, uc_game::State::Move), "dancing too soon");
     r.play(1.5, Controls::default());
     assert_eq!(r.g.people[me].state, uc_game::State::Pose { anim }, "Darci didn't join in");
+    // Round and round, not stopped at the end of the first time through.
+    r.play(5.0, Controls::default());
+    for (who, i) in [("the dancer", dancer), ("Darci", me)] {
+        let f = &r.g.people[i].fig;
+        assert!(!f.finished() && f.loops() >= 2.0, "{who} stopped dancing: {} times through", f.loops());
+    }
     r.play(DT, Controls { wish: glam::vec2(1.0, 0.0), ..Default::default() });
     assert!(matches!(r.g.people[me].state, uc_game::State::Move), "still dancing: {:?}", r.g.people[me].state);
 }

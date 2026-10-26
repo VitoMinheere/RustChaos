@@ -626,7 +626,9 @@ impl Game {
                 person::MOVE_HANDS_UP | person::MOVE_TIED_UP => anim::HANDS_UP,
                 _ => continue,
             };
-            if p.fig.restart(a, uc_world::Play::Once) {
+            // A dance on a loop; hands up once, then held (`ANIM_HANDS_UP_LOOP`).
+            let play = if a == anim::HANDS_UP { uc_world::Play::Once } else { uc_world::Play::Loop };
+            if p.fig.restart(a, play) {
                 p.state = State::Pose { anim: a };
             }
         }
@@ -660,7 +662,7 @@ impl Game {
             let to = o.fig.pos;
             let me = &mut self.people[i];
             me.fig.angle = uc_world::character::angle_of(Vec2::new(to.x - at.x, to.z - at.z));
-            if me.fig.restart(a, uc_world::Play::Once) {
+            if me.fig.restart(a, uc_world::Play::Loop) {
                 me.state = State::Pose { anim: a };
             }
         }
