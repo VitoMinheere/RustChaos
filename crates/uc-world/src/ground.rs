@@ -217,8 +217,10 @@ pub fn cable_points(f: &uc_formats::iam::Facet) -> Vec<Vec3> {
 }
 
 pub struct Ground {
-    /// Roof corner heights per square, corners (x,z) (x+1,z) (x,z+1) (x+1,z+1).
-    roofs: HashMap<(usize, usize), [f32; 4]>,
+    /// Roof corner heights per square, corners (x,z) (x+1,z) (x,z+1) (x+1,z+1). A square can
+    /// have more than one: inside a warehouse, its roof over the floor of a building inside
+    /// it (Gatecrasher's club and diner stand 256 up, under roofs at 2304 and 768).
+    roofs: HashMap<(usize, usize), Vec<[f32; 4]>>,
     /// Walkable prop tops by map square (a prop is listed in every square it covers).
     prop_tops: HashMap<(i32, i32), Vec<PropTop>>,
     /// Walkable prop faces (`FACE_FLAG_WALKABLE`: stair treads, ramps) as world triangles,
@@ -275,14 +277,16 @@ impl Ground {
         for (x, z) in (0..128).flat_map(|x| (0..128).map(move |z| (x, z))) {
             let sq = map.square(x, z);
             if sq.has(flags::ROOF_EXISTS) {
-                roofs.insert((x, z), [sq.height as f32 * 64.0; 4]);
+                roofs.insert((x, z), vec![[sq.height as f32 * 64.0; 4]]);
             }
         }
         for rf in map.roof_faces.iter().skip(1) {
             let (x, z) = ((rf.rx & 127) as usize, (rf.rz & 127) as usize);
             let y0 = rf.y as f32;
             let d = |i: usize| ((rf.dy[i] as i32) << ROOF_SHIFT) as f32;
-            roofs.entry((x, z)).or_insert([y0, y0 + d(0), y0 + d(2), y0 + d(1)]);
+            // On a rooftop's square too: Gang order3's store has its floor 256 up under a
+            // rooftop at 1536 (`MAV_calc_height_array` raises any square to its faces).
+            roofs.entry((x, z)).or_insert_with(Vec::new).push([y0, y0 + d(0), y0 + d(2), y0 + d(1)]);
         }
         let ladders = map
             .facets
@@ -434,17 +438,17 @@ impl Ground {
         Ground { roofs, prop_tops, prop_tris, walls, doors, ladders, cables, fences, fence_buildings, prop_walls, prop_damage, moving: Default::default() }
     }
 
-    fn roof_height(&self, x: f32, z: f32) -> Option<f32> {
+    /// The heights at (x, z) of the roofs over its square.
+    fn roof_heights(&self, x: f32, z: f32) -> impl Iterator<Item = f32> + '_ {
         let (mx, mz) = ((x / SQUARE as f32).floor(), (z / SQUARE as f32).floor());
-        if mx < 0.0 || mz < 0.0 {
-            return None;
-        }
-        let h = self.roofs.get(&(mx as usize, mz as usize))?;
+        let roofs = (mx >= 0.0 && mz >= 0.0).then(|| self.roofs.get(&(mx as usize, mz as usize))).flatten();
         let (fx, fz) = (x / SQUARE as f32 - mx, z / SQUARE as f32 - mz);
-        Some(if fx + fz < 1.0 {
-            h[0] + (h[1] - h[0]) * fx + (h[2] - h[0]) * fz
-        } else {
-            h[3] + (h[2] - h[3]) * (1.0 - fx) + (h[1] - h[3]) * (1.0 - fz)
+        roofs.into_iter().flatten().map(move |h| {
+            if fx + fz < 1.0 {
+                h[0] + (h[1] - h[0]) * fx + (h[2] - h[0]) * fz
+            } else {
+                h[3] + (h[2] - h[3]) * (1.0 - fx) + (h[1] - h[3]) * (1.0 - fz)
+            }
         })
     }
 
@@ -452,7 +456,7 @@ impl Ground {
     /// what thrown things fall onto and bounce off.
     pub fn map_height(&self, map: &Map, x: f32, z: f32) -> f32 {
         let ground = map.ground_height(x, z);
-        self.roof_height(x, z).map_or(ground, |r| r.max(ground))
+        self.roof_heights(x, z).fold(ground, f32::max)
     }
 
     /// Height of the surface under feet at (x, y, z): the highest of terrain and roof that is
@@ -474,7 +478,7 @@ impl Ground {
 
     fn surface_of(&self, map: &Map, x: f32, z: f32, y: f32, keep: impl Fn(&Wmove) -> bool) -> f32 {
         let mut best = map.ground_height(x, z);
-        if let Some(r) = self.roof_height(x, z) {
+        for r in self.roof_heights(x, z) {
             if r <= y + STEP_HEIGHT && r > best {
                 best = r;
             }
@@ -514,7 +518,7 @@ impl Ground {
         let tops = self.prop_tops.get(&key).into_iter().flatten().filter(|t| t.contains(p)).map(|t| t.top)
             .chain(moving.iter().filter(|f| !f.vehicle).filter_map(|f| f.height(x, z, 0.0)));
         let tris = self.prop_tris.get(&key).into_iter().flatten().filter_map(|t| height_in(t, x, z));
-        self.roof_height(x, z).into_iter().chain(tops).chain(tris)
+        self.roof_heights(x, z).chain(tops).chain(tris)
             .filter(|&h| h - y <= 160.0)
             .min_by(|a, b| (a - y).abs().total_cmp(&(b - y).abs()))
             .unwrap_or_else(|| {

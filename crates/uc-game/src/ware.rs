@@ -15,7 +15,9 @@
 //! instead, chosen as you come in. `MUSIC_play_the_mode` (fallen/Source/music.cpp) puts the
 //! same loop in place of the music while you're in there.
 
+use glam::Vec3;
 use uc_formats::iam::{facet_type, flags, Map, BUILDING_TYPE_WAREHOUSE};
+use uc_world::ground::Ground;
 
 /// `indoors_waves[]`, by ambience 1 to 4: the police station, a Posheeta's, an office and a
 /// nightclub. The retail release ships the first three without the "MONO" of their names in
@@ -72,5 +74,12 @@ impl Wares {
             return None;
         }
         self.wares.iter().position(|w| (w.min.0..=w.max.0).contains(&x) && (w.min.1..=w.max.1).contains(&z))
+    }
+
+    /// The warehouse someone at `at` is inside: in its floorplan and under its roof, not on
+    /// it.
+    pub fn under_roof(&self, map: &Map, ground: &Ground, at: Vec3) -> Option<usize> {
+        self.which_contains(map, (at.x as i32) >> 8, (at.z as i32) >> 8)
+            .filter(|_| ground.surface(map, at.x, at.z, 1.0e5) - at.y > 128.0)
     }
 }

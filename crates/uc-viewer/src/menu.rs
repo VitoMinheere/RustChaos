@@ -217,7 +217,12 @@ impl Menu {
             let map = uc_formats::resolve(game, &format!("levels\\{mission}.ucm"))
                 .and_then(|p| std::fs::read(p).ok())
                 .and_then(|b| uc_formats::ucm::Mission::parse(&b).ok())
-                .map(|m| m.map.to_ascii_lowercase());
+                .map(|m| m.map.to_ascii_lowercase())
+                // A map the install hasn't got is played on a stand-in (Finale1b's).
+                .map(|m| match uc_world::level::stand_in_map(&mission) {
+                    Some(s) if uc_formats::resolve(game, &m).is_none() => s.to_ascii_lowercase(),
+                    _ => m,
+                });
             if let Some(map) = map.clone().filter(|m| !m.is_empty()) {
                 maps.entry(map).or_default().push((mission.clone(), title.clone()));
             }
@@ -241,13 +246,19 @@ impl Menu {
         }
         let maps = arenas;
         // The unreleased missions aren't in `urban.sty`: each goes on the district of a
-        // mission on the same map, and those on maps of their own on a pin of their own.
+        // mission on the same map, and those on maps of their own on a pin of their own. The
+        // drafts on maps of their own are in the list alone.
         let mut lost = None;
         for i in 0..entries.len() {
-            if entries[i].district.is_some() || !UNRELEASED.iter().any(|u| u.0 == entries[i].mission) {
+            let draft = DRAFTS.iter().any(|u| u.0 == entries[i].mission);
+            if entries[i].district.is_some() || !draft && !UNRELEASED.iter().any(|u| u.0 == entries[i].mission) {
                 continue;
             }
             let near = (0..entries.len()).find(|&j| j != i && map_of[j].is_some() && map_of[j] == map_of[i] && entries[j].district.is_some());
+            if draft {
+                entries[i].district = near.and_then(|j| entries[j].district);
+                continue;
+            }
             entries[i].district = near.and_then(|j| entries[j].district).or_else(|| {
                 Some(*lost.get_or_insert_with(|| {
                     named.push(Some(("Unreleased Missions".to_string(), LOST_PIN)));
@@ -1044,7 +1055,7 @@ impl Menu {
 /// order (`suggest_order`, fallen/Source/frontend.cpp:259): (mission, title, briefing).
 /// `urban.sty` has neither, so the titles are this project's and the briefings are written
 /// from the missions' opening messages.
-const UNRELEASED: [(&str, &str, &str); 6] = [
+const UNRELEASED: [(&str, &str, &str); 8] = [
     ("FreeCD1", "Construction Site Siege",
      "The local Wildcat chapter have stormed the construction site and taken some workers hostage, \
       and they've spread out all over this section of town. We want those hostages ALIVE, Stern!\r\
@@ -1078,6 +1089,85 @@ const UNRELEASED: [(&str, &str, &str); 6] = [
      "Terminate the dock operator and get to the chopper for extraction. The extraction site is \
       on the most southern part of this sector.\r\
       - Take out the dock operator.\r- Meet the chopper at the rendezvous point."),
+    // An earlier Gatecrasher on a map of its own (`bball1.iam`), finished but untitled: the
+    // briefing is from its opening message. Its club is The Purple Palace, and it's won only
+    // with all three gang bosses down and at least one of them arrested.
+    ("bball1", "The Purple Palace",
+     "Get into the Union City baseball ground, and be sure to apprehend at least one of the gang \
+      superiors. The gate's Wild Bill's patch: nobody gets in unless he says so.\r\
+      - Find Wild Bill and get him to let you in.\r\
+      - Take down all three gang bosses, and bring at least one of them in alive."),
+    // An early Mako mission on Gangland's map, untitled and with no opening message: the
+    // briefing is made up from its script. Mako robs a store of a drop-off's files and gets
+    // them away in a van.
+    ("Gang order3", "Getaway Van",
+     "There's been a drop-off at the store, Mako: some files we want, and we want 'em now. Get \
+      one of the boys along, pick up what the guy at the den's got for you, and shake the store \
+      down. Then get to the van.\r\
+      - Get the files off the man at the store, alive.\r\
+      - Take the getaway van to the hideout."),
+];
+
+/// Earlier drafts and prototypes the game never listed that play to an end, after
+/// [`UNRELEASED`]: (mission, title, briefing). Unlike those, they're pinned only with a
+/// district whose map they share; the rest are in the list alone. None has a title in the
+/// game, so these are this project's, and the briefings are their opening messages where
+/// they have them, made up from their scripts where they don't.
+const DRAFTS: [(&str, &str, &str); 10] = [
+    // Combat Gold with bigger waves, on the same course: it calls itself the gold grade.
+    ("fight3", "Combat Platinum",
+     "For the gold grade you need to use combat techniques against skilled and sometimes armed \
+      opponents. The area is littered with paint mines and you have limited time.\r\
+      - Eliminate or arrest ALL targets of increasing difficulty within the time limitations."),
+    // A bigger Insane Assault, in Central Park.
+    ("BAALROG1", "Three Balrogs",
+     "Darci, looks like Bane has finally done it. Somehow, 3 Baalrogs have been summoned and \
+      unleashed on Union City... until I can find out where these things are comin' from, you \
+      need to take 'em out one by one.\r\
+      - Kill all three Balrogs.\r- Don't let them kill more than 20 civilians."),
+    // Early Mako missions on Gangland's map. gang1 has no opening message.
+    ("gang1", "Mr Bates",
+     "There's a Mr Bates hanging out by the park, Mako, and the gang wants him gone. Ask around, \
+      take Razor along if he's up for it, and come back to the den when it's done.\r\
+      - Take down Mr Bates.\r- Get back to the den."),
+    // gang3 is Gang order3 before the getaway van: it ends back at the den.
+    ("gang3", "Trash the Place",
+     "There's been a drop-off at the store, Mako: some files we want. Round up one of the boys, \
+      pick up what the guy at the den's got for you, and shake the store down.\r\
+      - Get the files off the man at the store, alive.\r- Bring them back to the den."),
+    // Prototypes on the TV centre's map.
+    ("Getaway1", "Mr X's Getaway",
+     "Meet your contact at the corner of Lexington and 12th. Check your nav map. Mr X and his \
+      bodyguards are making a hasty exit from the TV station.\r\
+      - Meet the police contact.\r- Intercept Mr X before his van gets away."),
+    ("Transmit1", "Transmitter",
+     "Destroy the main transmitter at the top of the television building. Roper has the \
+      sabotage equipment.\r\
+      - Get the explosives from Roper.\r- Blow up the transmitter on the roof."),
+    // An early Estate of Emergency on a map of its own.
+    ("estate1", "Farraday's Files",
+     "This building contains the main computer. To get in, you will need to disarm the \
+      security measures: they can be disarmed by throwing the override switch in the pool \
+      house.\r\
+      - Turn the security off.\r- Copy the files about the cult from the main computer.\r\
+      - Get them to Officer Jed at the main gates."),
+    // Unfinished, with endings this project gives them (`uc_world::level::finish_unfinished`)
+    // and no opening messages: the briefings are made up from their scripts.
+    ("Crimescene", "24th Street Shooting",
+     "A man's been shot dead on 24th Street, Stern: two .44 slugs, and he wasn't no gang-banger. \
+      The uniforms are on the scene. Find out who did it.\r\
+      - Follow the trail from the crime scene.\r- Bring in whoever the killers were meeting, alive."),
+    ("police5", "Station Bombed",
+     "Someone's bombed the station, Stern, and there's Wildcats out all over the West District \
+      beating on whoever they please. Ask around, and bring 'em in.\r\
+      - Arrest all five Wildcats. We need them alive."),
+    // An earlier Day Of Reckoning, whose own map is missing: it's played on Day Of
+    // Reckoning's (`uc_world::level::stand_in_map`).
+    ("Finale1b", "The Final Reckoning",
+     "D'arci - now is the final reckoning. Here, we will probably die - but what we will avert \
+      may very well save this City and even this earth. Bane has retreated his men to guard \
+      him at the top of Clandon Towers...\r\
+      - Get the wounded survivors to safety.\r- Knock out the fuel pumps.\r- Get to the safe zone."),
 ];
 
 /// `text` cut short with "..." to fit `width` at scale `s`.
@@ -1097,6 +1187,21 @@ fn capital(text: &str) -> String {
     let mut c = text.chars();
     c.next().map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
 }
+
+/// Objectives for the game's missions whose briefings list none: Mako's, which only say to
+/// go and meet someone. Worked out from their scripts and added to the end of the briefing.
+const OBJECTIVES: [(&str, &str); 3] = [
+    ("Bankbomb1",
+     "\r- Drive the car bomb to the bank courtyard, then clear out.\
+      \r- Get Cliffy and Zit to help take out the cop bomb squad.\
+      \r- Leave the second car bomb at the department store, then clear out.\
+      \r- Don't get the boys killed."),
+    ("Gangorder2",
+     "\r- Pick up McLean and Bish.\r- Meet Spiv for the job.\
+      \r- Grab McIntyre's son and bring him back to base alive."),
+    ("Gangorder1",
+     "\r- Find Radar on the roof for the target.\r- Kill Corrola.\r- Get back to the hideout."),
+];
 
 /// The game's mission list (`data\urban.sty`): (mission file without `.ucm`, title,
 /// briefing), for the missions this install has, then the unreleased ones that play. Lines
@@ -1118,9 +1223,13 @@ pub fn missions(game: &Path) -> Vec<(String, String, String)> {
         {
             continue;
         }
-        out.push((mission, f[8].to_string(), f.get(9).copied().unwrap_or("").to_string()));
+        let mut briefing = f.get(9).copied().unwrap_or("").to_string();
+        if let Some((_, objectives)) = OBJECTIVES.iter().find(|o| o.0.eq_ignore_ascii_case(&mission)) {
+            briefing += objectives;
+        }
+        out.push((mission, f[8].to_string(), briefing));
     }
-    for (mission, title, briefing) in UNRELEASED {
+    for (mission, title, briefing) in UNRELEASED.iter().chain(DRAFTS.iter()) {
         if uc_formats::resolve(game, &format!("levels\\{mission}.ucm")).is_some() {
             out.push((mission.to_string(), title.to_string(), briefing.to_string()));
         }
@@ -1247,6 +1356,34 @@ mod tests {
         assert!(m.pins.windows(2).all(|w| w[0].at.0 <= w[1].at.0));
         // The unreleased missions are pinned too.
         assert!(m.entries.iter().filter(|e| UNRELEASED.iter().any(|u| u.0 == e.mission)).all(|e| e.district.is_some()));
+        // The drafts with a district's map are on its pin; estate1, on a map of its own, is in
+        // the list alone.
+        let pin = |mission: &str| {
+            let i = m.entries.iter().position(|e| e.mission == mission).unwrap_or_else(|| panic!("{mission} isn't listed"));
+            m.pins.iter().find(|p| p.missions.contains(&i)).map(|p| p.name.as_str())
+        };
+        for (mission, district) in [("fight3", "Combat Centre"), ("BAALROG1", "Central Park"), ("gang1", "Gangland"), ("gang3", "Gangland"),
+                                    ("Getaway1", "Television Centre"), ("Transmit1", "Television Centre"),
+                                    ("Crimescene", "Southside Beach"), ("police5", "West District")] {
+            assert_eq!(pin(mission), Some(district), "{mission}");
+        }
+        assert_eq!(pin("estate1"), None);
+        // Finale1b on Day Of Reckoning's pin, as it's played on its map.
+        assert!(pin("Finale1").is_some());
+        assert_eq!(pin("Finale1b"), pin("Finale1"));
+    }
+
+    #[test]
+    fn mako_missions_have_objectives() {
+        let Some(game) = uc_formats::default_install() else { return };
+        let all = missions(&game);
+        for (mission, n) in [("Bankbomb1", 4), ("Gangorder2", 3), ("Gangorder1", 3)] {
+            let m = all.iter().find(|m| m.0 == mission).unwrap_or_else(|| panic!("{mission} isn't listed"));
+            let (story, objectives) = checklist::split_briefing(&m.2);
+            assert_eq!(objectives.len(), n, "{mission}: {objectives:?}");
+            // The game's own briefing is still the story.
+            assert!(story.len() > 40, "{mission}: {story}");
+        }
     }
 
     #[test]

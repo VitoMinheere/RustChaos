@@ -135,11 +135,7 @@ impl Game {
     pub(crate) fn go_indoors(&mut self, level: &Level) {
         let Some(p) = self.player() else { return };
         let at = p.fig.pos;
-        let ware = self.wares.which_contains(&level.map, (at.x as i32) >> 8, (at.z as i32) >> 8).filter(|_| {
-            // Under its roof, not on it.
-            let roof = level.ground.surface(&level.map, at.x, at.z, 1.0e5);
-            roof - at.y > 128.0
-        });
+        let ware = self.wares.under_roof(&level.map, &level.ground, at);
         self.indoors = match (ware, self.indoors) {
             (Some(w), Some((was, amb))) if w == was => Some((was, amb)),
             (Some(w), _) => Some((w, self.wares.wares[w].ambience)),

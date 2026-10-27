@@ -23,10 +23,11 @@ fn in_air(level: &uc_world::Level, x: f32, y: f32, z: f32) -> bool {
 
 /// Every person's point in every playable mission: they're made on the surface nearest it,
 /// never more than 0xa0 above it, or with none on the ground within 0x50 of it, or under it.
-/// Otherwise they're left where the point is, in the air, to fall: bball2's warehouse points
-/// and factory1's points 133 and 156, among others. None of them has a roof or a prop over a
-/// point in the street that the old rule (the highest surface up to half a storey above)
-/// picked over a nearer one.
+/// Otherwise they're left where the point is, in the air, to fall: factory1's point 307 and
+/// Semtex's 198. None of them has a roof or a prop over a point in the street that the old
+/// rule (the highest surface up to half a storey above) picked over a nearer one. Those on a
+/// floor inside a warehouse, under its roof, are made on the floor: bball2's club and diner,
+/// 256 up, and factory1's points 133 and 156, 1536 up under a roof at 2048.
 #[test]
 fn people_are_made_on_the_surface_nearest_their_point() {
     let (mut points, mut aloft) = (0, Vec::new());
@@ -48,18 +49,20 @@ fn people_are_made_on_the_surface_nearest_their_point() {
         }
     }
     assert!(points > 500, "{points} points");
-    for m in [("factory1", 133), ("factory1", 156)] {
+    for m in [("factory1", 307), ("Semtex", 198)] {
         assert!(aloft.contains(&m), "{m:?} isn't left in the air");
     }
-    assert!(aloft.iter().any(|&(m, _)| m == "bball2"), "none of bball2's warehouse points is left in the air");
+    for m in [("factory1", 133), ("factory1", 156)] {
+        assert!(!aloft.contains(&m), "{m:?} is left over its warehouse's floor");
+    }
+    assert!(!aloft.iter().any(|&(m, _)| m == "bball2"), "bball2's warehouse people are left over their floors");
 }
 
-/// Someone made in the air falls, and lands: bball2's warehouse people, 256 over its floor,
-/// and factory1's, 1024 over the ground (point 307 grabs a ledge beside him on the way down,
-/// and pulls up onto it).
+/// Someone made in the air falls, and lands: factory1's point 307, 832 over the ground (he
+/// grabs a ledge beside him on the way down, and pulls up onto it).
 #[test]
 fn people_made_in_the_air_fall() {
-    for mission in ["bball2", "factory1"] {
+    for mission in ["factory1"] {
         let Some(level) = common::load(mission) else { return };
         let aloft: Vec<usize> = level.mission.event_points.iter()
             .filter(|e| e.used != 0 && matches!(e.kind, waypoint::CREATE_PLAYER | waypoint::CREATE_ENEMIES))
