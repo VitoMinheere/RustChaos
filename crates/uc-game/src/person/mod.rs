@@ -596,6 +596,8 @@ pub enum State {
     Slip,
     /// A flip to the side, out of a bullet's way (`SUB_STATE_FLIPING`).
     Flip { left: bool },
+    /// Breaking out of a hold, or losing one's grip as someone does (`SUB_STATE_ESCAPE`).
+    Escape,
     /// Kicking off a wall in a jump (`SUB_STATE_WALL_KICK`), to jump on the other way, `away`.
     WallKick { away: Vec2 },
     /// Vaulting a low fence at a run (`SUB_STATE_RUNNING_VAULT`), from `from` to `to` on the
@@ -665,7 +667,8 @@ pub enum Event {
     OutCold { attacker: usize, victim: usize },
     /// The attacker changed grapple move; the victim follows.
     GrabMove { victim: usize, grab: Grab },
-    Release { victim: usize },
+    /// `victim` breaks out of `attacker`'s hold (`SUB_STATE_ESCAPE`).
+    Escape { attacker: usize, victim: usize },
     Arrest { attacker: usize, victim: usize },
     /// `carrier` has picked up `victim` (`set_person_carry`).
     Carry { carrier: usize, victim: usize },
@@ -712,6 +715,8 @@ pub struct Snap {
     /// Lying knocked down and still alive, and someone who can be cuffed (see
     /// [`Person::arrestable`]). The game also clears it for the player's own bodyguards.
     pub arrestable: bool,
+    /// How good a fighter they are (`GET_SKILL`).
+    pub skill: u8,
     /// `PERSON_*` type.
     pub kind: u8,
     pub player: bool,
@@ -1344,6 +1349,7 @@ impl Person {
             down: self.is_down(),
             arrested: self.arrested,
             arrestable: self.arrestable(),
+            skill: self.skill,
             kind: self.kind,
             player: self.player,
             hostile: self.hostile(),
@@ -1536,6 +1542,17 @@ impl Person {
             State::Down => self.step_down(ground, map, dt),
             State::Cuffed | State::Held { .. } | State::InCar { .. } => {}
             State::WallKick { away } => self.step_wall_kick(away),
+            State::Escape => {
+                // Over, and the one who got free goes for the one who had them
+                // (`PCOM_attack_happened`).
+                if self.fig.finished() {
+                    self.state = State::Move;
+                    self.idle(true);
+                    if !self.player {
+                        self.aggro = true;
+                    }
+                }
+            }
             State::Fall { vy, vel } => {
                 self.step_flying_kick(me, c, vel, snaps, events);
                 self.step_fall(vy, vel, c, ground, map, dt);

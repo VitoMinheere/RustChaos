@@ -328,12 +328,10 @@ impl Game {
                 Event::GrabMove { victim, grab } => {
                     self.people[victim].fig.restart(grab.anims().1, uc_world::Play::Once);
                 }
-                Event::Release { victim } => {
-                    let from = self.people[victim].fig.pos;
+                Event::Escape { victim, .. } => {
                     let v = &mut self.people[victim];
-                    if matches!(v.state, State::Held { .. }) {
-                        v.state = State::Move;
-                        v.take_hit(from, 0, 0, false, false, Weapon::None);
+                    if matches!(v.state, State::Held { .. }) && v.fig.restart(uc_world::character::anim::GRAB_ARM_ESCAPEV, uc_world::Play::Once) {
+                        v.state = State::Escape;
                     }
                 }
                 Event::Carry { carrier, victim } => {

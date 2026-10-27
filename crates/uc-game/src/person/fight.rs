@@ -302,11 +302,13 @@ impl Person {
             Grab::Knee1 if self.fig.finished() => Some(Grab::Hold),
             _ => None,
         };
-        if grab == Grab::Hold && timer > 5.0 {
-            // The victim wriggles free.
-            events.push(Event::Release { victim });
-            self.state = State::Move;
-            self.idle(true);
+        // The one held struggles all the while, five times a second (`PTIME & 3`), and once
+        // that comes to more than 23, less half their skill, they break free, unless they're
+        // in the middle of a knee or a throw (`SUB_STATE_GRAPPLE_HELD`, Person.cpp:19230).
+        if matches!(grab, Grab::Grab | Grab::Hold) && timer * 5.0 > 23.0 - (v.skill / 2) as f32 {
+            events.push(Event::Escape { attacker: me, victim });
+            self.fig.restart(anim::GRAB_ARM_ESCAPE, Play::Once);
+            self.state = State::Escape;
             return;
         }
         if let Some(g) = next {
@@ -315,7 +317,7 @@ impl Person {
                 events.push(Event::GrabMove { victim, grab: g });
                 events.push(if g == Grab::Throw { Event::Kick { attacker: me } } else { Event::Punch { attacker: me } });
             }
-            self.state = State::Grapple { victim, grab: g, hit: false, timer: 0.0, frame };
+            self.state = State::Grapple { victim, grab: g, hit: false, timer, frame };
             return;
         }
         if matches!(grab, Grab::Knee2 | Grab::Throw) {

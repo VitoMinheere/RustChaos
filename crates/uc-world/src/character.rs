@@ -127,6 +127,10 @@ pub mod anim {
     pub const GRAB_ARM_KNEE1V: usize = 231;
     pub const GRAB_ARM_KNEE2: usize = 232;
     pub const GRAB_ARM_KNEE2V: usize = 233;
+    /// `ANIM_GRAB_ARM_ESCAPE` and `_ESCAPEV`: someone held breaking free, and the one who
+    /// had them losing their grip.
+    pub const GRAB_ARM_ESCAPE: usize = 234;
+    pub const GRAB_ARM_ESCAPEV: usize = 235;
     pub const KICK_RIGHT: usize = 262;
     pub const QUICK_GET_UP: usize = 264;
     pub const KNIFE_ATTACK1: usize = 271;
