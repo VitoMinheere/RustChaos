@@ -89,3 +89,32 @@ fn a_bodyguard_arms_himself() {
     assert!(g.people[guard].weapon == Weapon::Pistol, "still has {:?}", g.people[guard].weapon);
     assert!(!g.items.iter().any(|it| it.way == 0 && it.kind == 2), "the pistol's still lying there");
 }
+
+/// Someone else's bodyguard hit by the player fights back (`PCOM_attack_happened`: anyone
+/// but his client): in Mr Bates (gang1), one of the cops guarding Bates (point 114),
+/// punched face on by Mako.
+#[test]
+fn a_bodyguard_hit_by_the_player_fights_back() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let level = Level::load(&game, "gang1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let mut g = Game::new(&level, true);
+    run(&level, &mut g, 2.0);
+    let pi = g.player.unwrap();
+    let guard = g.people.iter().position(|p| p.way == 114).expect("no guard");
+    assert_eq!(g.people[guard].ai, AI_BODYGUARD);
+    let at = g.people[guard].fig.pos;
+    g.people[pi].fig.pos = at + Vec3::new(90.0, 0.0, 0.0);
+    g.people[pi].fig.angle = uc_world::character::angle_of(glam::vec2(-1.0, 0.0));
+    g.people[pi].state = State::Move;
+    g.people[guard].fig.angle = uc_world::character::angle_of(glam::vec2(1.0, 0.0));
+    g.update(DT, &Controls { punch: true, ..Default::default() }, &level);
+    let mut hurt = false;
+    for _ in 0..(8.0 / DT) as usize {
+        let before = g.people[pi].health;
+        g.update(DT, &Controls::default(), &level);
+        hurt |= g.people[pi].health < before;
+        g.people[pi].health = g.people[pi].max_health;
+    }
+    assert_eq!(g.people[guard].foe, Some(pi), "he isn't after Mako");
+    assert!(hurt, "he never hit back: {:?}", g.people[guard].state);
+}

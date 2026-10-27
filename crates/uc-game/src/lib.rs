@@ -1392,7 +1392,15 @@ impl Game {
                 (person::AI_BODYGUARD, w) => {
                     let client = if w == 0 { player } else { self.by_way.get(&w).copied() };
                     let eye = Vec3::new(0.0, 140.0, 0.0);
-                    self.people
+                    // Hit by anyone but their client, they fight back (`PCOM_attack_happened`,
+                    // pcom.cpp:13732: "goto fight"), the player too.
+                    let hit_back = p.hurt_by
+                        .filter(|&j| j != i && Some(j) != client && j < self.people.len())
+                        .filter(|&j| {
+                            let o = &self.people[j];
+                            !o.removed && !o.is_dead() && (o.fig.pos - p.fig.pos).length() < GUARDS * 256.0
+                        });
+                    hit_back.or_else(|| self.people
                         .iter()
                         .enumerate()
                         .filter(|(j, o)| {
@@ -1405,7 +1413,7 @@ impl Game {
                             let d = |o: &Person| (o.fig.pos - p.fig.pos).length();
                             d(a.1).total_cmp(&d(b.1))
                         })
-                        .map(|(j, _)| j)
+                        .map(|(j, _)| j))
                 }
                 // Someone out to get a particular person (a bully's pick, a gang mate's fight).
                 _ if p.victim.is_some() => p.victim,

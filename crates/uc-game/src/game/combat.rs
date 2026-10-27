@@ -302,14 +302,15 @@ impl Game {
                     if Some(attacker) == self.player {
                         self.record.takedowns += 1;
                     }
-                    let from = self.people[attacker].fig.pos;
+                    // They've already gone down in the whip's own animation: they stay
+                    // lying where it left them (`set_person_dead` with `STAY_ALIVE_PRONE`
+                    // is "quick", no new animation), rather than being knocked over again.
                     let v = &mut self.people[victim];
-                    if matches!(v.state, State::Held { .. }) {
-                        v.state = State::Move;
-                    }
-                    v.take_hit(from, 0, person::ko::GRAPPLE, false, false, Weapon::None);
-                    if v.is_down() {
+                    if matches!(v.state, State::Held { .. }) && !v.removed && !v.invulnerable {
+                        v.state = State::Down;
+                        v.down_timer = 0.0;
                         v.out_cold = true;
+                        v.taunt = None;
                         v.cues.push(Sfx::BatHit);
                     }
                 }
