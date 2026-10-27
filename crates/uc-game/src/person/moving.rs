@@ -333,7 +333,12 @@ impl Person {
     pub(super) fn step_fall(&mut self, mut vy: f32, mut vel: Vec2, c: &Controls, ground: &Ground, map: &Map, dt: f32) {
         vy -= GRAVITY * dt;
         let running = vel.length() > 100.0;
-        if self.fig.finished() && !matches!(self.fig.anim(), anim::PLUNGE_START | anim::PLUNGE_FORWARDS) {
+        if self.flying_kick.is_some() {
+            // The kick, then down out of it (`SUB_STATE_FLYING_KICK_FALL`).
+            if self.fig.anim() == anim::FLYKICK_START && self.fig.finished() {
+                self.fig.restart(anim::FLYKICK_FALL, Play::Once);
+            }
+        } else if self.fig.finished() && !matches!(self.fig.anim(), anim::PLUNGE_START | anim::PLUNGE_FORWARDS) {
             self.fig.play(if running { anim::MID_AIR } else { anim::FALLING }, Play::Loop);
         }
         // A little air control.
@@ -433,8 +438,14 @@ impl Person {
             self.cues.push(Sfx::Land);
             // Both feet come down (`person_splash(p_person, -1)`).
             self.footfall = Some(Foot::Both);
-            self.fig.restart(if running { anim::LAND_RIGHT } else { anim::LAND_VERT }, Play::Once);
-            self.fig.set_speed(if running { 1.5 } else { 2.0 });
+            if self.flying_kick.is_some() {
+                // Out of a flying kick, onto the kicking foot and on (`ANIM_FLYKICK_LAND`,
+                // locked to the right foot, Person.cpp:13661).
+                self.fig.restart_locked(anim::FLYKICK_LAND, Play::Once);
+            } else {
+                self.fig.restart(if running { anim::LAND_RIGHT } else { anim::LAND_VERT }, Play::Once);
+                self.fig.set_speed(if running { 1.5 } else { 2.0 });
+            }
             // Landing hard hurts, and from high enough kills (fallen/Source/Darci.cpp).
             let damage = fall_damage(-vy);
             if damage > 0 {

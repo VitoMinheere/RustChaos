@@ -145,6 +145,11 @@ pub mod anim {
     pub const SHOTGUN_AIM: usize = 293;
     pub const AK_FIRE: usize = 254;
     pub const AK_JOG: usize = 266;
+    /// `ANIM_FLYKICK_*`: a flying kick out of a running jump, the fall after it, and the
+    /// landing.
+    pub const FLYKICK_START: usize = 279;
+    pub const FLYKICK_FALL: usize = 280;
+    pub const FLYKICK_LAND: usize = 281;
     pub const ARREST_CROUTCH: usize = 282;
     pub const ARREST_BE_CUFFED: usize = 283;
     /// `ANIM_INJURED_LOOP`: lying hurt (`set_person_injured`).

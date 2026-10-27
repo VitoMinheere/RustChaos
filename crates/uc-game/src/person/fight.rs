@@ -137,6 +137,36 @@ impl Person {
         }
     }
 
+    /// A flying kick: kick in a running jump and the player goes in feet first
+    /// (`ANIM_FLYKICK_START`, then `ANIM_FLYKICK_FALL`, `SUB_STATE_FLYING_KICK`,
+    /// Person.cpp:13613), knocking down whoever she meets on the way at about her height,
+    /// each once, until she lands. `vel` is the jump's. The original's hit comes out of its
+    /// fight data for the animation; this one is the sliding tackle's, a little higher.
+    pub(super) fn step_flying_kick(&mut self, me: usize, c: &Controls, vel: Vec2, snaps: &[Snap], events: &mut Vec<Event>) {
+        let hit = match self.flying_kick {
+            Some(hit) => hit,
+            None if self.player && c.kick && vel.length() > 100.0 && matches!(self.fig.anim(), anim::RUN_JUMP | anim::MID_AIR) => {
+                self.fig.restart(anim::FLYKICK_START, Play::Once);
+                events.push(Event::Kick { attacker: me });
+                0
+            }
+            None => return,
+        };
+        let mut hit = hit;
+        let f = vel.normalize_or_zero();
+        for (j, s) in snaps.iter().enumerate() {
+            if j == me || j >= 64 || hit & (1 << j) != 0 || !s.standing || !self.opponents(j, s) {
+                continue;
+            }
+            let d = flat(s.pos, self.fig.pos);
+            if d.length() < 120.0 && d.normalize_or_zero().dot(f) > 0.3 && (s.pos.y - self.fig.pos.y).abs() < 160.0 {
+                hit |= 1 << j;
+                events.push(Event::Hit { attacker: me, victim: j, damage: 40, ko: ko::KNOCKDOWN, high: true, low: false, weapon: Weapon::None });
+            }
+        }
+        self.flying_kick = Some(hit);
+    }
+
     /// `step` in [`State::Slide`].
     #[allow(clippy::too_many_arguments)]
     pub(super) fn step_slide(&mut self, mut phase: u8, mut speed: f32, mut hit: u64, me: usize, snaps: &[Snap], ground: &Ground, map: &Map, dt: f32, events: &mut Vec<Event>) {
