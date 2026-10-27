@@ -198,7 +198,12 @@ impl World {
             .into_iter()
             .find(|m| m.0.eq_ignore_ascii_case(&level.name))
             .map_or((level.name.clone(), String::new()), |m| (m.1, m.2));
-        let objectives = checklist::split_briefing(&briefing).1;
+        let (story, objectives) = checklist::split_briefing(&briefing);
+        // The missions the game never released have little said at the start: the radio
+        // reads out their briefing (just the objectives where the script opens by itself).
+        if menu::unreleased(&level.name) && !objectives.is_empty() {
+            game.brief((!story.is_empty()).then_some(story), format!("Objectives: {}", objectives.join(" ")));
+        }
         let crinkles = args.crinkles;
         // A co-op run isn't a solo one to race or keep as the best.
         let race = if seat.is_none() && replay.is_none() { race(&mut game, &level, &args) } else { None };
