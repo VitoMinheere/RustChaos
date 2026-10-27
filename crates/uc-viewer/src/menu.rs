@@ -1188,6 +1188,21 @@ fn capital(text: &str) -> String {
     c.next().map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
 }
 
+/// Objectives for the game's missions whose briefings list none: Mako's, which only say to
+/// go and meet someone. Worked out from their scripts and added to the end of the briefing.
+const OBJECTIVES: [(&str, &str); 3] = [
+    ("Bankbomb1",
+     "\r- Drive the car bomb to the bank courtyard, then clear out.\
+      \r- Get Cliffy and Zit to help take out the cop bomb squad.\
+      \r- Leave the second car bomb at the department store, then clear out.\
+      \r- Don't get the boys killed."),
+    ("Gangorder2",
+     "\r- Pick up McLean and Bish.\r- Meet Spiv for the job.\
+      \r- Grab McIntyre's son and bring him back to base alive."),
+    ("Gangorder1",
+     "\r- Find Radar on the roof for the target.\r- Kill Corrola.\r- Get back to the hideout."),
+];
+
 /// The game's mission list (`data\urban.sty`): (mission file without `.ucm`, title,
 /// briefing), for the missions this install has, then the unreleased ones that play. Lines
 /// are `id : group : parent : ... : file.ucm : title : briefing`.
@@ -1208,7 +1223,11 @@ pub fn missions(game: &Path) -> Vec<(String, String, String)> {
         {
             continue;
         }
-        out.push((mission, f[8].to_string(), f.get(9).copied().unwrap_or("").to_string()));
+        let mut briefing = f.get(9).copied().unwrap_or("").to_string();
+        if let Some((_, objectives)) = OBJECTIVES.iter().find(|o| o.0.eq_ignore_ascii_case(&mission)) {
+            briefing += objectives;
+        }
+        out.push((mission, f[8].to_string(), briefing));
     }
     for (mission, title, briefing) in UNRELEASED.iter().chain(DRAFTS.iter()) {
         if uc_formats::resolve(game, &format!("levels\\{mission}.ucm")).is_some() {
@@ -1352,6 +1371,19 @@ mod tests {
         // Finale1b on Day Of Reckoning's pin, as it's played on its map.
         assert!(pin("Finale1").is_some());
         assert_eq!(pin("Finale1b"), pin("Finale1"));
+    }
+
+    #[test]
+    fn mako_missions_have_objectives() {
+        let Some(game) = uc_formats::default_install() else { return };
+        let all = missions(&game);
+        for (mission, n) in [("Bankbomb1", 4), ("Gangorder2", 3), ("Gangorder1", 3)] {
+            let m = all.iter().find(|m| m.0 == mission).unwrap_or_else(|| panic!("{mission} isn't listed"));
+            let (story, objectives) = checklist::split_briefing(&m.2);
+            assert_eq!(objectives.len(), n, "{mission}: {objectives:?}");
+            // The game's own briefing is still the story.
+            assert!(story.len() > 40, "{mission}: {story}");
+        }
     }
 
     #[test]
