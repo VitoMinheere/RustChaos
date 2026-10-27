@@ -92,3 +92,30 @@ fn standing_still_is_straight_up() {
     assert!(matches!(g.people[p].state, State::Fall { vel, .. } if vel.length() < 1.0), "{:?}", g.people[p].state);
     assert_eq!(g.people[p].fig.anim(), anim::STANDING_JUMP);
 }
+
+/// Right up close (within 120), a kick is the kick near (`ANIM_KICK_NEAR`, 40), not the
+/// first of a combo.
+#[test]
+fn a_kick_up_close_is_the_kick_near() {
+    let Some((level, mut g, p, i)) = start(100.0) else { return };
+    for _ in 0..10 {
+        step(&mut g, &level, &Controls::default());
+    }
+    step(&mut g, &level, &Controls { kick: true, ..Default::default() });
+    assert_eq!(g.people[p].fig.anim(), anim::KICK_NEAR);
+    for _ in 0..30 {
+        step(&mut g, &level, &Controls::default());
+    }
+    assert!(g.people[i].health <= 500 - 40, "health {}", g.people[i].health);
+}
+
+/// Further off, it's the first kick of the combo.
+#[test]
+fn a_kick_further_off_is_the_combo() {
+    let Some((level, mut g, p, _)) = start(150.0) else { return };
+    for _ in 0..10 {
+        step(&mut g, &level, &Controls::default());
+    }
+    step(&mut g, &level, &Controls { kick: true, ..Default::default() });
+    assert_eq!(g.people[p].fig.anim(), anim::KICK_COMBO1);
+}

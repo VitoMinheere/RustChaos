@@ -717,6 +717,10 @@ impl Person {
                 Move::KickBack
             } else if fight && moving && rel.x.abs() > 0.5 {
                 if rel.x > 0.0 { Move::KickRight } else { Move::KickLeft }
+            } else if let Some(t) = target.filter(|&t| flat(snaps[t].pos, self.fig.pos).length() < 120.0) {
+                // Right up close, a kick near (`turn_to_target_and_kick`, combat.cpp:3494).
+                self.face(snaps[t].pos);
+                Move::KickNear
             } else {
                 if let Some(t) = target {
                     self.face(snaps[t].pos);

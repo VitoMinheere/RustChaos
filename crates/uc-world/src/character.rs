@@ -57,6 +57,8 @@ pub mod anim {
     /// Darci's kick between the legs, stepping in close (`set_person_kick_near`), and the
     /// victim doubling over, staying bent and straightening up (`fn_person_recoil`).
     pub const KICK_NAD: usize = 394;
+    /// `ANIM_KICK_NEAR`: a kick at someone right up close.
+    pub const KICK_NEAR: usize = 263;
     pub const KICK_NAD_TAKE: usize = 395;
     pub const KICK_NAD_STUNNED: usize = 396;
     pub const KICK_NAD_RECOVER: usize = 397;

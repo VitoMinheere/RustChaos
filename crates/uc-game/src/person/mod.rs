@@ -414,6 +414,8 @@ pub enum Move {
     KickRight,
     /// Darci's kick between the legs (`ANIM_KICK_NAD`).
     KickNad,
+    /// A kick at someone right up close (`ANIM_KICK_NEAR`, `set_person_kick_near`).
+    KickNear,
     /// The foot sweep: kick from a block (`set_person_leg_sweep`, Person.cpp:9545).
     LegSweep,
     /// A kick at someone lying knocked down is a stamp (`set_person_stomp`, Person.cpp:9928).
@@ -463,6 +465,8 @@ impl Move {
             KickRight => d(anim::KICK_RIGHT, 0.45, 160.0, Dir::Right, 25, false, ko::SIDE_KICK, None),
             // The combat table's extra (combat.cpp:1894) comes on top, by who's kicked.
             KickNad => d(anim::KICK_NAD, 0.45, 130.0, Dir::Front, 10, false, 0, None),
+            // 40 (combat.cpp:1971), at whoever's within 120 (combat.cpp:3494).
+            KickNear => d(anim::KICK_NEAR, 0.45, 130.0, Dir::Front, 40, false, 0, None),
             // `sweep_feet` (Person.cpp:1936): 49 off and down, low so no guard stops it. Its
             // reach and timing are in the animation's fight data, not the source: these are
             // the kicks'.
