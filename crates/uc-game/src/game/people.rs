@@ -576,6 +576,73 @@ impl Game {
     }
 }
 
+/// The player's sit on a bench (`ACTION_SIT_BENCH`): health given so far (`Timer1`), the
+/// time to the next point, and whether it's been had lately (`GF_DISABLE_BENCH_HEALTH`).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Bench {
+    given: u32,
+    clock: f32,
+    spent: bool,
+    /// The original's turns (20 a second) counted, for when it can be had again.
+    turns: u64,
+}
+
+impl Game {
+    /// The player sits down on a bench, a sofa or an armchair, and gets some health back.
+    /// The original sits Darci when she walks backwards into one (collide.cpp:5640), but
+    /// here she always turns to face the way she walks: so it's action stood at one, with
+    /// nothing else to do (nobody to talk to, no car to get in). Every fifth of a second sat
+    /// there she gets a point of health, 39 at most (Person.cpp:16459); and that only once
+    /// in every 1024 of the original's turns (Game.cpp:2682), else she just sits. Pushing
+    /// any way gets her up (interfac.cpp:4727).
+    pub(crate) fn sit_on_benches(&mut self, playing: &[(usize, Controls, bool)], dt: f32) {
+        // `GAME_TURN & 0x3ff == 314` clears the flag.
+        let turns = (self.time * 20.0) as u64;
+        if (turns + 1024 - 314) / 1024 != (self.bench.turns + 1024 - 314) / 1024 {
+            self.bench.spent = false;
+        }
+        self.bench.turns = turns;
+        for &(pi, c, _) in playing {
+            let p = &self.people[pi];
+            if matches!(p.state, State::Sit) {
+                if p.fig.anim() == uc_world::character::anim::SIT_DOWN && p.fig.finished() {
+                    self.bench.clock += dt;
+                    while self.bench.clock >= 0.2 {
+                        self.bench.clock -= 0.2;
+                        self.bench.given += 1;
+                        if self.bench.given < 40 {
+                            let p = &mut self.people[pi];
+                            p.health = (p.health + 1).min(p.max_health);
+                        }
+                    }
+                }
+                continue;
+            }
+            // Action with nothing else to do crouches her (to pick something up): that's
+            // where the sit takes over.
+            let free = matches!(p.state, State::Move) || matches!(p.state, State::Crouch { phase: 0 }) && !c.crouch;
+            if !c.action || c.wish.length() > 0.1 || !free || p.is_dead() || self.convo.is_some() {
+                continue;
+            }
+            let at = p.fig.pos;
+            let near = self.seats.iter()
+                .filter(|(s, _)| Vec2::new(s.x - at.x, s.z - at.z).length() < 0x60 as f32 && (s.y - at.y).abs() < 0x40 as f32)
+                .min_by(|a, b| (a.0 - at).length().total_cmp(&(b.0 - at).length()));
+            let Some(&(seat, angle)) = near else { continue };
+            let p = &mut self.people[pi];
+            p.fig.pos = seat;
+            p.fig.angle = angle;
+            p.state = State::Sit;
+            p.fig.restart(uc_world::character::anim::SIT_DOWN, uc_world::Play::Once);
+            // `set_person_sit_down`: a fresh sit gives health, one too soon after the last
+            // none (`Timer1` 100).
+            self.bench.given = if self.bench.spent { 100 } else { 0 };
+            self.bench.clock = 0.0;
+            self.bench.spent = true;
+        }
+    }
+}
+
 /// Where someone can sit on the level's benches (`PRIM_OBJ_PARK_BENCH`), armchairs and sofas
 /// (`_ARMCHAIR`, `_SOFA`): in front of each by 0x20 less than its depth, facing the way it
 /// does, at its height (`PCOM_position_person_to_sit_on_prim`, pcom.cpp:1020).

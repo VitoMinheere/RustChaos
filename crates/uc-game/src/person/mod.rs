@@ -1464,8 +1464,13 @@ impl Person {
             }
             State::Carried { .. } | State::Enter { .. } | State::Bike { .. } => {}
             // Sitting: down, and stays down. They get up again in `decide` when something
-            // needs them.
-            State::Sit => {}
+            // needs them; the player when pushing any way (interfac.cpp:4727).
+            State::Sit => {
+                if self.player && c.wish.length() > 0.1 {
+                    self.state = State::Move;
+                    self.idle(false);
+                }
+            }
             State::Pose { anim: a } => {
                 if a == anim::HANDS_UP {
                     if self.fig.anim() != anim::HANDS_UP_LOOP && (self.fig.anim() != anim::HANDS_UP || self.fig.finished()) {
