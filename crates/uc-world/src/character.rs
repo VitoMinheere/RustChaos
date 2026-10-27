@@ -145,6 +145,8 @@ pub mod anim {
     pub const SHOTGUN_AIM: usize = 293;
     pub const AK_FIRE: usize = 254;
     pub const AK_JOG: usize = 266;
+    /// `ANIM_WALL_KICK`: a foot against a wall in a jump, to kick off it.
+    pub const WALL_KICK: usize = 117;
     /// `ANIM_FLYKICK_*`: a flying kick out of a running jump, the fall after it, and the
     /// landing.
     pub const FLYKICK_START: usize = 279;

@@ -271,6 +271,18 @@ impl Person {
         true
     }
 
+    /// `step` in [`State::WallKick`]: held against the wall while the foot goes in, then
+    /// turned round (`SUB_STATE_WALL_KICK`, Person.cpp:18705) and off the other way at a run.
+    /// The original kicks off its walls in its code but never calls it ("I hope we get this
+    /// working one day...", Darci.cpp:752), and stands to fight at the end rather than in
+    /// the air: here the kick is a jump.
+    pub(super) fn step_wall_kick(&mut self, away: Vec2) {
+        if self.fig.finished() {
+            self.fig.angle = uc_world::character::angle_of(away);
+            self.jump(away * RUN_SPEED);
+        }
+    }
+
     pub(super) fn jump(&mut self, vel: Vec2) {
         self.cues.push(Sfx::Jump { kind: self.kind });
         self.state = State::Fall { vy: JUMP_SPEED, vel };
@@ -331,6 +343,19 @@ impl Person {
 
     /// `step` in [`State::Fall`].
     pub(super) fn step_fall(&mut self, mut vy: f32, mut vel: Vec2, c: &Controls, ground: &Ground, map: &Map, dt: f32) {
+        // Jump again up against a wall: off it (`set_person_kick_off_wall`, Person.cpp:11367).
+        if self.player && c.jump && self.flying_kick.is_none() && vel.length() > 50.0 {
+            let (p, dir) = (self.fig.pos, vel.normalize());
+            // Up to 96 on, in steps short of her radius so as not to go through it.
+            let from = vec2(p.x, p.z);
+            let ahead = (0..4).fold(from, |q, _| ground.slide(q, p.y, dir * 24.0, RADIUS));
+            if (ahead - from).dot(dir) < 48.0 {
+                self.fig.angle = uc_world::character::angle_of(dir);
+                self.fig.restart(anim::WALL_KICK, Play::Once);
+                self.state = State::WallKick { away: -dir };
+                return;
+            }
+        }
         vy -= GRAVITY * dt;
         let running = vel.length() > 100.0;
         if self.flying_kick.is_some() {

@@ -596,6 +596,8 @@ pub enum State {
     Slip,
     /// A flip to the side, out of a bullet's way (`SUB_STATE_FLIPING`).
     Flip { left: bool },
+    /// Kicking off a wall in a jump (`SUB_STATE_WALL_KICK`), to jump on the other way, `away`.
+    WallKick { away: Vec2 },
     /// Vaulting a low fence at a run (`SUB_STATE_RUNNING_VAULT`), from `from` to `to` on the
     /// far side as the animation goes.
     Vault { from: Vec3, to: Vec3 },
@@ -1533,6 +1535,7 @@ impl Person {
             }
             State::Down => self.step_down(ground, map, dt),
             State::Cuffed | State::Held { .. } | State::InCar { .. } => {}
+            State::WallKick { away } => self.step_wall_kick(away),
             State::Fall { vy, vel } => {
                 self.step_flying_kick(me, c, vel, snaps, events);
                 self.step_fall(vy, vel, c, ground, map, dt);
