@@ -283,6 +283,14 @@ impl Person {
         }
     }
 
+    /// A back flip (`set_person_standing_jump_backwards`, Person.cpp:10214): up and over
+    /// backwards at twice walking pace (`Velocity` -32), still facing the way she was.
+    pub(super) fn back_flip(&mut self) {
+        self.cues.push(Sfx::Jump { kind: self.kind });
+        self.state = State::Fall { vy: JUMP_SPEED, vel: -self.fig.facing() * WALK_SPEED * 2.0 };
+        self.fig.restart(anim::BACK_FLIP, Play::Once);
+    }
+
     pub(super) fn jump(&mut self, vel: Vec2) {
         self.cues.push(Sfx::Jump { kind: self.kind });
         self.state = State::Fall { vy: JUMP_SPEED, vel };
@@ -724,6 +732,18 @@ impl Person {
             let t = snaps[target.unwrap()].pos;
             let d = flat(t, self.fig.pos);
             self.fig.turn_towards(d, 8.0, dt);
+            // A standing jump goes the way she's pushing (`ACTION_STANDING_JUMP`,
+            // interfac.cpp:4541): a back flip away, a flip to either side, or straight up.
+            if self.player && c.jump {
+                if moving && rel.y < -0.5 && rel.y.abs() >= rel.x.abs() {
+                    self.back_flip();
+                } else if moving && rel.x.abs() > 0.5 {
+                    self.flip(rel.x < 0.0);
+                } else {
+                    self.jump(Vec2::ZERO);
+                }
+                return;
+            }
             // Stepping back from someone swinging at her: the auto-block (`should_i_block`,
             // combat.cpp:951: only on the back step, so not with a bat, whose step is another
             // animation). Backing away from them, that is, as the manual has it: not stepping
