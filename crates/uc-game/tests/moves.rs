@@ -712,3 +712,25 @@ fn up_again_with_a_shotgun_ready() {
     until(&mut p, &level, Controls::default(), 5.0, 60.0, |p| matches!(p.state, State::Move));
     assert_eq!(p.fig.anim(), anim::SHOTGUN_STAND);
 }
+
+/// Knocked down off the edge of a roof (the one the ladder goes up), they go on down
+/// (`SUB_STATE_DYING_PRONE`, Person.cpp:16928): from that high plunging on their back
+/// (`ANIM_PLUNGE_BACKWARD`), and hitting the ground below on it. The hips never jump.
+#[test]
+fn knocked_off_a_roof() {
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let l = level.ground.ladders[0];
+    assert!(l.top - l.base > 200.0, "a roof worth falling off: {} to {}", l.base, l.top);
+    // On the roof by its edge, back to it, hit from the front.
+    let at = level.ground.on_ladder(0, l.top) - vec3(l.out.x, 0.0, l.out.y) * 60.0;
+    let mut p = person(&level, ptype::COP, vec3(at.x, l.top, at.z), -l.out);
+    assert!((p.fig.pos.y - l.top).abs() < 8.0, "on the roof: {}", p.fig.pos.y);
+    let front = p.fig.pos - vec3(l.out.x, 0.0, l.out.y) * 100.0;
+    p.take_hit(front, 10, ko::KNOCKDOWN, false, false, uc_game::Weapon::None);
+    assert!(p.is_down());
+    until(&mut p, &level, Controls::default(), 3.0, 60.0, |p| p.fig.anim() == anim::PLUNGE_BACKWARD);
+    until(&mut p, &level, Controls::default(), 3.0, 60.0, |p| p.fig.anim() == anim::KD_BACK_LAND);
+    assert!(p.is_down());
+    assert!((p.fig.pos.y - l.base).abs() < 40.0, "on the ground below: {} (base {})", p.fig.pos.y, l.base);
+}
