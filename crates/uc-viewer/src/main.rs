@@ -216,14 +216,16 @@ impl App {
             // behind her), and runs unless Run (its walk) is held.
             let classic = inp.bindings.classic;
             let on_foot = w.game.player_vehicle().is_none() && w.game.riding().is_none() && w.game.sniping().is_none();
-            if classic && on_foot && w.look.is_none() {
+            // Strafing, Left and Right step to the side in either layout.
+            let strafe = inp.on(Act::Strafe);
+            if classic && on_foot && w.look.is_none() && !strafe {
                 w.orbit.yaw -= (inp.axis(Act::Right) - inp.axis(Act::Left)) * 2.5 * dt;
             }
             // Movement relative to the camera; screen right = forward x up.
             let fwd = vec2(w.orbit.yaw.sin(), w.orbit.yaw.cos());
             let right = vec2(-fwd.y, fwd.x);
             let mut wish = fwd * (inp.axis(Act::Forward) - inp.axis(Act::Back));
-            if !classic {
+            if !classic || strafe {
                 wish += right * (inp.axis(Act::Right) - inp.axis(Act::Left));
             }
             // The stick walks when pushed partway and runs when pushed fully.
@@ -243,6 +245,7 @@ impl App {
                 cycle_target: inp.tap(Act::Target),
                 scope: inp.tap(Act::Scope),
                 crouch: inp.on(Act::Crouch),
+                strafe: strafe.then_some(fwd),
                 ..Default::default()
             };
             // Looking round, she stands where she is: the keys turn the view.

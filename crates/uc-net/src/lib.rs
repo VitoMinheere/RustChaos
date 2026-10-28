@@ -31,7 +31,7 @@ use uc_game::{Controls, Difficulty, Drive, Game};
 use uc_world::Level;
 
 /// Bumped whenever a message changes.
-pub const PROTOCOL: u16 = 1;
+pub const PROTOCOL: u16 = 2;
 
 /// The build: its git commit. Players on different builds are turned away at hello, since
 /// their games may not play out the same.
@@ -161,6 +161,8 @@ pub struct Input {
     pub wish: [f32; 2],
     pub drive: [f32; 2],
     pub buttons: u16,
+    /// [`Controls::strafe`].
+    pub strafe: Option<[f32; 2]>,
 }
 
 /// [`Input::buttons`].
@@ -197,7 +199,7 @@ impl Input {
             (c.drive.handbrake, HANDBRAKE), (c.drive.siren, SIREN), (skip, SKIP),
         ];
         let buttons = bits.iter().filter(|b| b.0).fold(0, |a, b| a | b.1);
-        Input { wish: c.wish.to_array(), drive: [c.drive.throttle, c.drive.steer], buttons }
+        Input { wish: c.wish.to_array(), drive: [c.drive.throttle, c.drive.steer], buttons, strafe: c.strafe.map(|v| v.to_array()) }
     }
 
     pub fn controls(&self) -> Controls {
@@ -221,6 +223,7 @@ impl Input {
             drive: Drive { throttle: self.drive[0], steer: self.drive[1], handbrake: on(HANDBRAKE), siren: on(SIREN), ..Default::default() },
             target: None,
             aim: None,
+            strafe: self.strafe.map(glam::Vec2::from_array),
         }
     }
 

@@ -51,7 +51,7 @@ impl Game {
     pub(crate) fn can_talk(&self, i: usize) -> bool {
         let p = &self.people[i];
         !p.removed && !p.is_dead() && !p.is_down()
-            && !matches!(p.state, State::InCar { .. } | State::Climb { .. } | State::Mount { .. } | State::Fall { .. } | State::Zip { .. } | State::Fence { .. } | State::PullUp { .. })
+            && !matches!(p.state, State::InCar { .. } | State::Climb { .. } | State::Mount { .. } | State::OntoLadder { .. } | State::Fall { .. } | State::Zip { .. } | State::Fence { .. } | State::PullUp { .. })
     }
 
     /// Person `i`'s face (`PANEL_new_face`).

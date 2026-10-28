@@ -622,3 +622,93 @@ fn a_standing_jump_falls_on_in_its_own_pose() {
     until(&mut p, &level, Controls::default(), 2.0, 60.0, |p| p.fig.anim() == anim::FALLING_QUEUED || matches!(p.state, State::Land { .. }));
     assert_eq!(p.fig.anim(), anim::FALLING_QUEUED, "{:?}", p.state);
 }
+
+/// Action standing by the top of a ladder climbs down onto it, climbing off it backwards
+/// (`set_person_climb_down_onto_ladder`, `ANIM_OFF_LADDER_TOP`); down it, and off at the
+/// foot. The hips never jump.
+#[test]
+fn climbing_down_onto_a_ladder_from_the_top() {
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let l = level.ground.ladders[0];
+    let top = level.ground.on_ladder(0, l.top) - vec3(l.out.x, 0.0, l.out.y) * 100.0;
+    let mut p = darci(&level, vec3(top.x, l.top, top.z), -l.out);
+    assert!((p.fig.pos.y - l.top).abs() < 8.0, "on the roof: {} vs {}", p.fig.pos.y, l.top);
+    run(&mut p, &level, Controls { action: true, ..Default::default() }, DT, 60.0, |_| false);
+    assert!(matches!(p.state, State::OntoLadder { .. }), "{:?}", p.state);
+    assert_eq!(p.fig.anim(), anim::OFF_LADDER_TOP);
+    until(&mut p, &level, Controls::default(), 3.0, 40.0, |p| matches!(p.state, State::Climb { .. }));
+    // Still, she stays on it; then down to the foot and off.
+    run(&mut p, &level, Controls::default(), 0.5, 40.0, |_| false);
+    assert!(matches!(p.state, State::Climb { .. }), "{:?}", p.state);
+    let down = Controls { wish: l.out, ..Default::default() };
+    until(&mut p, &level, down, 15.0, 40.0, |p| matches!(p.state, State::Press { .. }));
+    until(&mut p, &level, Controls::default(), 3.0, 40.0, |p| matches!(p.state, State::Move));
+    assert!((p.fig.pos.y - l.base).abs() < 16.0, "at the foot: {}", p.fig.pos.y);
+}
+
+/// The strafe key held (#309): to the side a step (`ANIM_STEP_LEFT`, `_RIGHT`) that carries
+/// her 45 that way, still facing the same way; back walks backwards (`ANIM_BACK_WALK`);
+/// jump with back is a back flip (`ANIM_BACK_FLIP`); standing, she turns on the spot to face
+/// the camera's way (`ANIM_ROTATE_L`, `_R`).
+#[test]
+fn strafing() {
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let at = vec3(46.5 * 256.0, 0.0, 55.0 * 256.0);
+    let f = vec2(1.0, 0.0);
+    let right = vec2(-f.y, f.x);
+    let strafe = |wish: Vec2| Controls { wish, strafe: Some(f), ..Default::default() };
+    let facing = |p: &Person| p.fig.facing().dot(f);
+
+    for (side, a) in [(right, anim::STEP_RIGHT), (-right, anim::STEP_LEFT)] {
+        let mut p = darci(&level, at, f);
+        let from = p.fig.pos;
+        run(&mut p, &level, strafe(side), DT, 30.0, |_| false);
+        assert!(matches!(p.state, State::Step), "{:?}", p.state);
+        assert_eq!(p.fig.anim(), a);
+        until(&mut p, &level, Controls::default(), 2.0, 30.0, |p| matches!(p.state, State::Move));
+        run(&mut p, &level, Controls::default(), 0.3, 30.0, |_| false);
+        let moved = vec2(p.fig.pos.x - from.x, p.fig.pos.z - from.z);
+        assert!((moved.dot(side) - 45.0).abs() < 10.0 && moved.dot(f).abs() < 10.0, "{a}: moved {moved:?}");
+        assert!(facing(&p) > 0.99, "{a}: turned");
+    }
+
+    let mut p = darci(&level, at, f);
+    let from = p.fig.pos;
+    run(&mut p, &level, strafe(-f), 1.0, 30.0, |_| false);
+    assert_eq!(p.fig.anim(), anim::BACK_WALK);
+    assert!((p.fig.pos.x - from.x) < -60.0 && facing(&p) > 0.99, "backwards: {:?}", p.fig.pos - from);
+
+    let mut p = darci(&level, at, f);
+    let from = p.fig.pos;
+    run(&mut p, &level, Controls { jump: true, ..strafe(-f) }, DT, 60.0, |_| false);
+    assert_eq!(p.fig.anim(), anim::BACK_FLIP);
+    until(&mut p, &level, Controls::default(), 4.0, 60.0, |p| matches!(p.state, State::Move));
+    assert!((p.fig.pos.x - from.x) < -40.0 && facing(&p) > 0.99, "flipped back: {:?}", p.fig.pos - from);
+
+    // Turning: the camera round to her right.
+    let mut p = darci(&level, at, f);
+    let turn = Controls { strafe: Some(right), ..Default::default() };
+    run(&mut p, &level, turn, DT, 30.0, |_| false);
+    assert_eq!(p.fig.anim(), anim::ROTATE_R);
+    until(&mut p, &level, turn, 3.0, 30.0, |p| p.fig.anim() != anim::ROTATE_R);
+    assert!(p.fig.facing().dot(right) > 0.99);
+    assert!((p.fig.pos - at).length() < 300.0 && (vec2(p.fig.pos.x, p.fig.pos.z) - vec2(at.x, at.z)).length() < 1.0, "turned on the spot");
+}
+
+/// Up from a knockdown with a two-handed gun, they hold it ready (`ANIM_SHOTGUN_STAND`,
+/// `set_person_locked_idle_ready`).
+#[test]
+fn up_again_with_a_shotgun_ready() {
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let at = vec3(46.5 * 256.0, 0.0, 55.0 * 256.0);
+    let mut p = person(&level, ptype::COP, at, vec2(1.0, 0.0));
+    p.give(uc_game::Weapon::Shotgun);
+    p.weapon = uc_game::Weapon::Shotgun;
+    p.take_hit(at + vec3(100.0, 0.0, 0.0), 10, ko::KNOCKDOWN, false, false, uc_game::Weapon::None);
+    until(&mut p, &level, Controls::default(), 8.0, 60.0, |p| matches!(p.state, State::GetUp));
+    until(&mut p, &level, Controls::default(), 5.0, 60.0, |p| matches!(p.state, State::Move));
+    assert_eq!(p.fig.anim(), anim::SHOTGUN_STAND);
+}

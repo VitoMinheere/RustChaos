@@ -20,6 +20,9 @@ pub(crate) enum Act {
     Jump,
     Block,
     Crouch,
+    /// Held: the ways to go are hers, not the camera's (#309): sidesteps, walking
+    /// backwards, the back flip and turning on the spot.
+    Strafe,
     Weapon,
     Target,
     Scope,
@@ -34,9 +37,9 @@ pub(crate) enum Act {
     Siren,
 }
 
-pub(crate) const ACTS: [Act; 21] = [
+pub(crate) const ACTS: [Act; 22] = [
     Act::Forward, Act::Back, Act::Left, Act::Right, Act::Run, Act::Punch, Act::Kick, Act::Action, Act::Jump, Act::Block,
-    Act::Crouch, Act::Weapon, Act::Target, Act::Scope, Act::Look, Act::CamLeft, Act::CamRight, Act::CamBehind, Act::View,
+    Act::Crouch, Act::Strafe, Act::Weapon, Act::Target, Act::Scope, Act::Look, Act::CamLeft, Act::CamRight, Act::CamBehind, Act::View,
     Act::Handbrake, Act::Siren,
 ];
 
@@ -57,6 +60,7 @@ impl Act {
             Act::Jump => "JUMP",
             Act::Block => "BLOCK",
             Act::Crouch => "CROUCH",
+            Act::Strafe => "STRAFE",
             Act::Weapon => "INVENTORY",
             Act::Target => "NEXT TARGET",
             Act::Scope => "SNIPER SCOPE",
@@ -84,6 +88,7 @@ impl Act {
             Act::Jump => "jump",
             Act::Block => "block",
             Act::Crouch => "crouch",
+            Act::Strafe => "strafe",
             Act::Weapon => "inventory",
             Act::Target => "target",
             Act::Scope => "scope",
@@ -121,10 +126,10 @@ impl Default for Bindings {
 use KeyCode as K;
 
 impl Bindings {
-    fn from(classic: bool, keys: [&[KeyCode]; 21]) -> Bindings {
-        let pads: [&[Button]; 21] = [
+    fn from(classic: bool, keys: [&[KeyCode]; 22]) -> Bindings {
+        let pads: [&[Button]; 22] = [
             &[], &[], &[], &[], &[], &[Button::West], &[Button::North], &[Button::East], &[Button::South],
-            &[Button::LeftTrigger, Button::LeftTrigger2], &[Button::DPadDown], &[Button::RightTrigger], &[Button::RightThumb],
+            &[Button::LeftTrigger, Button::LeftTrigger2], &[Button::DPadDown], &[Button::RightTrigger2], &[Button::RightTrigger], &[Button::RightThumb],
             &[Button::LeftThumb], &[], &[], &[], &[], &[Button::Select], &[Button::South], &[Button::North],
         ];
         let binds = keys.iter().zip(pads).map(|(k, p)| Bind { keys: k.to_vec(), pads: p.to_vec() }).collect();
@@ -135,7 +140,7 @@ impl Bindings {
     pub(crate) fn modern() -> Bindings {
         Bindings::from(false, [
             &[K::KeyW], &[K::KeyS], &[K::KeyA], &[K::KeyD], &[K::ShiftLeft, K::ShiftRight], &[K::KeyJ], &[K::KeyK],
-            &[K::KeyE, K::KeyL], &[K::Space], &[K::KeyQ], &[K::KeyC, K::ControlLeft], &[K::KeyG], &[K::KeyT], &[K::KeyZ],
+            &[K::KeyE, K::KeyL], &[K::Space], &[K::KeyQ], &[K::KeyC, K::ControlLeft], &[K::KeyX], &[K::KeyG], &[K::KeyT], &[K::KeyZ],
             &[K::KeyF], &[K::Delete], &[K::PageDown], &[K::End], &[K::KeyV], &[K::Space], &[K::KeyK, K::KeyY],
         ])
     }
@@ -143,11 +148,11 @@ impl Bindings {
     /// The original's (the manual's pp. 11-13, 16-17 and 21): the arrows to run and turn,
     /// Z punch, X kick, C action, Space jump, Enter the inventory, A held to look round and
     /// Space in a car for pursuit mode; V walks (`keyboard_run`), and End, Delete and Page
-    /// Down turn the camera.
+    /// Down turn the camera. Left Shift strafes (not the original's: #309).
     pub(crate) fn classic() -> Bindings {
         Bindings::from(true, [
             &[K::ArrowUp], &[K::ArrowDown], &[K::ArrowLeft], &[K::ArrowRight], &[K::KeyV], &[K::KeyZ], &[K::KeyX], &[K::KeyC],
-            &[K::Space], &[K::KeyQ], &[K::ControlLeft], &[K::Enter], &[K::KeyT], &[K::KeyF], &[K::KeyA], &[K::Delete],
+            &[K::Space], &[K::KeyQ], &[K::ControlLeft], &[K::ShiftLeft], &[K::Enter], &[K::KeyT], &[K::KeyF], &[K::KeyA], &[K::Delete],
             &[K::PageDown], &[K::End], &[K::Home], &[K::KeyX], &[K::Space],
         ])
     }
@@ -179,7 +184,7 @@ impl Bindings {
     /// used driving, the fighting and the like only on foot.
     pub(crate) fn clashes(&self, a: Act) -> bool {
         let car_only = |x: Act| matches!(x, Act::Handbrake | Act::Siren);
-        let foot_only = |x: Act| matches!(x, Act::Run | Act::Punch | Act::Kick | Act::Jump | Act::Block | Act::Crouch | Act::Weapon
+        let foot_only = |x: Act| matches!(x, Act::Run | Act::Punch | Act::Kick | Act::Jump | Act::Block | Act::Crouch | Act::Strafe | Act::Weapon
             | Act::Target | Act::Scope | Act::Look);
         let mine = &self.of(a).keys;
         ACTS.iter().any(|&b| {
@@ -203,7 +208,7 @@ impl Bindings {
         };
         vec![
             format!("{mv}   {run}   {} jump   {} action (hold: sprint)   {} crouch (move: crawl)", k(Act::Jump), k(Act::Action), k(Act::Crouch)),
-            format!("{} / left mouse punch   {} kick   {} block   {} look around   M mouse look on/off", k(Act::Punch), k(Act::Kick), k(Act::Block), k(Act::Look)),
+            format!("{} / left mouse punch   {} kick   {} block   {} strafe   {} look around   M mouse look on/off", k(Act::Punch), k(Act::Kick), k(Act::Block), k(Act::Strafe), k(Act::Look)),
             format!("{} next weapon   {} next target   {} scope (sniper rifle)   Tab checklist   R restart   {} free camera (T: go there)   B ghost   ~ console   H hide help",
                     k(Act::Weapon), k(Act::Target), k(Act::Scope), k(Act::View)),
         ]
