@@ -757,6 +757,21 @@ impl Person {
             }
             return;
         }
+        // Running leaves fight mode (`general_process_player`, Person.cpp:3685). In it, punch
+        // is a punch even with a gun (`set_player_punch`, interfac.cpp:747): with a two-handed
+        // one, a club with it, one way or the other at random (`set_person_punch`).
+        if moving && c.run {
+            self.gun_fight = false;
+        }
+        if c.punch && self.gun_fight && matches!(self.weapon, Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper) {
+            if let Some(t) = target {
+                self.face(snaps[t].pos);
+            }
+            self.fidget_roll = self.fidget_roll.wrapping_mul(69069).wrapping_add(1);
+            let mv = if (self.fidget_roll >> 16) & 1 == 0 { Move::Whip1 } else { Move::Whip2 };
+            self.start_attack(me, mv, events);
+            return;
+        }
         if c.punch && self.weapon.is_gun() {
             if self.rounds() == Some(0) {
                 self.cues.push(Sfx::Click);
