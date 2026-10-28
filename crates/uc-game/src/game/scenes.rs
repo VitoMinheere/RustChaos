@@ -105,6 +105,14 @@ impl Game {
                         cv.left = 2.0 + text.chars().count() as f32 * 0.04;
                         cv.skip = 0.5;
                         let speaker = if who == 0 { self.player } else { self.by_way.get(&who).copied() };
+                        // The one with the line says it, the other hears it (`EWAY_process_conversation`,
+                        // eway.cpp:4681): a question if it ends with one.
+                        if let Some((i, j)) = cv.pair.filter(|&(i, j)| speaker == Some(i) || speaker == Some(j)) {
+                            let ask = text.trim_end().ends_with('?');
+                            for k in [i, j] {
+                                self.people[k].talk(speaker == Some(k), ask);
+                            }
+                        }
                         let face = speaker.map_or(talk::face::RADIO, |i| self.face(i));
                         let at = self.player().map_or(Vec3::ZERO, |p| p.fig.pos);
                         self.sounds.push((Sfx::ConversationLine(cv.speech, cv.line), at));

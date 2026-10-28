@@ -102,3 +102,21 @@ fn messages_have_faces() {
     let m = g.messages.iter().find(|m| m.text.contains("vehicle impact")).expect("the first message");
     assert_eq!(m.face, Some(face::RADIO));
 }
+
+/// The one with the line says it and the other hears it (#342, `PCOM_make_people_talk_to_eachother`):
+/// Darci shouts up at the mugger (`ANIM_TALK_TELL`) while he listens (`ANIM_TALK_LISTEN`).
+#[test]
+fn the_speaker_talks_and_the_other_listens() {
+    use uc_world::character::anim;
+    let Some((level, mut g)) = rta_shout() else { return };
+    let me = g.player.unwrap();
+    let (mut told, mut heard) = (false, false);
+    for _ in 0..30 {
+        g.update(DT, &Controls::default(), &level);
+        told |= g.people[me].fig.anim() == anim::TALK_TELL;
+        heard |= g.people.iter().enumerate().any(|(i, p)| i != me && p.fig.anim() == anim::TALK_LISTEN);
+    }
+    assert!(g.wide.as_ref().is_some_and(|w| w.text.contains("ASSHOLE")), "her line");
+    assert!(told, "Darci never said her line");
+    assert!(heard, "the mugger never listened");
+}

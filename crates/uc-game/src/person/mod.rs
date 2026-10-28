@@ -226,6 +226,8 @@ pub const WALK_SPEED: f32 = 190.0;
 /// Crawling: velocity 15 to walking's 16 (`SUB_STATE_CRAWLING` in `fn_person_moveing`).
 pub const CRAWL_SPEED: f32 = WALK_SPEED * 15.0 / 16.0;
 const RUN_SPEED: f32 = 520.0;
+/// How often someone sat down shifts about: 64 of the original's turns, 20 a second.
+const SIT_FIDGET: f32 = 64.0 / 20.0;
 const SPRINT_SPEED: f32 = 700.0;
 const FIGHT_STEP_SPEED: f32 = 140.0;
 /// The ladder animation climbs this far per cycle (its hips rise 117 -> 245).
@@ -478,6 +480,22 @@ impl Move {
             Bat2 => d(anim::BAT_HIT2, 0.5, 180.0, Dir::Front, 60, true, ko::COMBO_ANY | ko::KNOCKDOWN, None),
         }
     }
+    /// Back out of a move of a combo that wasn't followed up (the `fight_tree` node it goes
+    /// to when it's finished, combat.cpp:79): the last move of a combo has none.
+    fn ret(self) -> Option<usize> {
+        use Move::*;
+        Some(match self {
+            Punch1 => anim::PUNCH_RETURN1,
+            Punch2 => anim::PUNCH_RETURN2,
+            Kick1 => anim::KICK_RETURN1,
+            Kick2 => anim::KICK_RETURN2,
+            Knife1 => anim::KNIFE_ATTACK1_RET,
+            Knife2 => anim::KNIFE_ATTACK2_RET,
+            Bat1 => anim::BAT_HIT1_RET,
+            _ => return None,
+        })
+    }
+
     /// Punches and weapon swings (the punch button).
     fn is_punch(self) -> bool {
         matches!(self, Move::Punch1 | Move::Punch2 | Move::Punch3 | Move::Knife1 | Move::Knife2 | Move::Knife3 | Move::Bat1 | Move::Bat2)
@@ -551,6 +569,9 @@ pub enum Taunt {
 pub enum State {
     Move,
     Attack { mv: Move, hit: bool, queued: Option<Move> },
+    /// Coming back from a move of a combo that wasn't followed up (`ANIM_PUNCH_RETURN1` and
+    /// the rest): a press meanwhile starts afresh once it's done.
+    Recover { queued: Option<Move> },
     /// Sliding tackle: phase 0 start, 1 slide, 2 get up.
     Slide { phase: u8, speed: f32, hit: u64 },
     Hurt,
@@ -610,6 +631,9 @@ pub enum State {
     Grapple { victim: usize, grab: Grab, hit: bool, timer: f32, frame: Option<usize> },
     /// Taunting `at` (`ANIM_WANKER`), facing them all the while.
     Taunt { at: usize },
+    /// Getting a weapon out, stood still (`SUB_STATE_DRAW_ITEM`, `_DRAW_GUN`): it's in hand
+    /// from the fourth frame.
+    Draw,
     Held { by: usize },
     Arrest { victim: usize },
     Cuffed,
@@ -640,8 +664,8 @@ pub enum State {
     Crouch { phase: u8 },
     /// Bending down for a can (`SUB_STATE_CANNING_PICKUP`): whether it's in her hand yet.
     PickUp { got: bool },
-    /// Pressing a switch or turning a valve (`set_person_do_a_simple_anim`), then on as
-    /// before: the animations to play in turn.
+    /// Pressing a switch, turning a valve or getting up from a seat
+    /// (`set_person_do_a_simple_anim`), then on as before: the animations to play in turn.
     Press { then: Option<usize> },
     /// Back to a wall (`STATE_HUG_WALL`, #205): the wall from `a` to `b`, `out` its normal
     /// (the way she faces), and what she's doing against it.
@@ -989,6 +1013,12 @@ pub fn fall_damage(speed: f32) -> i32 {
     }
 }
 
+/// Running (`SUB_STATE_RUNNING`): a sprint, a run or a jog, or pushing off into one.
+pub fn running_anim(a: usize) -> bool {
+    matches!(a, anim::RUN | anim::YOMP | anim::YOMP_BAT | anim::PISTOL_JOG | anim::AK_JOG
+        | anim::YOMP_START | anim::YOMP_START_AK | anim::YOMP_START_PISTOL | anim::YOMP_START_BAT)
+}
+
 /// `(a - b)` in the ground plane.
 fn flat(a: Vec3, b: Vec3) -> Vec2 {
     vec2(a.x - b.x, a.z - b.z)
@@ -1144,6 +1174,47 @@ impl Person {
         let at = carried.iter().position(|&w| w == self.weapon).unwrap_or(0);
         self.weapon = best.unwrap_or(carried[(at + 1) % carried.len()]);
         self.inventory = 3.0;
+    }
+
+    /// The weapon key: on to the next weapon, and getting it out. Pressed while getting one
+    /// out, it goes on to the next, as the inventory takes the key whatever she's doing
+    /// (`CONTROLS_set_inventory`, Controls.cpp:1004). Whether she's getting one out.
+    pub(super) fn switch_weapon(&mut self) -> bool {
+        let was = self.weapon;
+        self.next_weapon();
+        self.cues.push(Sfx::Pickup);
+        if self.weapon != was {
+            self.draw_weapon();
+        }
+        matches!(self.state, State::Draw)
+    }
+
+    /// Gets the weapon now in hand out, stood still (`set_person_draw_item`,
+    /// Person.cpp:19630): the pistol's draw unless it's the shotgun's or the AK's (one), the
+    /// knife's or the bat's. Putting something away has no animation.
+    pub(super) fn draw_weapon(&mut self) {
+        let a = match self.weapon {
+            Weapon::None => {
+                if matches!(self.state, State::Draw) {
+                    self.state = State::Move;
+                    self.idle(false);
+                }
+                return;
+            }
+            Weapon::Shotgun | Weapon::Ak47 => anim::SHOTGUN_DRAW,
+            Weapon::Knife => anim::KNIFE_DRAW,
+            Weapon::Bat => anim::BAT_DRAW,
+            _ => anim::PISTOL_DRAW,
+        };
+        if self.fig.restart(a, Play::Once) {
+            self.state = State::Draw;
+        }
+    }
+
+    /// Whether what they're holding shows in their hand: not until the fourth frame of
+    /// getting it out (`FrameIndex == 3`, Person.cpp:18483).
+    pub fn in_hand(&self) -> bool {
+        !matches!(self.state, State::Draw) || self.fig.frame().is_some_and(|f| f >= 3)
     }
 
     /// An enemy that has noticed the player and is fighting.
@@ -1338,7 +1409,7 @@ impl Person {
             pos: if self.is_down() || matches!(self.state, State::Injured) { self.body_pos() } else { self.fig.pos },
             facing: self.fig.facing(),
             present: !self.removed,
-            standing: !self.removed && matches!(self.state, State::Move | State::Attack { .. } | State::Hurt | State::Land { .. } | State::Block { .. } | State::Shoot { .. } | State::HugWall { .. }),
+            standing: !self.removed && matches!(self.state, State::Move | State::Attack { .. } | State::Recover { .. } | State::Hurt | State::Land { .. } | State::Block { .. } | State::Shoot { .. } | State::HugWall { .. } | State::Draw),
             down: self.is_down(),
             arrested: self.arrested,
             arrestable: self.arrestable(),
@@ -1361,11 +1432,11 @@ impl Person {
                 // Darci.cpp:444), whatever it left them doing.
                 _ if self.landed_for > 0.0 => self.landed,
                 State::Attack { .. } => 0x900 as f32,
-                State::Move if matches!(self.fig.anim(), anim::RUN | anim::PISTOL_JOG | anim::AK_JOG) => 0x280 as f32,
+                State::Move if running_anim(self.fig.anim()) => 0x280 as f32,
                 _ => 0.0,
             },
             zone: 0,
-            footsteps: !self.removed && matches!(self.state, State::Move) && matches!(self.fig.anim(), anim::RUN | anim::PISTOL_JOG | anim::AK_JOG),
+            footsteps: !self.removed && matches!(self.state, State::Move) && running_anim(self.fig.anim()),
         }
     }
 
@@ -1465,12 +1536,25 @@ impl Person {
                 self.fig.play(anim::INJURED_LOOP, Play::Loop);
             }
             State::Carried { .. } | State::Enter { .. } | State::Bike { .. } => {}
-            // Sitting: down, and stays down. They get up again in `decide` when something
-            // needs them; the player when pushing any way (interfac.cpp:4727).
+            // Sitting: down, and stays down, shifting every 64 turns (`ANIM_SIT_IDLE`,
+            // Person.cpp:16489). They get up again in `decide` when something needs them; the
+            // player when pushing any way (interfac.cpp:4727), standing up first
+            // (`set_person_unsit`, Person.cpp:15328).
             State::Sit => {
                 if self.player && c.wish.length() > 0.1 {
-                    self.state = State::Move;
-                    self.idle(false);
+                    self.fidget = None;
+                    if self.fig.restart(anim::SIT_TO_STAND, Play::Once) {
+                        self.state = State::Press { then: None };
+                    } else {
+                        self.state = State::Move;
+                        self.idle(false);
+                    }
+                } else if matches!(self.fig.anim(), anim::SIT_DOWN | anim::SIT_IDLE) && self.fig.finished() {
+                    let left = self.fidget.map_or(SIT_FIDGET, |t| t.min(SIT_FIDGET)) - dt;
+                    self.fidget = Some(if left > 0.0 { left } else { SIT_FIDGET });
+                    if left <= 0.0 {
+                        self.fig.restart(anim::SIT_IDLE, Play::Once);
+                    }
                 }
             }
             State::Pose { anim: a } => {
@@ -1546,7 +1630,7 @@ impl Person {
                     let floor = ground.surface(map, to.x, to.z, to.y + STEP_HEIGHT);
                     self.fig.pos = vec3(to.x, floor, to.z);
                     self.state = State::Move;
-                    self.fig.play(anim::RUN, Play::Loop);
+                    self.fig.play(self.run_anims(false, false).0, Play::Loop);
                 }
             }
             State::PullUp { start, end, to } => {
@@ -1657,6 +1741,30 @@ impl Person {
                     if !released {
                         events.push(Event::Throw { thrower: me });
                     }
+                    self.state = State::Move;
+                    self.idle(false);
+                }
+            }
+            State::Recover { mut queued } => {
+                if queued.is_none() && (c.punch || c.kick) {
+                    queued = Some(if c.punch { Move::punch_with(self.weapon) } else { Move::Kick1 });
+                }
+                self.state = State::Recover { queued };
+                if self.fig.finished() {
+                    match queued {
+                        Some(mv) => self.start_attack(me, mv, events),
+                        None => {
+                            self.state = State::Move;
+                            self.idle(self.nearest_opponent(me, snaps, FIGHT_RANGE).is_some());
+                        }
+                    }
+                }
+            }
+            State::Draw => {
+                if c.switch && self.player && self.switch_weapon() {
+                    return;
+                }
+                if self.fig.finished() {
                     self.state = State::Move;
                     self.idle(false);
                 }

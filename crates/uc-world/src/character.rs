@@ -31,11 +31,27 @@ pub mod anim {
     pub const VAULT: usize = 16;
     pub const DEATH_SLIDE: usize = 68;
     pub const OFF_LADDER_TOP: usize = 55;
+    /// The sprint; the AI runs with it too (`set_anim_running`, Person.cpp:8749).
     pub const RUN: usize = 119;
+    /// The player's run (`PERSON_MODE_RUN`), and Roper's whatever the speed: a push off
+    /// (`ANIM_YOMP_START`, with a bat, a two-handed gun or a pistol out its own), then the
+    /// loop (Person.cpp:7947, `get_yomp_anim`).
+    pub const YOMP: usize = 198;
+    pub const YOMP_START: usize = 238;
+    pub const YOMP_START_AK: usize = 321;
+    pub const YOMP_START_PISTOL: usize = 368;
+    pub const YOMP_BAT: usize = 370;
+    pub const YOMP_START_BAT: usize = 371;
     pub const MID_AIR: usize = 122;
     pub const BREATHE: usize = 124;
     pub const IDLE_SCRATCH1: usize = 77;
     pub const IDLE_SCRATCH2: usize = 78;
+    /// A line of a conversation, a question or not, and hearing one
+    /// (`PCOM_set_person_ai_talk_to`); with a two-handed gun, holding it (`ANIM_SHOTGUN_IDLE`).
+    pub const TALK_ASK: usize = 258;
+    pub const TALK_TELL: usize = 259;
+    pub const TALK_LISTEN: usize = 260;
+    pub const SHOTGUN_IDLE: usize = 383;
     pub const CROUTCH_DOWN: usize = 143;
     pub const CRAWL: usize = 144;
     pub const IDLE_CROUTCH: usize = 222;
@@ -45,12 +61,21 @@ pub mod anim {
     pub const SHOTGUN_DUCK: usize = 312;
     pub const UNCROUTCH_AK: usize = 314;
     pub const SNIPER_CRAWL: usize = 315;
+    /// The combos' moves, and the returns from those that weren't followed up
+    /// (`fight_tree`, combat.cpp:79: `_RETURN`, `_RET`).
     pub const PUNCH_COMBO1: usize = 146;
     pub const PUNCH_COMBO2: usize = 147;
     pub const PUNCH_COMBO3: usize = 148;
     pub const KICK_COMBO1: usize = 154;
     pub const KICK_COMBO2: usize = 155;
     pub const KICK_COMBO3: usize = 156;
+    pub const PUNCH_RETURN1: usize = 150;
+    pub const PUNCH_RETURN2: usize = 151;
+    pub const KICK_RETURN1: usize = 157;
+    pub const KICK_RETURN2: usize = 158;
+    pub const KNIFE_ATTACK1_RET: usize = 274;
+    pub const KNIFE_ATTACK2_RET: usize = 275;
+    pub const BAT_HIT1_RET: usize = 240;
     pub const FIGHT: usize = 159;
     pub const KICK_LEFT: usize = 162;
     pub const KICK_BEHIND: usize = 164;
@@ -69,6 +94,9 @@ pub mod anim {
     pub const HIT_BACK_MID: usize = 169;
     /// Sitting down on a bench, a sofa or an armchair, and staying there (`ANIM_SIT_DOWN`).
     pub const SIT_DOWN: usize = 337;
+    /// Sat there, shifting now and then (`ANIM_SIT_IDLE`), and getting up again (`ANIM_SIT_TO_STAND`).
+    pub const SIT_IDLE: usize = 338;
+    pub const SIT_TO_STAND: usize = 339;
     /// Knocked dead by a blast, a car or fire, standing on the ground
     /// (`PERSON_DEATH_TYPE_OTHER`): from the front, onto the back; from behind, flat out.
     pub const KO_BACK: usize = 33;
@@ -133,6 +161,12 @@ pub mod anim {
     pub const KNIFE_ATTACK2: usize = 272;
     pub const KNIFE_ATTACK3: usize = 273;
     pub const KNIFE_FIGHT_READY: usize = 276;
+    /// Getting a weapon out (`set_person_draw_item`): the pistol's, which is also the rest's,
+    /// the shotgun's (and the AK's), the knife's and the bat's.
+    pub const PISTOL_DRAW: usize = 296;
+    pub const SHOTGUN_DRAW: usize = 81;
+    pub const KNIFE_DRAW: usize = 286;
+    pub const BAT_DRAW: usize = 245;
     pub const PISTOL_SHOOT: usize = 297;
     pub const PISTOL_AIM: usize = 298;
     /// The pistol pointed off to the left and right of ahead, and the shotgun's.

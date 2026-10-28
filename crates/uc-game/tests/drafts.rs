@@ -159,9 +159,7 @@ fn transmitter() {
     assert_eq!(r.g.people[me].explosives, 1);
     let t = r.point(120);
     r.stand(t + vec3(150.0, 0.0, 0.0));
-    while r.g.people[me].weapon != Weapon::Explosives {
-        r.play(DT, Controls { switch: true, ..Default::default() });
-    }
+    r.take_out(Weapon::Explosives);
     r.play(DT, Controls { action: true, ..Default::default() });
     assert_eq!(r.g.charges.len(), 1, "no charge set");
     r.stand(t + vec3(0.0, 0.0, 1500.0));
@@ -305,12 +303,9 @@ fn the_final_reckoning() {
     r.press(48);
     r.press(50);
     assert!(r.said("Fuel Pump 1 ACTIVE") && r.said("Fuel Pump 2 ACTIVE"), "{:?}", r.seen);
-    let me = r.player();
     let t = r.point(62);
     r.stand(t + vec3(150.0, 0.0, 0.0));
-    while r.g.people[me].weapon != Weapon::Explosives {
-        r.play(DT, Controls { switch: true, ..Default::default() });
-    }
+    r.take_out(Weapon::Explosives);
     r.play(DT, Controls { action: true, ..Default::default() });
     r.stand(t + vec3(0.0, 0.0, 1500.0));
     assert!(r.until(10.0, |r| r.g.point_active(63)), "the pumps never went up");

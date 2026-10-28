@@ -297,3 +297,23 @@ fn chain_link_fences_can_be_climbed() {
     assert!((standing_height(&p) - 96.0).abs() < 30.0);
 }
 
+
+/// A punch that isn't followed up comes back (#342, `ANIM_PUNCH_RETURN1`) before she's
+/// ready again; a punch while it does starts the combo afresh once it's done.
+#[test]
+fn an_unfollowed_punch_comes_back() {
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let mut p = darci(&level, vec3(46.5 * 256.0, 0.0, 55.0 * 256.0), vec2(1.0, 0.0));
+    let punch = Controls { punch: true, ..Default::default() };
+    until(&mut p, &level, punch, 0.2, 40.0, |p| matches!(p.state, State::Attack { .. }));
+    until(&mut p, &level, Controls::default(), 2.0, 40.0, |p| matches!(p.state, State::Recover { .. }));
+    assert_eq!(p.fig.anim(), anim::PUNCH_RETURN1);
+    until(&mut p, &level, Controls::default(), 2.0, 40.0, |p| matches!(p.state, State::Move));
+    // Again, pressing while it comes back.
+    until(&mut p, &level, punch, 0.2, 40.0, |p| matches!(p.state, State::Attack { .. }));
+    until(&mut p, &level, Controls::default(), 2.0, 40.0, |p| matches!(p.state, State::Recover { .. }));
+    run(&mut p, &level, punch, DT, 40.0, |_| false);
+    until(&mut p, &level, Controls::default(), 2.0, 40.0, |p| !matches!(p.state, State::Recover { .. }));
+    assert!(matches!(p.state, State::Attack { .. }) && p.fig.anim() == anim::PUNCH_COMBO1, "{:?}", p.state);
+}

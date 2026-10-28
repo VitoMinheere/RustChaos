@@ -44,7 +44,7 @@ impl Game {
             }
             // The weapon in hand, and a muzzle flash just after a shot. The Men in Black's own
             // mesh has their gun built into the left arm, so no AK-47 is drawn for them.
-            let built_in = p.is_mib() && p.weapon.is_gun();
+            let built_in = (p.is_mib() && p.weapon.is_gun()) || !p.in_hand();
             if let Some((held, part, flash)) = p.weapon.held().filter(|_| !built_in && (!p.weapon.is_gun() || p.gun_out())) {
                 if let Some((rot, at)) = p.fig.part_world(part) {
                     let flash = flash.filter(|_| p.flash > 0.0);

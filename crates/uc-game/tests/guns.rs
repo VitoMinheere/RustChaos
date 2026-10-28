@@ -50,7 +50,10 @@ fn pick_up_guns_and_ammo_and_switch() {
         order.push(g.people[pi].weapon);
     }
     assert_eq!(order, [Weapon::Shotgun, Weapon::None, Weapon::Pistol]);
-    // Firing at nothing uses a round.
+    // Once it's out, firing at nothing uses a round.
+    while matches!(g.people[pi].state, uc_game::State::Draw) {
+        g.update(DT, &Controls::default(), &level);
+    }
     let fire = Controls { punch: true, fire: true, ..Default::default() };
     g.update(DT, &fire, &level);
     for _ in 0..20 {

@@ -129,6 +129,9 @@ impl Person {
                     self.step_move(me, &c, snaps, ground, map, dt, events);
                 }
                 Some(next) => self.start_attack(me, next, events),
+                None if mv.ret().is_some_and(|a| self.fig.restart(a, Play::Once)) => {
+                    self.state = State::Recover { queued: None };
+                }
                 None => {
                     self.state = State::Move;
                     self.idle(self.nearest_opponent(me, snaps, FIGHT_RANGE).is_some());

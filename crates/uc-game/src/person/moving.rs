@@ -184,6 +184,25 @@ impl Person {
         true
     }
 
+    /// A run's loop, and the push off into it. With a gun, short of sprinting, the jog that
+    /// keeps it up. The player's run is the yomp, a bat's its own; sprinting it's the run,
+    /// which is the AI's whatever the speed (`set_anim_running`, Person.cpp:8749), and the
+    /// AI doesn't push off. Roper has no sprint and always yomps. `sprint_held` is whether
+    /// they'd sprint, `sprint` whether they are (the player can be out of breath).
+    pub(super) fn run_anims(&self, sprint_held: bool, sprint: bool) -> (usize, Option<usize>) {
+        use uc_world::character::person as ptype;
+        let roper = self.kind == ptype::ROPER;
+        let yomps = self.player || roper;
+        let (run, start) = match self.weapon {
+            Weapon::Pistol if !sprint_held => (anim::PISTOL_JOG, anim::YOMP_START_PISTOL),
+            Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper if !sprint_held => (anim::AK_JOG, anim::YOMP_START_AK),
+            _ if !yomps || (sprint && !roper) => return (anim::RUN, None),
+            Weapon::Bat => (anim::YOMP_BAT, anim::YOMP_START_BAT),
+            _ => (anim::YOMP, anim::YOMP_START),
+        };
+        (run, yomps.then_some(start))
+    }
+
     pub(super) fn idle(&mut self, fight: bool) {
         let a = match (fight, self.weapon) {
             (_, w) if w.is_gun() && self.gun_out() => w.aim_anim(),
@@ -219,7 +238,7 @@ impl Person {
     /// loaded, so they just breathe.
     pub(super) fn stand_about(&mut self, dt: f32) {
         use uc_world::character::person as ptype;
-        let fidgeting = matches!(self.fig.anim(), anim::IDLE_SCRATCH1 | anim::IDLE_SCRATCH2);
+        let fidgeting = matches!(self.fig.anim(), anim::IDLE_SCRATCH1 | anim::IDLE_SCRATCH2 | anim::TALK_ASK | anim::TALK_TELL | anim::TALK_LISTEN | anim::SHOTGUN_IDLE);
         if fidgeting && !self.fig.finished() {
             return;
         }
@@ -249,6 +268,24 @@ impl Person {
         if a != anim::BREATHE {
             self.fig.restart(a, Play::Once);
         }
+    }
+
+    /// Saying a line of a conversation (`ask`ing or not), or hearing one, standing about
+    /// (`PCOM_set_person_ai_talk_to`, pcom.cpp:4706). With a two-handed gun, unless they're
+    /// Roper, they just hold it.
+    pub(crate) fn talk(&mut self, speaking: bool, ask: bool) {
+        use uc_world::character::person as ptype;
+        let now = self.fig.anim();
+        if !matches!(self.state, State::Move) || now == anim::WALK || super::running_anim(now) {
+            return;
+        }
+        let a = match (speaking, ask) {
+            _ if matches!(self.weapon, Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper) && self.kind != ptype::ROPER => anim::SHOTGUN_IDLE,
+            (false, _) => anim::TALK_LISTEN,
+            (true, true) => anim::TALK_ASK,
+            (true, false) => anim::TALK_TELL,
+        };
+        self.fig.restart(a, Play::Once);
     }
 
     /// Moves horizontally by `delta`, sliding along walls and following the floor. Returns
@@ -291,13 +328,13 @@ impl Person {
         self.flash = (self.flash - dt).max(0.0);
         // Footsteps: two per walk or run cycle.
         let walking = matches!(self.state, State::Move | State::Land { .. })
-            && matches!(self.fig.anim(), anim::WALK | anim::RUN | anim::PISTOL_JOG | anim::AK_JOG | anim::FIGHT_STEP_N | anim::FIGHT_STEP_S | anim::FIGHT_STEP_E | anim::FIGHT_STEP_W);
+            && matches!(self.fig.anim(), anim::WALK | anim::RUN | anim::YOMP | anim::YOMP_BAT | anim::PISTOL_JOG | anim::AK_JOG | anim::FIGHT_STEP_N | anim::FIGHT_STEP_S | anim::FIGHT_STEP_E | anim::FIGHT_STEP_W);
         let phase = self.fig.loops().floor() + self.fig.progress();
         if walking && (phase * 2.0).floor() != (self.step_phase * 2.0).floor() {
             self.cues.push(Sfx::Footstep { player: self.player, sound: None });
             // Walking and running leave prints, the right foot then the left (Person.cpp:15457),
             // but not the steps of a fight.
-            if matches!(self.fig.anim(), anim::WALK | anim::RUN | anim::PISTOL_JOG | anim::AK_JOG) {
+            if matches!(self.fig.anim(), anim::WALK | anim::RUN | anim::YOMP | anim::YOMP_BAT | anim::PISTOL_JOG | anim::AK_JOG) {
                 let right = (phase * 2.0).floor() as i64 & 1 == 0;
                 self.footfall = Some(if right { Foot::Right } else { Foot::Left });
             }
@@ -461,9 +498,8 @@ impl Person {
 
     #[allow(clippy::too_many_arguments)]
     pub(super) fn step_move(&mut self, me: usize, c: &Controls, snaps: &[Snap], ground: &Ground, map: &Map, dt: f32, events: &mut Vec<Event>) {
-        if c.switch && self.player {
-            self.next_weapon();
-            self.cues.push(Sfx::Pickup);
+        if c.switch && self.player && self.switch_weapon() {
+            return;
         }
         let moving = c.wish.length_squared() > 0.01;
         let sprint = self.sprint(c, moving, dt);
@@ -717,10 +753,10 @@ impl Person {
         } else if moving {
             let dir = c.wish.normalize();
             self.fig.turn_towards(dir, 10.0, dt);
-            let (speed, a, rate) = match (c.run, sprint) {
-                (true, true) => (SPRINT_SPEED, anim::RUN, 1.35),
-                (true, false) => (RUN_SPEED, anim::RUN, 1.0),
-                _ => (WALK_SPEED, anim::WALK, 1.0),
+            let (speed, rate) = match (c.run, sprint) {
+                (true, true) => (SPRINT_SPEED, 1.35),
+                (true, false) => (RUN_SPEED, 1.0),
+                _ => (WALK_SPEED, 1.0),
             };
             if c.jump {
                 self.jump(dir * speed);
@@ -735,14 +771,18 @@ impl Person {
                 }
                 (self.blocked, self.walk_check) = (0.0, (self.fig.pos, 0.0));
             }
-            // Running with a gun: the jog that keeps it up.
-            let jog = match self.weapon {
-                Weapon::Pistol => Some(anim::PISTOL_JOG),
-                Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper => Some(anim::AK_JOG),
-                _ => None,
-            };
-            if !(c.run && !c.sprint && jog.is_some_and(|j| self.fig.play(j, Play::Loop))) {
-                self.fig.play(a, Play::Loop);
+            if c.run {
+                // Pushing off from standing or walking, not out of a running landing or a
+                // vault, which keep going.
+                let (run, start) = self.run_anims(c.sprint, sprint);
+                let now = self.fig.anim();
+                let pushing = start == Some(now) && !self.fig.finished();
+                let push = !running_anim(now) && !matches!(now, anim::LAND_RIGHT | anim::VAULT);
+                if !pushing && !(push && start.is_some_and(|s| self.fig.restart(s, Play::Once))) && !self.fig.play(run, Play::Loop) {
+                    self.fig.play(anim::RUN, Play::Loop);
+                }
+            } else {
+                self.fig.play(anim::WALK, Play::Loop);
             }
             self.fig.set_speed(rate);
             let before = self.fig.pos;

@@ -7,7 +7,7 @@
 #![allow(dead_code)]
 
 use glam::{vec2, vec3, Vec3};
-use uc_game::{Controls, Game};
+use uc_game::{Controls, Game, State, Weapon};
 use uc_world::{Level, LoadOptions};
 
 /// The test's frame: thirty a second.
@@ -108,6 +108,17 @@ impl Run {
 
     pub fn player(&self) -> usize {
         self.g.player.unwrap()
+    }
+
+    /// Switches the player's weapons round to `w` and waits while she gets it out.
+    pub fn take_out(&mut self, w: Weapon) {
+        let i = self.player();
+        while self.g.people[i].weapon != w {
+            self.play(DT, Controls { switch: true, ..Default::default() });
+        }
+        while matches!(self.g.people[i].state, State::Draw) {
+            self.play(DT, Controls::default());
+        }
     }
 
     /// Stands the player on the ground at `p`.
