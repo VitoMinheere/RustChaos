@@ -298,14 +298,63 @@ impl Person {
         // A knockdown is two animations: the fall, then hitting the floor (on the back
         // if knocked over from the front). Chain them keeping the hips in place.
         let land = match self.fig.anim() {
-            anim::KD_FRONT_MID | anim::KD_FRONT_LOW | anim::KD_FRONT_HI | anim::HIT_FRONT_HI => Some(anim::KD_BACK_LAND),
-            anim::KD_BACK_MID | anim::KD_BACK_LOW | anim::KD_BACK_HI => Some(anim::KD_FRONT_LAND),
+            anim::KD_FRONT_MID | anim::KD_FRONT_LOW | anim::KD_FRONT_HI | anim::HIT_FRONT_HI | anim::PLUNGE_BACKWARD => Some(anim::KD_BACK_LAND),
+            anim::KD_BACK_MID | anim::KD_BACK_LOW | anim::KD_BACK_HI | anim::PLUNGE_FORWARDS => Some(anim::KD_FRONT_LAND),
             _ => None,
         };
+        if let Some(vy) = self.topple {
+            self.step_topple(vy, land, ground, map, dt);
+            return;
+        }
         if let (Some(a), true) = (land, self.fig.finished()) {
-            self.fig.restart_locked(a, Play::Once);
+            // Gone over an edge, the hips more than 8 above what's under them: on down
+            // (`SUB_STATE_DYING_PRONE`, Person.cpp:16928), plunging if it's more than 128,
+            // else hitting the floor as they go.
+            let h = self.fig.hips();
             let p = self.fig.pos;
+            let drop = p.y - ground.surface(map, h.x, h.z, p.y + 8.0);
+            if drop > 8.0 {
+                let plunge = if a == anim::KD_BACK_LAND { anim::PLUNGE_BACKWARD } else { anim::PLUNGE_FORWARDS };
+                if !(drop > 128.0 && self.fig.restart_locked(plunge, Play::Once)) {
+                    self.fig.restart_locked(a, Play::Once);
+                }
+                // `DY = -(4 << 8)` a tick.
+                self.topple = Some(-4.0 * 20.0);
+                return;
+            }
+            self.fig.restart_locked(a, Play::Once);
             self.fig.pos.y = ground.surface(map, p.x, p.z, p.y);
+        }
+    }
+
+    /// Knocked down over an edge, falling at `vy` until they hit what's under their hips:
+    /// then the floor's hit lying as they fell (Person.cpp:16990), and the fall hurts as a
+    /// landing does, which may finish them.
+    fn step_topple(&mut self, vy: f32, land: Option<usize>, ground: &Ground, map: &Map, dt: f32) {
+        let vy = vy - GRAVITY * dt;
+        let h = self.fig.hips();
+        let p = self.fig.pos;
+        let floor = ground.surface(map, h.x, h.z, p.y);
+        let y = p.y + vy * dt;
+        if y > floor {
+            self.fig.pos.y = y;
+            self.topple = Some(vy);
+            return;
+        }
+        self.fig.pos.y = floor;
+        self.topple = None;
+        if let (Some(a), true) = (land, matches!(self.fig.anim(), anim::PLUNGE_BACKWARD | anim::PLUNGE_FORWARDS)) {
+            self.fig.restart_locked(a, Play::Once);
+        }
+        self.cues.push(Sfx::Land);
+        let damage = fall_damage(-vy);
+        if damage > 0 && !self.invulnerable && !self.knocked_out {
+            self.health -= damage;
+            if self.health <= 0 {
+                self.health = 0;
+                self.knocked_out = true;
+                self.cues.push(Sfx::KnockedOut { kind: self.kind });
+            }
         }
     }
 

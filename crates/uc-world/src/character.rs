@@ -166,6 +166,8 @@ pub mod anim {
     pub const VALVE_LOOP: usize = 398;
     pub const VALVE_END: usize = 399;
     pub const PLUNGE_FORWARDS: usize = 129;
+    /// Knocked off a height onto their back, falling (`find_anim_fall_dir`, Person.cpp:16738).
+    pub const PLUNGE_BACKWARD: usize = 128;
     pub const PLUNGE_FRONT_SLAM: usize = 141;
     /// Shot dead (`ANIM_SHOT_DEAD_*`, fallen/Headers/animate.h:514): from behind, in the
     /// head, the chest or the gut; from the front, thrown onto the back.
