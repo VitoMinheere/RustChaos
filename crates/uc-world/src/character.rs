@@ -24,6 +24,10 @@ pub mod anim {
     pub const MOUNT_LADDER: usize = 13;
     pub const OFF_LADDER_BOT: usize = 56;
     pub const LAND_RIGHT: usize = 53;
+    /// Landing a running jump with nothing held, to stand (Person.cpp:13551), and landing
+    /// hard from a drop (`DY` under -15000, Person.cpp:14795).
+    pub const LAND_STAND: usize = 96;
+    pub const BIG_LAND: usize = 225;
     pub const WALK: usize = 20;
     /// The gangs' walk, and anyone's but Darci's and Roper's with a two-handed gun
     /// (`set_anim_walking`, Person.cpp:8694).
@@ -32,8 +36,15 @@ pub mod anim {
     /// Standing hand on hip: the women's stand (`set_anim_idle`, Person.cpp:8821).
     pub const STAND_HIP: usize = 2;
     pub const FALLING: usize = 51;
+    /// Falling on from the top of a standing jump that caught nothing, in the jump's last
+    /// pose (`PERSON_DROP_DOWN_QUEUED`, Person.cpp:13254); and with a two-handed gun.
+    pub const FALLING_QUEUED: usize = 206;
+    pub const FALLING_QUEUED_AK: usize = 382;
     pub const CLIMB_UP_FENCE: usize = 45;
     pub const LAND_ON_FENCE: usize = 57;
+    /// Settling onto it, into the climb's first pose (`SUB_STATE_CLIMB_LANDING`,
+    /// Person.cpp:14217).
+    pub const LANDED_ON_FENCE: usize = 62;
     pub const CLIMB_OVER_FENCE: usize = 58;
     /// A flip to the side, out of a bullet's way (`ANIM_FLIP_LEFT`, `_RIGHT`).
     pub const FLIP_LEFT: usize = 91;
@@ -41,6 +52,10 @@ pub mod anim {
     /// Over a low fence at a run (`ANIM_VAULT`).
     pub const VAULT: usize = 16;
     pub const DEATH_SLIDE: usize = 68;
+    /// On along a cable after grabbing it: pulling up on it, then hanging there
+    /// (`SUB_STATE_DEATH_SLIDE`, Person.cpp:14630).
+    pub const WIRE_SLIDE_PULLUP: usize = 246;
+    pub const WIRE_SLIDE_HANG: usize = 247;
     pub const OFF_LADDER_TOP: usize = 55;
     /// The sprint; the AI runs with it too (`set_anim_running`, Person.cpp:8749).
     pub const RUN: usize = 119;
@@ -99,6 +114,8 @@ pub mod anim {
     /// Darci's kick between the legs, stepping in close (`set_person_kick_near`), and the
     /// victim doubling over, staying bent and straightening up (`fn_person_recoil`).
     pub const KICK_NAD: usize = 394;
+    /// The kick at someone close (`set_person_kick_near`, Person.cpp:9886).
+    pub const KICK_NEAR: usize = 263;
     pub const KICK_NAD_TAKE: usize = 395;
     pub const KICK_NAD_STUNNED: usize = 396;
     pub const KICK_NAD_RECOVER: usize = 397;
@@ -199,6 +216,9 @@ pub mod anim {
     pub const GRAB_ARM_KNEE1V: usize = 231;
     pub const GRAB_ARM_KNEE2: usize = 232;
     pub const GRAB_ARM_KNEE2V: usize = 233;
+    /// Wriggling out of an arm hold, and the one holding let go of (Person.cpp:19285).
+    pub const GRAB_ARM_ESCAPE: usize = 234;
+    pub const GRAB_ARM_ESCAPEV: usize = 235;
     pub const KICK_RIGHT: usize = 262;
     pub const QUICK_GET_UP: usize = 264;
     /// Getting up off the front (`ANIM_KO_BEHIND_BIG_GU`), and slowly off the back

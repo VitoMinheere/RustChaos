@@ -327,10 +327,14 @@ impl Person {
             _ => None,
         };
         if grab == Grab::Hold && timer > 5.0 {
-            // The victim wriggles free.
+            // The victim wriggles free, and the hold's broken (`ANIM_GRAB_ARM_ESCAPE`).
             events.push(Event::Release { victim });
-            self.state = State::Move;
-            self.idle(true);
+            if self.fig.restart(anim::GRAB_ARM_ESCAPE, Play::Once) {
+                self.state = State::Recover { queued: None };
+            } else {
+                self.state = State::Move;
+                self.idle(true);
+            }
             return;
         }
         if let Some(g) = next {

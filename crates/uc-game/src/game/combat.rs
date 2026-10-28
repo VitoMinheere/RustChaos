@@ -335,6 +335,10 @@ impl Game {
                     if matches!(v.state, State::Held { .. }) {
                         v.state = State::Move;
                         v.take_hit(from, 0, 0, false, false, Weapon::None);
+                        // Out of the hold (`ANIM_GRAB_ARM_ESCAPEV`, Person.cpp:19285).
+                        if matches!(v.state, State::Hurt) && v.fig.restart(uc_world::character::anim::GRAB_ARM_ESCAPEV, uc_world::Play::Once) {
+                            v.state = State::Recover { queued: None };
+                        }
                     }
                 }
                 Event::Carry { carrier, victim } => {

@@ -420,6 +420,8 @@ pub enum Move {
     KickNad,
     /// The jump kick: jump in a fight, no way held (`ANIM_KICK_NS`, interfac.cpp:5109).
     KickJump,
+    /// A kick at someone within 120 (`set_person_kick_near`, combat.cpp:3495).
+    KickNear,
     /// The foot sweep: kick from a block (`set_person_leg_sweep`, Person.cpp:9545).
     LegSweep,
     /// A kick at someone lying knocked down is a stamp (`set_person_stomp`, Person.cpp:9928).
@@ -470,6 +472,8 @@ impl Move {
             // The combat table's extra (combat.cpp:1894) comes on top, by who's kicked.
             KickNad => d(anim::KICK_NAD, 0.45, 130.0, Dir::Front, 10, false, 0, None),
             // Its blow is in the animation's fight data, not the source: a side kick's.
+            // 40, whatever else (combat.cpp:1970).
+            KickNear => d(anim::KICK_NEAR, 0.45, 130.0, Dir::Front, 40, false, 0, None),
             KickJump => d(anim::KICK_NS, 0.45, 150.0, Dir::Front, 25, true, ko::SIDE_KICK, None),
             // `sweep_feet` (Person.cpp:1936): 49 off and down, low so no guard stops it. Its
             // reach and timing are in the animation's fight data, not the source: these are

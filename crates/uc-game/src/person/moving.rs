@@ -458,6 +458,8 @@ impl Person {
             let a = match (running, self.armed().0) {
                 (true, true) => anim::MID_AIR_TWEEN_LEFT_AK,
                 (true, false) => anim::MID_AIR,
+                (false, _) if self.fig.anim() == anim::STANDING_JUMP => anim::FALLING_QUEUED,
+                (false, _) if self.fig.anim() == anim::STANDING_JUMP_AK => anim::FALLING_QUEUED_AK,
                 (false, _) => self.falling_anim(),
             };
             self.fig.play(a, Play::Loop);
@@ -559,10 +561,13 @@ impl Person {
             self.cues.push(Sfx::Land);
             // Both feet come down (`person_splash(p_person, -1)`).
             self.footfall = Some(Foot::Both);
+            let held = c.wish.length_squared() > 0.25;
             let a = match (running, self.armed().0) {
                 _ if self.fly_kick.take().is_some() => anim::FLYKICK_LAND,
+                (true, _) if !held && self.player => anim::LAND_STAND,
                 (true, true) => anim::LAND_RIGHT_AK,
                 (true, false) => anim::LAND_RIGHT,
+                (false, _) if dy > 15000.0 => anim::BIG_LAND,
                 (false, _) => anim::LAND_VERT,
             };
             self.fig.restart(a, Play::Once);
@@ -822,7 +827,10 @@ impl Person {
                 if let Some(t) = target {
                     self.face(snaps[t].pos);
                 }
-                Move::Kick1
+                // Someone within 120 gets the near kick, not a combo's (`turn_to_target_and_kick`,
+                // combat.cpp:3493).
+                let near = target.is_some_and(|t| flat(snaps[t].pos, self.fig.pos).length() < 120.0);
+                if near { Move::KickNear } else { Move::Kick1 }
             };
             self.start_attack(me, mv, events);
             return;

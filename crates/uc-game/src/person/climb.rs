@@ -181,11 +181,17 @@ impl Person {
         let (low, high) = (base + 150.0, (top - 30.0).max(base + 150.0));
         match phase {
             0 => {
-                let t = self.fig.progress();
+                // Onto it, settling there (`ANIM_LANDED_ON_FENCE`), then up.
+                let settling = self.fig.anim() == anim::LANDED_ON_FENCE;
+                let t = if settling { 1.0 } else { self.fig.progress() };
                 self.place_hips(from.lerp(grip(low), t));
                 if self.fig.finished() {
-                    phase = 1;
-                    self.fig.restart(anim::CLIMB_UP_FENCE, Play::Loop);
+                    if !settling && self.fig.restart(anim::LANDED_ON_FENCE, Play::Once) {
+                        self.fig.set_speed(1.5);
+                    } else {
+                        phase = 1;
+                        self.fig.restart(anim::CLIMB_UP_FENCE, Play::Loop);
+                    }
                 }
             }
             1 => {
@@ -231,6 +237,14 @@ impl Person {
         self.fig.angle = uc_world::character::angle_of(vec2(tangent.x, tangent.z));
         let end = !(0.0..=1.0).contains(&t);
         self.fig.pos = cb.at(t) - vec3(0.0, HANG, 0.0);
+        // The grab, then a pull up on the cable, then hanging there.
+        if self.fig.finished() {
+            match self.fig.anim() {
+                anim::DEATH_SLIDE => { self.fig.restart(anim::WIRE_SLIDE_PULLUP, Play::Once); }
+                anim::WIRE_SLIDE_PULLUP => { self.fig.restart(anim::WIRE_SLIDE_HANG, Play::Loop); }
+                _ => {}
+            }
+        }
         // Near the bottom, sliding into a roof (its top between the feet and the waist):
         // step off onto it. The Jump's zip line ends just above a roof that's above
         // Darci's feet. (Earlier on, the legs pass over whatever's below.)

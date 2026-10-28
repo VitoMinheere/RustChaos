@@ -277,6 +277,9 @@ fn cables_carry_you_down() {
     p.state = State::Fall { vy: 400.0, vel: Vec2::ZERO };
     until(&mut p, &level, Controls::default(), 1.0, 90.0, |p| matches!(p.state, State::Zip { .. }));
     let start = p.fig.pos;
+    // The grab, a pull up on it, and then she hangs (`ANIM_WIRE_SLIDE_HANG`, #342).
+    until(&mut p, &level, Controls::default(), 5.0, 120.0, |p| p.fig.anim() == uc_world::character::anim::WIRE_SLIDE_HANG);
+    assert!(matches!(p.state, State::Zip { .. }), "off before hanging: {:?}", p.state);
     until(&mut p, &level, Controls::default(), 20.0, 120.0, |p| !matches!(p.state, State::Zip { .. }));
     println!("slid from {start:?} to {:?}", p.fig.pos);
     assert!(start.y - p.fig.pos.y > 1000.0, "only slid down {}", start.y - p.fig.pos.y);
@@ -293,6 +296,8 @@ fn chain_link_fences_can_be_climbed() {
     let mut p = darci(&level, vec3(61.0 * 256.0, 0.0, z - 120.0), vec2(0.0, 1.0));
     let walk = Controls { wish: vec2(0.0, 1.0), ..Default::default() };
     until(&mut p, &level, walk, 3.0, 60.0, |p| matches!(p.state, State::Fence { .. }));
+    // Settling onto it before climbing (`ANIM_LANDED_ON_FENCE`, #342).
+    until(&mut p, &level, Controls::default(), 3.0, 60.0, |p| p.fig.anim() == uc_world::character::anim::LANDED_ON_FENCE);
     until(&mut p, &level, Controls::default(), 8.0, 60.0, |p| !matches!(p.state, State::Fence { .. }));
     until(&mut p, &level, Controls::default(), 4.0, 90.0, |p| matches!(p.state, State::Move));
     assert!(p.fig.pos.z > z + 20.0, "still on the near side at {:?}", p.fig.pos);
@@ -564,4 +569,56 @@ fn running_into_a_half_block_gets_up_it() {
     until(&mut p, &level, Controls::default(), 3.0, 60.0, |p| matches!(p.state, State::Move));
     assert_eq!(p.fig.pos.y, 128.0);
     assert!((standing_height(&p) - 96.0).abs() < 30.0);
+}
+
+/// A kick at someone within 120 is the near kick (`ANIM_KICK_NEAR`); further off, the
+/// combo's first (`turn_to_target_and_kick`, combat.cpp:3493).
+#[test]
+fn a_kick_up_close_is_the_near_kick() {
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let at = vec3(46.5 * 256.0, 0.0, 55.0 * 256.0);
+    for (gap, kick) in [(100.0, anim::KICK_NEAR), (200.0, anim::KICK_COMBO1)] {
+        let mut me = darci(&level, at, vec2(-1.0, 0.0));
+        let thug = person(&level, ptype::THUG_RED, at - vec3(gap, 0.0, 0.0), vec2(1.0, 0.0));
+        let snaps = [me.snap(), uc_game::person::Snap { fighter: true, ..thug.snap() }];
+        let mut events = Vec::new();
+        me.step(0, &Controls { kick: true, ..Default::default() }, &snaps, &level.ground, &level.map, DT, &mut events);
+        assert_eq!(me.fig.anim(), kick, "{gap} away");
+    }
+}
+
+/// Landing a running jump with nothing held, she lands to stand (`ANIM_LAND_STAND`); coming
+/// down hard (`DY` under -15000) but not hard enough to hurt, a big landing (`ANIM_BIG_LAND`).
+#[test]
+fn landing_to_stand_and_landing_hard() {
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let at = vec3(46.5 * 256.0, 0.0, 55.0 * 256.0);
+    let mut p = darci(&level, at, vec2(-1.0, 0.0));
+    let ahead = Controls { wish: vec2(-1.0, 0.0), run: true, ..Default::default() };
+    run(&mut p, &level, ahead, 0.5, 60.0, |_| false);
+    until(&mut p, &level, Controls { jump: true, ..ahead }, 0.2, 60.0, |p| matches!(p.state, State::Fall { .. }));
+    until(&mut p, &level, Controls::default(), 3.0, 60.0, |p| matches!(p.state, State::Land { .. }));
+    assert_eq!(p.fig.anim(), anim::LAND_STAND);
+
+    let mut p = darci(&level, at, vec2(-1.0, 0.0));
+    let health = p.health;
+    p.fig.pos.y += 4.0;
+    p.state = State::Fall { vy: -1250.0, vel: Vec2::ZERO };
+    run(&mut p, &level, Controls::default(), DT, 60.0, |_| false);
+    assert_eq!(p.fig.anim(), anim::BIG_LAND);
+    assert_eq!(p.health, health, "hurt");
+}
+
+/// A standing jump that catches nothing falls on in its own last pose (`ANIM_FALLING_QUEUED`),
+/// not the plain fall's (`PERSON_DROP_DOWN_QUEUED`, Person.cpp:13254).
+#[test]
+fn a_standing_jump_falls_on_in_its_own_pose() {
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let mut p = darci(&level, vec3(46.5 * 256.0, 0.0, 55.0 * 256.0), vec2(-1.0, 0.0));
+    until(&mut p, &level, Controls { jump: true, ..Default::default() }, 0.2, 60.0, |p| matches!(p.state, State::Fall { .. }));
+    until(&mut p, &level, Controls::default(), 2.0, 60.0, |p| p.fig.anim() == anim::FALLING_QUEUED || matches!(p.state, State::Land { .. }));
+    assert_eq!(p.fig.anim(), anim::FALLING_QUEUED, "{:?}", p.state);
 }
