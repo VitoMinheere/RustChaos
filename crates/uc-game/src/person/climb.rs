@@ -77,7 +77,8 @@ impl Person {
         self.fig.angle = uc_world::character::angle_of(dir);
         self.fig.lift = 0.0;
         self.fig.cancel_rise = false;
-        if !self.fig.restart_now(anim::DANGLE, Play::Loop) {
+        // Catching hold first (`ANIM_FLY_GRABBING_LEDGE`), then hanging.
+        if !self.fig.restart_now(anim::FLY_GRABBING_LEDGE, Play::Once) && !self.fig.restart_now(anim::DANGLE, Play::Loop) {
             return self.pull_up(to);
         }
         let Some((_, hand)) = self.fig.part_world(LEFT_HAND) else { return self.pull_up(to) };
@@ -121,6 +122,17 @@ impl Person {
     /// 74 units, if there's still ledge to hold there (`set_person_traverse`,
     /// `traverse_pos`). Anyone but the player pulls straight up.
     pub(super) fn step_dangle(&mut self, to: Vec3, dir: Vec2, shift: Option<(Vec3, Vec3)>, c: &Controls, ground: &Ground, map: &Map) {
+        // Caught hold: hang once it's done, the hand staying on the edge.
+        if self.fig.anim() == anim::FLY_GRABBING_LEDGE {
+            if self.fig.finished() {
+                let before = self.fig.part_world(LEFT_HAND).map(|(_, h)| h);
+                self.fig.restart_now(anim::DANGLE, Play::Loop);
+                if let (Some(b), Some((_, a))) = (before, self.fig.part_world(LEFT_HAND)) {
+                    self.fig.pos += b - a;
+                }
+            }
+            return;
+        }
         if let Some((_, end)) = shift {
             // The animation carries her along itself; at its end, hang on from where it left
             // her hips (`locked_anim_change(..., ANIM_DANGLE)`, Person.cpp:15004), at the new
@@ -280,18 +292,46 @@ impl Person {
         }
     }
 
+    /// `step` in [`State::Mount`]: on once the step on's done, in the climb's first pose.
+    pub(super) fn step_mount(&mut self, ladder: usize, ground: &Ground) {
+        if self.fig.finished() {
+            self.fig.restart_now(anim::ON_LADDER, Play::Loop);
+            self.fig.set_speed(0.0);
+            self.state = State::Climb { ladder, y0: self.fig.pos.y, loops0: self.fig.loops() };
+        }
+        self.fig.pos = ground.on_ladder(ladder, self.fig.pos.y);
+    }
+
     pub(super) fn step_climb(&mut self, ladder: usize, y0: f32, loops0: f32, c: &Controls, ground: &Ground, map: &Map) {
         let l = ground.ladders[ladder];
         self.fig.angle = uc_world::character::angle_of(-l.out);
-        if c.wish.dot(l.out) > 0.7 || c.action && self.fig.pos.y > l.base + 64.0 {
+        // Jump lets go (`action_ladder`'s `ACTION_DROP_DOWN`, interfac.cpp:544), as does action
+        // off the ground.
+        if c.jump || c.action && self.fig.pos.y > l.base + 64.0 {
             self.fall(l.out * 60.0);
             return;
         }
-        // The animation moves the body up a rung cycle and loops back, so the feet
-        // move up a cycle each time it loops.
-        let moving = c.wish.dot(-l.out) > 0.3;
-        self.fig.set_speed(if moving { 1.3 } else { 0.0 });
+        // The animation moves the body up a rung cycle and loops back, so the feet move up a
+        // cycle each time it loops. Pulling back climbs down: the same, backwards
+        // (`SUB_STATE_CLIMB_DOWN_LADDER`, `person_backwards_animate`).
+        let up = c.wish.dot(-l.out) > 0.3;
+        let down = c.wish.dot(l.out) > 0.3;
+        self.fig.set_speed(if up { 1.3 } else if down { -1.3 } else { 0.0 });
         let y = y0 + (self.fig.loops() - loops0) * RUNG_CYCLE;
+        // Down at the foot: off it onto the ground (`ANIM_OFF_LADDER_BOT`) once the climb's
+        // back to its first pose, which is where stepping off starts (or just past it, into
+        // the rung below). A ladder that stops short of the ground is let go of instead.
+        if down && y <= l.base + 1.0 && (self.fig.frame() == Some(0) || y < l.base - 1.0) {
+            let at = ground.on_ladder(ladder, l.base);
+            let floor = ground.surface(map, at.x, at.z, l.base + 8.0);
+            if (floor - l.base).abs() < 16.0 && self.fig.restart_now(anim::OFF_LADDER_BOT, Play::Once) {
+                self.fig.pos = vec3(at.x, floor, at.z);
+                self.state = State::Press { then: None };
+            } else {
+                self.fall(Vec2::ZERO);
+            }
+            return;
+        }
         self.fig.pos = ground.on_ladder(ladder, y);
         // Near the top, at the point of the cycle where the hands reach the edge,
         // climb off onto the roof.

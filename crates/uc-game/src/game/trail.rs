@@ -107,7 +107,7 @@ impl Game {
         }
         for p in self.people.iter_mut() {
             let standing = matches!(p.state, State::Move)
-                && matches!(p.fig.anim(), uc_world::character::anim::BREATHE | uc_world::character::anim::IDLE_SCRATCH1 | uc_world::character::anim::IDLE_SCRATCH2);
+                && (person::idle_anim(p.fig.anim()) || matches!(p.fig.anim(), uc_world::character::anim::IDLE_SCRATCH1 | uc_world::character::anim::IDLE_SCRATCH2));
             if p.removed || p.is_mib() || !standing {
                 p.breathed = false;
                 continue;

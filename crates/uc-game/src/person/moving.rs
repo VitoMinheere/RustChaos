@@ -203,15 +203,43 @@ impl Person {
         (run, yomps.then_some(start))
     }
 
+    /// Standing about (`set_anim_idle`, Person.cpp:8800): with a two-handed gun, holding it,
+    /// unless they're Roper; the women hand on hip; everyone else breathing.
+    fn stand_anim(&self) -> usize {
+        use uc_world::character::person as ptype;
+        if matches!(self.weapon, Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper) && self.kind != ptype::ROPER {
+            anim::SHOTGUN_IDLE
+        } else if matches!(self.kind, ptype::SLAG_TART | ptype::SLAG_FATUGLY) || (self.kind == ptype::CIV && self.fig.model.body == 9) {
+            anim::STAND_HIP
+        } else {
+            anim::BREATHE
+        }
+    }
+
+    /// Walking (`set_anim_walking`, Person.cpp:8694): with a two-handed gun anyone but Darci
+    /// and Roper carries it, and the gangs have a walk of their own.
+    fn walk_anim(&self) -> usize {
+        use uc_world::character::person as ptype;
+        let two_handed = matches!(self.weapon, Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper);
+        match self.kind {
+            ptype::DARCI | ptype::ROPER => anim::WALK,
+            _ if two_handed => anim::THUG_WALK_SHOTGUN,
+            ptype::THUG_RASTA | ptype::THUG_RED | ptype::THUG_GREY => anim::THUG_WALK,
+            _ => anim::WALK,
+        }
+    }
+
     pub(super) fn idle(&mut self, fight: bool) {
         let a = match (fight, self.weapon) {
             (_, w) if w.is_gun() && self.gun_out() => w.aim_anim(),
             (true, Weapon::Knife) => anim::KNIFE_FIGHT_READY,
             (true, Weapon::Bat) => anim::BAT_IDLE,
             (true, _) => anim::FIGHT,
-            (false, _) => anim::BREATHE,
+            (false, _) => self.stand_anim(),
         };
-        self.fig.play(a, Play::Loop);
+        if !self.fig.play(a, Play::Loop) {
+            self.fig.play(anim::BREATHE, Play::Loop);
+        }
         self.fig.set_speed(1.0);
     }
 
@@ -238,7 +266,7 @@ impl Person {
     /// loaded, so they just breathe.
     pub(super) fn stand_about(&mut self, dt: f32) {
         use uc_world::character::person as ptype;
-        let fidgeting = matches!(self.fig.anim(), anim::IDLE_SCRATCH1 | anim::IDLE_SCRATCH2 | anim::TALK_ASK | anim::TALK_TELL | anim::TALK_LISTEN | anim::SHOTGUN_IDLE);
+        let fidgeting = matches!(self.fig.anim(), anim::IDLE_SCRATCH1 | anim::IDLE_SCRATCH2 | anim::TALK_ASK | anim::TALK_TELL | anim::TALK_LISTEN | anim::UNFIGHT);
         if fidgeting && !self.fig.finished() {
             return;
         }
@@ -272,15 +300,17 @@ impl Person {
 
     /// Saying a line of a conversation (`ask`ing or not), or hearing one, standing about
     /// (`PCOM_set_person_ai_talk_to`, pcom.cpp:4706). With a two-handed gun, unless they're
-    /// Roper, they just hold it.
+    /// Roper, they just hold it, as they stand anyway (`ANIM_SHOTGUN_IDLE`).
     pub(crate) fn talk(&mut self, speaking: bool, ask: bool) {
         use uc_world::character::person as ptype;
         let now = self.fig.anim();
-        if !matches!(self.state, State::Move) || now == anim::WALK || super::running_anim(now) {
+        if !matches!(self.state, State::Move) || super::walking_anim(now) || super::running_anim(now) {
+            return;
+        }
+        if matches!(self.weapon, Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper) && self.kind != ptype::ROPER {
             return;
         }
         let a = match (speaking, ask) {
-            _ if matches!(self.weapon, Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper) && self.kind != ptype::ROPER => anim::SHOTGUN_IDLE,
             (false, _) => anim::TALK_LISTEN,
             (true, true) => anim::TALK_ASK,
             (true, false) => anim::TALK_TELL,
@@ -311,13 +341,60 @@ impl Person {
     pub(super) fn jump(&mut self, vel: Vec2) {
         self.cues.push(Sfx::Jump { kind: self.kind });
         self.state = State::Fall { vy: JUMP_SPEED, vel };
-        self.fig.restart(if vel.length() > 1.0 { anim::RUN_JUMP } else { anim::STANDING_JUMP }, Play::Once);
+        let (gun, two_handed) = self.armed();
+        let a = match (vel.length() > 1.0, gun, two_handed) {
+            (true, true, _) => anim::RUN_JUMP_LEFT_AK,
+            (true, false, _) => anim::RUN_JUMP,
+            (false, _, true) => anim::STANDING_JUMP_AK,
+            (false, _, false) => anim::STANDING_JUMP,
+        };
+        if !self.fig.restart(a, Play::Once) {
+            self.fig.restart(if vel.length() > 1.0 { anim::RUN_JUMP } else { anim::STANDING_JUMP }, Play::Once);
+        }
         self.fig.set_speed(1.5);
     }
 
     pub(crate) fn fall(&mut self, vel: Vec2) {
         self.state = State::Fall { vy: 0.0, vel };
-        self.fig.play(anim::FALLING, Play::Loop);
+        self.fig.play(self.falling_anim(), Play::Loop);
+    }
+
+    /// Kick in the air off a running jump, and land it on the first one in the way
+    /// (`SUB_STATE_FLYING_KICK`, Person.cpp:13610): 50 on top of a finisher's blow, and down
+    /// they go (combat.cpp:1910).
+    fn fly_kick(&mut self, running: bool, me: usize, c: &Controls, snaps: &[Snap], events: &mut Vec<Event>) {
+        let jumping = matches!(self.fig.anim(), anim::RUN_JUMP | anim::RUN_JUMP_LEFT_AK | anim::MID_AIR | anim::MID_AIR_TWEEN_LEFT_AK);
+        if c.kick && running && jumping && self.fly_kick.is_none() && self.fig.restart(anim::FLYKICK_START, Play::Once) {
+            self.fly_kick = Some(false);
+            self.cues.push(Sfx::Swing);
+            events.push(Event::Kick { attacker: me });
+        }
+        if self.fly_kick != Some(false) {
+            return;
+        }
+        let f = self.fig.facing();
+        let hit = snaps.iter().enumerate().find(|&(j, s)| {
+            let d = flat(s.pos, self.fig.pos);
+            j != me && s.standing && self.opponents(j, s) && (s.pos.y - self.fig.pos.y).abs() < 120.0
+                && d.length() < 150.0 && d.normalize_or_zero().dot(f) > 0.5
+        });
+        if let Some((j, _)) = hit {
+            self.fly_kick = Some(true);
+            let damage = if self.player { 80 } else { 80 * (8 + self.skill as i32) / 30 };
+            events.push(Event::Hit { attacker: me, victim: j, damage, ko: ko::KNOCKDOWN, high: true, low: false, weapon: Weapon::None });
+        }
+    }
+
+    /// A gun drawn, and whether it's a two-handed one (`person_has_gun_out`,
+    /// `person_holding_2handed`).
+    pub(super) fn armed(&self) -> (bool, bool) {
+        let gun = self.weapon.is_gun() && self.gun_out();
+        (gun, gun && matches!(self.weapon, Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper))
+    }
+
+    /// Falling, with a two-handed gun its own.
+    pub(super) fn falling_anim(&self) -> usize {
+        if self.armed().1 { anim::FALLING_AK } else { anim::FALLING }
     }
 
     /// Advances the animation, then places anything that follows it: a climber's height on a
@@ -328,13 +405,14 @@ impl Person {
         self.flash = (self.flash - dt).max(0.0);
         // Footsteps: two per walk or run cycle.
         let walking = matches!(self.state, State::Move | State::Land { .. })
-            && matches!(self.fig.anim(), anim::WALK | anim::RUN | anim::YOMP | anim::YOMP_BAT | anim::PISTOL_JOG | anim::AK_JOG | anim::FIGHT_STEP_N | anim::FIGHT_STEP_S | anim::FIGHT_STEP_E | anim::FIGHT_STEP_W);
+            && matches!(self.fig.anim(), anim::WALK | anim::THUG_WALK | anim::THUG_WALK_SHOTGUN | anim::RUN | anim::YOMP | anim::YOMP_BAT | anim::PISTOL_JOG | anim::AK_JOG | anim::FIGHT_STEP_N | anim::FIGHT_STEP_S | anim::FIGHT_STEP_E | anim::FIGHT_STEP_W
+                | anim::FIGHT_STEP_N_BAT | anim::FIGHT_STEP_S_BAT | anim::FIGHT_STEP_E_BAT | anim::FIGHT_STEP_W_BAT);
         let phase = self.fig.loops().floor() + self.fig.progress();
         if walking && (phase * 2.0).floor() != (self.step_phase * 2.0).floor() {
             self.cues.push(Sfx::Footstep { player: self.player, sound: None });
             // Walking and running leave prints, the right foot then the left (Person.cpp:15457),
             // but not the steps of a fight.
-            if matches!(self.fig.anim(), anim::WALK | anim::RUN | anim::YOMP | anim::YOMP_BAT | anim::PISTOL_JOG | anim::AK_JOG) {
+            if matches!(self.fig.anim(), anim::WALK | anim::THUG_WALK | anim::THUG_WALK_SHOTGUN | anim::RUN | anim::YOMP | anim::YOMP_BAT | anim::PISTOL_JOG | anim::AK_JOG) {
                 let right = (phase * 2.0).floor() as i64 & 1 == 0;
                 self.footfall = Some(if right { Foot::Right } else { Foot::Left });
             }
@@ -367,11 +445,22 @@ impl Person {
     }
 
     /// `step` in [`State::Fall`].
-    pub(super) fn step_fall(&mut self, mut vy: f32, mut vel: Vec2, c: &Controls, ground: &Ground, map: &Map, dt: f32) {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn step_fall(&mut self, mut vy: f32, mut vel: Vec2, me: usize, c: &Controls, snaps: &[Snap], ground: &Ground, map: &Map, dt: f32, events: &mut Vec<Event>) {
         vy -= GRAVITY * dt;
         let running = vel.length() > 100.0;
-        if self.fig.finished() && !matches!(self.fig.anim(), anim::PLUNGE_START | anim::PLUNGE_FORWARDS) {
-            self.fig.play(if running { anim::MID_AIR } else { anim::FALLING }, Play::Loop);
+        self.fly_kick(running, me, c, snaps, events);
+        if self.fly_kick.is_some() {
+            if self.fig.anim() == anim::FLYKICK_START && self.fig.finished() {
+                self.fig.play(anim::FLYKICK_FALL, Play::Loop);
+            }
+        } else if self.fig.finished() && !matches!(self.fig.anim(), anim::PLUNGE_START | anim::PLUNGE_FORWARDS) {
+            let a = match (running, self.armed().0) {
+                (true, true) => anim::MID_AIR_TWEEN_LEFT_AK,
+                (true, false) => anim::MID_AIR,
+                (false, _) => self.falling_anim(),
+            };
+            self.fig.play(a, Play::Loop);
         }
         // A little air control.
         if self.player && c.wish.length_squared() > 0.25 {
@@ -470,7 +559,13 @@ impl Person {
             self.cues.push(Sfx::Land);
             // Both feet come down (`person_splash(p_person, -1)`).
             self.footfall = Some(Foot::Both);
-            self.fig.restart(if running { anim::LAND_RIGHT } else { anim::LAND_VERT }, Play::Once);
+            let a = match (running, self.armed().0) {
+                _ if self.fly_kick.take().is_some() => anim::FLYKICK_LAND,
+                (true, true) => anim::LAND_RIGHT_AK,
+                (true, false) => anim::LAND_RIGHT,
+                (false, _) => anim::LAND_VERT,
+            };
+            self.fig.restart(a, Play::Once);
             self.fig.set_speed(if running { 1.5 } else { 2.0 });
             // Landing hard hurts, and from high enough kills (fallen/Source/Darci.cpp).
             let damage = fall_damage(-vy);
@@ -555,18 +650,32 @@ impl Person {
                 return;
             }
         }
-        // Climb a ladder by walking into it, or with action next to it.
+        // Climb a ladder by walking into it, or with action next to it: stepping on first
+        // at its foot (`ANIM_MOUNT_LADDER`).
         if let Some(l) = ground.ladder_near(self.fig.pos, 90.0) {
             let into = c.wish.dot(-ground.ladders[l].out) > 0.7;
             if into || c.action {
                 self.fig.pos = ground.on_ladder(l, self.fig.pos.y);
-                self.fig.restart(anim::ON_LADDER, Play::Loop);
-                self.state = State::Climb { ladder: l, y0: self.fig.pos.y, loops0: self.fig.loops() };
+                self.fig.angle = uc_world::character::angle_of(-ground.ladders[l].out);
+                if self.fig.restart(anim::MOUNT_LADDER, Play::Once) {
+                    self.state = State::Mount { ladder: l };
+                } else {
+                    self.fig.restart(anim::ON_LADDER, Play::Loop);
+                    self.state = State::Climb { ladder: l, y0: self.fig.pos.y, loops0: self.fig.loops() };
+                }
                 return;
             }
         }
         if c.block {
-            self.fig.restart(anim::BLOCK_HIGH, Play::Once);
+            // A bat or a shotgun in hand guards with it.
+            let a = match self.weapon {
+                Weapon::Bat => anim::BAT_BLOCK,
+                Weapon::Shotgun => anim::SHOTGUN_BLOCK,
+                _ => anim::BLOCK_HIGH,
+            };
+            if !self.fig.restart(a, Play::Once) {
+                self.fig.restart(anim::BLOCK_HIGH, Play::Once);
+            }
             self.state = State::Block { auto: false };
             return;
         }
@@ -724,6 +833,18 @@ impl Person {
             let t = snaps[target.unwrap()].pos;
             let d = flat(t, self.fig.pos);
             self.fig.turn_towards(d, 8.0, dt);
+            // Jump: to the side a flip, with no way held a jump kick (interfac.cpp:5070, 5096).
+            if c.jump && self.player {
+                if moving && rel.x.abs() > rel.y.abs() {
+                    // `rel.x` is along the way a flip to the left goes (`step_flip`).
+                    self.flip(rel.x > 0.0);
+                    return;
+                }
+                if !moving {
+                    self.start_attack(me, Move::KickJump, events);
+                    return;
+                }
+            }
             // Stepping back from someone swinging at her: the auto-block (`should_i_block`,
             // combat.cpp:951: only on the back step, so not with a bat, whose step is another
             // animation). Backing away from them, that is, as the manual has it: not stepping
@@ -740,15 +861,31 @@ impl Person {
                 return;
             }
             if moving {
-                let step = if rel.y.abs() >= rel.x.abs() {
-                    if rel.y > 0.0 { anim::FIGHT_STEP_N } else { anim::FIGHT_STEP_S }
-                } else if rel.x > 0.0 { anim::FIGHT_STEP_E } else { anim::FIGHT_STEP_W };
+                let bat = self.weapon == Weapon::Bat;
+                let step = match (rel.y.abs() >= rel.x.abs(), rel.y > 0.0, rel.x > 0.0, bat) {
+                    (true, true, _, false) => anim::FIGHT_STEP_N,
+                    (true, false, _, false) => anim::FIGHT_STEP_S,
+                    (false, _, true, false) => anim::FIGHT_STEP_E,
+                    (false, _, false, false) => anim::FIGHT_STEP_W,
+                    (true, true, _, true) => anim::FIGHT_STEP_N_BAT,
+                    (true, false, _, true) => anim::FIGHT_STEP_S_BAT,
+                    (false, _, true, true) => anim::FIGHT_STEP_E_BAT,
+                    (false, _, false, true) => anim::FIGHT_STEP_W_BAT,
+                };
                 self.fig.play(step, Play::Loop);
                 if !self.walk(c.wish.normalize_or_zero() * FIGHT_STEP_SPEED * dt, ground, map, false) {
                     self.fall(c.wish * FIGHT_STEP_SPEED);
                 }
             } else {
-                self.idle(true);
+                // The player squares up from standing about (`ANIM_FIGHT_READY`).
+                let now = self.fig.anim();
+                if now == anim::FIGHT_READY && !self.fig.finished() {
+                    return;
+                }
+                let about = super::idle_anim(now) || matches!(now, anim::IDLE_SCRATCH1 | anim::IDLE_SCRATCH2 | anim::UNFIGHT);
+                if !(self.player && about && self.fig.restart(anim::FIGHT_READY, Play::Once)) {
+                    self.idle(true);
+                }
             }
         } else if moving {
             let dir = c.wish.normalize();
@@ -777,11 +914,11 @@ impl Person {
                 let (run, start) = self.run_anims(c.sprint, sprint);
                 let now = self.fig.anim();
                 let pushing = start == Some(now) && !self.fig.finished();
-                let push = !running_anim(now) && !matches!(now, anim::LAND_RIGHT | anim::VAULT);
+                let push = !running_anim(now) && !matches!(now, anim::LAND_RIGHT | anim::LAND_RIGHT_AK | anim::VAULT);
                 if !pushing && !(push && start.is_some_and(|s| self.fig.restart(s, Play::Once))) && !self.fig.play(run, Play::Loop) {
                     self.fig.play(anim::RUN, Play::Loop);
                 }
-            } else {
+            } else if !self.fig.play(self.walk_anim(), Play::Loop) {
                 self.fig.play(anim::WALK, Play::Loop);
             }
             self.fig.set_speed(rate);
@@ -795,6 +932,15 @@ impl Person {
             // Blocked while walking into a fence: climb over. (Ledges are jumped onto.)
             let moved = vec2(self.fig.pos.x - before.x, self.fig.pos.z - before.z).length();
             if moved < speed * dt * 0.5 && self.fig.facing().dot(dir) > 0.7 {
+                // The player running into a wall half a storey (128) high gets up onto it
+                // (`is_facet_half_step`, Person.cpp:11281; `set_person_climb_half`).
+                let half = self.ledge_ahead(dir, 136.0, ground, map).filter(|to| (to.y - self.fig.pos.y - 128.0).abs() < 8.0);
+                if let (true, true, Some(to)) = (self.player, c.run, half) {
+                    self.climb_onto(anim::GET_UP_HALF_BLOCK, to, true);
+                    if matches!(self.state, State::PullUp { .. }) {
+                        return;
+                    }
+                }
                 if let Some((i, at, over)) = ground.fence_ahead(self.fig.pos, dir, RADIUS + 30.0) {
                     let f = ground.fences[i];
                     // A fence two blocks of 16 high, at a run: vaulted, not climbed
@@ -834,6 +980,10 @@ impl Person {
         } else if c.jump {
             self.jump(Vec2::ZERO);
         } else {
+            // The player drops out of a fight stance with nobody left to fight (`ANIM_UNFIGHT`).
+            if self.player && matches!(self.fig.anim(), anim::FIGHT | anim::FIGHT_READY | anim::KNIFE_FIGHT_READY | anim::BAT_IDLE) {
+                self.fig.restart(anim::UNFIGHT, Play::Once);
+            }
             self.stand_about(dt);
             // A gun drawn: keep it on the target. The player's upper body twists to it
             // (`twist_darci_body_to_angle`, Person.cpp:17836), seven eighths of the way, up to

@@ -226,6 +226,8 @@ pub const WALK_SPEED: f32 = 190.0;
 /// Crawling: velocity 15 to walking's 16 (`SUB_STATE_CRAWLING` in `fn_person_moveing`).
 pub const CRAWL_SPEED: f32 = WALK_SPEED * 15.0 / 16.0;
 const RUN_SPEED: f32 = 520.0;
+/// How often the injured might struggle: 32 of the original's turns.
+const INJURED_BEAT: f32 = 32.0 / 20.0;
 /// How often someone sat down shifts about: 64 of the original's turns, 20 a second.
 const SIT_FIDGET: f32 = 64.0 / 20.0;
 const SPRINT_SPEED: f32 = 700.0;
@@ -416,6 +418,8 @@ pub enum Move {
     KickRight,
     /// Darci's kick between the legs (`ANIM_KICK_NAD`).
     KickNad,
+    /// The jump kick: jump in a fight, no way held (`ANIM_KICK_NS`, interfac.cpp:5109).
+    KickJump,
     /// The foot sweep: kick from a block (`set_person_leg_sweep`, Person.cpp:9545).
     LegSweep,
     /// A kick at someone lying knocked down is a stamp (`set_person_stomp`, Person.cpp:9928).
@@ -465,6 +469,8 @@ impl Move {
             KickRight => d(anim::KICK_RIGHT, 0.45, 160.0, Dir::Right, 25, false, ko::SIDE_KICK, None),
             // The combat table's extra (combat.cpp:1894) comes on top, by who's kicked.
             KickNad => d(anim::KICK_NAD, 0.45, 130.0, Dir::Front, 10, false, 0, None),
+            // Its blow is in the animation's fight data, not the source: a side kick's.
+            KickJump => d(anim::KICK_NS, 0.45, 150.0, Dir::Front, 25, true, ko::SIDE_KICK, None),
             // `sweep_feet` (Person.cpp:1936): 49 off and down, low so no guard stops it. Its
             // reach and timing are in the animation's fight data, not the source: these are
             // the kicks'.
@@ -625,6 +631,8 @@ pub enum State {
     /// While going a hand along it (`SUB_STATE_TRAVERSE_LEFT`, `_RIGHT`), `shift` is the
     /// figure's start and end.
     Dangle { to: Vec3, dir: Vec2, shift: Option<(Vec3, Vec3)> },
+    /// Stepping onto `ladder` at its foot (`SUB_STATE_MOUNT_LADDER`).
+    Mount { ladder: usize },
     /// On a ladder: feet at `y0` plus one rung cycle per loop of the animation since `loops0`.
     Climb { ladder: usize, y0: f32, loops0: f32 },
     /// Grappling `victim`. `frame`: the last keyframe of Roper's grapples that did its damage.
@@ -960,6 +968,8 @@ pub struct Person {
     /// Plunging to their death: they've screamed. Landed from it: the blood to splash
     /// (`PYRO_SPLATTERY`), for the game to lay.
     pub(crate) screamed: bool,
+    /// Kicking in the air off a running jump: whether it's landed on someone yet.
+    pub(crate) fly_kick: Option<bool>,
     /// Has looked, since going for someone, at whether they've a gun on them
     /// (`PCOM_set_person_ai_navtokill`).
     pub(crate) sized_up: bool,
@@ -1013,6 +1023,16 @@ pub fn fall_damage(speed: f32) -> i32 {
     }
 }
 
+/// Standing about: breathing, or the stand their kind or what they hold gives them.
+pub fn idle_anim(a: usize) -> bool {
+    matches!(a, anim::BREATHE | anim::STAND_HIP | anim::SHOTGUN_IDLE)
+}
+
+/// Walking, whoever's doing it.
+pub fn walking_anim(a: usize) -> bool {
+    matches!(a, anim::WALK | anim::THUG_WALK | anim::THUG_WALK_SHOTGUN)
+}
+
 /// Running (`SUB_STATE_RUNNING`): a sprint, a run or a jog, or pushing off into one.
 pub fn running_anim(a: usize) -> bool {
     matches!(a, anim::RUN | anim::YOMP | anim::YOMP_BAT | anim::PISTOL_JOG | anim::AK_JOG
@@ -1032,7 +1052,7 @@ impl Person {
             pace: Pace::Walk,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
-            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, struggle: 0.0, idle_for: 0.0, breathed: false, screamed: false, splattered: false, sized_up: false, felon: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
+            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, struggle: 0.0, idle_for: 0.0, breathed: false, screamed: false, fly_kick: None, splattered: false, sized_up: false, felon: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }
@@ -1495,6 +1515,9 @@ impl Person {
             }
             _ => self.fig.lift = 0.0,
         }
+        if !matches!(self.state, State::Fall { .. }) {
+            self.fly_kick = None;
+        }
         match self.state.clone() {
             State::Move if self.slipping(ground, map).is_some() => {
                 self.state = State::Slip;
@@ -1532,7 +1555,20 @@ impl Person {
                     self.idle(true);
                 }
             }
+            // Every 32 turns, one time in five, a struggle (`SUB_STATE_DEAD_INJURED`,
+            // Person.cpp:17479); not a fight-test dummy, who'd flip over doing it.
             State::Injured => {
+                if self.fig.anim() == anim::INJURED_LOOP_STRUGGLE && !self.fig.finished() {
+                    return;
+                }
+                let left = self.fidget.map_or(INJURED_BEAT, |t| t.min(INJURED_BEAT)) - dt;
+                self.fidget = Some(if left > 0.0 { left } else { INJURED_BEAT });
+                self.fidget_roll = self.fidget_roll.wrapping_mul(69069).wrapping_add(1);
+                if left <= 0.0 && (self.fidget_roll >> 16) & 0xff < 50 && !self.is_dummy()
+                    && self.fig.restart(anim::INJURED_LOOP_STRUGGLE, Play::Once)
+                {
+                    return;
+                }
                 self.fig.play(anim::INJURED_LOOP, Play::Loop);
             }
             State::Carried { .. } | State::Enter { .. } | State::Bike { .. } => {}
@@ -1623,7 +1659,7 @@ impl Person {
             State::Down => self.step_down(ground, map, dt),
             State::Cuffed => self.step_cuffed(dt),
             State::Held { .. } | State::InCar { .. } => {}
-            State::Fall { vy, vel } => self.step_fall(vy, vel, c, ground, map, dt),
+            State::Fall { vy, vel } => self.step_fall(vy, vel, me, c, snaps, ground, map, dt, events),
             State::Vault { from, to } => {
                 self.fig.pos = from.lerp(to, self.fig.progress());
                 if self.fig.finished() {
@@ -1644,6 +1680,7 @@ impl Person {
                 }
             }
             State::Climb { ladder, y0, loops0 } => self.step_climb(ladder, y0, loops0, c, ground, map),
+            State::Mount { ladder } => self.step_mount(ladder, ground),
             State::Grapple { victim, grab: grab @ (Grab::Strangle | Grab::Headbutt), hit, timer, frame } => {
                 // `SUB_STATE_STRANGLE` and `_HEADBUTT` (Person.cpp:18932): the damage comes on
                 // certain frames, and when it's over the victim is left lying (or dead).

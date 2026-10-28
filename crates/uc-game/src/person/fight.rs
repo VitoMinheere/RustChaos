@@ -230,7 +230,7 @@ impl Person {
     /// Person.cpp:1157): a blow from behind, a stamp, a takedown, lying down with their hands
     /// up. On their back otherwise (a thrown victim among them).
     pub(crate) fn lying_on_front(&self) -> bool {
-        matches!(self.fig.anim(), anim::KD_FRONT_LOW | anim::KD_FRONT_MID | anim::KD_FRONT_LAND
+        matches!(self.fig.anim(), anim::KD_FRONT_LOW | anim::KD_FRONT_MID | anim::KD_FRONT_HI | anim::KD_FRONT_LAND
             | anim::KO_BEHIND_BIG | anim::PISTOL_WHIP_TAKE | anim::FIGHT_STOMPED_BACK | anim::HANDS_UP_LIE)
     }
 
@@ -280,7 +280,17 @@ impl Person {
         self.down_timer += dt;
         let lying = matches!(self.fig.anim(), anim::KD_FRONT_LAND | anim::KD_BACK_LAND | anim::GRAB_ARM_THROWV);
         if !self.knocked_out && !self.out_cold && lying && self.fig.finished() && self.down_timer > 2.5 {
-            self.fig.restart_locked(anim::QUICK_GET_UP, Play::Once);
+            // Off the front, the get-up from it; off the back, Darci and the gangs spring up,
+            // everyone else gets up slowly (`SUB_STATE_DYING_KNOCK_DOWN_WAIT`, Person.cpp:17173).
+            use uc_world::character::person as ptype;
+            let a = if self.lying_on_front() {
+                anim::KO_BEHIND_BIG_GU
+            } else if matches!(self.kind, ptype::DARCI | ptype::THUG_RASTA | ptype::THUG_RED | ptype::THUG_GREY) {
+                anim::QUICK_GET_UP
+            } else {
+                anim::KO_BACK_GU
+            };
+            self.fig.restart_locked(a, Play::Once);
             self.fig.lift = 0.0;
             self.state = State::GetUp;
             return;
@@ -288,8 +298,8 @@ impl Person {
         // A knockdown is two animations: the fall, then hitting the floor (on the back
         // if knocked over from the front). Chain them keeping the hips in place.
         let land = match self.fig.anim() {
-            anim::KD_FRONT_MID | anim::KD_FRONT_LOW | anim::HIT_FRONT_HI => Some(anim::KD_BACK_LAND),
-            anim::KD_BACK_MID | anim::KD_BACK_LOW => Some(anim::KD_FRONT_LAND),
+            anim::KD_FRONT_MID | anim::KD_FRONT_LOW | anim::KD_FRONT_HI | anim::HIT_FRONT_HI => Some(anim::KD_BACK_LAND),
+            anim::KD_BACK_MID | anim::KD_BACK_LOW | anim::KD_BACK_HI => Some(anim::KD_FRONT_LAND),
             _ => None,
         };
         if let (Some(a), true) = (land, self.fig.finished()) {
@@ -369,8 +379,8 @@ impl Person {
         // The injured lie as the dead do (`STATE_DEAD`): nothing more happens to them.
         if self.removed || self.invulnerable || self.is_down()
             || matches!(self.state, State::InCar { .. } | State::Injured | State::Carried { .. })
-            // Nobody hits someone in the middle of a foot sweep (combat.cpp:2930).
-            || matches!(self.state, State::Attack { mv: Move::LegSweep, .. })
+            // Nobody hits someone in the middle of a foot sweep or a jump kick (combat.cpp:2929).
+            || matches!(self.state, State::Attack { mv: Move::LegSweep | Move::KickJump, .. })
         {
             return;
         }
@@ -427,12 +437,16 @@ impl Person {
             self.state = State::Down;
             // Thrown, the throw lays them out as it goes, where it puts them
             // (`PERSON_DEATH_TYPE_STAY_ALIVE_PRONE`, which starts no animation of its own).
+            // Otherwise by where the blow lands, low, middle or high (`knock_down`,
+            // Person.cpp:2409, by the attack's `Height`).
             if self.fig.anim() != anim::GRAB_ARM_THROWV {
-                let a = match (front, low) {
-                    (true, true) => anim::KD_FRONT_LOW,
-                    (false, true) => anim::KD_BACK_LOW,
-                    (true, false) => anim::KD_FRONT_MID,
-                    (false, false) => anim::KD_BACK_MID,
+                let a = match (front, low, high) {
+                    (true, true, _) => anim::KD_FRONT_LOW,
+                    (false, true, _) => anim::KD_BACK_LOW,
+                    (true, false, true) => anim::KD_FRONT_HI,
+                    (false, false, true) => anim::KD_BACK_HI,
+                    (true, false, false) => anim::KD_FRONT_MID,
+                    (false, false, false) => anim::KD_BACK_MID,
                 };
                 self.fig.restart(a, Play::Once);
             }

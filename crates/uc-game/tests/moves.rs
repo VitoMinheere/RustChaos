@@ -103,8 +103,10 @@ fn hanging_from_a_ledge() {
         let mut p = darci(level, vec3(c.x - 230.0, 0.0, c.y), vec2(1.0, 0.0));
         run(&mut p, level, walk, 0.3, 60.0, |_| false);
         until(&mut p, level, Controls { jump: true, ..walk }, 0.2, 60.0, |p| matches!(p.state, State::Fall { .. }));
-        // Pushing on until the hands catch, then nothing held.
+        // Pushing on until the hands catch, then nothing held while she catches hold
+        // (`ANIM_FLY_GRABBING_LEDGE`) and hangs.
         until(&mut p, level, walk, 3.0, 90.0, |p| matches!(p.state, State::Dangle { .. }));
+        until(&mut p, level, Controls::default(), 2.0, 40.0, |p| p.fig.anim() == uc_world::character::anim::DANGLE);
         p
     };
     let mut p = grab(&level);
@@ -316,4 +318,250 @@ fn an_unfollowed_punch_comes_back() {
     run(&mut p, &level, punch, DT, 40.0, |_| false);
     until(&mut p, &level, Controls::default(), 2.0, 40.0, |p| !matches!(p.state, State::Recover { .. }));
     assert!(matches!(p.state, State::Attack { .. }) && p.fig.anim() == anim::PUNCH_COMBO1, "{:?}", p.state);
+}
+
+/// Someone of kind `kind` (#342), as `darci` makes her.
+fn person(level: &Level, kind: u8, pos: Vec3, facing: Vec2) -> Person {
+    let angle = uc_world::character::angle_of(facing);
+    let y = level.ground.surface(&level.map, pos.x, pos.z, pos.y);
+    let fig = level.people.as_ref().unwrap().figure(kind, 0, vec3(pos.x, y, pos.z), angle).unwrap();
+    Person::new(fig, kind, false, 0)
+}
+
+/// Knocked down by a high blow, they go over with `ANIM_KD_*_HI` (`knock_down`,
+/// Person.cpp:2409), and get up as the original has it (Person.cpp:17173): off the front
+/// with `ANIM_KO_BEHIND_BIG_GU`; off the back Darci springs up, a cop gets up slowly
+/// (`ANIM_KO_BACK_GU`). The hips don't jump on the way.
+#[test]
+fn knocked_down_high_and_getting_up() {
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let at = vec3(46.5 * 256.0, 0.0, 55.0 * 256.0);
+    for (kind, behind, fall, get_up) in [
+        (ptype::DARCI, false, anim::KD_FRONT_HI, anim::QUICK_GET_UP),
+        (ptype::COP, false, anim::KD_FRONT_HI, anim::KO_BACK_GU),
+        (ptype::DARCI, true, anim::KD_BACK_HI, anim::KO_BEHIND_BIG_GU),
+    ] {
+        let mut p = person(&level, kind, at, vec2(1.0, 0.0));
+        let from = at + if behind { vec3(-100.0, 0.0, 0.0) } else { vec3(100.0, 0.0, 0.0) };
+        p.take_hit(from, 10, ko::KNOCKDOWN, true, false, uc_game::Weapon::None);
+        assert_eq!(p.fig.anim(), fall, "kind {kind}, behind {behind}");
+        until(&mut p, &level, Controls::default(), 8.0, 60.0, |p| matches!(p.state, State::GetUp));
+        assert_eq!(p.fig.anim(), get_up, "kind {kind}, behind {behind}");
+        until(&mut p, &level, Controls::default(), 5.0, 60.0, |p| matches!(p.state, State::Move));
+    }
+}
+
+/// With a gun out the jumps are the gun's own (Person.cpp:10162, 10288): a standing jump
+/// with a two-handed one, a running jump with any; and a bat guards with itself.
+#[test]
+fn armed_jumps_and_guards() {
+    use uc_game::Weapon;
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let at = vec3(46.5 * 256.0, 0.0, 55.0 * 256.0);
+    let mut p = darci(&level, at, vec2(-1.0, 0.0));
+    p.give(Weapon::Shotgun);
+    p.weapon = Weapon::Shotgun;
+    run(&mut p, &level, Controls { jump: true, ..Default::default() }, DT, 60.0, |_| false);
+    assert_eq!(p.fig.anim(), anim::STANDING_JUMP_AK);
+    until(&mut p, &level, Controls::default(), 3.0, 60.0, |p| matches!(p.state, State::Move));
+
+    let mut p = darci(&level, at, vec2(-1.0, 0.0));
+    p.give(Weapon::Pistol);
+    p.weapon = Weapon::Pistol;
+    let ahead = Controls { wish: vec2(-1.0, 0.0), run: true, ..Default::default() };
+    run(&mut p, &level, ahead, 0.5, 60.0, |_| false);
+    run(&mut p, &level, Controls { jump: true, ..ahead }, DT, 60.0, |_| false);
+    assert_eq!(p.fig.anim(), anim::RUN_JUMP_LEFT_AK);
+
+    let mut p = darci(&level, at, vec2(-1.0, 0.0));
+    p.give(Weapon::Bat);
+    p.weapon = Weapon::Bat;
+    run(&mut p, &level, Controls { block: true, ..Default::default() }, DT, 60.0, |_| false);
+    assert_eq!(p.fig.anim(), anim::BAT_BLOCK);
+}
+
+/// The gangs walk their own walk, and stand holding a shotgun (Person.cpp:8694, 8800).
+#[test]
+fn a_thug_walks_and_stands_his_own_way() {
+    use uc_game::Weapon;
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let at = vec3(46.5 * 256.0, 0.0, 55.0 * 256.0);
+    let mut p = person(&level, ptype::THUG_RED, at, vec2(-1.0, 0.0));
+    run(&mut p, &level, Controls { wish: vec2(-1.0, 0.0), ..Default::default() }, 0.5, 60.0, |_| false);
+    assert_eq!(p.fig.anim(), anim::THUG_WALK);
+    p.give(Weapon::Shotgun);
+    p.weapon = Weapon::Shotgun;
+    run(&mut p, &level, Controls { wish: vec2(-1.0, 0.0), ..Default::default() }, 0.5, 60.0, |_| false);
+    assert_eq!(p.fig.anim(), anim::THUG_WALK_SHOTGUN);
+    run(&mut p, &level, Controls::default(), 0.5, 60.0, |_| false);
+    assert_eq!(p.fig.anim(), anim::SHOTGUN_IDLE);
+}
+
+/// Kick in the air off a running jump (`SUB_STATE_FLYING_KICK`, Person.cpp:13610): out with
+/// `ANIM_FLYKICK_START`, held on the way down, down with `ANIM_FLYKICK_LAND`; and whoever's in
+/// the way goes down.
+#[test]
+fn a_flying_kick_off_a_running_jump() {
+    use uc_game::person::Event;
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let at = vec3(46.5 * 256.0, 0.0, 55.0 * 256.0);
+    let mut people = [darci(&level, at, vec2(-1.0, 0.0)), person(&level, ptype::THUG_RED, at - vec3(900.0, 0.0, 0.0), vec2(1.0, 0.0))];
+    let ahead = Controls { wish: vec2(-1.0, 0.0), run: true, ..Default::default() };
+    let (mut kicked, mut landed, mut floored) = (false, false, false);
+    for _ in 0..(4.0 / DT) as usize {
+        let gap = (people[1].fig.pos - people[0].fig.pos).length();
+        let c = match people[0].state {
+            State::Move if gap < 450.0 => Controls { jump: true, ..ahead },
+            State::Fall { .. } => Controls { kick: true, ..ahead },
+            _ => ahead,
+        };
+        let snaps = [people[0].snap(), people[1].snap()];
+        let mut events = Vec::new();
+        people[0].step(0, &c, &snaps, &level.ground, &level.map, DT, &mut events);
+        people[1].step(1, &Controls::default(), &snaps, &level.ground, &level.map, DT, &mut events);
+        for e in events {
+            if let Event::Hit { victim: 1, damage, ko, high, low, weapon, .. } = e {
+                let from = people[0].fig.pos;
+                people[1].take_hit(from, damage, ko, high, low, weapon);
+            }
+        }
+        for p in &mut people {
+            p.advance(DT, &level.ground);
+        }
+        kicked |= people[0].fig.anim() == anim::FLYKICK_START;
+        landed |= people[0].fig.anim() == anim::FLYKICK_LAND;
+        floored |= matches!(people[1].state, State::Down);
+    }
+    assert!(kicked, "never kicked");
+    assert!(landed, "never landed from it");
+    assert!(floored, "he never went down");
+}
+
+/// In a fight, jump with no way held is the jump kick (`ANIM_KICK_NS`), which nothing hits;
+/// with a way to the side, a flip that goes that way (interfac.cpp:5070, 5096).
+#[test]
+fn jumping_in_a_fight() {
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let at = vec3(46.5 * 256.0, 0.0, 55.0 * 256.0);
+    let darci_and = |c: Controls| {
+        let mut people = [darci(&level, at, vec2(-1.0, 0.0)), person(&level, ptype::THUG_RED, at - vec3(150.0, 0.0, 0.0), vec2(1.0, 0.0))];
+        let snaps = [people[0].snap(), uc_game::person::Snap { fighter: true, ..people[1].snap() }];
+        let mut events = Vec::new();
+        people[0].step(0, &c, &snaps, &level.ground, &level.map, DT, &mut events);
+        people
+    };
+    let mut p = darci_and(Controls { jump: true, ..Default::default() });
+    assert_eq!(p[0].fig.anim(), anim::KICK_NS);
+    let had = p[0].health;
+    p[0].take_hit(at - vec3(100.0, 0.0, 0.0), 30, 0, true, false, uc_game::Weapon::None);
+    assert_eq!(p[0].health, had, "hit mid jump kick");
+    // Facing -x, +z is to her side: the flip goes that way.
+    let mut p = darci_and(Controls { jump: true, wish: vec2(0.0, 1.0), ..Default::default() });
+    assert!(matches!(p[0].state, State::Flip { .. }), "{:?}", p[0].state);
+    let z = p[0].fig.pos.z;
+    let snaps = [p[0].snap()];
+    let mut events = Vec::new();
+    for _ in 0..20 {
+        p[0].step(0, &Controls::default(), &snaps, &level.ground, &level.map, DT, &mut events);
+        p[0].advance(DT, &level.ground);
+    }
+    assert!(p[0].fig.pos.z > z + 20.0, "flipped the wrong way: {} -> {}", z, p[0].fig.pos.z);
+}
+
+/// Someone to fight turning up, the player squares up (`ANIM_FIGHT_READY`); nobody left, she
+/// drops the stance (`ANIM_UNFIGHT`) (Person.cpp:11406, 8959).
+#[test]
+fn squaring_up_and_standing_down() {
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let at = vec3(46.5 * 256.0, 0.0, 55.0 * 256.0);
+    let mut me = darci(&level, at, vec2(-1.0, 0.0));
+    let thug = person(&level, ptype::THUG_RED, at - vec3(150.0, 0.0, 0.0), vec2(1.0, 0.0));
+    let mut seen = Vec::new();
+    let mut events = Vec::new();
+    for there in [true, false] {
+        for _ in 0..30 {
+            let snaps = [me.snap(), uc_game::person::Snap { fighter: true, present: there, standing: there, ..thug.snap() }];
+            me.step(0, &Controls::default(), &snaps, &level.ground, &level.map, DT, &mut events);
+            me.advance(DT, &level.ground);
+            if seen.last() != Some(&me.fig.anim()) {
+                seen.push(me.fig.anim());
+            }
+        }
+    }
+    let at = |a| seen.iter().position(|&x| x == a);
+    let (ready, fight, unfight) = (at(anim::FIGHT_READY), at(anim::FIGHT), at(anim::UNFIGHT));
+    assert!(ready.is_some() && ready < fight && fight < unfight, "{seen:?}");
+}
+
+/// Onto a ladder at its foot (`ANIM_MOUNT_LADDER`), up it, back down it playing the climb
+/// backwards (`SUB_STATE_CLIMB_DOWN_LADDER`), and off at the foot (`ANIM_OFF_LADDER_BOT`),
+/// standing where she got on; the hips never jump. Jump lets go.
+#[test]
+fn up_and_down_a_ladder() {
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let l = level.ground.ladders[0];
+    let start = l.foot + l.out * 40.0;
+    let mut p = darci(&level, vec3(start.x, 128.0, start.y), -l.out);
+    let up = Controls { wish: -l.out, ..Default::default() };
+    let down = Controls { wish: l.out, ..Default::default() };
+    until(&mut p, &level, up, 3.0, 40.0, |p| matches!(p.state, State::Mount { .. }));
+    assert_eq!(p.fig.anim(), anim::MOUNT_LADDER);
+    until(&mut p, &level, up, 3.0, 40.0, |p| matches!(p.state, State::Climb { .. }));
+    until(&mut p, &level, up, 10.0, 40.0, |p| p.fig.pos.y > 128.0 + 200.0);
+    until(&mut p, &level, down, 10.0, 40.0, |p| matches!(p.state, State::Press { .. }));
+    assert_eq!(p.fig.anim(), anim::OFF_LADDER_BOT);
+    until(&mut p, &level, Controls::default(), 3.0, 40.0, |p| matches!(p.state, State::Move));
+    assert_eq!(p.fig.pos.y, 128.0, "back at the foot");
+    assert!((standing_height(&p) - 96.0).abs() < 20.0);
+
+    // Up a way, and jump: off it.
+    until(&mut p, &level, up, 3.0, 40.0, |p| matches!(p.state, State::Climb { .. }));
+    until(&mut p, &level, up, 10.0, 40.0, |p| p.fig.pos.y > 128.0 + 200.0);
+    run(&mut p, &level, Controls { jump: true, ..Default::default() }, DT, 60.0, |_| false);
+    assert!(matches!(p.state, State::Fall { .. }), "{:?}", p.state);
+}
+
+/// Lying injured, now and then a struggle (`ANIM_INJURED_LOOP_STRUGGLE`, Person.cpp:17479),
+/// and back to lying there.
+#[test]
+fn the_injured_struggle_now_and_then() {
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let at = vec3(46.5 * 256.0, 0.0, 55.0 * 256.0);
+    let mut p = person(&level, ptype::CIV, at, vec2(1.0, 0.0));
+    p.state = State::Injured;
+    p.fig.restart(anim::INJURED_LOOP, uc_world::Play::Loop);
+    let mut seen = Vec::new();
+    let mut events = Vec::new();
+    for _ in 0..(40.0 / DT) as usize {
+        let snaps = [p.snap()];
+        p.step(0, &Controls::default(), &snaps, &level.ground, &level.map, DT, &mut events);
+        p.advance(DT, &level.ground);
+        if seen.last() != Some(&p.fig.anim()) {
+            seen.push(p.fig.anim());
+        }
+    }
+    assert!(seen.windows(2).any(|w| w == [anim::INJURED_LOOP_STRUGGLE, anim::INJURED_LOOP]), "no struggle and back in 40 s: {seen:?}");
+}
+
+/// Running into a wall half a storey high she gets up onto it (`ANIM_GET_UP_HALF_BLOCK`,
+/// `set_person_climb_half`); walking into it she doesn't (see `low_ledges_are_jumped_onto`).
+#[test]
+fn running_into_a_half_block_gets_up_it() {
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    let mut p = darci(&level, vec3(46.0 * 256.0, 0.0, 55.0 * 256.0), vec2(1.0, 0.0));
+    let run_at = Controls { wish: vec2(1.0, 0.0), run: true, ..Default::default() };
+    until(&mut p, &level, run_at, 2.0, 60.0, |p| matches!(p.state, State::PullUp { .. }));
+    assert_eq!(p.fig.anim(), anim::GET_UP_HALF_BLOCK);
+    until(&mut p, &level, Controls::default(), 3.0, 60.0, |p| matches!(p.state, State::Move));
+    assert_eq!(p.fig.pos.y, 128.0);
+    assert!((standing_height(&p) - 96.0).abs() < 30.0);
 }
