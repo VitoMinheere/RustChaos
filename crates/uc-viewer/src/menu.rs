@@ -1237,6 +1237,11 @@ pub fn missions(game: &Path) -> Vec<(String, String, String)> {
     out
 }
 
+/// One of the missions the game never released ([`UNRELEASED`] and [`DRAFTS`]).
+pub fn unreleased(mission: &str) -> bool {
+    UNRELEASED.iter().chain(DRAFTS.iter()).any(|u| u.0.eq_ignore_ascii_case(mission))
+}
+
 /// Where the unreleased missions without a district of their own are pinned, on the 640 by
 /// 480 map: out in the bay.
 const LOST_PIN: (f32, f32) = (560.0, 420.0);

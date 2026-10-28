@@ -377,6 +377,15 @@ pub struct Message {
     pub filmed: bool,
 }
 
+/// A briefing still to be read out ([`Game::brief`]).
+#[derive(Debug, Clone, Default)]
+struct Briefing {
+    story: Option<String>,
+    objectives: Option<String>,
+    /// The script has said something of its own already.
+    heard: bool,
+}
+
 /// A conversation being filmed, as the panel shows it in widescreen (`PANEL_new_widescreen`):
 /// one of the two at the top with their face on the right, the other at the bottom with
 /// theirs on the left, and the line being said beside whoever is saying it.
@@ -593,6 +602,8 @@ pub struct Game {
     convo: Option<Convo>,
     /// A conversation being filmed, for the widescreen panel.
     pub wide: Option<Wide>,
+    /// What's still to be said of the mission's briefing ([`Game::brief`]).
+    briefing: Briefing,
     /// The players who pressed action this turn (one in single player).
     used: Vec<usize>,
     /// Who the player's gun is aimed at.
@@ -784,6 +795,7 @@ impl Game {
             by_way: HashMap::new(),
             script,
             messages: Vec::new(),
+            briefing: Briefing::default(),
             outcome: None,
             time: 0.0,
             rngs: Rngs::default(),
@@ -932,6 +944,31 @@ impl Game {
     /// Event points the script can't run yet.
     pub fn unsupported(&self) -> &[String] {
         self.script.as_ref().map_or(&[], |s| &s.unsupported)
+    }
+
+    /// Has the radio read out a briefing at the start, once any opening fly-by is over and
+    /// the script's own opening messages are done: the `story` (left out if the script has
+    /// already said something of its own), then the `objectives`. For missions the game never
+    /// finished, whose scripts say little of what there is to do.
+    pub fn brief(&mut self, story: Option<String>, objectives: String) {
+        self.briefing = Briefing { story, objectives: Some(objectives), heard: false };
+    }
+
+    /// The next line of the briefing, when nothing else is being said.
+    fn say_briefing(&mut self) {
+        if self.briefing.objectives.is_none() {
+            return;
+        }
+        self.briefing.heard |= self.messages.iter().any(|m| !m.filmed);
+        if self.cutscene.is_some() || self.wide.is_some() || self.in_conversation() || !self.messages.is_empty() || self.time < 3.0 {
+            return;
+        }
+        let b = &mut self.briefing;
+        let story = b.story.take().filter(|_| !b.heard);
+        let Some(text) = story.or_else(|| b.objectives.take()) else { return };
+        // Long enough to read.
+        let left = (text.len() as f32 / 15.0).clamp(5.0, 16.0);
+        self.messages.push(Message { text, left, face: Some(talk::face::RADIO), filmed: false });
     }
 
     /// A hash of the state that matters to how the game plays on: the time, the outcome, the
@@ -1183,6 +1220,7 @@ impl Game {
             m.left -= dt;
         }
         self.messages.retain(|m| m.left > 0.0);
+        self.say_briefing();
         self.used = (0..seats).filter(|&s| seat_input(s).action).filter_map(|s| self.seat_person(s)).collect();
         for &i in &self.used.clone() {
             self.switches.flip_near(self.people[i].fig.pos);
