@@ -191,6 +191,63 @@ fn farradays_files() {
 }
 
 impl Run {
+    /// Runs the player to `to` along the shortest route of plain walks (and drops) over the
+    /// navigation map, for up to `secs`. Whether she got there.
+    fn walk_to(&mut self, to: Vec3, secs: f32) -> bool {
+        use uc_world::mav::{self, Mav};
+        let m = Mav::new(&self.level);
+        let me = self.player();
+        let sq = |p: Vec3| ((p.x / 256.0) as i32, (p.z / 256.0) as i32);
+        let (from, end) = (sq(self.g.people[me].fig.pos), sq(to));
+        let mut came = std::collections::HashMap::from([(from, from)]);
+        let mut queue = std::collections::VecDeque::from([from]);
+        while let Some((x, z)) = queue.pop_front() {
+            for (dir, &(dx, dz)) in mav::DIRS.iter().enumerate() {
+                let next = (x + dx, z + dz);
+                if m.opt(x, z, dir) & (mav::caps(mav::GOTO) | mav::caps(mav::FALL_OFF)) != 0 && !came.contains_key(&next) {
+                    came.insert(next, (x, z));
+                    queue.push_back(next);
+                }
+            }
+        }
+        if !came.contains_key(&end) {
+            return false;
+        }
+        let mut route = vec![end];
+        while route[route.len() - 1] != from {
+            route.push(came[&route[route.len() - 1]]);
+        }
+        route.reverse();
+        let mid = |(x, z): (i32, i32)| vec2(x as f32 * 256.0 + 128.0, z as f32 * 256.0 + 128.0);
+        let mut next = 0;
+        for _ in 0..(secs / DT) as usize {
+            let at = self.g.people[me].fig.pos;
+            let goal = if next + 1 < route.len() { mid(route[next]) } else { vec2(to.x, to.z) };
+            let d = goal - vec2(at.x, at.z);
+            if d.length() < 90.0 {
+                if next + 1 >= route.len() {
+                    return true;
+                }
+                next += 1;
+                continue;
+            }
+            self.play(DT, Controls { wish: d.normalize(), run: true, ..Default::default() });
+        }
+        false
+    }
+}
+
+/// ...and from where Darci starts she can run to Officer Jed at the gates (point 106). The
+/// draft map has her start in a yard she can't get out of (`uc_world::level::finish_unfinished`).
+#[test]
+fn farradays_files_from_the_start() {
+    let Some(mut r) = common::start("estate1") else { return };
+    r.play(2.0, Controls::default());
+    let gate = r.point(106);
+    assert!(r.walk_to(gate, 120.0), "stuck at {}", r.g.people[r.player()].fig.pos);
+}
+
+impl Run {
     /// Knocks the person made by `way` down without hurting them, and cuffs them.
     fn arrest(&mut self, way: usize) {
         let i = self.who(way);

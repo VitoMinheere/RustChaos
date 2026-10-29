@@ -287,6 +287,12 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 /// so in the original it watches a prop that can't be damaged, and the mission can't be
 /// won. Here the point is on the transmitter.
 ///
+/// estate1 starts Darci at (4706, 22406), in a back yard closed in on every side, the
+/// estate's wall on one with an unclimbable fence along its top. Its map (`nestate0x.iam`)
+/// is a draft of Estate of Emergency's, whose yard has a ladder up the block in its corner
+/// (38, 92) to drop off into the alley beyond; the draft's hasn't. Here she starts in that
+/// alley, level with where she was, across the yard's east wall.
+///
 /// `mission_name` is the mission's file name: gang3's own name is "Gang order3", whose
 /// mission it was made from.
 pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
@@ -295,6 +301,12 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
     if name == "transmit1" {
         if let Some(e) = mission.event_points.iter_mut().find(|e| e.index == 120 && e.used != 0 && e.trigger == trigger::PRIM_DAMAGED) {
             (e.x, e.z) = (20228, 18180);
+        }
+        return;
+    }
+    if name == "estate1" {
+        if let Some(e) = mission.event_points.iter_mut().find(|e| e.used != 0 && e.kind == waypoint::CREATE_PLAYER && (e.x, e.z) == (4706, 22406)) {
+            (e.x, e.z) = (7552, 22400);
         }
         return;
     }
