@@ -103,6 +103,12 @@ impl Barrel {
     pub fn bin(&self) -> bool {
         matches!(self.kind, 2 | 4)
     }
+
+    /// The sound of it being knocked (`BARREL_hit_noise`, barrel.cpp:72): a cone's
+    /// (`BT_TRAFFIC_CONE`), or a barrel's.
+    pub fn knock_sound(&self) -> person::Sfx {
+        if self.kind == 1 { person::Sfx::Cone } else { person::Sfx::Barrel }
+    }
 }
 
 impl Barrel {

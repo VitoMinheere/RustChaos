@@ -310,6 +310,12 @@ pub enum Sfx {
     Crash,
     /// A car knocked a cone or barrel.
     Cone,
+    /// A barrel knocked (`S_BARREL_START` to `_END`, barrel.cpp:75): anything but a cone.
+    Barrel,
+    /// The crackle of a spark (`S_ELEC_START + i % 5`, spark.cpp:657).
+    Elec,
+    /// Someone run over (`S_THUMP_SQUISH`, vehicle.cpp:3339).
+    Squish,
     /// A car's tyres started sliding.
     Skid,
     /// A driver held up by someone in the road sounds the horn (`S_CAR_HORN_START` and the

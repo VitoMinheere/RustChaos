@@ -277,7 +277,8 @@ impl Game {
             let f = p.fig.facing();
             let from = p.fig.pos + Vec3::new(f.x, 0.0, f.y) * 64.0;
             p.take_hit(from, 30, person::ko::KNOCKDOWN, false, false, Weapon::None);
-            self.sounds.push((Sfx::Explosion, from));
+            // The sparks off her crackle (`S_ELEC`, spark.cpp:657).
+            self.sounds.push((Sfx::Elec, from));
         }
         self.clocks.fence_spark -= dt;
         if self.clocks.fence_spark > 0.0 {
@@ -297,6 +298,7 @@ impl Game {
             // Only where the fence stands on the ground there.
             if (bottom - ground).abs() < 64.0 {
                 self.sparks.push(Spark { from, to: Vec3::new(x, ground, z), left: 50.0 / 20.0 });
+                self.sounds.push((Sfx::Elec, from));
             }
         }
     }

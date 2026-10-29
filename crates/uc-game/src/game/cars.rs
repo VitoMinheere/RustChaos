@@ -442,6 +442,8 @@ impl Game {
                     p.hurt_by = v.driver;
                     let behind = p.hit_from_behind(v.pos);
                     p.take_hit(v.pos, (v.speed.abs() / 12.0) as i32, person::ko::KNOCKDOWN, false, true, Weapon::None);
+                    // "A nice sound!" (vehicle.cpp:3339).
+                    self.sounds.push((Sfx::Squish, p.fig.pos));
                     // Killed by it, on the ground: `PERSON_DEATH_TYPE_OTHER` (vehicle.cpp:3329).
                     if p.is_dead() && !p.arrested {
                         p.knocked_dead(behind);
@@ -461,7 +463,7 @@ impl Game {
                 for at in ends {
                     for k in barrel::hit_with_sphere(&mut self.barrels, at, 0x60 as f32, &mut || rand(&mut seed)) {
                         let at = self.barrels[k].pos;
-                        self.sounds.push((Sfx::Cone, at));
+                        self.sounds.push((self.barrels[k].knock_sound(), at));
                     }
                 }
                 self.rngs.barrel = seed;

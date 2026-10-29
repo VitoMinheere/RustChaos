@@ -40,7 +40,7 @@ impl Game {
             self.barrel_marks = now;
             for k in barrel::process(&mut self.barrels, &Ground(level), &mut || rand(&mut seed)) {
                 let at = self.barrels[k].pos;
-                self.sounds.push((Sfx::Cone, at));
+                self.sounds.push((self.barrels[k].knock_sound(), at));
             }
             // A bin knocked over throws out some of its rubbish (barrel.cpp:248), unless
             // there's no floor for it to land on (`GF_NO_FLOOR`).
