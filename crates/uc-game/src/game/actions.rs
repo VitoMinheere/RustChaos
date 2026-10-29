@@ -635,6 +635,31 @@ impl Game {
         }
     }
 
+    /// `set_danger_level` (Controls.cpp:1672), every 16 ticks: the nearest thug (a gang
+    /// member's type, or a tramp, `am_i_a_thug`) within 0xc00 of the player puts the danger at
+    /// 1, 2 or 3 by the 0x400 he's off, nobody at 0. Coming to 1 plays the red sting, to 3
+    /// the green (`context_music`, Controls.cpp:1389); 2 is the yellow, which isn't played.
+    pub(crate) fn danger_level(&mut self) {
+        let tick = (self.time * 20.0) as u64;
+        let was_tick = ((self.time - TURN) * 20.0) as u64;
+        if tick / 16 == was_tick / 16 {
+            return;
+        }
+        let Some(me) = self.player() else { return };
+        let at = me.fig.pos;
+        use uc_world::character::person as ptype;
+        let nearest = self.people.iter()
+            .filter(|p| !p.removed && !p.is_dead() && matches!(p.kind, ptype::THUG_RASTA | ptype::THUG_GREY | ptype::THUG_RED | ptype::TRAMP))
+            .map(|p| (p.fig.pos - at).length())
+            .filter(|&d| d < 0xc00 as f32)
+            .min_by(|a, b| a.total_cmp(b));
+        let danger = nearest.map_or(0, |d| (d / 0x400 as f32) as u8 + 1).min(3);
+        if danger != self.danger && matches!(danger, 1 | 3) {
+            self.sounds.push((Sfx::Danger { near: danger == 1 }, at));
+        }
+        self.danger = danger;
+    }
+
     /// What the music should be doing (`context_music`, Controls.cpp:1372): fight music while
     /// enemies are on the player, sprint music while sprinting, crawl music crawling, driving
     /// music at the wheel, and quiet otherwise. A mission with a theme of its own plays it

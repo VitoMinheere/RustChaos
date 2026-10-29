@@ -330,6 +330,10 @@ pub enum Sfx {
     Explosion,
     /// The radio's beep before a message (`S_RADIO_MESSAGE`), heard wherever she is.
     Radio,
+    /// The danger stings, heard wherever she is (`context_music`, Controls.cpp:1389): a thug
+    /// come within 0x400 of her (`S_TUNE_DANGER_RED`, `near`), or the nearest now two to three
+    /// times that off (`S_TUNE_DANGER_GREEN`).
+    Danger { near: bool },
     /// A police siren (`S_SIREN_START`), from where it's given.
     Siren,
     /// One of the game's own sounds by id (`sound_list`), asked for by a mission.

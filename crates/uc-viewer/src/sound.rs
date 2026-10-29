@@ -139,6 +139,8 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         Sfx::Found => at(audio, vec!["sfx080799+/HiddenItemRev2.wav".into()], 0.9),
         // The radio's in her ear, not out in the street.
         Sfx::Radio => audio.play("RadioMessage.wav", 0.9),
+        // More sfx than music, over whatever's playing.
+        Sfx::Danger { near } => audio.play(if near { "SFX/DangerRed.wav" } else { "SFX/DangerGreen.wav" }, 0.8),
         Sfx::Siren => at(audio, vec!["f_SIREN1.wav".into(), "f_SIREN2.wav".into(), "f_SIREN3.wav".into(), "General/CopSiren1.wav".into()], 1.0),
         Sfx::Crash => at(audio, vec!["MedCrash2.wav".into(), "Impact1.wav".into(), "Impact2.wav".into()], 1.0),
         Sfx::Cone => at(audio, vec!["Cone1.wav".into()], 0.8),
