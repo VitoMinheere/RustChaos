@@ -350,6 +350,8 @@ impl Game {
                 Event::Arrest { attacker, victim } => {
                     if Some(attacker) == self.player {
                         self.record.arrests += 1;
+                        // (Person.cpp:11585.)
+                        self.info = Some(("Arrested".to_string(), 0.0));
                     }
                     // "Hey!" (Person.cpp:9422).
                     self.noises.push((person::Noise::Hey, self.people[attacker].fig.pos, Some(attacker)));

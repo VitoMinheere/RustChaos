@@ -345,6 +345,47 @@ impl Game {
         }).collect()
     }
 
+    /// Anyone who'd fight, empty-handed, goes for a weapon someone dropped lying near
+    /// (`PCOM_is_there_an_item_i_should_get`, pcom.cpp:4969): a gun, shotgun, AK, bat or knife
+    /// within 0x300, which they can get to straight (`there_is_a_los_mav`). They look every
+    /// 128 ticks standing about (pcom.cpp:8176), and every 256 going for someone (7568, 8578),
+    /// then run there, pick it up and get back to it. Not civilians, the men in black (whose
+    /// arm is an AK), anyone in a warehouse, or anyone carrying anything at all; the player's
+    /// bodyguards have [`Game::arm_bodyguards`]. Only what was dropped: what the mission put
+    /// down stays the player's to find (as the bodyguards have it).
+    pub(crate) fn fetch_weapons(&mut self, level: &Level) {
+        let tick = (self.time * 20.0) as usize;
+        let eye = Vec3::new(0.0, 64.0, 0.0);
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            let armed = p.weapon != Weapon::None || p.melee != Weapon::None || p.guns != 0;
+            if let Some(at) = p.fetch {
+                let lying = self.items.iter().any(|it| it.way == 0 && it.pos.distance(at) < 1.0);
+                if armed || !lying || p.is_down() || p.is_dead() || p.removed {
+                    self.people[i].fetch = None;
+                } else if Vec2::new(at.x - p.fig.pos.x, at.z - p.fig.pos.z).length() < 60.0 {
+                    self.pick_up_for(i);
+                }
+                continue;
+            }
+            let every = if p.aggro() { 256 } else { 128 };
+            if !(tick + i).is_multiple_of(every) || armed || p.player || p.removed || p.is_down() || p.is_dead()
+                || p.ai == person::AI_CIV || p.ai == person::AI_BODYGUARD || p.is_mib() || !matches!(p.state, State::Move)
+                || self.wares.under_roof(&level.map, &level.ground, p.fig.pos).is_some()
+            {
+                continue;
+            }
+            let at = p.fig.pos;
+            let near = self.items.iter()
+                .filter(|it| it.way == 0 && matches!(it.kind, 2 | 4 | 5 | 6 | 8))
+                .filter(|it| it.pos.distance(at) < 0x300 as f32)
+                .min_by(|a, b| a.pos.distance(at).total_cmp(&b.pos.distance(at)))
+                .map(|it| it.pos)
+                .filter(|&to| level.ground.line_of_sight(at + eye, to + eye));
+            self.people[i].fetch = near;
+        }
+    }
+
     /// Killed or arrested, someone may leave something behind (`generate_bonus_item`,
     /// Person.cpp:16763, called at 17052 and 17436): anyone of skill 12 or more, and one in
     /// 256/34 of the city's extra people bar civilians. The extras leave a health pack;
@@ -506,6 +547,7 @@ impl Game {
         };
         let Some(i) = self.items.iter().position(near) else { return };
         let (kind, way, rounds) = (self.items[i].kind, self.items[i].way, self.items[i].rounds);
+        let had = Weapon::from_item(kind).is_some_and(|w| w.is_gun() && self.people[pi].has(w));
         if !player && !matches!(kind, 2..=6 | 8 | 10..=12 | SNIPER) {
             return;
         }
@@ -583,6 +625,9 @@ impl Game {
         };
         if took {
             p.cues.push(Sfx::Pickup);
+            if player {
+                self.info = info_text(kind, had).map(|t| (t.to_string(), 0.0));
+            }
             self.items.remove(i);
             if way != 0 {
                 self.tally.taken.insert(way);
@@ -612,6 +657,27 @@ impl Game {
             },
         }
     }
+}
+
+/// What the panel says the player picked up (`special_pickup`'s `x_message`, Special.cpp:360,
+/// in `lang_english.txt`): a gun she has already is ammo for it. The badges have their own
+/// message. Health says +50 though it heals 100, as it did.
+fn info_text(kind: u8, had: bool) -> Option<&'static str> {
+    Some(match kind {
+        2 | 4 | 6 if had => "Ammo",
+        2 => "Gun",
+        4 => "Shotgun",
+        6 => "M16",
+        10..=12 => "Ammo",
+        3 => "Health +50",
+        5 => "Knife",
+        8 => "Baseball Bat",
+        1 => "Keycard",
+        19 => "Video",
+        game::grenades::IT_GRENADE => "Grenade",
+        EXPLOSIVES => "Explosives",
+        _ => return None,
+    })
 }
 
 /// A `SPECIAL_*` item type as the `IT_*` one the items here use: the reverse of

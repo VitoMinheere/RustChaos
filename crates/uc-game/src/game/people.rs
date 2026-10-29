@@ -317,10 +317,15 @@ impl Game {
                 let d = (q - at[i]).abs();
                 d.max_element() + (d.x + d.y + d.z - d.max_element()) / 4.0
             };
-            // A driver out of a car walks to the door of the nearest one free.
+            // A driver out of a car walks to the nearer door of the nearest one free (not
+            // round the car to the driver's: whichever, as `enter_car` has it).
             if p.drives() {
                 if let (true, Some(vi)) = (matches!(p.state, State::Move), self.car_for(i)) {
-                    let door = self.vehicles[vi].door();
+                    let v = &self.vehicles[vi];
+                    let here = Vec2::new(at[i].x, at[i].z);
+                    let door = [v.door(), v.to_world(-200.0, 20.0)].into_iter()
+                        .min_by(|a, b| (*a - here).length().total_cmp(&(*b - here).length()))
+                        .unwrap_or(v.door());
                     goals[i] = (Some(Vec3::new(door.x, at[i].y, door.y)), person::Pace::Walk);
                 }
                 continue;

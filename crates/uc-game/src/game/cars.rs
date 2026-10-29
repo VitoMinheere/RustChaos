@@ -145,8 +145,9 @@ impl Game {
                 continue;
             }
             let Some(vi) = self.car_for(i) else { continue };
-            let door = self.vehicles[vi].door();
-            if Vec2::new(p.fig.pos.x - door.x, p.fig.pos.z - door.y).length() < 150.0 {
+            // At either door: `enter_car` takes the nearer (`position_person_for_vehicle`).
+            let v = &self.vehicles[vi];
+            if [v.door(), v.to_world(-200.0, 20.0)].iter().any(|d| Vec2::new(p.fig.pos.x - d.x, p.fig.pos.z - d.y).length() < 150.0) {
                 self.enter_car(i, vi, level);
                 self.streets.drivers.insert(i, Driving::default());
             }
@@ -156,15 +157,18 @@ impl Game {
     /// The controls of a car someone other than the player is driving. Wandering
     /// (`PCOM_MOVE_WANDER`) they drive the roads, picking a way at random at each junction
     /// (`PCOM_process_driving_wander`) and keeping to their lane (`DriveCar`, both in
-    /// fallen/Source/pcom.cpp); otherwise they pull up and stay put
-    /// (`PCOM_process_driving_still`).
+    /// fallen/Source/pcom.cpp); on patrol they drive their route ([`Game::drive_patrol`]);
+    /// otherwise they pull up and stay put (`PCOM_process_driving_still`).
     pub(crate) fn npc_drive(&mut self, vi: usize, pi: usize, dt: f32, level: &Level) -> Drive {
         const TURN: f32 = 896.0; // `LEFT_TURN_DIST`: how near the junction before turning
         let v = &self.vehicles[vi];
-        let (at, speed, yaw, y) = (Vec2::new(v.pos.x, v.pos.z), v.speed, v.yaw, v.pos.y);
+        let (at, speed) = (Vec2::new(v.pos.x, v.pos.z), v.speed);
         let stop = if speed.abs() > 30.0 { Drive { throttle: -speed.signum(), ..Default::default() } } else { Drive::default() };
-        let (mv, bent) = (self.people[pi].mv, self.people[pi].bent);
+        let mv = self.people[pi].mv;
         let mut st = self.streets.drivers.get(&pi).copied().unwrap_or_default();
+        if matches!(mv, 2 | 3) {
+            return self.drive_patrol(vi, pi, st, dt, level);
+        }
         if mv != 4 || self.streets.roads.nodes.len() < 2 {
             st.road = None;
             self.streets.drivers.insert(pi, st);
@@ -212,6 +216,56 @@ impl Game {
             let dr = Vec2::new(sign(ab.x), sign(ab.y)) * 256.0;
             dest = r1 + ab * t + dr * 2.0 + Vec2::new(-dr.y, dr.x);
         }
+        self.steer_car(vi, pi, dest, st, dt, level)
+    }
+
+    /// A patrol at the wheel (`PCOM_process_driving_patrol`, pcom.cpp:6376): to the nearest
+    /// point of their colour and group, then on to the next (on a random patrol, any other,
+    /// `EWAY_find_waypoint_rand`), each reached within 0x300; at one with the longest wait
+    /// (`EWAY_get_delay` of ten seconds) they park, and stay parked
+    /// (`PCOM_set_person_move_park_car`). Gang Order 1 and 2, MIB and Stealth Test have them.
+    fn drive_patrol(&mut self, vi: usize, pi: usize, mut st: Driving, dt: f32, level: &Level) -> Drive {
+        let v = &self.vehicles[vi];
+        let (at, speed) = (Vec2::new(v.pos.x, v.pos.z), v.speed);
+        let stop = if speed.abs() > 30.0 { Drive { throttle: -speed.signum(), ..Default::default() } } else { Drive::default() };
+        let (colour, group, rand_patrol) = (self.people[pi].colour, self.people[pi].group, self.people[pi].mv == 3);
+        let Some(script) = self.script.as_ref() else { return stop };
+        let points = script.patrol_points(colour, group);
+        if st.parked || points.is_empty() {
+            self.streets.drivers.insert(pi, st);
+            return stop;
+        }
+        let flat = |p: Vec3| Vec2::new(p.x, p.z);
+        let mut k = st.patrol.and_then(|w| points.iter().position(|q| q.0 == w)).unwrap_or_else(|| {
+            (0..points.len()).min_by(|&a, &b| (flat(points[a].1) - at).length().total_cmp(&(flat(points[b].1) - at).length())).unwrap_or(0)
+        });
+        if creature::qdist2(flat(points[k].1) - at) < 0x300 as f32 {
+            if script.point_delay(points[k].0, 0.0) == 10.0 * 1000.0 {
+                st.parked = true;
+                self.streets.drivers.insert(pi, st);
+                return stop;
+            }
+            k = if rand_patrol && points.len() > 1 {
+                let mut rng = self.rngs.main;
+                let n = rand(&mut rng) as usize;
+                self.rngs.main = rng;
+                (k + 1 + n % (points.len() - 1)) % points.len()
+            } else {
+                (k + 1) % points.len()
+            };
+        }
+        st.patrol = Some(points[k].0);
+        self.steer_car(vi, pi, flat(points[k].1), st, dt, level)
+    }
+
+    /// Steering car `vi`, driven by `pi`, for `dest`: slowing for a bend, backing off what it
+    /// ran into, and stopping for anyone in the road ahead.
+    fn steer_car(&mut self, vi: usize, pi: usize, dest: Vec2, mut st: Driving, dt: f32, level: &Level) -> Drive {
+        let v = &self.vehicles[vi];
+        let (at, speed, yaw, y) = (Vec2::new(v.pos.x, v.pos.z), v.speed, v.yaw, v.pos.y);
+        let stop = if speed.abs() > 30.0 { Drive { throttle: -speed.signum(), ..Default::default() } } else { Drive::default() };
+        let bent = self.people[pi].bent;
+        let reversing = st.reversing > 0.0;
         let to = dest - at;
         let diff = (to.x.atan2(to.y) - yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
         // Slow for a bend, down to a third of the limit; diligent drivers go twice as fast.

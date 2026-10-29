@@ -117,6 +117,20 @@ impl World {
                     y += 12.0 * s;
                 }
             }
+            // The info line (`PANEL_new_info_message`, panel.cpp:5235): slid out to the right
+            // over its first 0.4 s, right-justified, fading in over a quarter second with a
+            // shadow that glows then goes.
+            if let Some((text, t)) = &self.game.info {
+                let ms = t * 1000.0;
+                let main = ms.min(255.0) as u8;
+                let shad = if ms < 255.0 { ms } else if ms < 768.0 { 255.0 - (ms - 256.0) / 2.0 } else { 0.0 }.clamp(0.0, 255.0) as u8;
+                let k = h / 480.0;
+                let right = bx + ((ms / 2.0).clamp(16.0, 205.0) - 16.0) * k + Overlay::text_width(text, s);
+                let x = right - Overlay::text_width(text, s);
+                let y = by + bh + 18.0 * s;
+                o.text(x + 2.0 * k, y + 2.0 * k, s, [shad, shad, shad, shad], text);
+                o.text(x, y, s, [255, 255, 255, main], text);
+            }
             // Badge stats (gold for those raised in this mission; kept when it's won). In
             // co-op they're the host's, and only Darci's.
             let mut x = bx;

@@ -289,6 +289,16 @@ impl Person {
                 return c;
             }
         }
+        // Off for a weapon lying near (`PCOM_AI_STATE_GETITEM`, `PCOM_process_getitem`): there
+        // at a run, fight or no fight, and then back to what they were doing.
+        if let Some(at) = self.fetch {
+            let d = flat(at, self.fig.pos);
+            if d.length() > 40.0 {
+                c.wish = d.normalize();
+                c.run = true;
+            }
+            return c;
+        }
         // Nobody to fight: walk the patrol, follow whoever is being followed, or stroll.
         // Dropping `aggro` matters as much as the walking does: the game only gives someone
         // somewhere to go while they aren't in a fight, so a bodyguard whose man went down
