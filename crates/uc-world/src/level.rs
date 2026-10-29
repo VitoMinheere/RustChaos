@@ -183,6 +183,32 @@ fn open_the_store(mission_name: &str, map_file: &str, map: &mut Map) {
     map.facets[doorway].kind = facet_type::DOOR;
 }
 
+/// The Missile Silos' missiles (`PRIM_OBJ` 245), which the mission is won by blowing up: its
+/// `prim_damaged` points (43, 46 and 48) watch them. Only a blast can damage one, and a
+/// blast steps through each map cell's props two at a time (`create_shockwave`,
+/// collide.cpp:11108), so only the first, third and so on in a cell are ever caught. Two of
+/// the three missiles (46's and 48's) are each the second of the two props in their cell,
+/// after the tank beside it, so in the original nothing in the mission can damage them and
+/// it can't be won. Here each is put first in its cell, as all three are on Target UC's map
+/// (`snow2.iam`), the mission it became.
+fn missiles_first(map_file: &str, map: &mut Map) {
+    const MISSILE: u8 = 245;
+    if !map_file.eq_ignore_ascii_case(r"data\snow1.iam") {
+        return;
+    }
+    let cell = |o: &uc_formats::iam::Object| (o.x >> 10, o.z >> 10);
+    let mut first = 0;
+    for i in 0..map.objects.len() {
+        if cell(&map.objects[i]) != cell(&map.objects[first]) {
+            first = i;
+        }
+        // Only those the blasts step over.
+        if map.objects[i].prim == MISSILE && (i - first) % 2 == 1 {
+            map.objects[first..=i].rotate_right(1);
+        }
+    }
+}
+
 /// Textures for a mission the install has no clump for: the shipped missions only have
 /// clumps of their own, packed from the loose textures (`server\textures\`) that the
 /// install no longer has. The pages come from the clumps of other missions: first those on
@@ -287,6 +313,12 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 /// so in the original it watches a prop that can't be damaged, and the mission can't be
 /// won. Here the point is on the transmitter.
 ///
+/// snow1, the Missile Silos, is won by blowing up its three missiles before the men by them
+/// launch them, but nothing in it says where they are: no message, no beacon. Here, as in
+/// Target UC (`snow2`), the mission it became, each has a beacon until it's destroyed (its
+/// "Missile destroyed" point: 43, 46 or 48), and the explosives by the bikes (167) one until
+/// they're picked up.
+///
 /// `mission_name` is the mission's file name: gang3's own name is "Gang order3", whose
 /// mission it was made from.
 pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
@@ -307,7 +339,7 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         "getaway1" => beacons > 1,
         _ => beacons > 0,
     };
-    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5" | "getaway1") || done {
+    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5" | "getaway1" | "snow1") || done {
         return;
     }
     let point = |m: &Mission, i: usize| m.event_points.iter().find(|e| e.index == i && e.used != 0).cloned();
@@ -394,6 +426,17 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: talked.index as u16, ..at(&contact) };
         add_point(mission, EventPoint { data: [contact.index as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
         add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: talked.index as u16, ..beacon(&mr_x, mr_x.index) }, Some("Mr X"));
+    } else if name == "snow1" {
+        for destroyed in [43, 46, 48] {
+            let Some(d) = point(mission, destroyed).filter(|d| d.trigger == trigger::PRIM_DAMAGED) else { continue };
+            let b = add_point(mission, beacon(&d, 0), Some("Warhead"));
+            let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: destroyed as u16, ..at(&d) };
+            add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
+        }
+        let Some(supplies) = point(mission, 167).filter(|e| e.kind == waypoint::CREATE_ITEM) else { return };
+        let b = add_point(mission, beacon(&supplies, 0), Some("Supplies"));
+        let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::SPECIFIC_ITEM_HELD, ep_ref: 167, ..at(&supplies) };
+        add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
     } else {
         let (Some(op), Some(chopper), Some(rendezvous)) = (point(mission, 37), point(mission, 41), point(mission, 42)) else { return };
         add_point(mission, beacon(&op, 37), Some("Dock operator"));
@@ -442,6 +485,7 @@ impl Level {
         let mut map = Map::parse(&read(game, &mission.map)?).map_err(|e| format!("{}: {e}", mission.map))?;
         to_sea(&mission.map, &mut map);
         open_the_store(mission_name, &mission.map, &mut map);
+        missiles_first(&mission.map, &mut map);
         // The mission's no-go squares: nobody walks into them, routes go round them, and
         // someone walking up to one stops short (elev.cpp:1813, after `MAV_precalculate`
         // and `WAND_init`, so they're turned off on top of whatever those found).
