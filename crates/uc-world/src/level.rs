@@ -244,6 +244,12 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 /// nothing ends it: here arresting all five wins, and killing any of them loses. Each has a
 /// beacon until he's brought in.
 ///
+/// Getaway1 has a beacon on the police contact (points 162 and 180), whose talk (163) sends
+/// Darci after Mr X (131) as he walks from the TV station to his van (164) and drives off.
+/// Taking him down wins (150) and his van getting away loses (165 and 178), but nothing shows
+/// where he is: only a message (154) on getting near York park, which he passes on the way.
+/// Here the contact's beacon goes once the talk's over (179), and Mr X has one from then on.
+///
 /// Transmit1's `prim_damaged` point (120), which wins it once the transmitter on the TV
 /// building is blown up, is just over the edge of the map's block of props from the
 /// transmitter's: `EWAY_create_cond` looks for the nearest prop in the point's own block,
@@ -263,15 +269,22 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
     }
     // Not twice: an edited mission keeps what it was given.
     let has = |kind: u8| mission.event_points.iter().any(|e| e.used != 0 && e.kind == kind);
-    let done = if matches!(name.as_str(), "crimescene" | "police5") { has(waypoint::END_GAME_WIN) } else { has(waypoint::NAV_BEACON) };
-    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5") || done {
+    let beacons = mission.event_points.iter().filter(|e| e.used != 0 && e.kind == waypoint::NAV_BEACON).count();
+    let done = match name.as_str() {
+        "crimescene" | "police5" => has(waypoint::END_GAME_WIN),
+        // It has the contact's of its own.
+        "getaway1" => beacons > 1,
+        _ => beacons > 0,
+    };
+    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5" | "getaway1") || done {
         return;
     }
     let point = |m: &Mission, i: usize| m.event_points.iter().find(|e| e.index == i && e.used != 0).cloned();
-    // A point with nothing set but where it is.
+    // A point with nothing set but where it is. Not its colour and group either: an active
+    // point of a patrol's colour and group is a stop on its route (`EWAY_find_waypoint`).
     let at = |e: &EventPoint| EventPoint {
         kind: 0, trigger: trigger::NONE, on_trigger: on_trigger::ACTIVE, ep_ref: 0, ep_ref_bool: 0, after_timer: 0,
-        data: [0; 10], radius: 0, next: 0, prev: 0, ..e.clone()
+        data: [0; 10], radius: 0, next: 0, prev: 0, colour: 0, group: 0, ..e.clone()
     };
     let beacon = |e: &EventPoint, track: usize| EventPoint { kind: waypoint::NAV_BEACON, data: [0, track as i32, 0, 0, 0, 0, 0, 0, 0, 0], ..at(e) };
     if name == "takeover1" {
@@ -333,6 +346,11 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: files.index as u16, ..at(&files) };
         add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
         add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: files.index as u16, ..beacon(&den, 0) }, Some("The den"));
+    } else if name == "getaway1" {
+        let (Some(contact), Some(talked), Some(mr_x)) = (point(mission, 180), point(mission, 179), point(mission, 131)) else { return };
+        let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: talked.index as u16, ..at(&contact) };
+        add_point(mission, EventPoint { data: [contact.index as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
+        add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: talked.index as u16, ..beacon(&mr_x, mr_x.index) }, Some("Mr X"));
     } else {
         let (Some(op), Some(chopper), Some(rendezvous)) = (point(mission, 37), point(mission, 41), point(mission, 42)) else { return };
         add_point(mission, beacon(&op, 37), Some("Dock operator"));
