@@ -870,6 +870,10 @@ pub struct Person {
     /// Guns carried (bit per `Weapon::GUNS` slot), and rounds for each.
     pub guns: u8,
     pub ammo: [u32; 4],
+    /// The player's rounds fired from each gun's clip since it was last changed: at a full
+    /// clip's worth ([`Weapon::clip`]) the next pull of the trigger changes it instead
+    /// (`HAD_TO_CHANGE_CLIP`, Person.cpp:6096).
+    pub spent: [u32; 4],
     /// Out for good (health gone): won't get up.
     pub knocked_out: bool,
     /// Lying out cold but alive (the pistol whip's `STAY_ALIVE_PRONE`): down until cuffed.
@@ -1091,7 +1095,7 @@ impl Person {
         Person {
             fig, way, player, kind, ai: 0, bent: 0, ko_moves: 0, health, max_health: health, state: State::Move,
             pace: Pace::Walk,
-            arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
+            arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], spent: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, struggle: 0.0, idle_for: 0.0, breathed: false, screamed: false, fly_kick: None, gun_fight: false, topple: None, bonus_rolled: false, run_shot: 0.0, fetch: None, splattered: false, sized_up: false, felon: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
@@ -1145,6 +1149,9 @@ impl Person {
         if w == Weapon::Hook {
             self.hook = true;
         } else if let Some(s) = w.slot() {
+            if self.guns & (1 << s) == 0 {
+                self.spent[s] = 0;
+            }
             self.guns |= 1 << s;
             self.ammo[s] += w.clip();
         } else if w != Weapon::None {
@@ -1220,6 +1227,15 @@ impl Person {
         let loaded = |w: Weapon| self.has(w) && w.slot().is_some_and(|s| self.ammo[s] > 0);
         [Weapon::Ak47, Weapon::Shotgun, Weapon::Pistol].into_iter().find(|&w| loaded(w))
             .or_else(|| [Weapon::Knife, Weapon::Bat, Weapon::Grenade].into_iter().find(|&w| self.has(w)))
+    }
+
+    /// The player's best weapon with rounds left, to go to when the one in hand is out
+    /// (`get_persons_best_weapon_with_ammo`, Person.cpp:6649): the AK-47, the shotgun, the
+    /// pistol, then the bat and the knife.
+    fn best_with_ammo(&self) -> Option<Weapon> {
+        let loaded = |w: Weapon| self.has(w) && w.slot().is_some_and(|s| self.ammo[s] > 0);
+        [Weapon::Ak47, Weapon::Shotgun, Weapon::Pistol].into_iter().find(|&w| loaded(w))
+            .or_else(|| [Weapon::Bat, Weapon::Knife].into_iter().find(|&w| self.has(w)))
     }
 
     /// Puts away what's in hand and takes out the next weapon carried (bare hands last), and

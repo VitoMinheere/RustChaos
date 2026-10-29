@@ -787,8 +787,7 @@ impl Person {
             return;
         }
         if c.punch && self.weapon.is_gun() {
-            if self.rounds() == Some(0) {
-                self.cues.push(Sfx::Click);
+            if !self.trigger() {
                 return;
             }
             let target = c.target.filter(|&t| t != me && snaps[t].present);

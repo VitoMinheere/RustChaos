@@ -440,6 +440,7 @@ impl Game {
                 let n = if w == Weapon::Pistol && !player { 3 + (roll & 3) } else { p.ammo[s].min(w.clip()) };
                 p.ammo[s] = p.ammo[s].saturating_sub(n);
                 p.guns &= !(1 << s);
+                p.spent[s] = 0;
                 n
             });
             if w.slot().is_none() {
