@@ -298,10 +298,41 @@ fn chain_link_fences_can_be_climbed() {
     until(&mut p, &level, walk, 3.0, 60.0, |p| matches!(p.state, State::Fence { .. }));
     // Settling onto it before climbing (`ANIM_LANDED_ON_FENCE`, #342).
     until(&mut p, &level, Controls::default(), 3.0, 60.0, |p| p.fig.anim() == uc_world::character::anim::LANDED_ON_FENCE);
-    until(&mut p, &level, Controls::default(), 8.0, 60.0, |p| !matches!(p.state, State::Fence { .. }));
+    // Up it while she holds forward.
+    until(&mut p, &level, walk, 8.0, 60.0, |p| !matches!(p.state, State::Fence { .. }));
     until(&mut p, &level, Controls::default(), 4.0, 90.0, |p| matches!(p.state, State::Move));
     assert!(p.fig.pos.z > z + 20.0, "still on the near side at {:?}", p.fig.pos);
     assert!((standing_height(&p) - 96.0).abs() < 30.0);
+}
+
+/// On a fence she stays put with the stick let go, climbs back down holding back and lets
+/// go with jump (#413, `SUB_STATE_STOPPING` and `_CLIMB_DOWN_WALL`, interfac.cpp:3994 and
+/// 4134; `ACTION_DROP_DOWN`).
+#[test]
+fn fence_climbing_follows_the_stick() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let level = Level::load(&game, "assault1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let z = 72.0 * 256.0;
+    let onto = |p: &mut Person| {
+        let walk = Controls { wish: vec2(0.0, 1.0), ..Default::default() };
+        until(p, &level, walk, 3.0, 60.0, |p| matches!(p.state, State::Fence { phase: 1, .. }));
+        // A little way up.
+        run(p, &level, walk, 0.1, 60.0, |_| false);
+    };
+    let mut p = darci(&level, vec3(61.0 * 256.0, 0.0, z - 120.0), vec2(0.0, 1.0));
+    onto(&mut p);
+    let held = hips(&p).y;
+    run(&mut p, &level, Controls::default(), 2.0, 60.0, |_| false);
+    assert!(matches!(p.state, State::Fence { phase: 1, .. }), "let go of the stick and she's {:?}", p.state);
+    assert!((hips(&p).y - held).abs() < 1.0, "moved from {held} to {}", hips(&p).y);
+    // Back down, onto the near side.
+    let back = Controls { wish: vec2(0.0, -1.0), ..Default::default() };
+    until(&mut p, &level, back, 3.0, 60.0, |p| matches!(p.state, State::Move));
+    assert!(p.fig.pos.z < z, "climbed down onto the far side at {:?}", p.fig.pos);
+    // Jump lets go.
+    let mut p = darci(&level, vec3(61.0 * 256.0, 0.0, z - 120.0), vec2(0.0, 1.0));
+    onto(&mut p);
+    until(&mut p, &level, Controls { jump: true, ..Default::default() }, 0.2, 60.0, |p| matches!(p.state, State::Fall { .. }));
 }
 
 
