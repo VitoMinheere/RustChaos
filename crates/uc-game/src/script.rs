@@ -50,6 +50,10 @@ pub trait Query {
     fn player_grabbing(&self) -> bool;
     /// The player pressed "action" this frame (for switches: `player_uses_radius`).
     fn player_used(&self) -> bool;
+    /// The map object the player pressed or turned this frame, a switch or a valve.
+    fn worked(&self) -> Option<usize> {
+        None
+    }
     /// The player has fired a gun at some point (`GF_PLAYER_FIRED_GUN`, which the original
     /// sets once and never clears).
     fn player_fired(&self) -> bool {
@@ -403,6 +407,32 @@ struct Way {
     countdown: f32,
     /// punched_and_kicked: the player's move counts when it started watching.
     baseline: Option<(u32, u32)>,
+    /// A `player_uses_radius` point with a switch or valve near: the map object, worked to
+    /// set it off ([`Script::bind_switches`]).
+    switch: Option<usize>,
+}
+
+impl Script {
+    /// The switch or valve (map object) that sets off point `i`, if it's bound to one.
+    pub fn switch_of(&self, i: usize) -> Option<usize> {
+        self.ways.get(i)?.as_ref()?.switch
+    }
+
+    /// `EWAY_fix_cond` (eway.cpp:1374): a `player_uses_radius` point with a switch or a
+    /// valve within four times its radius (the three axes summed) becomes that one's
+    /// `EWAY_COND_PRIM_ACTIVATED`. `switches` are the map's, by object index.
+    pub fn bind_switches(&mut self, switches: &[(usize, Vec3)]) {
+        for w in self.ways.iter_mut().flatten().filter(|w| w.ep.trigger == trigger::PLAYER_USES_RADIUS) {
+            let at = w.pos();
+            let range = (w.ep.radius * 4) as f32;
+            w.switch = switches.iter()
+                .map(|&(ob, p)| (ob, (p - at).abs()))
+                .map(|(ob, d)| (ob, d.x + d.y + d.z))
+                .filter(|&(_, d)| d < range)
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(ob, _)| ob);
+        }
+    }
 }
 
 impl Way {
@@ -495,7 +525,7 @@ impl Script {
             }
             ways[ep.index] = Some(Way {
                 ep: ep.clone(), text: texts.get(&ep.index).cloned(), active: false, dead: false, killed: false,
-                finished: false, timer: None, countdown: hundredths(ep.radius), baseline: None,
+                finished: false, timer: None, countdown: hundredths(ep.radius), baseline: None, switch: None,
             });
         }
         Script {
@@ -629,7 +659,13 @@ impl Script {
             trigger::CUBOID => q.players_pos().iter().any(|p| {
                 (p.x - pos.x).abs() <= (radius & 0xFFFF) as f32 && (p.z - pos.z).abs() <= (radius >> 16) as f32
             }),
-            trigger::PLAYER_USES_RADIUS => q.users_pos().iter().any(|p| p.distance(pos) < radius as f32),
+            // Bound to a switch, only working it sets it off, and only the first point on it
+            // (`EWAY_prim_activated`, eway.cpp:7986).
+            trigger::PLAYER_USES_RADIUS => match w.switch {
+                Some(ob) => q.worked() == Some(ob)
+                    && !self.ways[..i].iter().flatten().any(|v| v.switch == Some(ob)),
+                None => q.users_pos().iter().any(|p| p.distance(pos) < radius as f32),
+            },
             trigger::TIMER => self.time >= hundredths(radius),
             trigger::COUNTDOWN | trigger::VISIBLE_COUNTDOWN => {
                 if r1 != 0 && !self.is_active(r1) {

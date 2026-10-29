@@ -37,6 +37,36 @@ pub(crate) fn draw_sights(o: &mut Overlay, sights: &[uc_game::Sight], cam: &Came
     }
 }
 
+/// Where the grenade in hand would go (`show_grenade_path`, grenade.cpp:440): a dashed green
+/// line along its path, two turns in eight drawn, the dashes running with the game's turn,
+/// and a large gun sight where it comes to rest (`PANEL_draw_gun_sight(..., 1000, 400)`).
+pub(crate) fn draw_grenade_path(o: &mut Overlay, path: &[Vec3], time: f32, cam: &Camera, size: (u32, u32)) {
+    let (w, h) = (size.0 as f32, size.1 as f32);
+    let vp = cam.view_proj(size);
+    let screen = |p: Vec3| -> Option<Vec2> {
+        let c = vp * (p / uc_world::UNIT).extend(1.0);
+        (c.w > 0.01).then(|| vec2((c.x / c.w * 0.5 + 0.5) * w, (0.5 - c.y / c.w * 0.5) * h))
+    };
+    let green = [0, 0xaf, 0, 0x80];
+    let dot = (h / 360.0).round().max(2.0);
+    // `count` starts at minus the turn, so the dashes march along.
+    let start = -((time * 20.0) as i64);
+    for (k, seg) in path.windows(2).enumerate() {
+        if (start + k as i64).rem_euclid(8) > 1 {
+            continue;
+        }
+        let (Some(a), Some(b)) = (screen(seg[0]), screen(seg[1])) else { continue };
+        let n = ((b - a).length() / dot).ceil().max(1.0) as usize;
+        for j in 0..=n {
+            let p = a.lerp(b, j as f32 / n as f32);
+            o.rect(p.x - dot / 2.0, p.y - dot / 2.0, dot, dot, green);
+        }
+    }
+    if let Some(&end) = path.last() {
+        draw_sights(o, &[uc_game::Sight { at: end, accuracy: 1000.0, scale: 400.0 }], cam, size);
+    }
+}
+
 /// The chief's `n`th warning about civilian casualties (`X_CIVSDEAD_WARNING_1` to `_4`, the
 /// game's strings 151 to 154: `text\lang_english.txt`'s lines 152 to 155).
 pub(crate) fn civ_warning(game: &Path, n: u8) -> String {
@@ -292,8 +322,9 @@ impl World {
         }
 
         // The minimap (top right): the city from above around Darci, north up, with the
-        // mission's beacons as gold dots (pinned to the edge when further off), enemies in a
-        // fight as red dots and Darci as a white one; the beacons are listed underneath.
+        // mission's beacons as gold dots (pinned to the edge when further off), gang members
+        // and Men in Black ([`uc_game::Game::radar`]) as red and white dots and Darci as a white
+        // one; the beacons are listed underneath.
         if self.game.cutscene.is_none() {
             if let Some(pl) = self.game.player() {
                 let driving = self.game.player_vehicle();
@@ -326,10 +357,14 @@ impl World {
                     o.rect(p.x - r - s, p.y - r - s, 2.0 * (r + s), 2.0 * (r + s), [0, 0, 0, 220]);
                     o.rect(p.x - r, p.y - r, 2.0 * r, 2.0 * r, col);
                 };
-                for q in self.game.people.iter().filter(|q| q.aggro() && !q.is_dead()) {
-                    let (p, outside) = at(vec2(q.fig.pos.x, q.fig.pos.z) / uc_world::UNIT);
+                // Gang members red and Men in Black white, pulsing when they're after her
+                // (`flash`, a sine of the 20-a-second turn).
+                let flash = (self.game.time * 20.0 * 0.2).sin().abs();
+                for d in self.game.radar() {
+                    let (p, outside) = at(vec2(d.pos.x, d.pos.z) / uc_world::UNIT);
                     if !outside {
-                        dot(&mut o, p, 1.5 * s, [230, 60, 50, 255]);
+                        let r = if d.after_her { 0.75 + flash } else { 1.5 };
+                        dot(&mut o, p, r * s, if d.mib { [221, 221, 221, 255] } else { [230, 60, 50, 255] });
                     }
                 }
                 let gold = [255, 210, 70, 255];

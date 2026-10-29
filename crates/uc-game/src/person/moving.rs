@@ -748,6 +748,19 @@ impl Person {
                 return;
             }
         }
+        // The AI's grenade: primed and thrown in one (`shoot_get_ammo_sound_anim_time`,
+        // Person.cpp:6060, `set_person_can_release`).
+        if c.punch && !self.player && self.weapon == Weapon::Grenade && self.grenades > 0 {
+            if let Some(t) = c.target.filter(|&t| t != me && snaps[t].present) {
+                self.face(snaps[t].pos);
+            }
+            if self.fig.restart(anim::CAN_RELEASE, Play::Once) {
+                self.state = State::Throw { released: false };
+            } else {
+                events.push(Event::Throw { thrower: me });
+            }
+            return;
+        }
         // Punch with a can in hand throws it (`player_activate_in_hand`, interfac.cpp:668).
         if c.punch && self.can.is_some() {
             if self.fig.restart(anim::CAN_RELEASE, Play::Once) {
@@ -787,8 +800,7 @@ impl Person {
             return;
         }
         if c.punch && self.weapon.is_gun() {
-            if self.rounds() == Some(0) {
-                self.cues.push(Sfx::Click);
+            if !self.trigger() {
                 return;
             }
             let target = c.target.filter(|&t| t != me && snaps[t].present);
@@ -1148,7 +1160,15 @@ impl Person {
 
     /// The standing jump backwards (`set_person_standing_jump_backwards`, Person.cpp:10214):
     /// a back flip, going back at `Velocity` 32 (Person.cpp:13184), not off a steep slope.
+    /// With a wall within 256 behind her (0x60 up, `should_person_backflip`,
+    /// interfac.cpp:831) she jumps on the spot instead.
     fn back_flip(&mut self, ground: &Ground, map: &Map) {
+        let up = vec3(0.0, 0x60 as f32, 0.0);
+        let behind = -self.fig.facing() * 256.0;
+        if !ground.line_of_sight(self.fig.pos + up, self.fig.pos + up + vec3(behind.x, 0.0, behind.y)) {
+            self.jump(Vec2::ZERO);
+            return;
+        }
         if self.slipping(ground, map).is_some() || !self.fig.restart(anim::BACK_FLIP, Play::Once) {
             return;
         }

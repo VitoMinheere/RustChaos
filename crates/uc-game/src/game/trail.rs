@@ -159,6 +159,7 @@ impl Game {
         }
         self.lay_skids(level);
         self.smoke_damaged();
+        self.slide_dust();
     }
 
     /// A car smoking (`Smokin`, vehicle.cpp:1463), its wheels spinning or sliding: a puff of
@@ -192,6 +193,23 @@ impl Game {
                 }
             }
             *was = Some(now);
+        }
+    }
+
+    /// A sliding tackle kicks up dust round the left foot while it slides (`ANIM_SLIDER_HOLD`,
+    /// Person.cpp:16056): three puffs a turn, seven while still going fast, the colour of tyre
+    /// smoke (`0xc9b7a3`), up to 16 either way of the foot.
+    fn slide_dust(&mut self) {
+        if self.turns % 3 == 2 {
+            return;
+        }
+        for i in 0..self.people.len() {
+            let State::Slide { phase: 1, speed, .. } = self.people[i].state else { continue };
+            let Some((_, foot)) = self.people[i].fig.part_world(3) else { continue };
+            for _ in 0..if speed > 500.0 { 7 } else { 3 } {
+                let (dx, dz) = ((self.rand() & 31) as f32 - 16.0, (self.rand() & 31) as f32 - 16.0);
+                self.pyro.tyre_smoke(foot + Vec3::new(dx, 0.0, dz));
+            }
         }
     }
 

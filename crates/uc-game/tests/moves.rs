@@ -298,10 +298,41 @@ fn chain_link_fences_can_be_climbed() {
     until(&mut p, &level, walk, 3.0, 60.0, |p| matches!(p.state, State::Fence { .. }));
     // Settling onto it before climbing (`ANIM_LANDED_ON_FENCE`, #342).
     until(&mut p, &level, Controls::default(), 3.0, 60.0, |p| p.fig.anim() == uc_world::character::anim::LANDED_ON_FENCE);
-    until(&mut p, &level, Controls::default(), 8.0, 60.0, |p| !matches!(p.state, State::Fence { .. }));
+    // Up it while she holds forward.
+    until(&mut p, &level, walk, 8.0, 60.0, |p| !matches!(p.state, State::Fence { .. }));
     until(&mut p, &level, Controls::default(), 4.0, 90.0, |p| matches!(p.state, State::Move));
     assert!(p.fig.pos.z > z + 20.0, "still on the near side at {:?}", p.fig.pos);
     assert!((standing_height(&p) - 96.0).abs() < 30.0);
+}
+
+/// On a fence she stays put with the stick let go, climbs back down holding back and lets
+/// go with jump (#413, `SUB_STATE_STOPPING` and `_CLIMB_DOWN_WALL`, interfac.cpp:3994 and
+/// 4134; `ACTION_DROP_DOWN`).
+#[test]
+fn fence_climbing_follows_the_stick() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let level = Level::load(&game, "assault1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let z = 72.0 * 256.0;
+    let onto = |p: &mut Person| {
+        let walk = Controls { wish: vec2(0.0, 1.0), ..Default::default() };
+        until(p, &level, walk, 3.0, 60.0, |p| matches!(p.state, State::Fence { phase: 1, .. }));
+        // A little way up.
+        run(p, &level, walk, 0.1, 60.0, |_| false);
+    };
+    let mut p = darci(&level, vec3(61.0 * 256.0, 0.0, z - 120.0), vec2(0.0, 1.0));
+    onto(&mut p);
+    let held = hips(&p).y;
+    run(&mut p, &level, Controls::default(), 2.0, 60.0, |_| false);
+    assert!(matches!(p.state, State::Fence { phase: 1, .. }), "let go of the stick and she's {:?}", p.state);
+    assert!((hips(&p).y - held).abs() < 1.0, "moved from {held} to {}", hips(&p).y);
+    // Back down, onto the near side.
+    let back = Controls { wish: vec2(0.0, -1.0), ..Default::default() };
+    until(&mut p, &level, back, 3.0, 60.0, |p| matches!(p.state, State::Move));
+    assert!(p.fig.pos.z < z, "climbed down onto the far side at {:?}", p.fig.pos);
+    // Jump lets go.
+    let mut p = darci(&level, vec3(61.0 * 256.0, 0.0, z - 120.0), vec2(0.0, 1.0));
+    onto(&mut p);
+    until(&mut p, &level, Controls { jump: true, ..Default::default() }, 0.2, 60.0, |p| matches!(p.state, State::Fall { .. }));
 }
 
 
@@ -695,6 +726,22 @@ fn strafing() {
     until(&mut p, &level, turn, 3.0, 30.0, |p| p.fig.anim() != anim::ROTATE_R);
     assert!(p.fig.facing().dot(right) > 0.99);
     assert!((p.fig.pos - at).length() < 300.0 && (vec2(p.fig.pos.x, p.fig.pos.z) - vec2(at.x, at.z)).length() < 1.0, "turned on the spot");
+}
+
+/// No back flip into a wall (#415, `should_person_backflip`, interfac.cpp:831): with the
+/// central platform's side 128 behind her, jump with back is a jump on the spot.
+#[test]
+fn no_back_flip_into_a_wall() {
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    // Facing west, her back to the platform (its wall at x = 47 squares, 128 high).
+    let f = vec2(-1.0, 0.0);
+    let mut p = darci(&level, vec3(46.5 * 256.0, 0.0, 55.0 * 256.0), f);
+    let from = p.fig.pos;
+    run(&mut p, &level, Controls { jump: true, wish: -f, strafe: Some(f), ..Default::default() }, DT, 60.0, |_| false);
+    assert_ne!(p.fig.anim(), anim::BACK_FLIP, "flipped into the wall");
+    until(&mut p, &level, Controls::default(), 4.0, 60.0, |p| matches!(p.state, State::Move));
+    assert!((p.fig.pos.x - from.x).abs() < 20.0, "went {:?}", p.fig.pos - from);
 }
 
 /// Up from a knockdown with a two-handed gun, they hold it ready (`ANIM_SHOTGUN_STAND`,

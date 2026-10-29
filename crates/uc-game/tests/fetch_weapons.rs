@@ -27,7 +27,7 @@ fn setup(way: usize) -> Option<(Level, Game, usize)> {
     let at = g.people[ei].fig.pos;
     g.people[pi].fig.pos = at + glam::vec3(0.0, 0.0, 40.0 * 256.0);
     let e = &mut g.people[ei];
-    (e.weapon, e.melee, e.guns) = (Weapon::None, Weapon::None, 0);
+    (e.weapon, e.knife, e.bat, e.guns) = (Weapon::None, false, false, 0);
     let eye = glam::vec3(0.0, 64.0, 0.0);
     let spot = (0..16)
         .map(|k| {
@@ -37,7 +37,7 @@ fn setup(way: usize) -> Option<(Level, Game, usize)> {
         })
         .find(|&p| (p.y - at.y).abs() < 32.0 && level.ground.line_of_sight(at + eye, p + eye))
         .expect("no clear spot");
-    g.items.push(Item { way, kind: Weapon::Pistol.item().unwrap(), pos: spot, rounds: Some(5) });
+    g.items.push(Item { way, kind: Weapon::Pistol.item().unwrap(), pos: spot, rounds: Some(5), born: 0.0 });
     Some((level, g, ei))
 }
 

@@ -3,7 +3,35 @@
 use uc_formats::units::radians;
 use crate::*;
 
+/// Someone on the radar ([`Game::radar`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RadarDot {
+    pub pos: Vec3,
+    /// One of the Men in Black, drawn white; everyone else red.
+    pub mib: bool,
+    /// Out to get her: the dot pulses.
+    pub after_her: bool,
+}
+
 impl Game {
+    /// Who shows on the radar (the scanner's thugs, panel.cpp:5329): within 16 squares of the
+    /// player, living gang members (red) and Men in Black (white), whatever they're doing,
+    /// and anyone at all who's out to get her (`PCOM_person_wants_to_kill`), pulsing.
+    pub fn radar(&self) -> Vec<RadarDot> {
+        use uc_world::character::person as ptype;
+        let Some(pi) = self.player else { return Vec::new() };
+        let me = self.people[pi].fig.pos;
+        self.people.iter().enumerate()
+            .filter(|&(i, q)| i != pi && !q.removed && !q.is_dead())
+            .filter(|(_, q)| Vec2::new(q.fig.pos.x - me.x, q.fig.pos.z - me.z).length() < 16.0 * 256.0)
+            .filter_map(|(_, q)| {
+                let gang = matches!(q.kind, ptype::THUG_RASTA | ptype::THUG_GREY | ptype::THUG_RED);
+                let after_her = q.aggro() && q.foe == Some(pi);
+                (gang || q.is_mib() || after_her).then_some(RadarDot { pos: q.fig.pos, mib: q.is_mib(), after_her })
+            })
+            .collect()
+    }
+
     /// Navigation beacons: (label, position), hiding those whose target is down or gone.
     pub fn beacons(&self) -> Vec<(String, Vec3)> {
         let mut out = self.beat_beacons();

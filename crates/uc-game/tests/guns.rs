@@ -25,7 +25,7 @@ fn pick_up_guns_and_ammo_and_switch() {
     let pi = g.player.unwrap();
     let drop = |g: &mut Game, kind: u8| {
         let pos = g.people[pi].fig.pos;
-        g.items.push(Item { way: 0, kind, pos, rounds: None });
+        g.items.push(Item { way: 0, kind, pos, rounds: None, born: 0.0 });
         for _ in 0..5 {
             g.update(DT, &Controls::default(), &level);
         }
