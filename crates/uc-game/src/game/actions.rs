@@ -341,8 +341,75 @@ impl Game {
             let a = n as f32 * 2.4;
             let (x, z) = (hips.x + 24.0 * a.sin(), hips.z + 24.0 * a.cos());
             let y = level.ground.surface(&level.map, x, z, hips.y + 32.0);
-            Item { way: 0, kind, pos: Vec3::new(x, y, z) }
+            Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds: None }
         }).collect()
+    }
+
+    /// Killed or arrested, someone may leave something behind (`generate_bonus_item`,
+    /// Person.cpp:16763, called at 17052 and 17436): anyone of skill 12 or more, and one in
+    /// 256/34 of the city's extra people bar civilians. The extras leave a health pack;
+    /// the skilled a health pack or pistol, shotgun or AK ammo, one in four each. It goes
+    /// on the ground by them (`find_nice_place_near_person`).
+    pub(crate) fn bonus_items(&mut self, level: &Level) {
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            let dead = p.knocked_out && matches!(p.state, State::Down) && p.fig.finished();
+            if p.bonus_rolled || p.player || p.removed || !(dead || p.arrested) {
+                continue;
+            }
+            self.people[i].bonus_rolled = true;
+            let p = &self.people[i];
+            let (skilled, fake) = (p.skill >= 12, p.fake && p.ai != person::AI_CIV);
+            if !skilled && !(fake && self.rand() & 0xff < 34) {
+                continue;
+            }
+            // `IT_HEALTH`, `IT_AMMO_PISTOL`, `_SHOTGUN`, `_AK47`.
+            let kind = if fake { 3 } else { [3, 10, 11, 12][(self.rand() & 3) as usize] };
+            let hips = self.people[i].fig.hips();
+            let (x, z) = (hips.x + 24.0, hips.z);
+            let y = level.ground.surface(&level.map, x, z, hips.y + 32.0);
+            self.items.push(Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds: None });
+        }
+    }
+
+    /// Down and lying there, someone lets go of the weapon in their hand (`drop_current_gun`,
+    /// Person.cpp:7130, called on going down at 17133 and on dying at 17064), Darci too: a
+    /// gun with what's in it, a pistol of the AI's with 3 to 6 rounds, a knife or bat as
+    /// it is. It's no longer theirs until picked up again. What they carry and weren't
+    /// using stays on them until they're searched (`drop_all_items`).
+    pub(crate) fn drop_held(&mut self, level: &Level) {
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            let w = p.weapon;
+            let lying = matches!(p.state, State::Down | State::Injured) && p.fig.finished();
+            // A pistol only if it was out (`FLAG_PERSON_GUN_OUT`); what else is in the hand is
+            // in use (`SpecialUse`). Anything carried stays on them until they're searched.
+            let held = match w {
+                Weapon::Pistol => p.gun_out(),
+                Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper | Weapon::Knife | Weapon::Bat => true,
+                _ => false,
+            };
+            if p.removed || !lying || !held {
+                continue;
+            }
+            let (Some(kind), player) = (w.item(), p.player) else { continue };
+            let roll = self.rand();
+            let p = &mut self.people[i];
+            let rounds = w.slot().map(|s| {
+                let n = if w == Weapon::Pistol && !player { 3 + (roll & 3) } else { p.ammo[s].min(w.clip()) };
+                p.ammo[s] = p.ammo[s].saturating_sub(n);
+                p.guns &= !(1 << s);
+                n
+            });
+            if w.slot().is_none() {
+                p.melee = Weapon::None;
+            }
+            p.weapon = Weapon::None;
+            let hips = p.fig.hips();
+            let (x, z) = (hips.x - 24.0, hips.z);
+            let y = level.ground.surface(&level.map, x, z, hips.y + 32.0);
+            self.items.push(Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds });
+        }
     }
 
     pub(crate) fn searching(&mut self, dt: f32, held: bool, level: &Level) {
@@ -438,7 +505,7 @@ impl Game {
             Vec2::new(it.pos.x - pos.x, it.pos.z - pos.z).length() < 80.0 && (it.pos.y - pos.y).abs() < 100.0
         };
         let Some(i) = self.items.iter().position(near) else { return };
-        let (kind, way) = (self.items[i].kind, self.items[i].way);
+        let (kind, way, rounds) = (self.items[i].kind, self.items[i].way, self.items[i].rounds);
         if !player && !matches!(kind, 2..=6 | 8 | 10..=12 | SNIPER) {
             return;
         }
@@ -466,6 +533,10 @@ impl Game {
             2 | 4 | 6 | SNIPER => {
                 let w = Weapon::from_item(kind).unwrap();
                 p.give(w);
+                // One someone dropped has what was left in it.
+                if let (Some(n), Some(s)) = (rounds, w.slot()) {
+                    p.ammo[s] = p.ammo[s] - w.clip() + n;
+                }
                 // The AI draws it over a bat or knife.
                 if p.weapon == Weapon::None || (!player && !p.weapon.is_gun()) {
                     p.weapon = w;

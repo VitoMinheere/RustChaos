@@ -133,3 +133,28 @@ fn cuffed_where_he_lies_rolled_over_and_struggling() {
     assert!(moved < 24.0, "moved {moved} from where he lay");
     assert!(matches!(g.people[i].state, State::Cuffed), "{:?}", g.people[i].state);
 }
+
+/// Held too long without a throw or a knee, he wriggles out of it (`ANIM_GRAB_ARM_ESCAPEV`)
+/// and the hold's broken (`ANIM_GRAB_ARM_ESCAPE`) (#342, Person.cpp:19285).
+#[test]
+fn held_too_long_he_wriggles_free() {
+    let Some((level, mut g, p, i)) = start() else { return };
+    let mut c = Controls { wish: vec2(0.0, 1.0), punch: true, ..Default::default() };
+    for _ in 0..90 {
+        step(&mut g, &level, &c);
+        c.punch = false;
+        if matches!(g.people[p].state, State::Grapple { grab: Grab::Hold, .. }) {
+            break;
+        }
+        c.wish = if matches!(g.people[p].state, State::Grapple { .. }) { vec2(0.0, 0.0) } else { vec2(0.0, 1.0) };
+    }
+    assert!(matches!(g.people[p].state, State::Grapple { grab: Grab::Hold, .. }), "no hold: {:?}", g.people[p].state);
+    let (mut broke, mut escaped) = (false, false);
+    for _ in 0..(7.0 / DT) as usize {
+        step(&mut g, &level, &Controls::default());
+        broke |= g.people[p].fig.anim() == anim::GRAB_ARM_ESCAPE;
+        escaped |= g.people[i].fig.anim() == anim::GRAB_ARM_ESCAPEV;
+    }
+    assert!(broke && escaped, "broke {broke}, escaped {escaped}");
+    assert!(!matches!(g.people[p].state, State::Grapple { .. } | State::Recover { .. }), "{:?}", g.people[p].state);
+}

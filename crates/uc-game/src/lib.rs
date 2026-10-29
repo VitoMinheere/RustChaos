@@ -121,6 +121,8 @@ pub struct Item {
     /// `IT_*`.
     pub kind: u8,
     pub pos: Vec3,
+    /// The rounds in a gun someone dropped (`special->ammo`); None for a full clip.
+    pub rounds: Option<u32>,
 }
 
 /// The player going through a prop for whatever is hidden in it (`STATE_SEARCH`,
@@ -1384,6 +1386,8 @@ impl Game {
         self.walk_goals();
         self.run_ctf(dt, level);
         self.arm_bodyguards(level);
+        self.bonus_items(level);
+        self.drop_held(level);
         self.find_ways(level);
         self.city_life(dt, level);
         self.board_cars(level);

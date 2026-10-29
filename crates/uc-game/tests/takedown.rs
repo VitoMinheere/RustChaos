@@ -114,7 +114,7 @@ fn down_once() {
     for _ in 0..(4.0 / DT) as usize {
         run(&mut g, &level, DT, &Controls::default());
         let a = g.people[i].fig.anim();
-        assert!(!matches!(a, anim::KD_BACK_MID | anim::KD_FRONT_MID | anim::KD_BACK_LOW | anim::KD_FRONT_LOW | anim::KD_BACK_LAND | anim::KD_FRONT_LAND),
+        assert!(!matches!(a, anim::KD_BACK_MID | anim::KD_FRONT_MID | anim::KD_BACK_HI | anim::KD_FRONT_HI | anim::KD_BACK_LOW | anim::KD_FRONT_LOW | anim::KD_BACK_LAND | anim::KD_FRONT_LAND),
                 "knocked over again: anim {a}, {:?}", g.people[i].state);
     }
     assert_eq!(g.people[i].fig.anim(), anim::PISTOL_WHIP_TAKE);

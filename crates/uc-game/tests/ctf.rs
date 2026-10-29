@@ -101,7 +101,7 @@ fn the_bot_picks_up_health() {
         })
         .find(|&v| (v.y - at.y).abs() < 32.0 && r.level.ground.line_of_sight(at + eye, v + eye))
         .expect("nowhere in sight to put it");
-    r.g.items.push(uc_game::Item { way: 0, kind: 3, pos: spot });
+    r.g.items.push(uc_game::Item { way: 0, kind: 3, pos: spot, rounds: None });
     let mut healed = false;
     for _ in 0..(10.0 / common::DT) as usize {
         r.g.update(common::DT, &Controls::default(), &r.level);

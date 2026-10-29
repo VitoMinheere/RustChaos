@@ -26,10 +26,7 @@ impl Run {
 
     /// Takes the explosives out and sets one down where she stands.
     fn set_charge(&mut self) {
-        let i = self.g.player.unwrap();
-        while self.g.people[i].weapon != Weapon::Explosives {
-            self.play(DT, Controls { switch: true, ..Default::default() });
-        }
+        self.take_out(Weapon::Explosives);
         self.play(DT, Controls { action: true, ..Default::default() });
     }
 }

@@ -68,7 +68,7 @@ impl Game {
         let dist = (self.aim_point(aim) - me).length();
         let benefit = if dist < 512.0 { 1024.0 + 300.0 - dist * 2.0 } else { 500.0 - dist / 8.0 }.max(0.0);
         let moving = match aim {
-            Aim::Person(t) => !matches!(self.people[t].fig.anim(), uc_world::character::anim::BREATHE) && matches!(self.people[t].state, State::Move),
+            Aim::Person(t) => !person::idle_anim(self.people[t].fig.anim()) && matches!(self.people[t].state, State::Move),
             _ => false,
         };
         let floor = if moving { 600.0 } else { 0.0 };

@@ -64,6 +64,9 @@ impl Game {
                     let damage = self.hurt(victim, damage);
                     let before = self.people[victim].health;
                     self.people[victim].take_hit(from, damage, ko, high, low, weapon);
+                    if !weapon.is_gun() {
+                        self.people[victim].hit_in_a_fight();
+                    }
                     // A blow that lands draws blood: a drop, or five from a knife.
                     if self.people[victim].health < before {
                         let at = self.people[victim].fig.part_world(4).map_or(self.people[victim].fig.pos, |(_, at)| at);
@@ -335,6 +338,10 @@ impl Game {
                     if matches!(v.state, State::Held { .. }) {
                         v.state = State::Move;
                         v.take_hit(from, 0, 0, false, false, Weapon::None);
+                        // Out of the hold (`ANIM_GRAB_ARM_ESCAPEV`, Person.cpp:19285).
+                        if matches!(v.state, State::Hurt) && v.fig.restart(uc_world::character::anim::GRAB_ARM_ESCAPEV, uc_world::Play::Once) {
+                            v.state = State::Recover { queued: None };
+                        }
                     }
                 }
                 Event::Carry { carrier, victim } => {

@@ -104,6 +104,12 @@ fn the_balrog_comes_and_goes_down_to_bullets() {
     let mut aimed = 0;
     for _ in 0..1200 {
         r.set_down(spot);
+        // Knocked down, she drops the pistol (`drop_current_gun`): back in her hand, as
+        // picking it up again would have it.
+        if r.g.people[me].weapon != Weapon::Pistol {
+            r.g.people[me].give(Weapon::Pistol);
+            r.g.people[me].weapon = Weapon::Pistol;
+        }
         r.play(0.25, Controls { punch: true, ..Default::default() });
         aimed += r.g.aiming.creature.is_some() as u32;
         r.play(0.25, Controls::default());

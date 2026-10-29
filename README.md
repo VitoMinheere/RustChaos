@@ -223,7 +223,9 @@ The original's cheat works too: hold punch, kick, action, jump and right togethe
 
 **Searching:** some props hide things. Stand at one, face it and hold action (E): a bar fills over about three seconds, and whatever was stashed in it drops out, as the original's search does. Let go and the search is abandoned. A mission marks the props worth searching (`make_searchable`), and a `create_item` point can stash its item in the nearest one instead of leaving it in the open: in Auto-Destruct, the UCNN video turns up in the Wildcat den this way.
 
-**Searching people:** the dead, the knocked out and the arrested keep their weapons, and whatever their event point says they carry (often a health pack, ammo or a gun), until searched. Stand over them and hold action: after the same bar their things are put on the ground round them, and there's nothing more on them after that.
+**Dropped weapons:** anyone knocked down or killed lets go of the weapon in their hand, Darci too: a drawn gun falls with the rounds in it, and a knife or bat as it is. It's no longer theirs until someone picks it up.
+
+**Searching people:** the dead, the knocked out and the arrested keep the weapons they weren't using, and whatever their event point says they carry (often a health pack, ammo or a gun), until searched. Stand over them and hold action: after the same bar their things are put on the ground round them, and there's nothing more on them after that.
 
 **Insane Assault walkthrough:** go to Brick Road and put down the two gang members who turn up. Then the Balrog comes: a burning giant who stomps, swipes and throws fireballs, and goes for you above anyone else. Fists don't touch him. Only bullets and blasts do, and he takes an eighth of what anything else would: you start with a pistol, and ammo boxes appear about the place once he's out. Keep your distance, keep shooting, and when he goes down the mission is yours.
 
@@ -381,7 +383,8 @@ With an install present, the tests check:
 - steam vents keep to their routines and scald, and a trap that stays on for good never blows;
 - explosives blow up Transmission Terminated's transmitter and Media Trouble's props, which their missions see;
 - searching a prop turns up what Auto-Destruct stashes in it, and letting go of action, facing away or an empty prop finds nothing;
-- someone knocked out keeps their gun until searched, and a search turns it up; enemies carry their point's drop;
+- someone knocked out keeps a gun they hadn't drawn until searched, and a search turns it up; enemies carry their point's drop;
+- a shotgun falls from the hands of someone knocked down, and Darci's pistol from hers, with its rounds, until picked up again;
 - The Fallen gets three of its five clues (see `mib.rs` for what the other two still want).
 
 Without an install, the data tests print a note and pass. That's what CI sees: `.github/workflows/rust.yml` builds, tests and runs Clippy on Windows and Linux.

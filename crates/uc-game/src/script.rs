@@ -873,10 +873,8 @@ impl Script {
             // Only the door kind does anything here; an electric fence or a security camera
             // is left for later (and the camera does nothing in the original either).
             waypoint::CREATE_MIST => self.commands.push(Command::Mist { pos }),
-            // `EWAY_DO_SHAKE_CAMERA` is an empty case in the shipped game (eway.cpp:6289), so
-            // this does nothing on purpose rather than inventing a shake it never had. Where
-            // the original really does shake the camera is `create_shockwave`, which the car
-            // bombs already go through.
+            // `EWAY_DO_SHAKE_CAMERA` does nothing as it goes active (eway.cpp:6289): it shakes
+            // the camera while it is, which `shaking` tells the game.
             waypoint::SHAKE_CAMERA => {}
             // `Data[0]` picks `play_glue_wave`'s type and `Data[1]` is the sound's id.
             waypoint::SOUND_EFFECT => {
@@ -1037,6 +1035,12 @@ impl Script {
                 }
             })
             .collect()
+    }
+
+    /// A `shake_camera` point is active, and not dead (as [`Script::vents`] asks): the camera
+    /// shakes (eway.cpp:6649).
+    pub fn shaking(&self) -> bool {
+        self.ways.iter().flatten().any(|w| w.ep.kind == waypoint::SHAKE_CAMERA && w.active && !w.dead)
     }
 
     /// The active point of `colour` and `group` nearest `at` (`EWAY_find_nearest_waypoint`).

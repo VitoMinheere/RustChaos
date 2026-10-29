@@ -25,7 +25,7 @@ fn nobody_walks_on_the_spot() {
                 if last.len() < 4 || p.removed || p.player {
                     continue;
                 }
-                let walking = last.iter().all(|&(_, a)| a == anim::WALK || a == anim::RUN);
+                let walking = last.iter().all(|&(_, a)| uc_game::person::walking_anim(a) || a == anim::RUN);
                 let moved = last.windows(2).map(|w| (w[1].0 - w[0].0).length()).fold(0.0, f32::max);
                 if walking && moved < 30.0 && !stuck.iter().any(|s: &(&str, usize, f32)| s.0 == mission && s.1 == i) {
                     stuck.push((mission, i, r.g.time));

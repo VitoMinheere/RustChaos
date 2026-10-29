@@ -187,6 +187,7 @@ impl Person {
         if (matches!(self.state, State::Sit | State::Pose { .. }) && (self.aggro || self.scared.is_some()))
             || (matches!(self.state, State::Pose { .. }) && !posing)
         {
+            self.fidget = None;
             self.state = State::Move;
             self.idle(false);
         }
@@ -480,7 +481,7 @@ impl Person {
         // each other goes in with a sliding tackle (pcom.cpp:8681): if they can see them, not
         // if they're a fight-test dummy, and at the player only one turn in eight.
         c.run = hunter && (dist > 600.0 || p.footsteps);
-        let flat_out = self.fig.anim() == anim::RUN;
+        let flat_out = matches!(self.fig.anim(), anim::RUN | anim::YOMP);
         if c.run && p.footsteps && flat_out && dist < 0xc0 as f32 && !self.is_dummy() && (!p.player || rand().is_multiple_of(8)) {
             let eye = vec3(0.0, 140.0, 0.0);
             if ground.line_of_sight(self.fig.pos + eye, p.pos + eye) {

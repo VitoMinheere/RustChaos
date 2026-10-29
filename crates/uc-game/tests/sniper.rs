@@ -42,7 +42,7 @@ fn run(g: &mut Game, level: &Level, secs: f32, c: Controls) {
 fn picked_up_like_any_gun() {
     let Some((level, mut g, p)) = start() else { return };
     let at = g.people[p].fig.pos;
-    g.items.push(Item { way: 0, kind: SNIPER, pos: at + vec3(30.0, 0.0, 0.0) });
+    g.items.push(Item { way: 0, kind: SNIPER, pos: at + vec3(30.0, 0.0, 0.0), rounds: None });
     run(&mut g, &level, 0.2, Controls::default());
     assert!(g.people[p].has(Weapon::Sniper), "not picked up");
     assert_eq!(g.people[p].weapon, Weapon::Sniper);

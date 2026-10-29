@@ -25,7 +25,7 @@ fn pick_up_guns_and_ammo_and_switch() {
     let pi = g.player.unwrap();
     let drop = |g: &mut Game, kind: u8| {
         let pos = g.people[pi].fig.pos;
-        g.items.push(Item { way: 0, kind, pos });
+        g.items.push(Item { way: 0, kind, pos, rounds: None });
         for _ in 0..5 {
             g.update(DT, &Controls::default(), &level);
         }
@@ -50,7 +50,10 @@ fn pick_up_guns_and_ammo_and_switch() {
         order.push(g.people[pi].weapon);
     }
     assert_eq!(order, [Weapon::Shotgun, Weapon::None, Weapon::Pistol]);
-    // Firing at nothing uses a round.
+    // Once it's out, firing at nothing uses a round.
+    while matches!(g.people[pi].state, uc_game::State::Draw) {
+        g.update(DT, &Controls::default(), &level);
+    }
     let fire = Controls { punch: true, fire: true, ..Default::default() };
     g.update(DT, &fire, &level);
     for _ in 0..20 {

@@ -51,6 +51,14 @@ impl Out {
         self.f32(i.drive[0]);
         self.f32(i.drive[1]);
         self.u16(i.buttons);
+        match i.strafe {
+            Some([x, z]) => {
+                self.u8(1);
+                self.f32(x);
+                self.f32(z);
+            }
+            None => self.u8(0),
+        }
     }
     pub(crate) fn setup(&mut self, s: &Setup) {
         self.str(&s.mission);
@@ -94,7 +102,15 @@ impl In<'_> {
         String::from_utf8(self.bytes(n)?.to_vec()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
     pub(crate) fn input(&mut self) -> io::Result<Input> {
-        Ok(Input { wish: [self.f32()?, self.f32()?], drive: [self.f32()?, self.f32()?], buttons: self.u16()? })
+        self.input_of(true)
+    }
+    /// An input, from before strafing (#309) went with it if not `strafe`.
+    pub(crate) fn input_of(&mut self, strafe: bool) -> io::Result<Input> {
+        let mut i = Input { wish: [self.f32()?, self.f32()?], drive: [self.f32()?, self.f32()?], buttons: self.u16()?, strafe: None };
+        if strafe && self.u8()? != 0 {
+            i.strafe = Some([self.f32()?, self.f32()?]);
+        }
+        Ok(i)
     }
     pub(crate) fn setup(&mut self) -> io::Result<Setup> {
         Ok(Setup { mission: self.str()?, difficulty: self.u8()?, stats: self.bytes(4)?.try_into().unwrap() })
@@ -222,9 +238,21 @@ pub fn read_msg(r: &mut impl Read) -> io::Result<Msg> {
 mod tests {
     use super::*;
 
+    /// Replays from before strafing (#309) have inputs without it.
+    #[test]
+    fn inputs_from_before_strafing_still_read() {
+        let mut o = Out(Vec::new());
+        for v in [0.5, -1.0, 1.0, 0.0] {
+            o.f32(v);
+        }
+        o.u16(7);
+        let i = In(&o.0).input_of(false).unwrap();
+        assert_eq!(i, Input { wish: [0.5, -1.0], drive: [1.0, 0.0], buttons: 7, strafe: None });
+    }
+
     #[test]
     fn every_message_round_trips() {
-        let input = Input { wish: [0.5, -1.0], drive: [1.0, 0.0], buttons: 0x1234 };
+        let input = Input { wish: [0.5, -1.0], drive: [1.0, 0.0], buttons: 0x1234, strafe: Some([0.6, -0.8]) };
         let setup = Setup { mission: "police1".into(), difficulty: 2, stats: [1, 2, 3, 4] };
         let all = [
             Msg::Hello { protocol: 7, build: "abc-dirty".into(), name: "Vito".into() },

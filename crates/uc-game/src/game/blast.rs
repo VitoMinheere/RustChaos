@@ -134,17 +134,24 @@ impl Game {
     }
 
     /// The camera's shake dies down a game turn at a time (fc.cpp:1923): by one, then by an
-    /// eighth.
+    /// eighth. While a `shake_camera` point is active it's stirred up by 3 a turn first, below
+    /// 100 (`EWAY_process`, eway.cpp:6649), which holds it at a steady tremble.
     pub(crate) fn settle_shake(&mut self, dt: f32) {
-        if self.shake <= 0.0 {
+        let quake = self.script.as_ref().is_some_and(|s| s.shaking());
+        if self.shake <= 0.0 && !quake {
             self.shake_turns = 0.0;
             return;
         }
         self.shake_turns += dt * 20.0;
-        while self.shake_turns >= 1.0 && self.shake > 0.0 {
+        while self.shake_turns >= 1.0 {
             self.shake_turns -= 1.0;
-            self.shake = (self.shake - 1.0).max(0.0);
-            self.shake -= (self.shake / 8.0).floor();
+            if quake && self.shake < 100.0 {
+                self.shake += 3.0;
+            }
+            if self.shake > 0.0 {
+                self.shake = (self.shake - 1.0).max(0.0);
+                self.shake -= (self.shake / 8.0).floor();
+            }
         }
     }
 

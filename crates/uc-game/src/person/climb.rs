@@ -77,7 +77,8 @@ impl Person {
         self.fig.angle = uc_world::character::angle_of(dir);
         self.fig.lift = 0.0;
         self.fig.cancel_rise = false;
-        if !self.fig.restart_now(anim::DANGLE, Play::Loop) {
+        // Catching hold first (`ANIM_FLY_GRABBING_LEDGE`), then hanging.
+        if !self.fig.restart_now(anim::FLY_GRABBING_LEDGE, Play::Once) && !self.fig.restart_now(anim::DANGLE, Play::Loop) {
             return self.pull_up(to);
         }
         let Some((_, hand)) = self.fig.part_world(LEFT_HAND) else { return self.pull_up(to) };
@@ -111,6 +112,7 @@ impl Person {
                 }
             }
             State::PullUp { start, end, to } => (*start, *end, *to) = (f(*start), f(*end), f(*to)),
+            State::OntoLadder { start, end, .. } => (*start, *end) = (f(*start), f(*end)),
             _ => {}
         }
     }
@@ -121,6 +123,17 @@ impl Person {
     /// 74 units, if there's still ledge to hold there (`set_person_traverse`,
     /// `traverse_pos`). Anyone but the player pulls straight up.
     pub(super) fn step_dangle(&mut self, to: Vec3, dir: Vec2, shift: Option<(Vec3, Vec3)>, c: &Controls, ground: &Ground, map: &Map) {
+        // Caught hold: hang once it's done, the hand staying on the edge.
+        if self.fig.anim() == anim::FLY_GRABBING_LEDGE {
+            if self.fig.finished() {
+                let before = self.fig.part_world(LEFT_HAND).map(|(_, h)| h);
+                self.fig.restart_now(anim::DANGLE, Play::Loop);
+                if let (Some(b), Some((_, a))) = (before, self.fig.part_world(LEFT_HAND)) {
+                    self.fig.pos += b - a;
+                }
+            }
+            return;
+        }
         if let Some((_, end)) = shift {
             // The animation carries her along itself; at its end, hang on from where it left
             // her hips (`locked_anim_change(..., ANIM_DANGLE)`, Person.cpp:15004), at the new
@@ -169,11 +182,17 @@ impl Person {
         let (low, high) = (base + 150.0, (top - 30.0).max(base + 150.0));
         match phase {
             0 => {
-                let t = self.fig.progress();
+                // Onto it, settling there (`ANIM_LANDED_ON_FENCE`), then up.
+                let settling = self.fig.anim() == anim::LANDED_ON_FENCE;
+                let t = if settling { 1.0 } else { self.fig.progress() };
                 self.place_hips(from.lerp(grip(low), t));
                 if self.fig.finished() {
-                    phase = 1;
-                    self.fig.restart(anim::CLIMB_UP_FENCE, Play::Loop);
+                    if !settling && self.fig.restart(anim::LANDED_ON_FENCE, Play::Once) {
+                        self.fig.set_speed(1.5);
+                    } else {
+                        phase = 1;
+                        self.fig.restart(anim::CLIMB_UP_FENCE, Play::Loop);
+                    }
                 }
             }
             1 => {
@@ -219,6 +238,14 @@ impl Person {
         self.fig.angle = uc_world::character::angle_of(vec2(tangent.x, tangent.z));
         let end = !(0.0..=1.0).contains(&t);
         self.fig.pos = cb.at(t) - vec3(0.0, HANG, 0.0);
+        // The grab, then a pull up on the cable, then hanging there.
+        if self.fig.finished() {
+            match self.fig.anim() {
+                anim::DEATH_SLIDE => { self.fig.restart(anim::WIRE_SLIDE_PULLUP, Play::Once); }
+                anim::WIRE_SLIDE_PULLUP => { self.fig.restart(anim::WIRE_SLIDE_HANG, Play::Loop); }
+                _ => {}
+            }
+        }
         // Near the bottom, sliding into a roof (its top between the feet and the waist):
         // step off onto it. The Jump's zip line ends just above a roof that's above
         // Darci's feet. (Earlier on, the legs pass over whatever's below.)
@@ -274,32 +301,114 @@ impl Person {
         self.fig.set_speed(if moving { 1.3 } else { 0.0 });
         let y = y0 + (self.fig.loops() - loops0) * RUNG_CYCLE;
         self.fig.pos = vec3(at.x, y, at.y);
-        let off_rise = self.fig.anim_root(anim::OFF_LADDER_TOP, true).map_or(261.0, |r| r.y - self.fig.stand_root().y);
-        if y + off_rise >= top - 24.0 && self.fig.root().y >= 220.0 {
+        if y + self.off_rise() >= top - 24.0 && self.fig.root().y >= 220.0 {
             self.climb_onto(anim::OFF_LADDER_TOP, to, false);
         }
+    }
+
+    /// How far up climbing off the top of a ladder takes her feet.
+    fn off_rise(&self) -> f32 {
+        self.fig.anim_root(anim::OFF_LADDER_TOP, true).map_or(261.0, |r| r.y - self.fig.stand_root().y)
+    }
+
+    /// Where climbing off the top of `ladder` leaves her standing.
+    fn off_top(ladder: usize, ground: &Ground, map: &Map) -> Vec3 {
+        let l = ground.ladders[ladder];
+        let spot = ground.on_ladder(ladder, l.top) - vec3(l.out.x, 0.0, l.out.y) * 90.0;
+        vec3(spot.x, ground.surface(map, spot.x, spot.z, l.top), spot.z)
+    }
+
+    /// The ladder whose top she's standing by, to climb down onto with action
+    /// (interfac.cpp:1420): its top within 64 of her feet, and she within 75 of where
+    /// climbing off it leaves her (`set_person_climb_down_onto_ladder`, collide.cpp:2575).
+    pub(super) fn ladder_top_near(&self, ground: &Ground, map: &Map) -> Option<usize> {
+        let p = self.fig.pos;
+        (0..ground.ladders.len()).find(|&l| {
+            (ground.ladders[l].top - p.y).abs() < 64.0 && flat(Self::off_top(l, ground, map), p).length() < 75.0
+        })
+    }
+
+    /// Down onto `ladder` from its top (`set_person_climb_down_onto_ladder`): put where
+    /// climbing off it leaves her, back to the edge, she climbs off it backwards
+    /// (`ANIM_OFF_LADDER_TOP`, `person_backwards_animate`), onto it where climbing up it
+    /// would have climbed off.
+    pub(super) fn climb_down_onto(&mut self, ladder: usize, ground: &Ground, map: &Map) -> bool {
+        let l = ground.ladders[ladder];
+        let to = Self::off_top(ladder, ground, map);
+        let rungs = ((l.top - 24.0 - self.off_rise() - l.base) / RUNG_CYCLE).ceil().max(0.0);
+        let start = ground.on_ladder(ladder, l.base + rungs * RUNG_CYCLE);
+        let f = &mut self.fig;
+        f.angle = uc_world::character::angle_of(-l.out);
+        let (stand, Some(last)) = (f.stand_root(), f.anim_root(anim::OFF_LADDER_TOP, true)) else { return false };
+        if !f.restart_reversed(anim::OFF_LADDER_TOP) {
+            return false;
+        }
+        f.set_speed(-1.3);
+        (f.cancel_rise, f.lift) = (false, 0.0);
+        let end = to - f.to_world(last - stand);
+        f.pos = end;
+        self.state = State::OntoLadder { ladder, start, end };
+        true
+    }
+
+    /// `step` in [`State::OntoLadder`]: on the ladder at the end, in the climb's pose that
+    /// climbing off starts from (its sixth).
+    pub(super) fn step_onto_ladder(&mut self, ladder: usize, start: Vec3, end: Vec3) {
+        self.fig.pos = start.lerp(end, self.fig.progress());
+        if self.fig.finished() {
+            self.fig.restart_now(anim::ON_LADDER, Play::Loop);
+            self.fig.skip_keyframes(5);
+            self.fig.set_speed(0.0);
+            self.fig.pos = start;
+            self.state = State::Climb { ladder, y0: start.y, loops0: self.fig.loops() };
+        }
+    }
+
+    /// `step` in [`State::Mount`]: on once the step on's done, in the climb's first pose.
+    pub(super) fn step_mount(&mut self, ladder: usize, ground: &Ground) {
+        if self.fig.finished() {
+            self.fig.restart_now(anim::ON_LADDER, Play::Loop);
+            self.fig.set_speed(0.0);
+            self.state = State::Climb { ladder, y0: self.fig.pos.y, loops0: self.fig.loops() };
+        }
+        self.fig.pos = ground.on_ladder(ladder, self.fig.pos.y);
     }
 
     pub(super) fn step_climb(&mut self, ladder: usize, y0: f32, loops0: f32, c: &Controls, ground: &Ground, map: &Map) {
         let l = ground.ladders[ladder];
         self.fig.angle = uc_world::character::angle_of(-l.out);
-        if c.wish.dot(l.out) > 0.7 || c.action && self.fig.pos.y > l.base + 64.0 {
+        // Jump lets go (`action_ladder`'s `ACTION_DROP_DOWN`, interfac.cpp:544), as does action
+        // off the ground.
+        if c.jump || c.action && self.fig.pos.y > l.base + 64.0 {
             self.fall(l.out * 60.0);
             return;
         }
-        // The animation moves the body up a rung cycle and loops back, so the feet
-        // move up a cycle each time it loops.
-        let moving = c.wish.dot(-l.out) > 0.3;
-        self.fig.set_speed(if moving { 1.3 } else { 0.0 });
+        // The animation moves the body up a rung cycle and loops back, so the feet move up a
+        // cycle each time it loops. Pulling back climbs down: the same, backwards
+        // (`SUB_STATE_CLIMB_DOWN_LADDER`, `person_backwards_animate`).
+        let up = c.wish.dot(-l.out) > 0.3;
+        let down = c.wish.dot(l.out) > 0.3;
+        self.fig.set_speed(if up { 1.3 } else if down { -1.3 } else { 0.0 });
         let y = y0 + (self.fig.loops() - loops0) * RUNG_CYCLE;
+        // Down at the foot: off it onto the ground (`ANIM_OFF_LADDER_BOT`) once the climb's
+        // back to its first pose, which is where stepping off starts (or just past it, into
+        // the rung below). A ladder that stops short of the ground is let go of instead.
+        if down && y <= l.base + 1.0 && (self.fig.frame() == Some(0) || y < l.base - 1.0) {
+            let at = ground.on_ladder(ladder, l.base);
+            let floor = ground.surface(map, at.x, at.z, l.base + 8.0);
+            if (floor - l.base).abs() < 16.0 && self.fig.restart_now(anim::OFF_LADDER_BOT, Play::Once) {
+                self.fig.pos = vec3(at.x, floor, at.z);
+                self.state = State::Press { then: None };
+            } else {
+                self.fall(Vec2::ZERO);
+            }
+            return;
+        }
         self.fig.pos = ground.on_ladder(ladder, y);
-        // Near the top, at the point of the cycle where the hands reach the edge,
-        // climb off onto the roof.
-        let off_rise = self.fig.anim_root(anim::OFF_LADDER_TOP, true).map_or(261.0, |r| r.y - self.fig.stand_root().y);
-        if y + off_rise >= l.top - 24.0 && self.fig.root().y >= 220.0 {
-            let spot = ground.on_ladder(ladder, l.top) - vec3(l.out.x, 0.0, l.out.y) * 90.0;
-            let to = vec3(spot.x, ground.surface(map, spot.x, spot.z, l.top), spot.z);
-            self.climb_onto(anim::OFF_LADDER_TOP, to, false);
+        // Near the top, climbing up, at the point of the cycle where the hands reach the
+        // edge, climb off onto the roof.
+        if up && y + self.off_rise() >= l.top - 24.0 && self.fig.root().y >= 220.0 {
+            self.climb_onto(anim::OFF_LADDER_TOP, Self::off_top(ladder, ground, map), false);
         }
     }
 }

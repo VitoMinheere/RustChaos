@@ -18,11 +18,52 @@ use uc_formats::lgt::Lighter;
 pub mod anim {
     pub const STAND_READY: usize = 3;
     pub const ON_LADDER: usize = 14;
+    /// Stepping onto a ladder from its foot (`set_person_climb_ladder`, Person.cpp:10022),
+    /// ending in `ON_LADDER`'s first pose; and stepping off it at the foot, from that pose to
+    /// standing (`SUB_STATE_CLIMB_OFF_LADDER_BOT`, Person.cpp:14146).
+    pub const MOUNT_LADDER: usize = 13;
+    pub const OFF_LADDER_BOT: usize = 56;
     pub const LAND_RIGHT: usize = 53;
+    /// Landing a running jump with nothing held, to stand (Person.cpp:13551), and landing
+    /// hard from a drop (`DY` under -15000, Person.cpp:14795).
+    pub const LAND_STAND: usize = 96;
+    pub const BIG_LAND: usize = 225;
     pub const WALK: usize = 20;
+    /// The gangs' walk, and anyone's but Darci's and Roper's with a two-handed gun
+    /// (`set_anim_walking`, Person.cpp:8694).
+    pub const THUG_WALK: usize = 389;
+    pub const THUG_WALK_SHOTGUN: usize = 384;
+    /// Standing hand on hip: the women's stand (`set_anim_idle`, Person.cpp:8821).
+    pub const STAND_HIP: usize = 2;
     pub const FALLING: usize = 51;
+    /// Falling on from the top of a standing jump that caught nothing, in the jump's last
+    /// pose (`PERSON_DROP_DOWN_QUEUED`, Person.cpp:13254); and with a two-handed gun.
+    pub const FALLING_QUEUED: usize = 206;
+    pub const FALLING_QUEUED_AK: usize = 382;
+    /// A step to the side (`set_person_step_left`, `_right`, Person.cpp:8172); the body
+    /// moves 45 that way.
+    pub const STEP_LEFT: usize = 59;
+    pub const STEP_RIGHT: usize = 60;
+    /// The standing jump backwards (`set_person_standing_jump_backwards`, Person.cpp:10214).
+    pub const BACK_FLIP: usize = 105;
+    /// Turning on the spot (interfac.cpp:3417).
+    pub const ROTATE_L: usize = 193;
+    pub const ROTATE_R: usize = 194;
+    /// Ready with a two-handed gun (`set_person_locked_idle_ready`, Person.cpp:7629).
+    pub const SHOTGUN_STAND: usize = 212;
+    /// Clubbing with a two-handed gun, one or the other at random (`set_person_punch`,
+    /// Person.cpp:9650).
+    pub const SHOTGUN_WHIP1: usize = 208;
+    pub const SHOTGUN_WHIP2: usize = 209;
+    /// Walking backwards (`set_person_walk_backwards`, Person.cpp:8862); and with a
+    /// two-handed gun.
+    pub const BACK_WALK: usize = 334;
+    pub const BACK_WALK_AK: usize = 336;
     pub const CLIMB_UP_FENCE: usize = 45;
     pub const LAND_ON_FENCE: usize = 57;
+    /// Settling onto it, into the climb's first pose (`SUB_STATE_CLIMB_LANDING`,
+    /// Person.cpp:14217).
+    pub const LANDED_ON_FENCE: usize = 62;
     pub const CLIMB_OVER_FENCE: usize = 58;
     /// A flip to the side, out of a bullet's way (`ANIM_FLIP_LEFT`, `_RIGHT`).
     pub const FLIP_LEFT: usize = 91;
@@ -30,12 +71,32 @@ pub mod anim {
     /// Over a low fence at a run (`ANIM_VAULT`).
     pub const VAULT: usize = 16;
     pub const DEATH_SLIDE: usize = 68;
+    /// On along a cable after grabbing it: pulling up on it, then hanging there
+    /// (`SUB_STATE_DEATH_SLIDE`, Person.cpp:14630).
+    pub const WIRE_SLIDE_PULLUP: usize = 246;
+    pub const WIRE_SLIDE_HANG: usize = 247;
     pub const OFF_LADDER_TOP: usize = 55;
+    /// The sprint; the AI runs with it too (`set_anim_running`, Person.cpp:8749).
     pub const RUN: usize = 119;
+    /// The player's run (`PERSON_MODE_RUN`), and Roper's whatever the speed: a push off
+    /// (`ANIM_YOMP_START`, with a bat, a two-handed gun or a pistol out its own), then the
+    /// loop (Person.cpp:7947, `get_yomp_anim`).
+    pub const YOMP: usize = 198;
+    pub const YOMP_START: usize = 238;
+    pub const YOMP_START_AK: usize = 321;
+    pub const YOMP_START_PISTOL: usize = 368;
+    pub const YOMP_BAT: usize = 370;
+    pub const YOMP_START_BAT: usize = 371;
     pub const MID_AIR: usize = 122;
     pub const BREATHE: usize = 124;
     pub const IDLE_SCRATCH1: usize = 77;
     pub const IDLE_SCRATCH2: usize = 78;
+    /// A line of a conversation, a question or not, and hearing one
+    /// (`PCOM_set_person_ai_talk_to`); with a two-handed gun, holding it (`ANIM_SHOTGUN_IDLE`).
+    pub const TALK_ASK: usize = 258;
+    pub const TALK_TELL: usize = 259;
+    pub const TALK_LISTEN: usize = 260;
+    pub const SHOTGUN_IDLE: usize = 383;
     pub const CROUTCH_DOWN: usize = 143;
     pub const CRAWL: usize = 144;
     pub const IDLE_CROUTCH: usize = 222;
@@ -45,22 +106,42 @@ pub mod anim {
     pub const SHOTGUN_DUCK: usize = 312;
     pub const UNCROUTCH_AK: usize = 314;
     pub const SNIPER_CRAWL: usize = 315;
+    /// The combos' moves, and the returns from those that weren't followed up
+    /// (`fight_tree`, combat.cpp:79: `_RETURN`, `_RET`).
     pub const PUNCH_COMBO1: usize = 146;
     pub const PUNCH_COMBO2: usize = 147;
     pub const PUNCH_COMBO3: usize = 148;
     pub const KICK_COMBO1: usize = 154;
     pub const KICK_COMBO2: usize = 155;
     pub const KICK_COMBO3: usize = 156;
+    pub const PUNCH_RETURN1: usize = 150;
+    pub const PUNCH_RETURN2: usize = 151;
+    pub const KICK_RETURN1: usize = 157;
+    pub const KICK_RETURN2: usize = 158;
+    pub const KNIFE_ATTACK1_RET: usize = 274;
+    pub const KNIFE_ATTACK2_RET: usize = 275;
+    pub const BAT_HIT1_RET: usize = 240;
     pub const FIGHT: usize = 159;
+    /// Into a fight from standing about (`person_enter_fight_mode`, Person.cpp:11406), and
+    /// out of one with nobody left to fight (Person.cpp:8959).
+    pub const FIGHT_READY: usize = 25;
+    pub const UNFIGHT: usize = 358;
     pub const KICK_LEFT: usize = 162;
     pub const KICK_BEHIND: usize = 164;
+    /// The jump kick: jump in a fight with no way held (interfac.cpp:5109).
+    pub const KICK_NS: usize = 161;
     /// Darci's kick between the legs, stepping in close (`set_person_kick_near`), and the
     /// victim doubling over, staying bent and straightening up (`fn_person_recoil`).
     pub const KICK_NAD: usize = 394;
+    /// The kick at someone close (`set_person_kick_near`, Person.cpp:9886).
+    pub const KICK_NEAR: usize = 263;
     pub const KICK_NAD_TAKE: usize = 395;
     pub const KICK_NAD_STUNNED: usize = 396;
     pub const KICK_NAD_RECOVER: usize = 397;
     pub const BLOCK_HIGH: usize = 165;
+    /// Guarding with a bat or a shotgun (`set_person_block`, Person.cpp:9072).
+    pub const BAT_BLOCK: usize = 202;
+    pub const SHOTGUN_BLOCK: usize = 213;
     /// `ANIM_LEG_SWEEP`: the foot sweep from a block.
     pub const LEG_SWEEP: usize = 219;
     pub const HIT_FRONT_HI: usize = 166;
@@ -69,6 +150,9 @@ pub mod anim {
     pub const HIT_BACK_MID: usize = 169;
     /// Sitting down on a bench, a sofa or an armchair, and staying there (`ANIM_SIT_DOWN`).
     pub const SIT_DOWN: usize = 337;
+    /// Sat there, shifting now and then (`ANIM_SIT_IDLE`), and getting up again (`ANIM_SIT_TO_STAND`).
+    pub const SIT_IDLE: usize = 338;
+    pub const SIT_TO_STAND: usize = 339;
     /// Knocked dead by a blast, a car or fire, standing on the ground
     /// (`PERSON_DEATH_TYPE_OTHER`): from the front, onto the back; from behind, flat out.
     pub const KO_BACK: usize = 33;
@@ -82,6 +166,8 @@ pub mod anim {
     pub const VALVE_LOOP: usize = 398;
     pub const VALVE_END: usize = 399;
     pub const PLUNGE_FORWARDS: usize = 129;
+    /// Knocked off a height onto their back, falling (`find_anim_fall_dir`, Person.cpp:16738).
+    pub const PLUNGE_BACKWARD: usize = 128;
     pub const PLUNGE_FRONT_SLAM: usize = 141;
     /// Shot dead (`ANIM_SHOT_DEAD_*`, fallen/Headers/animate.h:514): from behind, in the
     /// head, the chest or the gut; from the front, thrown onto the back.
@@ -90,7 +176,9 @@ pub mod anim {
     pub const SHOT_DEAD_GUT: usize = 306;
     pub const SHOT_DEAD_BACK: usize = 307;
     pub const KD_FRONT_MID: usize = 170;
+    pub const KD_FRONT_HI: usize = 171;
     pub const KD_BACK_MID: usize = 172;
+    pub const KD_BACK_HI: usize = 173;
     pub const KD_BACK_LOW: usize = 174;
     pub const KD_FRONT_LOW: usize = 175;
     pub const KD_FRONT_LAND: usize = 176;
@@ -99,6 +187,11 @@ pub mod anim {
     pub const FIGHT_STEP_S: usize = 179;
     pub const FIGHT_STEP_E: usize = 180;
     pub const FIGHT_STEP_W: usize = 181;
+    /// Stepping about in a fight with a bat (`set_person_fight_step`, Person.cpp:8990).
+    pub const FIGHT_STEP_N_BAT: usize = 375;
+    pub const FIGHT_STEP_S_BAT: usize = 376;
+    pub const FIGHT_STEP_E_BAT: usize = 377;
+    pub const FIGHT_STEP_W_BAT: usize = 378;
     pub const FIGHT_STOMP: usize = 184;
     pub const FIGHT_STOMPED_BACK: usize = 188;
     pub const FIGHT_STOMPED_FRONT: usize = 189;
@@ -108,9 +201,26 @@ pub mod anim {
     pub const BAT_HIT2: usize = 200;
     pub const BAT_IDLE: usize = 201;
     pub const RUN_JUMP: usize = 54;
+    /// A kick in the air off a running jump (`SUB_STATE_FLYING_KICK`, Person.cpp:13610): out,
+    /// held on the way down, and the landing.
+    pub const FLYKICK_START: usize = 279;
+    pub const FLYKICK_FALL: usize = 280;
+    pub const FLYKICK_LAND: usize = 281;
+    /// Jumping, in the air, landing and falling with a gun: the standing jump and the fall
+    /// with a two-handed one, the rest with any drawn (Person.cpp:10162, 10288, 13162, 13458,
+    /// 10605).
+    pub const STANDING_JUMP_AK: usize = 380;
+    pub const RUN_JUMP_LEFT_AK: usize = 269;
+    pub const MID_AIR_TWEEN_LEFT_AK: usize = 268;
+    pub const LAND_RIGHT_AK: usize = 270;
+    pub const FALLING_AK: usize = 390;
     pub const PULL_UP: usize = 332;
+    /// Up onto a wall half a storey high, at a run (`set_person_climb_half`, Person.cpp:3572).
+    pub const GET_UP_HALF_BLOCK: usize = 330;
     /// `ANIM_DANGLE`: hanging from a ledge by the hands.
     pub const DANGLE: usize = 223;
+    /// Catching hold of a ledge in the air, before hanging from it (Person.cpp:12910).
+    pub const FLY_GRABBING_LEDGE: usize = 52;
     /// `ANIM_TRAVERSE_LEFT` and `_RIGHT`: a hand along the ledge either way.
     pub const TRAVERSE_LEFT: usize = 130;
     pub const TRAVERSE_RIGHT: usize = 131;
@@ -127,12 +237,25 @@ pub mod anim {
     pub const GRAB_ARM_KNEE1V: usize = 231;
     pub const GRAB_ARM_KNEE2: usize = 232;
     pub const GRAB_ARM_KNEE2V: usize = 233;
+    /// Wriggling out of an arm hold, and the one holding let go of (Person.cpp:19285).
+    pub const GRAB_ARM_ESCAPE: usize = 234;
+    pub const GRAB_ARM_ESCAPEV: usize = 235;
     pub const KICK_RIGHT: usize = 262;
     pub const QUICK_GET_UP: usize = 264;
+    /// Getting up off the front (`ANIM_KO_BEHIND_BIG_GU`), and slowly off the back
+    /// (`ANIM_KO_BACK_GU`): `_GU` is "get up".
+    pub const KO_BEHIND_BIG_GU: usize = 110;
+    pub const KO_BACK_GU: usize = 34;
     pub const KNIFE_ATTACK1: usize = 271;
     pub const KNIFE_ATTACK2: usize = 272;
     pub const KNIFE_ATTACK3: usize = 273;
     pub const KNIFE_FIGHT_READY: usize = 276;
+    /// Getting a weapon out (`set_person_draw_item`): the pistol's, which is also the rest's,
+    /// the shotgun's (and the AK's), the knife's and the bat's.
+    pub const PISTOL_DRAW: usize = 296;
+    pub const SHOTGUN_DRAW: usize = 81;
+    pub const KNIFE_DRAW: usize = 286;
+    pub const BAT_DRAW: usize = 245;
     pub const PISTOL_SHOOT: usize = 297;
     pub const PISTOL_AIM: usize = 298;
     /// The pistol pointed off to the left and right of ahead, and the shotgun's.
@@ -153,6 +276,8 @@ pub mod anim {
     pub const ARREST_ROLL: usize = 285;
     /// `ANIM_INJURED_LOOP`: lying hurt (`set_person_injured`).
     pub const INJURED_LOOP: usize = 386;
+    /// Now and then, a groan and a struggle (`SUB_STATE_DEAD_INJURED`, Person.cpp:17479).
+    pub const INJURED_LOOP_STRUGGLE: usize = 387;
     /// `ANIM_END` + n (fallen/Headers/animate.h): carrying someone, and `_V` being carried.
     pub const PUTDOWN_CARRY_V: usize = 408;
     pub const STAND_CARRY: usize = 409;
@@ -363,10 +488,24 @@ pub struct Animator {
     index: Option<usize>,
     len: usize,
     done: bool,
-    /// How many times a looping animation has wrapped (never reset).
-    loops: u32,
+    /// How many times a looping animation has wrapped (never reset), less those it's gone
+    /// back over playing backwards.
+    loops: i64,
     /// Playback speed multiplier.
     pub speed: f32,
+}
+
+/// The keyframe before `cur` in the animation starting at `start`; before the first, its last.
+fn prev_keyframe(chunk: &AnimChunk, start: usize, cur: usize) -> usize {
+    let mut f = start;
+    for _ in 0..256 {
+        match chunk.keyframes[f].next {
+            Some(n) if n == cur && cur != start => return f,
+            Some(n) if n != start => f = n,
+            _ => return f,
+        }
+    }
+    f
 }
 
 /// Number of keyframes in animation `id` (following `next` until it ends or loops).
@@ -412,6 +551,18 @@ impl Animator {
         self.cur = self.start;
         self.next = if self.len > 1 { chunk.keyframes[self.start].next.unwrap_or(self.start) } else { self.start };
         self.index = Some(0);
+        true
+    }
+
+    /// Starts `id` at its last frame straight away, to play backwards to its first.
+    fn restart_reversed(&mut self, chunk: &AnimChunk, id: usize) -> bool {
+        if !self.restart_now(chunk, id, Play::Once) {
+            return false;
+        }
+        for _ in 1..self.len {
+            self.cur = chunk.keyframes[self.cur].next.unwrap_or(self.cur);
+        }
+        (self.next, self.index, self.speed) = (self.cur, Some(self.len - 1), -1.0);
         true
     }
 
@@ -470,6 +621,29 @@ impl Animator {
                 }
             }
         }
+        // Backwards, at a negative speed (`person_backwards_animate`): a keyframe at a time,
+        // a looping animation from its first round to its last, one played once until it's
+        // back at its first, which it holds.
+        while self.tween < 0.0 {
+            let Some(i) = self.index else {
+                self.tween = 0.0;
+                break;
+            };
+            if i == 0 && self.play == Play::Once {
+                (self.next, self.tween, self.done, ended) = (self.cur, 0.0, true, true);
+                break;
+            }
+            self.tween += 256.0;
+            passed += 1;
+            self.next = self.cur;
+            self.cur = prev_keyframe(chunk, self.start, self.cur);
+            if i == 0 {
+                self.loops -= 1;
+                self.index = Some(self.len - 1);
+            } else {
+                self.index = Some(i - 1);
+            }
+        }
         (passed, ended)
     }
 
@@ -477,6 +651,8 @@ impl Animator {
     fn progress(&self) -> f32 {
         match self.index {
             None => 0.0,
+            // Played backwards, it's over at its first frame.
+            Some(0) if self.done && self.len > 1 => 0.0,
             Some(_) if self.done => 1.0,
             Some(i) => ((i as f32 + self.tween / 256.0) / (self.len.max(2) - 1) as f32).min(1.0),
         }
@@ -620,6 +796,12 @@ impl Figure {
     /// Plays `id` from its first frame with no blend from the current pose.
     pub fn restart_now(&mut self, id: usize, play: Play) -> bool {
         self.animator.restart_now(&self.anims, id, play)
+    }
+
+    /// Plays `id` backwards (`person_backwards_animate`), from its last frame with no blend,
+    /// at speed -1, holding its first frame at the end.
+    pub fn restart_reversed(&mut self, id: usize) -> bool {
+        self.animator.restart_reversed(&self.anims, id)
     }
 
     /// How many times looping animations have wrapped, with the fraction of a wrap in

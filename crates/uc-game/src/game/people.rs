@@ -107,7 +107,7 @@ impl Game {
                     let f = self.people[i].facing_dir();
                     let at = pos + Vec3::new(f.x, 0.0, f.y) * 128.0;
                     let y = level.ground.surface(&level.map, at.x, at.z, pos.y + 64.0);
-                    self.items.push(Item { way: 0, kind: crate::SNIPER, pos: Vec3::new(at.x, y, at.z) });
+                    self.items.push(Item { way: 0, kind: crate::SNIPER, pos: Vec3::new(at.x, y, at.z), rounds: None });
                 }
             }
         }
@@ -348,7 +348,7 @@ impl Game {
                         .filter(|&j| !self.people[j].removed && !self.people[j].is_dead())
                         .filter(|&j| {
                             let d = (at[j] - at[i]).length();
-                            let running = self.people[j].fig.anim() == uc_world::character::anim::RUN;
+                            let running = person::running_anim(self.people[j].fig.anim());
                             if going { d >= 0x60 as f32 } else { d > if running { 0x40 } else { 0xa0 } as f32 }
                         })
                         .map(|j| at[j]);
@@ -605,7 +605,7 @@ impl Game {
         for &(pi, c, _) in playing {
             let p = &self.people[pi];
             if matches!(p.state, State::Sit) {
-                if p.fig.anim() == uc_world::character::anim::SIT_DOWN && p.fig.finished() {
+                if matches!(p.fig.anim(), uc_world::character::anim::SIT_DOWN | uc_world::character::anim::SIT_IDLE) && p.fig.finished() {
                     self.bench.clock += dt;
                     while self.bench.clock >= 0.2 {
                         self.bench.clock -= 0.2;
