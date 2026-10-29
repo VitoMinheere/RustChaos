@@ -619,6 +619,9 @@ pub struct Game {
     /// Seconds left of fight music after the fighting stops.
     fight_timer: f32,
     sprinting: bool,
+    /// How near the player the nearest thug is (`Player->Danger`): 0 none within 0xc00, then
+    /// 1 to 3 by the 0x400 ([`Game::danger_level`]).
+    danger: u8,
     pub items: Vec<Item>,
     pub vehicles: Vec<Vehicle>,
     veh_by_way: HashMap<usize, usize>,
@@ -852,6 +855,7 @@ impl Game {
             sounds: Vec::new(),
             fight_timer: 0.0,
             sprinting: false,
+            danger: 0,
             items: Vec::new(),
             vehicles: Vec::new(),
             veh_by_way: HashMap::new(),
@@ -1625,6 +1629,9 @@ impl Game {
             // Really sprinting: out of breath she's only running, whatever is held.
             let sprinting = pl.sprinting;
             self.fight_timer = if fighting { 6.0 } else { (self.fight_timer - dt).max(0.0) };
+            if s == 0 {
+                self.danger_level();
+            }
             self.sprinting = sprinting;
             if s == 0 {
                 // A fight, a fly-by or a conversation resets it; otherwise it counts up.
