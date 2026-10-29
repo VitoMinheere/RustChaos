@@ -19,7 +19,10 @@ use uc_game::{Difficulty, Game, Outcome, Weapon, TURN};
 use uc_world::Level;
 
 /// The file's first bytes, with the format's version in the last.
-pub const MAGIC: &[u8; 4] = b"UCR2";
+pub const MAGIC: &[u8; 4] = b"UCR3";
+
+/// The version before inputs held the strafe key (#309), still read.
+const MAGIC_2: &[u8; 4] = b"UCR2";
 
 /// The weapons a game can start with, by their number in a file.
 const WEAPONS: [Weapon; 10] = [
@@ -232,7 +235,11 @@ impl Replay {
 
     pub fn from_bytes(b: &[u8]) -> io::Result<Replay> {
         let bad = |why: &str| io::Error::new(io::ErrorKind::InvalidData, why.to_string());
-        let Some(b) = b.strip_prefix(MAGIC) else { return Err(bad("not a replay, or another version")) };
+        let (b, strafe) = match (b.strip_prefix(MAGIC), b.strip_prefix(MAGIC_2)) {
+            (Some(b), _) => (b, true),
+            (_, Some(b)) => (b, false),
+            _ => return Err(bad("not a replay, or another version")),
+        };
         let mut i = In(b);
         let build = i.str()?;
         let date = i.u64()?;
@@ -281,7 +288,7 @@ impl Replay {
         let mut turns = Vec::with_capacity(total.min(1 << 20));
         for _ in 0..i.u32()? {
             let n = i.u32()? as usize;
-            let inputs = (0..seats).map(|_| i.input()).collect::<io::Result<Vec<_>>>()?;
+            let inputs = (0..seats).map(|_| i.input_of(strafe)).collect::<io::Result<Vec<_>>>()?;
             if turns.len() + n > total {
                 return Err(bad("more turns than it says"));
             }
@@ -458,7 +465,7 @@ mod tests {
 
     #[test]
     fn a_replay_round_trips() {
-        let i = |x: f32, b: u16| Input { wish: [x, -x], drive: [0.5, x], buttons: b };
+        let i = |x: f32, b: u16| Input { wish: [x, -x], drive: [0.5, x], buttons: b, strafe: (b & 1 != 0).then_some([x, 1.0]) };
         let r = Replay {
             start: Start {
                 mission: "Assault1".into(), mode: Mode::Beat { seed: 7, centre: Some([256.0, -512.0]), shift: None },

@@ -150,7 +150,7 @@ impl Game {
                 match state {
                     State::InCar { .. } => self.record.driven += squares,
                     State::Bike { .. } => self.record.biked += squares,
-                    State::Zip { .. } | State::Climb { .. } | State::Mount { .. } => {}
+                    State::Zip { .. } | State::Climb { .. } | State::Mount { .. } | State::OntoLadder { .. } => {}
                     _ => self.record.on_foot += squares,
                 }
             }

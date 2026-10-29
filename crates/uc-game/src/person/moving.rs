@@ -58,7 +58,7 @@ impl Person {
     pub(super) fn step_flip(&mut self, left: bool, ground: &Ground, map: &Map, dt: f32) {
         if self.fig.finished() {
             self.state = State::Move;
-            self.idle(true);
+            self.ready(true, false);
             return;
         }
         let frame = self.fig.frame().unwrap_or(0);
@@ -229,15 +229,32 @@ impl Person {
         }
     }
 
-    pub(super) fn idle(&mut self, fight: bool) {
-        let a = match (fight, self.weapon) {
+    fn idle_pose(&self, fight: bool) -> usize {
+        match (fight, self.weapon) {
             (_, w) if w.is_gun() && self.gun_out() => w.aim_anim(),
             (true, Weapon::Knife) => anim::KNIFE_FIGHT_READY,
             (true, Weapon::Bat) => anim::BAT_IDLE,
             (true, _) => anim::FIGHT,
             (false, _) => self.stand_anim(),
-        };
-        if !self.fig.play(a, Play::Loop) {
+        }
+    }
+
+    pub(super) fn idle(&mut self, fight: bool) {
+        if !self.fig.play(self.idle_pose(fight), Play::Loop) {
+            self.fig.play(anim::BREATHE, Play::Loop);
+        }
+        self.fig.set_speed(1.0);
+    }
+
+    /// Back on guard after a move (`set_person_locked_idle_ready`, Person.cpp:7603): as
+    /// [`Person::idle`], but a two-handed gun is held ready (`ANIM_SHOTGUN_STAND`), drawn or
+    /// not, until standing or aiming takes over. `locked`: the hips stay where the move left
+    /// them (`locked_anim_change`).
+    pub(super) fn ready(&mut self, fight: bool, locked: bool) {
+        let two_handed = matches!(self.weapon, Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper);
+        let a = if two_handed { anim::SHOTGUN_STAND } else { self.idle_pose(fight) };
+        let shown = if locked { self.fig.restart_locked(a, Play::Loop) } else { self.fig.play(a, Play::Loop) };
+        if !shown {
             self.fig.play(anim::BREATHE, Play::Loop);
         }
         self.fig.set_speed(1.0);
@@ -405,14 +422,14 @@ impl Person {
         self.flash = (self.flash - dt).max(0.0);
         // Footsteps: two per walk or run cycle.
         let walking = matches!(self.state, State::Move | State::Land { .. })
-            && matches!(self.fig.anim(), anim::WALK | anim::THUG_WALK | anim::THUG_WALK_SHOTGUN | anim::RUN | anim::YOMP | anim::YOMP_BAT | anim::PISTOL_JOG | anim::AK_JOG | anim::FIGHT_STEP_N | anim::FIGHT_STEP_S | anim::FIGHT_STEP_E | anim::FIGHT_STEP_W
+            && matches!(self.fig.anim(), anim::WALK | anim::THUG_WALK | anim::THUG_WALK_SHOTGUN | anim::BACK_WALK | anim::BACK_WALK_AK | anim::RUN | anim::YOMP | anim::YOMP_BAT | anim::PISTOL_JOG | anim::AK_JOG | anim::FIGHT_STEP_N | anim::FIGHT_STEP_S | anim::FIGHT_STEP_E | anim::FIGHT_STEP_W
                 | anim::FIGHT_STEP_N_BAT | anim::FIGHT_STEP_S_BAT | anim::FIGHT_STEP_E_BAT | anim::FIGHT_STEP_W_BAT);
         let phase = self.fig.loops().floor() + self.fig.progress();
         if walking && (phase * 2.0).floor() != (self.step_phase * 2.0).floor() {
             self.cues.push(Sfx::Footstep { player: self.player, sound: None });
             // Walking and running leave prints, the right foot then the left (Person.cpp:15457),
             // but not the steps of a fight.
-            if matches!(self.fig.anim(), anim::WALK | anim::THUG_WALK | anim::THUG_WALK_SHOTGUN | anim::RUN | anim::YOMP | anim::YOMP_BAT | anim::PISTOL_JOG | anim::AK_JOG) {
+            if matches!(self.fig.anim(), anim::WALK | anim::THUG_WALK | anim::THUG_WALK_SHOTGUN | anim::BACK_WALK | anim::BACK_WALK_AK | anim::RUN | anim::YOMP | anim::YOMP_BAT | anim::PISTOL_JOG | anim::AK_JOG) {
                 let right = (phase * 2.0).floor() as i64 & 1 == 0;
                 self.footfall = Some(if right { Foot::Right } else { Foot::Left });
             }
@@ -671,6 +688,14 @@ impl Person {
                 return;
             }
         }
+        // Action standing by the top of one: climb down onto it.
+        if self.player && c.action && !moving {
+            if let Some(l) = self.ladder_top_near(ground, map) {
+                if self.climb_down_onto(l, ground, map) {
+                    return;
+                }
+            }
+        }
         if c.block {
             // A bat or a shotgun in hand guards with it.
             let a = match self.weapon {
@@ -836,6 +861,11 @@ impl Person {
             return;
         }
 
+        if let (true, false, Some(face)) = (self.player, fight, c.strafe) {
+            if self.strafe(face, c, snaps, ground, map, dt) {
+                return;
+            }
+        }
         if fight {
             // Fight stance: face the opponent and step without turning.
             let t = snaps[target.unwrap()].pos;
@@ -1015,5 +1045,86 @@ impl Person {
                 self.fig.pos.y = floor;
             }
         }
+    }
+
+    /// The strafe key held (#309), with the camera's way `face`: the original's moves for
+    /// the ways relative to her (`player_interface_move`, interfac.cpp:2700-2830), where the
+    /// port's own controls turn her to go any way. A gun drawn on someone stays on them.
+    /// Returns false standing still facing the right way, for her to stand about.
+    #[allow(clippy::too_many_arguments)]
+    fn strafe(&mut self, face: Vec2, c: &Controls, snaps: &[Snap], ground: &Ground, map: &Map, dt: f32) -> bool {
+        let face = match (self.weapon.is_gun(), c.target) {
+            (true, Some(t)) => flat(snaps[t].pos, self.fig.pos).normalize_or(face),
+            _ => face,
+        };
+        let f = self.fig.facing();
+        let right = vec2(-f.y, f.x);
+        let rel = vec2(c.wish.dot(right), c.wish.dot(f));
+        let moving = c.wish.length_squared() > 0.01;
+        let sideways = rel.x.abs() > rel.y.abs();
+        if c.jump {
+            match (moving, sideways, rel.y < 0.0) {
+                // `rel.x` is along the way a flip to the left goes (`step_flip`).
+                (true, true, _) => self.flip(rel.x > 0.0),
+                (true, false, true) => self.back_flip(ground, map),
+                (true, false, false) => self.jump(f * WALK_SPEED),
+                (false, _, _) => self.jump(Vec2::ZERO),
+            }
+            return true;
+        }
+        if !moving {
+            // Turning on the spot to face the camera's way (interfac.cpp:3417).
+            let off = (uc_world::character::angle_of(face) - self.fig.angle + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+            let turning = matches!(self.fig.anim(), anim::ROTATE_L | anim::ROTATE_R);
+            if off.abs() < if turning { 0.05 } else { 0.15 } {
+                return false;
+            }
+            self.fig.play(if face.dot(right) > 0.0 { anim::ROTATE_R } else { anim::ROTATE_L }, Play::Loop);
+            self.fig.turn_towards(face, 6.0, dt);
+            return true;
+        }
+        self.fig.turn_towards(face, 6.0, dt);
+        if sideways {
+            // A step to the side (`set_person_step_left`, `_right`), if there's room to
+            // stand there: the animation carries her its 45.
+            let side = right * rel.x.signum();
+            let p = self.fig.pos;
+            let to = ground.slide(vec2(p.x, p.z), p.y, side * 50.0, RADIUS);
+            let floor = ground.surface(map, to.x, to.y, p.y + STEP_HEIGHT);
+            if (to - vec2(p.x, p.z)).length() > 45.0 && (floor - p.y).abs() < STEP_HEIGHT
+                && self.fig.restart(if rel.x > 0.0 { anim::STEP_RIGHT } else { anim::STEP_LEFT }, Play::Once)
+            {
+                self.state = State::Step;
+            } else {
+                self.idle(false);
+            }
+            return true;
+        }
+        // Walking backwards (`set_person_walk_backwards`), or forwards, facing the same way.
+        let (a, dir) = if rel.y < 0.0 {
+            let two_handed = matches!(self.weapon, Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper);
+            (if two_handed { anim::BACK_WALK_AK } else { anim::BACK_WALK }, -f)
+        } else {
+            (self.walk_anim(), f)
+        };
+        if !self.fig.play(a, Play::Loop) {
+            self.fig.play(anim::WALK, Play::Loop);
+        }
+        self.fig.set_speed(1.0);
+        if !self.walk(dir * WALK_SPEED * dt, ground, map, rel.y > 0.0) {
+            self.fall(dir * WALK_SPEED);
+        }
+        true
+    }
+
+    /// The standing jump backwards (`set_person_standing_jump_backwards`, Person.cpp:10214):
+    /// a back flip, going back at `Velocity` 32 (Person.cpp:13184), not off a steep slope.
+    fn back_flip(&mut self, ground: &Ground, map: &Map) {
+        if self.slipping(ground, map).is_some() || !self.fig.restart(anim::BACK_FLIP, Play::Once) {
+            return;
+        }
+        self.cues.push(Sfx::Jump { kind: self.kind });
+        self.state = State::Fall { vy: JUMP_SPEED, vel: -self.fig.facing() * 32.0 * WALK_SPEED / 16.0 };
+        self.fig.set_speed(1.5);
     }
 }

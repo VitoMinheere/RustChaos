@@ -40,6 +40,21 @@ pub mod anim {
     /// pose (`PERSON_DROP_DOWN_QUEUED`, Person.cpp:13254); and with a two-handed gun.
     pub const FALLING_QUEUED: usize = 206;
     pub const FALLING_QUEUED_AK: usize = 382;
+    /// A step to the side (`set_person_step_left`, `_right`, Person.cpp:8172); the body
+    /// moves 45 that way.
+    pub const STEP_LEFT: usize = 59;
+    pub const STEP_RIGHT: usize = 60;
+    /// The standing jump backwards (`set_person_standing_jump_backwards`, Person.cpp:10214).
+    pub const BACK_FLIP: usize = 105;
+    /// Turning on the spot (interfac.cpp:3417).
+    pub const ROTATE_L: usize = 193;
+    pub const ROTATE_R: usize = 194;
+    /// Ready with a two-handed gun (`set_person_locked_idle_ready`, Person.cpp:7629).
+    pub const SHOTGUN_STAND: usize = 212;
+    /// Walking backwards (`set_person_walk_backwards`, Person.cpp:8862); and with a
+    /// two-handed gun.
+    pub const BACK_WALK: usize = 334;
+    pub const BACK_WALK_AK: usize = 336;
     pub const CLIMB_UP_FENCE: usize = 45;
     pub const LAND_ON_FENCE: usize = 57;
     /// Settling onto it, into the climb's first pose (`SUB_STATE_CLIMB_LANDING`,
@@ -533,6 +548,18 @@ impl Animator {
         true
     }
 
+    /// Starts `id` at its last frame straight away, to play backwards to its first.
+    fn restart_reversed(&mut self, chunk: &AnimChunk, id: usize) -> bool {
+        if !self.restart_now(chunk, id, Play::Once) {
+            return false;
+        }
+        for _ in 1..self.len {
+            self.cur = chunk.keyframes[self.cur].next.unwrap_or(self.cur);
+        }
+        (self.next, self.index, self.speed) = (self.cur, Some(self.len - 1), -1.0);
+        true
+    }
+
     /// Moves on `n` keyframes straight away (`advance_keyframe` `n` times), stopping short of
     /// the last.
     fn skip(&mut self, chunk: &AnimChunk, n: usize) {
@@ -588,13 +615,18 @@ impl Animator {
                 }
             }
         }
-        // Backwards, at a negative speed (`person_backwards_animate`): a looping animation
-        // steps back a keyframe at a time, from its first round to its last.
+        // Backwards, at a negative speed (`person_backwards_animate`): a keyframe at a time,
+        // a looping animation from its first round to its last, one played once until it's
+        // back at its first, which it holds.
         while self.tween < 0.0 {
-            let (Some(i), Play::Loop) = (self.index, self.play) else {
+            let Some(i) = self.index else {
                 self.tween = 0.0;
                 break;
             };
+            if i == 0 && self.play == Play::Once {
+                (self.next, self.tween, self.done, ended) = (self.cur, 0.0, true, true);
+                break;
+            }
             self.tween += 256.0;
             passed += 1;
             self.next = self.cur;
@@ -613,6 +645,8 @@ impl Animator {
     fn progress(&self) -> f32 {
         match self.index {
             None => 0.0,
+            // Played backwards, it's over at its first frame.
+            Some(0) if self.done && self.len > 1 => 0.0,
             Some(_) if self.done => 1.0,
             Some(i) => ((i as f32 + self.tween / 256.0) / (self.len.max(2) - 1) as f32).min(1.0),
         }
@@ -756,6 +790,12 @@ impl Figure {
     /// Plays `id` from its first frame with no blend from the current pose.
     pub fn restart_now(&mut self, id: usize, play: Play) -> bool {
         self.animator.restart_now(&self.anims, id, play)
+    }
+
+    /// Plays `id` backwards (`person_backwards_animate`), from its last frame with no blend,
+    /// at speed -1, holding its first frame at the end.
+    pub fn restart_reversed(&mut self, id: usize) -> bool {
+        self.animator.restart_reversed(&self.anims, id)
     }
 
     /// How many times looping animations have wrapped, with the fraction of a wrap in

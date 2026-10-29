@@ -395,13 +395,17 @@ pub struct Controls {
     pub taunt: bool,
     /// Held: crouch (and crawl when moving), as action held standing still does.
     pub crouch: bool,
+    /// The strafe key held (#309), with the way to keep facing (the camera's). The ways to
+    /// go are then hers, as the original's were: to the side a step that way, back walking
+    /// backwards, jump with back a back flip; standing, she turns on the spot to face it.
+    pub strafe: Option<Vec2>,
 }
 
 impl Controls {
     /// Anything asked of the player: a way to go or a button.
     pub fn any(&self) -> bool {
         self.wish.length_squared() > 1e-4 || self.run || self.sprint || self.punch || self.kick || self.action
-            || self.jump || self.block || self.fire || self.switch || self.scope || self.taunt || self.crouch
+            || self.jump || self.block || self.fire || self.switch || self.scope || self.taunt || self.crouch || self.strafe.is_some()
     }
 }
 
@@ -637,6 +641,12 @@ pub enum State {
     Dangle { to: Vec3, dir: Vec2, shift: Option<(Vec3, Vec3)> },
     /// Stepping onto `ladder` at its foot (`SUB_STATE_MOUNT_LADDER`).
     Mount { ladder: usize },
+    /// Climbing down onto `ladder` from the roof at its top: climbing off it backwards
+    /// (`SUB_STATE_CLIMB_DOWN_ONTO_LADDER`), `pos` going from `end` back to `start` on the
+    /// ladder as [`State::PullUp`]'s does the other way.
+    OntoLadder { ladder: usize, start: Vec3, end: Vec3 },
+    /// A step to the side (`SUB_STATE_STEP_LEFT`, `_RIGHT`): the animation carries her.
+    Step,
     /// On a ladder: feet at `y0` plus one rung cycle per loop of the animation since `loops0`.
     Climb { ladder: usize, y0: f32, loops0: f32 },
     /// Grappling `victim`. `frame`: the last keyframe of Roper's grapples that did its damage.
@@ -1433,7 +1443,7 @@ impl Person {
             pos: if self.is_down() || matches!(self.state, State::Injured) { self.body_pos() } else { self.fig.pos },
             facing: self.fig.facing(),
             present: !self.removed,
-            standing: !self.removed && matches!(self.state, State::Move | State::Attack { .. } | State::Recover { .. } | State::Hurt | State::Land { .. } | State::Block { .. } | State::Shoot { .. } | State::HugWall { .. } | State::Draw),
+            standing: !self.removed && matches!(self.state, State::Move | State::Attack { .. } | State::Recover { .. } | State::Hurt | State::Land { .. } | State::Block { .. } | State::Shoot { .. } | State::HugWall { .. } | State::Draw | State::Step),
             down: self.is_down(),
             arrested: self.arrested,
             arrestable: self.arrestable(),
@@ -1630,7 +1640,7 @@ impl Person {
             State::GetUp => {
                 if self.fig.finished() {
                     self.state = State::Move;
-                    self.idle(self.nearest_opponent(me, snaps, FIGHT_RANGE).is_some());
+                    self.ready(self.nearest_opponent(me, snaps, FIGHT_RANGE).is_some(), false);
                 }
             }
             State::Shoot { target, shots } => self.step_shoot(target, shots, me, c, snaps, ground, map, dt, events),
@@ -1685,6 +1695,13 @@ impl Person {
             }
             State::Climb { ladder, y0, loops0 } => self.step_climb(ladder, y0, loops0, c, ground, map),
             State::Mount { ladder } => self.step_mount(ladder, ground),
+            State::OntoLadder { ladder, start, end } => self.step_onto_ladder(ladder, start, end),
+            State::Step => {
+                if self.fig.finished() {
+                    self.state = State::Move;
+                    self.ready(false, true);
+                }
+            }
             State::Grapple { victim, grab: grab @ (Grab::Strangle | Grab::Headbutt), hit, timer, frame } => {
                 // `SUB_STATE_STRANGLE` and `_HEADBUTT` (Person.cpp:18932): the damage comes on
                 // certain frames, and when it's over the victim is left lying (or dead).
