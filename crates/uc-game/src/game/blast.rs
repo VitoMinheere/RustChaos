@@ -182,6 +182,22 @@ impl Game {
         }
     }
 
+    /// The nearest person to `at` sliding (a sliding tackle before it ends), for the scrape of
+    /// it (`S_SLIDE_START`, looped from the slide's start to `ANIM_SLIDER_END`,
+    /// interfac.cpp:4529 and Person.cpp:16086).
+    pub fn slide_noise(&self, at: Vec3) -> Option<Vec3> {
+        self.people.iter()
+            .filter(|p| !p.removed && matches!(p.state, State::Slide { phase: 0 | 1, .. }))
+            .map(|p| p.fig.pos)
+            .min_by(|a, b| a.distance_squared(at).total_cmp(&b.distance_squared(at)))
+    }
+
+    /// The player is going through someone's pockets, to the search's own loop
+    /// (`S_SEARCH_END`, `set_person_search_corpse`, Person.cpp:980; not a prop's search).
+    pub fn searching_body(&self) -> bool {
+        matches!(self.search, Some(Search { what: Searched::Body(_), .. }))
+    }
+
     /// The nearest hydrant gushing to `at`, for its hiss (`S_FIRE_HYDRANT`, looped).
     pub fn hydrant_noise(&self, at: Vec3) -> Option<Vec3> {
         self.hydrants.iter().map(|h| h.0).min_by(|a, b| a.distance_squared(at).total_cmp(&b.distance_squared(at)))

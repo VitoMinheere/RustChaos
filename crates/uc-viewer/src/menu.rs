@@ -33,6 +33,40 @@ pub struct Entry {
     /// The district it's pinned to on the city map, by its place in `urban.sty`'s list (none
     /// for the unreleased missions).
     pub district: Option<usize>,
+    /// Its spoken briefing in `talk2`, if it has one ([`briefing_voice`]).
+    pub voice: Option<&'static str>,
+}
+
+/// `brief_wav[]` (fallen/Source/frontend.cpp:3737): the spoken briefing for a mission by its
+/// `urban.sty` id, played as it's picked (`FRONTEND_MissionBrief`, :3831). Roper's 22nd is
+/// commented out of the table, so the two after it moved up a place, and only ids below 34
+/// are looked up: the last two missions say the ones meant for the mission before. 7 and 8
+/// ask for a `policem.wav` that didn't ship.
+pub fn briefing_voice(id: u32) -> Option<&'static str> {
+    const BRIEF_WAV: [&str; 34] = [
+        "", "", "", "", "", "", "policem1.wav", "policem.wav", "policem.wav", "policem2.wav", "", "",
+        "policem3.wav", "", "policem4.wav", "policem5.wav", "policem6.wav", "policem7.wav", "policem8.wav",
+        "policem9.wav", "policem10.wav", "policem11.wav", "policem12.wav", "policem13.wav", "policem14.wav",
+        "policem15.wav", "policem16.wav", "policem17.wav", "policem18.wav", "roperm19.wav", "roperm20.wav",
+        "roperm21.wav", "roperm23.wav", "roperm24.wav",
+    ];
+    BRIEF_WAV.get(id as usize).copied().filter(|f| !f.is_empty())
+}
+
+/// Each mission's `urban.sty` id (its line's first field), by mission file.
+fn mission_ids(game: &Path) -> Vec<(String, u32)> {
+    let text = uc_formats::resolve(game, "data\\urban.sty")
+        .and_then(|p| std::fs::read(p).ok())
+        .map(|b| b.iter().map(|&c| c as char).collect::<String>())
+        .unwrap_or_default();
+    text.lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split(" : ").map(str::trim).collect();
+            let file = f.get(7).filter(|f| f.to_ascii_lowercase().ends_with(".ucm"))?;
+            Some((file[..file.len() - 4].to_string(), f[0].parse().ok()?))
+        })
+        .collect()
 }
 
 /// A pin on the city map (`FE_MAPSCREEN`, fallen/Source/frontend.cpp:4046): a district's
@@ -149,6 +183,8 @@ pub struct Menu {
     /// When the menu came up: the falling leaves (or rain, snow, blood) move with it.
     since: std::time::Instant,
     pub selected: usize,
+    /// The mission whose spoken briefing was last started, while on the mission list.
+    pub briefed: Option<String>,
     /// A mission chosen, to load on the next frame (after "Loading" is on screen).
     pub loading: Option<usize>,
     /// Endless mode's arenas: a mission on the map (to load it by), what's shown for it,
@@ -207,6 +243,7 @@ impl Menu {
         let mut maps: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
         let (mut named, district_of) = districts(game);
         let mut map_of = Vec::new();
+        let ids = mission_ids(game);
         for (mission, title, briefing) in missions(game) {
             let playable = PLAYABLE.iter().any(|p| p.eq_ignore_ascii_case(&mission));
             let goals = uc_formats::resolve(game, &format!("levels\\{mission}.ucm"))
@@ -228,7 +265,8 @@ impl Menu {
             }
             map_of.push(map);
             let district = district_of.get(&mission.to_ascii_lowercase()).copied();
-            entries.push(Entry { mission, title, briefing, playable, goals, district });
+            let voice = ids.iter().find(|(m, _)| m.eq_ignore_ascii_case(&mission)).and_then(|&(_, id)| briefing_voice(id));
+            entries.push(Entry { mission, title, briefing, playable, goals, district, voice });
         }
         let progress = Progress::load();
         let theme = Theme::of(entries.iter().filter(|e| progress.completed(&e.mission)).count());
@@ -279,7 +317,7 @@ impl Menu {
             .filter(|(m, _)| entries.iter().any(|e| e.mission.eq_ignore_ascii_case(m)))
             .map(|&(m, name)| (m.to_string(), name.to_string(), None, 10.0))
             .collect();
-        let mut m = Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false,
+        let mut m = Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, briefed: None, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false,
                coop: 0, address: "127.0.0.1".into(), status: String::new(), for_coop: false, lobby: None,
                replays: Vec::new(), replay_selected: 0, loading_replay: None, loading_edit: None, idle: 0.0, loading_demo: false,
                pins, pin: 0, on_map: true, credits: Credits::default(), options: Options::load(), option_row: 0,
@@ -1409,5 +1447,30 @@ mod tests {
         assert_eq!(m.selected, m.pins[many].missions[1]);
         m.pin_mission(-1);
         assert_eq!(m.selected, m.pins[many].missions[0]);
+    }
+
+    /// `brief_wav[]`: Roper's 22nd commented out shifts the two after it up a place, and
+    /// past 33 there's nothing.
+    #[test]
+    fn briefing_voices_by_id() {
+        assert_eq!(briefing_voice(6), Some("policem1.wav"));
+        assert_eq!(briefing_voice(10), None);
+        assert_eq!(briefing_voice(31), Some("roperm21.wav"));
+        assert_eq!(briefing_voice(32), Some("roperm23.wav"));
+        assert_eq!(briefing_voice(33), Some("roperm24.wav"));
+        assert_eq!(briefing_voice(34), None);
+    }
+
+    /// Every shipped mission with a spoken briefing has its file in `talk2`, but for the
+    /// `policem.wav` the table asks for that never shipped.
+    #[test]
+    fn the_briefings_are_there() {
+        let Some(game) = uc_formats::default_install() else { return };
+        let m = Menu::new(&game);
+        let voiced: Vec<&str> = m.entries.iter().filter_map(|e| e.voice).collect();
+        assert!(voiced.len() >= 20, "only {} voiced", voiced.len());
+        for f in voiced.iter().filter(|f| **f != "policem.wav") {
+            assert!(uc_formats::resolve(&game, &format!("talk2\\{f}")).is_some(), "{f} missing");
+        }
     }
 }

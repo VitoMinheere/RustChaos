@@ -154,6 +154,10 @@ pub struct Audio {
     crackle: Option<Arc<Control>>,
     /// A broken hydrant's hiss (`S_FIRE_HYDRANT`), looped while one's gushing near.
     gush: Option<Arc<Control>>,
+    /// The scrape of a sliding tackle (`S_SLIDE_START`), looped while it slides.
+    slide: Option<Arc<Control>>,
+    /// Going through someone's pockets (`S_SEARCH_END`), looped while it lasts.
+    search: Option<Arc<Control>>,
     rng: u32,
     /// The line being said, and the ones waiting behind it. A mission's voices are said one
     /// at a time: skipping a fly-by or a message brings the next one up before this one has
@@ -183,7 +187,7 @@ impl Audio {
         let mut sink = rodio::DeviceSinkBuilder::open_default_sink().map_err(|e| format!("no audio device: {e}"))?;
         sink.log_on_drop(false);
         Ok(Audio {
-            sink, game: game.to_path_buf(), cache: HashMap::new(), music: Vec::new(), ambience: None, bed: None, engine: None, rotor: None, siren: None, crackle: None, gush: None, rng: 12345,
+            sink, game: game.to_path_buf(), cache: HashMap::new(), music: Vec::new(), ambience: None, bed: None, engine: None, rotor: None, siren: None, crackle: None, gush: None, slide: None, search: None, rng: 12345,
             speaking: None, waiting: VecDeque::new(), effect: None,
             sfx_volume: 0.8, music_volume: 0.55,
         })
@@ -297,6 +301,19 @@ impl Audio {
         }
     }
 
+    /// A mission's spoken briefing (`talk2\<file>`, `FRONTEND_MissionBrief`), cutting off
+    /// whatever was being said. Whether it's there to play.
+    pub fn briefing(&mut self, file: &str) -> bool {
+        self.hush();
+        match self.load(&format!("talk2\\{file}")) {
+            Some(c) => {
+                self.say(c);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Says a line, or stands it behind one already being said.
     fn say(&mut self, clip: Arc<Clip>) {
         if self.speaking.is_some() {
@@ -381,6 +398,18 @@ impl Audio {
     pub fn gush(&mut self, volume: Option<f32>) {
         let held = self.gush.take();
         self.gush = self.hum(held, "General/FireHydrant.wav", volume);
+    }
+
+    /// A sliding tackle's scrape at `volume` (`Some`), or nobody sliding (`None`).
+    pub fn slide(&mut self, volume: Option<f32>) {
+        let held = self.slide.take();
+        self.slide = self.hum(held, "sfx080799+/Slide1.wav", volume);
+    }
+
+    /// The search's loop at `volume` (`Some`), or no search going (`None`).
+    pub fn search(&mut self, volume: Option<f32>) {
+        let held = self.search.take();
+        self.search = self.hum(held, "sfx080799+/Search2.wav", volume);
     }
 
     /// Loop `name` at `volume` (started if `held` isn't playing yet), or stops `held` with no

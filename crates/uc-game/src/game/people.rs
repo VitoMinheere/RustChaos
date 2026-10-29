@@ -107,16 +107,12 @@ impl Game {
                     let f = self.people[i].facing_dir();
                     let at = pos + Vec3::new(f.x, 0.0, f.y) * 128.0;
                     let y = level.ground.surface(&level.map, at.x, at.z, pos.y + 64.0);
-                    self.items.push(Item { way: 0, kind: crate::SNIPER, pos: Vec3::new(at.x, y, at.z), rounds: None });
+                    self.items.push(Item { way: 0, kind: crate::SNIPER, pos: Vec3::new(at.x, y, at.z), rounds: None, born: self.time });
                 }
             }
         }
     }
 
-    /// Round what's in the way (`PCOM_set_person_move_mav_to_xz` and `MAV_do`): anyone whose
-    /// goal, or the person they're fighting, can't be walked to in a straight line heads
-    /// for the furthest square of the navigation map's route that can be. On foot and over
-    /// fences ([`WALKER`]).
     /// Who fights whom from where (`gang_attacks`, combat.cpp:55; `PCOM_new_gang_attack`,
     /// pcom.cpp:3602): everyone set on someone hand to hand, near them, holds a quarter round
     /// them, the one they're on (`(angle + 256) >> 9`). Taken, the others are pushed round a
@@ -182,6 +178,57 @@ impl Game {
         self.people[i].slot = None;
     }
 
+    /// Somewhere someone might be hiding, for whoever investigated a noise and is going on
+    /// to look there (`PCOM_find_hiding_place`, pcom.cpp:1589): a square within five
+    /// (each way) not in a building, two or more away (x plus z), that can't be seen from
+    /// their head (0x60 up) to a head standing on it, with a route there that doesn't start
+    /// off a long way round (its first leg at most two further, `MAV_do`); of those, at
+    /// random, the nearer the likelier (`0x1000 - Random() % (dist << 4)`). Nowhere, and
+    /// home they go.
+    pub(crate) fn hiding_places(&mut self, level: &Level) {
+        for i in 0..self.people.len() {
+            if !self.people[i].heard.is_some_and(|h| h.phase == person::Investigate::Hide) {
+                continue;
+            }
+            let at = self.people[i].fig.pos;
+            let (mx0, mz0) = ((at.x / 256.0) as i32, (at.z / 256.0) as i32);
+            let eye = at + Vec3::new(0.0, 0x60 as f32, 0.0);
+            let mut seed = self.rngs.mav;
+            let mut best: Option<(i32, Vec3)> = None;
+            for dx in -5..=5 {
+                for dz in -5..=5 {
+                    let (mx, mz) = (mx0 + dx, mz0 + dz);
+                    let dist = dx.abs() + dz.abs();
+                    if !(0..128).contains(&mx) || !(0..128).contains(&mz) || dist < 2
+                        || level.map.square(mx as usize, mz as usize).has(uc_formats::iam::flags::HIDDEN)
+                    {
+                        continue;
+                    }
+                    let (x, z) = (mx as f32 * 256.0 + 128.0, mz as f32 * 256.0 + 128.0);
+                    let spot = Vec3::new(x, level.map.ground_height(x, z), z);
+                    if level.ground.line_of_sight(eye, spot + Vec3::new(0.0, 0x60 as f32, 0.0)) {
+                        continue;
+                    }
+                    let (step, found) = self.routes.mav.route((mx0 as u8, mz0 as u8), (mx as u8, mz as u8), uc_world::mav::CAPS_DARCI, &mut || rand(&mut seed));
+                    let leg = (step.dest.0 as i32 - mx0).abs() + (step.dest.1 as i32 - mz0).abs();
+                    if !found || leg > dist + 2 {
+                        continue;
+                    }
+                    let score = 0x1000 - (rand(&mut seed) % (dist << 4) as u32) as i32;
+                    if best.is_none_or(|(b, _)| score > b) {
+                        best = Some((score, spot));
+                    }
+                }
+            }
+            self.rngs.mav = seed;
+            self.people[i].heard = best.map(|(_, spot)| person::Heard { at: spot, phase: person::Investigate::WalkOver, time: 0.0 });
+        }
+    }
+
+    /// Round what's in the way (`PCOM_set_person_move_mav_to_xz` and `MAV_do`): anyone whose
+    /// goal, or the person they're fighting, can't be walked to in a straight line heads
+    /// for the furthest square of the navigation map's route that can be. On foot and over
+    /// fences ([`WALKER`]).
     pub(crate) fn find_ways(&mut self, level: &Level) {
         for i in 0..self.people.len() {
             self.people[i].leap = None;
@@ -825,6 +872,11 @@ impl Game {
         for (noise, at, by) in std::mem::take(&mut self.noises) {
             for j in 0..self.people.len() {
                 if Some(j) == by || (self.people[j].fig.pos - at).length() >= noise.radius() {
+                    continue;
+                }
+                // Civilians on a zebra crossing have a sense of security (pcom.cpp:13290).
+                let on = self.people[j].fig.pos;
+                if noise == person::Noise::Van && crate::wand::is_zebra(&level.map, (on.x / 256.0) as i32, (on.z / 256.0) as i32) {
                     continue;
                 }
                 let seen = level.ground.line_of_sight(self.people[j].fig.pos + eye, at + Vec3::new(0.0, 16.0, 0.0));

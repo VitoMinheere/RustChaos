@@ -66,7 +66,7 @@ fn a_keyed_car_opens_for_a_key() {
     assert!(g.messages.iter().any(|m| m.text == "The car is locked."), "nothing said: {:?}", g.messages.iter().map(|m| &m.text).collect::<Vec<_>>());
     // A key at her feet: she picks it up, and the car opens.
     let at = g.people[pi].fig.pos;
-    g.items.push(Item { way: 0, kind: 1, pos: at, rounds: None });
+    g.items.push(Item { way: 0, kind: 1, pos: at, rounds: None, born: 0.0 });
     for _ in 0..10 {
         g.update(DT, &Controls::default(), &level);
     }
