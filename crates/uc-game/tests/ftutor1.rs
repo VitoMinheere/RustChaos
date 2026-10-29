@@ -255,7 +255,20 @@ fn bot_completes_the_combat_tutorial() {
     let mut bot = Bot { frame: 0, warmup: 0, last: Vec3::ZERO, detour: (0, 0.0) };
     let dt = 1.0 / 30.0;
     let mut seen = Vec::new();
+    let mut tutorials = 0;
     for _ in 0..(600.0 / dt) as usize {
+        // A tutorial message stops the game: read (two seconds), then jump to put it away.
+        if let Some((text, t)) = g.tutorial.clone() {
+            if !seen.contains(&text) {
+                println!("[{:6.1}s] (tutorial) {text}", g.time);
+                seen.push(text);
+                tutorials += 1;
+            }
+            let before = g.time;
+            g.update(dt, &Controls { jump: t > 2.0, ..Default::default() }, &level);
+            assert_eq!(g.time, before, "the game went on under a tutorial message");
+            continue;
+        }
         let c = bot.controls(&g, &level);
         g.update(dt, &c, &level);
         if let Ok(range) = std::env::var("BOT_TRACE") {
@@ -280,4 +293,29 @@ fn bot_completes_the_combat_tutorial() {
     let p = g.player().unwrap();
     println!("t={:.1}s ended at {:?}, Darci at {:?} in {:?}, health {}", g.time, g.outcome, p.fig.pos, p.state, p.health);
     assert_eq!(g.outcome, Some(Outcome::Won));
+    assert!(tutorials > 5, "only {tutorials} tutorial messages");
+}
+
+/// A tutorial message holds the game (`should_i_process_game`): a press before it has been up
+/// two seconds only brings that moment forward, and the next puts it away
+/// (`hardware_input_continue`, Game.cpp:2447).
+#[test]
+fn a_tutorial_message_holds_the_game_till_put_away() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let level = Level::load(&game, "ftutor1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let mut g = Game::new(&level, true);
+    let dt = 1.0 / 30.0;
+    g.update(dt, &Controls::default(), &level);
+    assert!(g.tutorial.is_some(), "the welcome should be up");
+    let time = g.time;
+    g.update(dt, &Controls::default(), &level);
+    assert_eq!(g.time, time, "the game went on");
+    // Too soon: the press only skips the wait.
+    g.update(dt, &Controls { punch: true, ..Default::default() }, &level);
+    assert!(g.tutorial.as_ref().is_some_and(|(_, t)| *t >= 2.0), "{:?}", g.tutorial);
+    g.update(dt, &Controls::default(), &level);
+    g.update(dt, &Controls { punch: true, ..Default::default() }, &level);
+    assert!(g.tutorial.is_none());
+    g.update(dt, &Controls::default(), &level);
+    assert!(g.time > time, "the game didn't go on");
 }

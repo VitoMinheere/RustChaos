@@ -38,6 +38,32 @@ pub struct Stats {
     pub perfect: u32,
 }
 
+impl Game {
+    /// The win screen's criminals (`ScoresDraw`, Attract.cpp:684): the gangs and the Men in
+    /// Black the player killed (`stat_killed_thug`, Person.cpp:2330) and arrested
+    /// (`stat_arrested_thug`, :9310), and those still standing. None unless she's Darci or
+    /// Roper ("This only works for Darci or Roper!").
+    pub fn criminals(&self) -> Option<(u32, u32, u32)> {
+        use uc_world::character::person as ptype;
+        let me = self.player?;
+        if !matches!(self.people[me].kind, ptype::DARCI | ptype::ROPER) {
+            return None;
+        }
+        let criminal = |p: &person::Person| p.thug() || p.is_mib();
+        let mut counts = (0, 0, 0);
+        for p in self.people.iter().filter(|p| !p.player && criminal(p)) {
+            if p.arrested || matches!(p.state, State::Cuffed) {
+                counts.1 += 1;
+            } else if p.knocked_out && p.hurt_by == Some(me) {
+                counts.0 += 1;
+            } else if !p.removed && !p.is_dead() {
+                counts.2 += 1;
+            }
+        }
+        Some(counts)
+    }
+}
+
 impl Stats {
     /// Each count by name, for saving.
     pub fn fields(&self) -> Vec<(&'static str, f64)> {

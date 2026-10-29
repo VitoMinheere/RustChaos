@@ -310,6 +310,12 @@ pub enum Sfx {
     Crash,
     /// A car knocked a cone or barrel.
     Cone,
+    /// A barrel knocked (`S_BARREL_START` to `_END`, barrel.cpp:75): anything but a cone.
+    Barrel,
+    /// The crackle of a spark (`S_ELEC_START + i % 5`, spark.cpp:657).
+    Elec,
+    /// Someone run over (`S_THUMP_SQUISH`, vehicle.cpp:3339).
+    Squish,
     /// A car's tyres started sliding.
     Skid,
     /// A driver held up by someone in the road sounds the horn (`S_CAR_HORN_START` and the
@@ -1371,6 +1377,12 @@ impl Person {
     pub fn might_be_a_villain(&self) -> bool {
         use uc_world::character::person as ptype;
         !matches!(self.kind, ptype::DARCI | ptype::ROPER | ptype::COP | ptype::HOSTAGE)
+    }
+
+    /// The panel's stamina marks: a mark a 25 of breath, up to five
+    /// (DDEngine/Source/panel.cpp:5021).
+    pub fn stamina_marks(&self) -> usize {
+        (self.stamina.max(0.0) as usize / 25).min(5)
     }
 
     /// `am_i_a_thug`: one of the three gangs.

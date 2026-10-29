@@ -92,6 +92,23 @@ pub struct Barrel {
     pub on: Option<usize>,
     /// While it's moving, the two spheres it is (`BARREL_Sphere`, [`barrel`]).
     pub spheres: Option<[barrel::Sphere; 2]>,
+    /// Just knocked from standing (`BARREL_convert_stationary_to_moving`), for the game to
+    /// see to what comes of it.
+    pub tipped: bool,
+}
+
+impl Barrel {
+    /// A bin (`BT_BIN`, `BT_BURNING_BIN`: `BARREL_TYPE_BIN`, elev.cpp:1386), full of rubbish
+    /// (`BARREL_FLAG_RUBBISH`, barrel.cpp:1404).
+    pub fn bin(&self) -> bool {
+        matches!(self.kind, 2 | 4)
+    }
+
+    /// The sound of it being knocked (`BARREL_hit_noise`, barrel.cpp:72): a cone's
+    /// (`BT_TRAFFIC_CONE`), or a barrel's.
+    pub fn knock_sound(&self) -> person::Sfx {
+        if self.kind == 1 { person::Sfx::Cone } else { person::Sfx::Barrel }
+    }
 }
 
 impl Barrel {
@@ -756,6 +773,9 @@ pub struct Game {
     pub end_of_world: Option<f32>,
     /// The mission's own tune, played throughout ([`Theme::of`]).
     theme: Option<Theme>,
+    /// A tutorial message up (`EWAY_tutorial_string`), and the seconds it's been up: the game
+    /// stands still under it ([`Game::tutorial_wait`]).
+    pub tutorial: Option<(String, f32)>,
     /// The panel's info line (`PANEL_new_info_message`, DDEngine/Source/panel.cpp:3955): what
     /// the player just picked up, or "Arrested", and the seconds it's been up. It goes after
     /// two.
@@ -914,6 +934,7 @@ impl Game {
             no_floor: false,
             end_of_world: None,
             theme: Theme::of(&level.name),
+            tutorial: None,
             info: None,
             shake: 0.0,
             shake_turns: 0.0,
@@ -946,7 +967,7 @@ impl Game {
             let at = Vec3::new(o.x as f32, o.y as f32, o.z as f32);
             let y = level.ground.surface(&level.map, at.x, at.z, at.y + 32.0);
             let yaw = radians(o.yaw as f32);
-            g.add_barrel(Barrel { kind: 0, prim: uc_world::level::BARREL_PROP, explodes: true, way: 0, gone: false,
+            g.add_barrel(Barrel { kind: 0, prim: uc_world::level::BARREL_PROP, explodes: true, way: 0, gone: false, tipped: false,
                                   pos: Vec3::new(at.x, y, at.z), yaw, tilt: 0.0, on: None, spheres: None });
         }
         g
@@ -1086,6 +1107,24 @@ impl Game {
         }
     }
 
+    /// While a tutorial message is up the game doesn't move (`should_i_process_game`,
+    /// Game.cpp:1913). It can be put away once it's been up two seconds: jump, punch, kick,
+    /// action or the inventory key (`hardware_input_continue`, Game.cpp:2042); before that, a
+    /// press only brings that moment forward (Game.cpp:2447). The press that puts it away
+    /// does nothing else. Whether this turn is spent waiting.
+    fn tutorial_wait(&mut self, c: Controls) -> bool {
+        let Some((_, t)) = &mut self.tutorial else { return false };
+        *t += TURN;
+        if c.jump || c.punch || c.kick || c.action || c.switch {
+            if *t > 2.0 {
+                self.tutorial = None;
+            } else {
+                *t = 2.0;
+            }
+        }
+        true
+    }
+
     /// One turn, with one `Controls` per seat (seat 0 first; missing seats stand still). What
     /// a co-op session plays: every machine steps the same turns with the same inputs. The
     /// seat in focus stays in focus.
@@ -1223,6 +1262,9 @@ impl Game {
     /// player's (aiming, using things, grenades, the hook, searching) runs once for each seat,
     /// with that seat in focus.
     fn turn(&mut self, inputs: &[Controls], level: &Level) {
+        if self.tutorial_wait(inputs.first().copied().unwrap_or_default()) {
+            return;
+        }
         let dt = TURN;
         let seats = self.seats();
         let seat_input = |s: usize| inputs.get(s).copied().unwrap_or_default();

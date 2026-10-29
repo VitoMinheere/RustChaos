@@ -92,6 +92,7 @@ impl Barrel {
         }
         self.spheres = Some(s);
         self.on = None;
+        self.tipped = true;
     }
 
     /// Back to a pose from its spheres: in the middle of them and along the line joining
@@ -312,7 +313,7 @@ mod tests {
     }
 
     fn barrel(x: f32, z: f32) -> Barrel {
-        Barrel { kind: 0, prim: 141, explodes: true, way: 0, gone: false, pos: Vec3::new(x, 0.0, z), yaw: 0.0, tilt: 0.0, on: None, spheres: None }
+        Barrel { kind: 0, prim: 141, explodes: true, way: 0, gone: false, pos: Vec3::new(x, 0.0, z), yaw: 0.0, tilt: 0.0, on: None, spheres: None, tipped: false }
     }
 
     fn run(barrels: &mut [Barrel], turns: usize) {

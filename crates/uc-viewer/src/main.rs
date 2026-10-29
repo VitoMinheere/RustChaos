@@ -19,6 +19,7 @@ mod hud;
 mod input;
 mod menu;
 mod options;
+mod par;
 mod pause;
 mod progress;
 mod replays;

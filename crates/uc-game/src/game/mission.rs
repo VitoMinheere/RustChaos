@@ -242,6 +242,12 @@ impl Game {
                 }
                 Command::Message { way, speech, text, secs, speaker } => {
                     let _ = way;
+                    // Tutorial text stops the game under it, on a darkened screen
+                    // (`EWAY_MESSAGE_WHO_TUTORIAL`, eway.cpp:5122).
+                    if matches!(speaker, script::Speaker::Tutorial) {
+                        self.tutorial = Some((text, 0.0));
+                        continue;
+                    }
                     let face = match speaker {
                         script::Speaker::Street | script::Speaker::Tutorial => None,
                         script::Speaker::Radio => Some(talk::face::RADIO),
@@ -319,7 +325,7 @@ impl Game {
                     let yaw = (self.rand() % 628) as f32 / 100.0;
                     let semtex = level.name.eq_ignore_ascii_case("semtex");
                     let (prim, explodes) = Barrel::of_kind(kind, semtex);
-                    self.add_barrel(Barrel { kind, prim, explodes, way, gone: false, pos: Vec3::new(pos.x, y, pos.z), yaw, tilt: 0.0, on: None, spheres: None });
+                    self.add_barrel(Barrel { kind, prim, explodes, way, gone: false, pos: Vec3::new(pos.x, y, pos.z), yaw, tilt: 0.0, on: None, spheres: None, tipped: false });
                 }
                 Command::Sign { which, flip } => {
                     let text = match (which, flip) {

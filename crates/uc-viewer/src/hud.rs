@@ -55,6 +55,22 @@ impl World {
         let s = (h / 360.0).round().max(1.0);
         let white = [235, 235, 225, 255];
 
+        // A tutorial message: the whole screen darkened, the text in a bubble at the top left,
+        // and nothing else of the panel (`PANEL_last`, DDEngine/Source/panel.cpp:4327).
+        if let Some((text, _)) = &self.game.tutorial {
+            o.rect(0.0, 0.0, w, h, [0, 0, 0, 0x88]);
+            let k = h / 480.0;
+            let (x, y) = (16.0 * k, 16.0 * k);
+            let lines = Overlay::wrap(text, w - 2.0 * x - 12.0 * k, s);
+            let lh = 11.0 * s;
+            let right = lines.iter().map(|l| Overlay::text_width(l, s)).fold(0.0, f32::max);
+            o.rect(x - 6.0 * k, y - 4.0 * k, right + 12.0 * k, lines.len() as f32 * lh + 8.0 * k, [250, 250, 240, 60]);
+            for (n, line) in lines.iter().enumerate() {
+                o.text(x, y + n as f32 * lh, s, [255, 255, 255, 255], line);
+            }
+            return o;
+        }
+
         // The scope: dark round the edges, and cross hairs.
         if self.game.sniping().is_some() {
             let (cx, cy, r) = (w / 2.0, h / 2.0, h * 0.42);
@@ -75,6 +91,13 @@ impl World {
             o.rect(bx - s, by - s, bw + 2.0 * s, bh + 2.0 * s, [0, 0, 0, 160]);
             let col = if frac > 0.5 { [90, 200, 90, 255] } else if frac > 0.25 { [230, 190, 60, 255] } else { [220, 60, 50, 255] };
             o.rect(bx, by, bw * frac, bh, col);
+            // The stamina marks (panel.cpp:5021): one a 25 of breath, red to green, each a
+            // little up and along from the last, above the bar's right end.
+            const MARKS: [[u8; 4]; 5] = [[255, 0, 0, 255], [192, 64, 0, 255], [128, 128, 0, 255], [64, 192, 0, 255], [0, 255, 0, 255]];
+            for (k, c) in MARKS.iter().take(p.stamina_marks()).enumerate() {
+                let (x, y) = (bx + bw - 24.0 * s + k as f32 * 3.0 * s, by - 6.0 * s - k as f32 * 2.0 * s);
+                o.rect(x, y, 4.0 * s, 4.0 * s, *c);
+            }
             // A grim reaper for each innocent killed (`PANEL_IC_GRIMREAPER`, panel.cpp:3315).
             for k in 0..self.game.red_marks as usize {
                 let (x, y) = (bx + k as f32 * 9.0 * s, by + bh + 4.0 * s);
@@ -506,10 +529,27 @@ impl World {
             o.rect(0.0, h * 0.33, w, 50.0 * s, [0, 0, 0, 160]);
             o.text(w / 2.0 - Overlay::text_width(&title, big) / 2.0, h * 0.33 + 8.0 * s, big, col, &title);
             o.text(w / 2.0 - Overlay::text_width(&sub, s) / 2.0, h * 0.33 + 36.0 * s, s, white, &sub);
+            // Won: the criminals dealt with, and the time against the team's (`ScoresDraw`,
+            // Attract.cpp:684), with a code for beating it fairly (no console, no replay).
+            let mut below = h * 0.33 + 56.0 * s;
+            if let (Outcome::Won, Some((secs, _))) = (out, self.result) {
+                let mut rows = Vec::new();
+                if let Some((killed, arrested, left)) = self.game.criminals() {
+                    rows.push(format!("Criminals Killed: {killed}   Criminals Arrested: {arrested}   Criminals Still at Large: {left}"));
+                }
+                let fair = self.counts() && self.recorder.is_some();
+                let (taken, par) = par::line(&self.args.mission, secs, fair);
+                rows.push(format!("Time Taken: {taken}   Mucky Time: {par}"));
+                o.rect(0.0, below - 4.0 * s, w, (rows.len() as f32 * 11.0 + 6.0) * s, [0, 0, 0, 140]);
+                for (k, r) in rows.iter().enumerate() {
+                    o.text(w / 2.0 - Overlay::text_width(r, s) / 2.0, below + k as f32 * 11.0 * s, s, white, r);
+                }
+                below += (rows.len() as f32 * 11.0 + 8.0) * s;
+            }
             // The chief's word on the civilians killed (`deadcivs.tga`'s message).
             if let Some(warning) = &self.civ_warning {
                 let lines = Overlay::wrap(warning, w * 0.6, s);
-                let top = h * 0.33 + 56.0 * s;
+                let top = below;
                 o.rect(w * 0.18, top - 4.0 * s, w * 0.64, (lines.len() as f32 * 11.0 + 8.0) * s, [60, 0, 0, 190]);
                 for (k, l) in lines.iter().enumerate() {
                     o.text(w / 2.0 - Overlay::text_width(l, s) / 2.0, top + k as f32 * 11.0 * s, s, [255, 220, 200, 255], l);

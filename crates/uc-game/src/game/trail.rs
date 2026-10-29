@@ -158,6 +158,7 @@ impl Game {
             self.people[i].mucky = mucky;
         }
         self.lay_skids(level);
+        self.smoke_damaged();
     }
 
     /// A car smoking (`Smokin`, vehicle.cpp:1463), its wheels spinning or sliding: a puff of
@@ -191,6 +192,31 @@ impl Game {
                 }
             }
             *was = Some(now);
+        }
+    }
+
+    /// A damaged car smokes from under its bonnet (`draw_car`, vehicle.cpp:1309): each of the
+    /// original's turns (two of our three), when a number up to 127 comes out over its health,
+    /// so from under 128 of its 300, and more the worse it gets. A wreck smokes from the back
+    /// too.
+    fn smoke_damaged(&mut self) {
+        if self.turns % 3 == 2 {
+            return;
+        }
+        for vi in 0..self.vehicles.len() {
+            let health = self.vehicles[vi].health;
+            if health >= 127 || (self.rand() & 0x7f) as i32 <= health {
+                continue;
+            }
+            let v = &self.vehicles[vi];
+            let front = vehicle::TYPES[v.kind as usize].3;
+            let vel = Vec3::new(v.forward().x, 0.0, v.forward().y) * v.speed;
+            let ends: Vec<Vec2> = if v.wrecked() { vec![v.to_world(0.0, front), v.to_world(0.0, -front)] } else { vec![v.to_world(0.0, front)] };
+            let y = v.pos.y + 20.0;
+            for at in ends {
+                let (dx, dz) = ((self.rand() & 63) as f32 - 32.0, (self.rand() & 63) as f32 - 32.0);
+                self.pyro.engine_smoke(Vec3::new(at.x + dx, y, at.y + dz), vel);
+            }
         }
     }
 
