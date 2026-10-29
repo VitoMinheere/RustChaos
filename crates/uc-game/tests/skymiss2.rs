@@ -100,10 +100,14 @@ fn stern_revenge_runs_to_a_win() {
         r.line_up(k);
         r.play(0.5, Controls::default());
         assert_eq!(r.g.aiming.vehicle, Some(k), "the gun isn't on van {way}");
+        // The vans drive their patrol (`PCOM_process_driving_patrol`): lined up again for
+        // each shot.
         for _ in 0..20 {
             if r.g.vehicles[k].wrecked() {
                 break;
             }
+            r.line_up(k);
+            r.play(0.3, Controls::default());
             r.play(DT, Controls { punch: true, ..Default::default() });
             r.play(0.6, Controls::default());
         }

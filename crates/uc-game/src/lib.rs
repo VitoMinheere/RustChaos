@@ -192,6 +192,10 @@ struct Driving {
     drunk: bool,
     /// Beat Cop's getaway driver: twice the limit, and stopping for nobody.
     reckless: bool,
+    /// On patrol: the point being driven to (`PCOM_MOVE_STATE_DRIVETO`'s `pcom_move_arg`).
+    patrol: Option<usize>,
+    /// Parked at the end of a patrol, for good (`PCOM_MOVE_STATE_PARK_CAR`).
+    parked: bool,
 }
 
 /// A camera fly-by in progress.
