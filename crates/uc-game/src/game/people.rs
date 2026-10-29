@@ -117,6 +117,53 @@ impl Game {
     /// goal, or the person they're fighting, can't be walked to in a straight line heads
     /// for the furthest square of the navigation map's route that can be. On foot and over
     /// fences ([`WALKER`]).
+    /// Somewhere someone might be hiding, for whoever investigated a noise and is going on
+    /// to look there (`PCOM_find_hiding_place`, pcom.cpp:1589): a square within five
+    /// (each way) not in a building, two or more away (x plus z), that can't be seen from
+    /// their head (0x60 up) to a head standing on it, with a route there that doesn't start
+    /// off a long way round (its first leg at most two further, `MAV_do`); of those, at
+    /// random, the nearer the likelier (`0x1000 - Random() % (dist << 4)`). Nowhere, and
+    /// home they go.
+    pub(crate) fn hiding_places(&mut self, level: &Level) {
+        for i in 0..self.people.len() {
+            if !self.people[i].heard.is_some_and(|h| h.phase == person::Investigate::Hide) {
+                continue;
+            }
+            let at = self.people[i].fig.pos;
+            let (mx0, mz0) = ((at.x / 256.0) as i32, (at.z / 256.0) as i32);
+            let eye = at + Vec3::new(0.0, 0x60 as f32, 0.0);
+            let mut seed = self.rngs.mav;
+            let mut best: Option<(i32, Vec3)> = None;
+            for dx in -5..=5 {
+                for dz in -5..=5 {
+                    let (mx, mz) = (mx0 + dx, mz0 + dz);
+                    let dist = dx.abs() + dz.abs();
+                    if !(0..128).contains(&mx) || !(0..128).contains(&mz) || dist < 2
+                        || level.map.square(mx as usize, mz as usize).has(uc_formats::iam::flags::HIDDEN)
+                    {
+                        continue;
+                    }
+                    let (x, z) = (mx as f32 * 256.0 + 128.0, mz as f32 * 256.0 + 128.0);
+                    let spot = Vec3::new(x, level.map.ground_height(x, z), z);
+                    if level.ground.line_of_sight(eye, spot + Vec3::new(0.0, 0x60 as f32, 0.0)) {
+                        continue;
+                    }
+                    let (step, found) = self.routes.mav.route((mx0 as u8, mz0 as u8), (mx as u8, mz as u8), uc_world::mav::CAPS_DARCI, &mut || rand(&mut seed));
+                    let leg = (step.dest.0 as i32 - mx0).abs() + (step.dest.1 as i32 - mz0).abs();
+                    if !found || leg > dist + 2 {
+                        continue;
+                    }
+                    let score = 0x1000 - (rand(&mut seed) % (dist << 4) as u32) as i32;
+                    if best.is_none_or(|(b, _)| score > b) {
+                        best = Some((score, spot));
+                    }
+                }
+            }
+            self.rngs.mav = seed;
+            self.people[i].heard = best.map(|(_, spot)| person::Heard { at: spot, phase: person::Investigate::WalkOver, time: 0.0 });
+        }
+    }
+
     pub(crate) fn find_ways(&mut self, level: &Level) {
         for i in 0..self.people.len() {
             self.people[i].leap = None;

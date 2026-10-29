@@ -19,9 +19,10 @@ impl Person {
     /// `PCOM_process_investigating` (pcom.cpp:7768): a second turned to the sound, then, unless
     /// they can see where it came from from here, a walk over to it (to within 0x40), and
     /// there a look round: a quarter turn left after one second, half a turn right after three,
-    /// and after five back to what they were doing, which takes them home. The original
-    /// sometimes goes on to a likely hiding place first; here it doesn't.
-    fn investigate(&mut self, mut h: Heard, mut c: Controls, ground: &Ground, dt: f32) -> Controls {
+    /// and after five, half the time back to what they were doing, which takes them home, and
+    /// half the time on to somewhere someone might be hiding (pcom.cpp:7935), to look round
+    /// there in turn.
+    fn investigate(&mut self, mut h: Heard, mut c: Controls, ground: &Ground, dt: f32, rand: &mut impl FnMut() -> u32) -> Controls {
         let before = h.time;
         h.time += dt;
         let to = flat(h.at, self.fig.pos);
@@ -54,10 +55,15 @@ impl Person {
                     self.fig.angle += 2.0 * quarter;
                 }
                 if h.time > 5.0 {
-                    self.heard = None;
-                    return c;
+                    if rand() & 1 == 0 {
+                        self.heard = None;
+                        return c;
+                    }
+                    h = Heard { phase: Investigate::Hide, time: 0.0, ..h };
                 }
             }
+            // Waiting on the game to find somewhere.
+            Investigate::Hide => {}
         }
         self.heard = Some(h);
         c
@@ -365,7 +371,7 @@ impl Person {
         let notices = if gang || mib { self.can_see(&p, range, ground) } else { dist < range && (dy < 128.0 || hunter) };
         if !self.aggro && !notices {
             if let Some(h) = self.heard {
-                return self.investigate(h, c, ground, dt);
+                return self.investigate(h, c, ground, dt, rand);
             }
         }
         if !self.aggro && notices && !self.truce {

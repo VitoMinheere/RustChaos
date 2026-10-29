@@ -754,6 +754,9 @@ pub enum Investigate {
     WalkOver,
     /// `_LOOK`: looking left and right for trouble.
     Look,
+    /// The look round over, off to somewhere someone might be hiding: the game finds it
+    /// (`PCOM_find_hiding_place`, [`crate::Game::hiding_places`]).
+    Hide,
 }
 
 /// What everyone else needs to know about a person this frame.

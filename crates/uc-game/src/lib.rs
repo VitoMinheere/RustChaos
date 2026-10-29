@@ -1446,6 +1446,7 @@ impl Game {
         self.fetch_weapons(level);
         self.bonus_items(level);
         self.drop_held(level);
+        self.hiding_places(level);
         self.find_ways(level);
         self.city_life(dt, level);
         self.board_cars(level);
