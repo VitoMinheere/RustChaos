@@ -626,9 +626,10 @@ pub enum State {
     Block { auto: bool },
     /// Firing a gun at `target` (or straight ahead): `shots` fired so far.
     Shoot { target: Option<usize>, shots: u32 },
-    /// Climbing over a fence: phase 0 grabbing on, 1 climbing up, 2 swinging over. The hips
-    /// follow `from` -> up the near side -> over the top at `top` -> the far side.
-    Fence { phase: u8, at: Vec2, over: Vec2, base: f32, top: f32, from: Vec3 },
+    /// Climbing a fence: phase 0 grabbing on, 1 climbing up, 2 swinging over. The hips
+    /// follow `from` -> up the near side -> over the top at `top` -> the far side; or, not
+    /// `cross` (an angle-topped fence), dropping back off at the top.
+    Fence { phase: u8, at: Vec2, over: Vec2, base: f32, top: f32, from: Vec3, cross: bool },
     /// Driving (or sitting in) vehicle `vehicle`: not drawn, moved with the car.
     InCar { vehicle: usize },
     /// Getting into vehicle `vehicle` (`SUB_STATE_ENTERING_VEHICLE`): lined up at its door,
@@ -1742,7 +1743,7 @@ impl Person {
                 }
             }
             State::Shoot { target, shots } => self.step_shoot(target, shots, me, c, snaps, ground, map, dt, events),
-            State::Fence { phase, at, over, base, top, from } => self.step_fence(phase, at, over, base, top, from, c, dt),
+            State::Fence { phase, at, over, base, top, from, cross } => self.step_fence(phase, at, over, base, top, from, cross, c, dt),
             State::Zip { cable, t, dir, speed, ridden } => self.step_zip(cable, t, dir, speed, ridden, c, ground, map, dt),
             State::Attack { mv, hit, queued } => self.step_attack(mv, hit, queued, me, c, snaps, ground, map, dt, events),
             State::Slide { phase, speed, hit } => self.step_slide(phase, speed, hit, me, snaps, ground, map, dt, events),

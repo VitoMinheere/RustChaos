@@ -408,7 +408,13 @@ impl Level {
         let platforms = platform_props(&map, &mission);
         let barrel_props: Vec<usize> = map.objects.iter().enumerate().filter(|(_, o)| o.prim == BARREL_PROP).map(|(i, _)| i).collect();
         let moving = platforms.iter().map(|&(_, ob)| ob).chain(barrel_props.iter().copied()).collect();
-        let ground = Ground::new(&map, game, &moving);
+        let mut ground = Ground::new(&map, game, &moving);
+        if mission_name.eq_ignore_ascii_case("Capflag1") {
+            // The network game's map was never tuned for play: under the fence rules each base
+            // is fenced in, every way out unclimbable or angle-topped, so there every fence can
+            // be climbed over.
+            ground.fence_climb.fill(crate::ground::FenceClimb { climbable: true, over: true });
+        }
         let ep = mission.event_points.iter().find(|e| e.kind == waypoint::CREATE_PLAYER);
         let (sx, sy, sz) = ep.map_or((64.0 * UNIT, 0.0, 64.0 * UNIT), |e| (e.x as f32, e.y as f32, e.z as f32));
         let angle = ep.map_or(0.0, |e| ep_angle(e.direction));
