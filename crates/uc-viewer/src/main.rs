@@ -249,9 +249,11 @@ impl App {
                 strafe: strafe.then_some(fwd),
                 ..Default::default()
             };
-            // Looking round, she stands where she is: the keys turn the view.
-            if w.look.is_some() {
+            // Looking round, she stands where she is, turning with the view, which the keys
+            // turn; her gun goes for whoever's at the height she's looking.
+            if let Some(look) = w.look {
                 (controls.wish, controls.run, controls.sprint) = (Vec2::ZERO, false, false);
+                controls.look = Some((look.yaw - std::f32::consts::PI, look.pitch));
             }
             let ahead = inp.axis(Act::Forward) - inp.axis(Act::Back);
             let turn = inp.axis(Act::Right) - inp.axis(Act::Left);
