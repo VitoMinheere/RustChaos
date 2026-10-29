@@ -292,8 +292,9 @@ impl World {
         }
 
         // The minimap (top right): the city from above around Darci, north up, with the
-        // mission's beacons as gold dots (pinned to the edge when further off), enemies in a
-        // fight as red dots and Darci as a white one; the beacons are listed underneath.
+        // mission's beacons as gold dots (pinned to the edge when further off), gang members
+        // and Men in Black ([`uc_game::Game::radar`]) as red and white dots and Darci as a white
+        // one; the beacons are listed underneath.
         if self.game.cutscene.is_none() {
             if let Some(pl) = self.game.player() {
                 let driving = self.game.player_vehicle();
@@ -326,10 +327,14 @@ impl World {
                     o.rect(p.x - r - s, p.y - r - s, 2.0 * (r + s), 2.0 * (r + s), [0, 0, 0, 220]);
                     o.rect(p.x - r, p.y - r, 2.0 * r, 2.0 * r, col);
                 };
-                for q in self.game.people.iter().filter(|q| q.aggro() && !q.is_dead()) {
-                    let (p, outside) = at(vec2(q.fig.pos.x, q.fig.pos.z) / uc_world::UNIT);
+                // Gang members red and Men in Black white, pulsing when they're after her
+                // (`flash`, a sine of the 20-a-second turn).
+                let flash = (self.game.time * 20.0 * 0.2).sin().abs();
+                for d in self.game.radar() {
+                    let (p, outside) = at(vec2(d.pos.x, d.pos.z) / uc_world::UNIT);
                     if !outside {
-                        dot(&mut o, p, 1.5 * s, [230, 60, 50, 255]);
+                        let r = if d.after_her { 0.75 + flash } else { 1.5 };
+                        dot(&mut o, p, r * s, if d.mib { [221, 221, 221, 255] } else { [230, 60, 50, 255] });
                     }
                 }
                 let gold = [255, 210, 70, 255];

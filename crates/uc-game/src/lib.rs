@@ -62,6 +62,7 @@ pub use script::Shot;
 pub use vehicle::{Drive, Vehicle};
 pub use game::mines::Mine;
 pub use game::grenades::Grenade;
+pub use game::RadarDot;
 
 /// `facet_rand`'s LCG (fallen/Source/facet.cpp): the one source of chance in the game, so a
 /// run plays out the same way twice.
