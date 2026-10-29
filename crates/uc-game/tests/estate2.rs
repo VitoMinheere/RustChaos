@@ -105,6 +105,13 @@ fn estate_of_emergency_runs_to_a_win() {
     r.put(r.point(218));
     assert!(r.until(30.0, |r| r.said("I'll give you THREE")), "{:?}", r.seen);
     let bane = r.alive(172).unwrap();
+    // The guards round the helipad see her there and call each other in
+    // (`PCOM_alert_nearby_mib_to_attack`): out of the way, so she can get on with it.
+    r.each_turn = Some(|g| {
+        for p in g.people.iter_mut().filter(|p| p.ai == uc_game::person::AI_GUARD) {
+            p.fig.pos = vec3(1000.0, 0.0, 1000.0);
+        }
+    });
     assert!(r.arrest(bane), "couldn't arrest Bane: {:?}", r.g.people[bane].state);
     r.play(3.0, Controls::default());
     println!("outcome {:?} at {:.1}s", r.g.outcome, r.g.time);
