@@ -890,6 +890,9 @@ pub struct Person {
     pub bat: bool,
     /// The item (`IT_*`) they give up when searched, besides their weapons (`drop`).
     pub drop: Option<u8>,
+    /// Rounds the AI has fired from the gun in hand: they have its one load and no more
+    /// ([`Person::out_of_rounds`]).
+    pub(crate) ai_fired: u32,
     /// Searched already (`FLAG_PERSON_SEARCHED`): nothing more to find on them.
     pub searched: bool,
     /// Guns carried (bit per `Weapon::GUNS` slot), and rounds for each.
@@ -1126,7 +1129,7 @@ impl Person {
         Person {
             fig, way, player, kind, ai: 0, bent: 0, ko_moves: 0, health, max_health: health, state: State::Move,
             pace: Pace::Walk,
-            arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, knife: false, bat: false, drop: None, searched: false, guns: 0, ammo: [0; 4], spent: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
+            arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, knife: false, bat: false, drop: None, ai_fired: 0, searched: false, guns: 0, ammo: [0; 4], spent: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, struggle: 0.0, idle_for: 0.0, breathed: false, screamed: false, fly_kick: None, gun_fight: false, topple: None, bonus_rolled: false, run_shot: 0.0, fetch: None, splattered: false, sized_up: false, felon: false, slot: None, ganged: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
@@ -1180,6 +1183,7 @@ impl Person {
         if w == Weapon::Hook {
             self.hook = true;
         } else if let Some(s) = w.slot() {
+            self.ai_fired = 0;
             if self.guns & (1 << s) == 0 {
                 self.spent[s] = 0;
             }

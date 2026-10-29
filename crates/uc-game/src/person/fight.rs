@@ -415,7 +415,7 @@ impl Person {
     /// Whether the player's gun will fire (`shoot_get_ammo_sound_anim_time` and
     /// `set_person_shoot`, Person.cpp:6085 and 6898): a clip used up is changed instead, to a
     /// dry click and no shot; out altogether, a click, and on to her best weapon with rounds
-    /// left, or put away. The AI never runs out.
+    /// left, or put away. The AI has its one load ([`Person::out_of_rounds`]).
     pub(super) fn trigger(&mut self) -> bool {
         let Some(s) = self.weapon.slot().filter(|_| self.player) else { return true };
         if self.ammo[s] == 0 {
@@ -444,6 +444,11 @@ impl Person {
         if self.player {
             self.ammo[s] -= 1;
             self.spent[s] += 1;
+        } else if self.out_of_rounds() {
+            self.cues.push(Sfx::Click);
+            return false;
+        } else {
+            self.ai_fired += 1;
         }
         self.cues.push(Sfx::Shot(self.weapon));
         self.flash = 0.07;

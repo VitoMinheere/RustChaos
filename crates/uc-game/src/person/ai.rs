@@ -245,6 +245,18 @@ impl Person {
             .then(|| (self.attack_timer.max(0.0) * 20.0).min(100.0))
     }
 
+    /// The AI's gun is empty. Everyone starts with the pistol's 15 (`Ammo`, Person.cpp:573),
+    /// a shotgun given them holds 8 (Special.cpp:1613), and they carry no more; the AI's
+    /// AKs never run dry, nor do the Men in Black (Person.cpp:6003 and 6034).
+    pub(crate) fn out_of_rounds(&self) -> bool {
+        let load = match self.weapon {
+            Weapon::Shotgun => 8,
+            Weapon::Pistol | Weapon::Sniper => 15,
+            _ => return false,
+        };
+        !self.player && !self.is_mib() && self.ai_fired >= load
+    }
+
     /// One of the Men in Black (`PersonIsMIB`, Person.cpp:498).
     pub fn is_mib(&self) -> bool {
         use uc_world::character::person as ptype;
@@ -470,6 +482,14 @@ impl Person {
             self.block_timer = 0.6;
             c.block = true;
             return c;
+        }
+        // Out of rounds: a click, and the gun put away for good, to come on hand to hand
+        // (`PCOM_AI_SUBSTATE_NOMOREAMMO`, pcom.cpp:9005 and 9077). They've still got it on
+        // them to be searched for.
+        if self.out_of_rounds() {
+            self.cues.push(Sfx::Click);
+            self.drop = self.drop.or(self.weapon.item());
+            self.weapon = Weapon::None;
         }
         // Guns shoot from range when they can see the player, and close in otherwise.
         let skill = self.skill as f32;
