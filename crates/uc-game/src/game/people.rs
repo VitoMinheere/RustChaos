@@ -113,10 +113,77 @@ impl Game {
         }
     }
 
-    /// Round what's in the way (`PCOM_set_person_move_mav_to_xz` and `MAV_do`): anyone whose
-    /// goal, or the person they're fighting, can't be walked to in a straight line heads
-    /// for the furthest square of the navigation map's route that can be. On foot and over
-    /// fences ([`WALKER`]).
+    /// Who fights whom from where (`gang_attacks`, combat.cpp:55; `PCOM_new_gang_attack`,
+    /// pcom.cpp:3602): everyone set on someone hand to hand, near them, holds a quarter round
+    /// them, the one they're on (`(angle + 256) >> 9`). Taken, the others are pushed round a
+    /// place or two to make room (`push_into_attack_group_at_angle`, pcom.cpp:3530), or if
+    /// all four are, they share it. Every ten turns each takes their place again from where
+    /// they've got to (Person.cpp:21878).
+    pub(crate) fn gang_slots(&mut self) {
+        let tick = (self.time * 20.0) as usize;
+        let quarter = |from: Vec3, to: Vec3| {
+            let v = Vec2::new(from.x - to.x, from.z - to.z);
+            ((v.x.atan2(v.y) / std::f32::consts::FRAC_PI_2).round() as i32).rem_euclid(4) as u8
+        };
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            let target = p.foe.filter(|&t| {
+                p.aggro() && !p.player && !p.weapon.is_gun() && !p.removed && !p.is_down() && !p.is_dead()
+                    && t < self.people.len() && !self.people[t].removed
+                    && Vec2::new(p.fig.pos.x - self.people[t].fig.pos.x, p.fig.pos.z - self.people[t].fig.pos.z).length() < 600.0
+            });
+            let held = p.slot;
+            if let Some((t, _)) = held.filter(|&(t, _)| Some(t) != target) {
+                self.leave_slot(i, t);
+            }
+            let Some(t) = target else { continue };
+            if held.is_some_and(|(ht, _)| ht == t) && !(tick + i).is_multiple_of(10) {
+                continue;
+            }
+            self.leave_slot(i, t);
+            let want = quarter(self.people[i].fig.pos, self.people[t].fig.pos);
+            let ring = self.gang_attacks.entry(t).or_insert([None; 4]);
+            if ring[want as usize].is_some() {
+                // Shunt round to the nearer free place, one way then the other.
+                'shunt: for c in 1..=2u8 {
+                    for sign in [1i8, -1] {
+                        let free = (want as i8 + sign * c as i8).rem_euclid(4) as usize;
+                        if ring[free].is_none() {
+                            let mut at = free;
+                            for _ in 0..c {
+                                let from = (at as i8 - sign).rem_euclid(4) as usize;
+                                ring[at] = ring[from];
+                                if let Some(k) = ring[at] {
+                                    self.people[k].slot = Some((t, at as u8));
+                                }
+                                at = from;
+                            }
+                            break 'shunt;
+                        }
+                    }
+                }
+            }
+            ring[want as usize] = Some(i);
+            self.people[i].slot = Some((t, want));
+        }
+        // On their own, an attacker's place is wherever they are: only a gang side-steps.
+        for i in 0..self.people.len() {
+            let Some((t, _)) = self.people[i].slot else { continue };
+            let n = self.gang_attacks.get(&t).map_or(0, |ring| ring.iter().flatten().count());
+            self.people[i].ganged = n > 1;
+        }
+    }
+
+    /// Person `i` gives up their place round `t`.
+    fn leave_slot(&mut self, i: usize, t: usize) {
+        if let Some(ring) = self.gang_attacks.get_mut(&t) {
+            for s in ring.iter_mut().filter(|s| **s == Some(i)) {
+                *s = None;
+            }
+        }
+        self.people[i].slot = None;
+    }
+
     /// Somewhere someone might be hiding, for whoever investigated a noise and is going on
     /// to look there (`PCOM_find_hiding_place`, pcom.cpp:1589): a square within five
     /// (each way) not in a building, two or more away (x plus z), that can't be seen from
@@ -164,6 +231,10 @@ impl Game {
         }
     }
 
+    /// Round what's in the way (`PCOM_set_person_move_mav_to_xz` and `MAV_do`): anyone whose
+    /// goal, or the person they're fighting, can't be walked to in a straight line heads
+    /// for the furthest square of the navigation map's route that can be. On foot and over
+    /// fences ([`WALKER`]).
     pub(crate) fn find_ways(&mut self, level: &Level) {
         for i in 0..self.people.len() {
             self.people[i].leap = None;

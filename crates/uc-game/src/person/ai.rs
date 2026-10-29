@@ -503,6 +503,20 @@ impl Person {
         } else if dist < 80.0 {
             c.wish = -d / dist.max(1.0) * 0.5;
         }
+        // Round to the quarter of them that's ours to fight from (`AttackAngle`, Person.cpp:
+        // 21903): more than 30 of 2048 off it, a side-step that way, so a gang closes in from
+        // all round rather than queueing.
+        if let Some((_, quarter)) = self.slot.filter(|&(t, _)| Some(t) == player && self.ganged && dist < 400.0) {
+            let from = -d;
+            let bearing = from.x.atan2(from.y);
+            let want = quarter as f32 * std::f32::consts::FRAC_PI_2;
+            let off = (want - bearing + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+            if off.abs() > 30.0 / 2048.0 * std::f32::consts::TAU {
+                // Round them the way that brings the bearing to `want`.
+                let round = vec2(from.y, -from.x).normalize_or_zero() * off.signum();
+                c.wish = (c.wish + round).normalize_or_zero();
+            }
+        }
         // After someone running, a hunter runs too, and once both are running within 0xc0 of
         // each other goes in with a sliding tackle (pcom.cpp:8681): if they can see them, not
         // if they're a fight-test dummy, and at the player only one turn in eight.
