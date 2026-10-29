@@ -176,8 +176,7 @@ impl Person {
 
     /// `step` in [`State::Fence`].
     #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn step_fence(&mut self, mut phase: u8, at: Vec2, over: Vec2, base: f32, top: f32, from: Vec3, cross: bool, dt: f32) {
+    pub(super) fn step_fence(&mut self, mut phase: u8, at: Vec2, over: Vec2, base: f32, top: f32, from: Vec3, cross: bool, c: &Controls, dt: f32) {
         // Hips just in front of the fence, hands up on it.
         let near = vec3(at.x, 0.0, at.y) - vec3(over.x, 0.0, over.y) * 28.0;
         let grip = |y: f32| vec3(near.x, y, near.z);
@@ -198,7 +197,31 @@ impl Person {
                 }
             }
             1 => {
-                let y = (self.fig.hips().y + 220.0 * dt).min(high);
+                // The player climbs while she holds forward, back down while she holds back,
+                // and stays where she is otherwise (`SUB_STATE_CLIMB_UP_WALL`, `_DOWN_WALL`
+                // and `STOPPING`, interfac.cpp:3994 and 4134); jump lets go, falling off
+                // backwards (`action_climbing`, `ACTION_DROP_DOWN`). The AI just climbs.
+                if self.player && c.jump {
+                    let h = self.fig.hips();
+                    self.fig.pin_root = false;
+                    self.fig.pos = h - vec3(0.0, self.fig.stand_root().y, 0.0);
+                    self.fall(-over * 60.0);
+                    return;
+                }
+                let way = if self.player { c.wish.dot(over) } else { 1.0 };
+                let dir = if way > 0.5 { 1.0 } else if way < -0.5 { -1.0 } else { 0.0 };
+                // The climbing loop goes on, backwards or holds still with her.
+                self.fig.set_speed(dir);
+                let y = (self.fig.hips().y + dir * 220.0 * dt).min(high);
+                if y < low {
+                    // Down at the foot: off onto the ground (`SUB_STATE_CLIMB_OFF_BOT_WALL`),
+                    // facing the fence still.
+                    self.fig.pin_root = false;
+                    self.fig.pos = vec3(near.x, base, near.z) - vec3(over.x, 0.0, over.y) * 20.0;
+                    self.state = State::Move;
+                    self.idle(false);
+                    return;
+                }
                 self.place_hips(grip(y));
                 if y >= high && !cross {
                     // An angle-topped fence: the hands come off at the top, and she drops
@@ -211,6 +234,7 @@ impl Person {
                 }
                 if y >= high {
                     phase = 2;
+                    self.fig.set_speed(1.0);
                     self.fig.restart(anim::CLIMB_OVER_FENCE, Play::Once);
                 }
             }

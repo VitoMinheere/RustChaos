@@ -44,9 +44,11 @@ impl Run {
     fn use_at(&mut self, way: usize) {
         let (p, at) = (self.player(), self.point(way));
         self.put(p, at, vec2(0.0, 1.0));
+        self.stand_at_switch(way);
         self.play(0.5, Controls::default());
         self.press_action();
-        self.play(1.0, Controls::default());
+        // Pressing a switch takes a couple of seconds.
+        self.play(2.5, Controls::default());
     }
 }
 

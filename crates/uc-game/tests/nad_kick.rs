@@ -55,8 +55,10 @@ fn stepping_in_kicks_between_the_legs() {
     assert_eq!(g.people[me].fig.anim(), anim::KICK_NAD, "she kicked {}", g.people[me].fig.anim());
     // He doubles over, stays bent, then straightens up.
     let mut seen = Vec::new();
+    let mut nuts = false;
     for _ in 0..(6.0 / DT) as usize {
         g.update(DT, &Controls::default(), &level);
+        nuts |= g.take_sounds().iter().any(|(s, _)| *s == uc_game::person::Sfx::Nuts);
         let a = g.people[foe].fig.anim();
         if seen.last() != Some(&a) && matches!(a, anim::KICK_NAD_TAKE | anim::KICK_NAD_STUNNED | anim::KICK_NAD_RECOVER) {
             seen.push(a);
@@ -65,6 +67,8 @@ fn stepping_in_kicks_between_the_legs() {
     assert_eq!(seen, [anim::KICK_NAD_TAKE, anim::KICK_NAD_STUNNED, anim::KICK_NAD_RECOVER], "didn't double over");
     let lost = before - g.people[foe].health;
     assert!(lost >= 50, "only {lost} for a kick between the legs");
+    // And it sounds like it (`S_KICK_IN_THE_NUTS`, combat.cpp:2289).
+    assert!(nuts, "no sound");
 }
 
 #[test]

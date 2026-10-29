@@ -210,6 +210,9 @@ pub struct Vehicle {
     /// `Smokin`: the wheels spinning as it pulls away hard (vehicle.cpp:3625), smoking and
     /// laying skid marks. Set afresh every turn.
     pub smokin: bool,
+    /// Rubbing along a wall (`Scrapin`, vehicle.cpp:2330): up a turn it does, to 10, and down
+    /// two each turn it's scraping loud; over 5 it's heard.
+    pub scrapin: u8,
     /// `Dir < 0`: put in reverse, till it stops; pressing on then brakes rather than spins.
     reverse: bool,
     /// `Siren`: the siren going and the light bar flashing.
@@ -220,7 +223,7 @@ impl Vehicle {
     pub fn new(way: usize, kind: u8, pos: Vec3, yaw: f32, key: Key) -> Vehicle {
         Vehicle {
             way, kind: kind.min(8), pos, yaw, speed: 0.0, slip: 0.0, slide: 0.0, steer: 0.0, health: 300, hurt_by: None, driver: None, stalled: false,
-            key, pitch: 0.0, roll: 0.0, wheel_spin: 0.0, smokin: false, reverse: false, siren: false,
+            key, pitch: 0.0, roll: 0.0, wheel_spin: 0.0, smokin: false, scrapin: 0, reverse: false, siren: false,
         }
     }
 
@@ -270,6 +273,17 @@ impl Vehicle {
         Some(([at(z), at(-z)], red))
     }
 
+    /// Scraping along a wall loud enough to hear (vehicle.cpp:2348: `Scrapin` over 5, and
+    /// moving, the original's `vel > 300`; here faster than 300 a second), which wears the
+    /// scraping down.
+    pub fn scrape(&mut self) -> bool {
+        if self.scrapin <= 5 {
+            return false;
+        }
+        self.scrapin -= 2;
+        self.speed.hypot(self.slip) > 300.0
+    }
+
     /// Smoking and laying skid marks: spinning its wheels, or sliding on the handbrake (as the
     /// original's skid sets `Smokin`, vehicle.cpp:3934).
     pub fn skidding(&self) -> bool {
@@ -294,6 +308,40 @@ impl Vehicle {
     /// `VEH_reduce_health` (fallen/Source/vehicle.cpp:4780): half the damage comes off.
     pub fn reduce_health(&mut self, damage: i32) {
         self.health -= damage >> 1;
+    }
+
+    /// What a crash at `speed` takes off a car's health: nothing under [`CRASH_SPEED`], as
+    /// running into a wall does in [`Vehicle::update`].
+    pub fn crash_damage(speed: f32) -> i32 {
+        if speed > CRASH_SPEED { ((speed - CRASH_SPEED) / 20.0) as i32 } else { 0 }
+    }
+
+    /// Its outline on the ground, the body round its wheels (`GetCarPoints`, vehicle.cpp:
+    /// 2287): front right, front left, back left, back right.
+    pub fn corners(&self) -> [Vec2; 4] {
+        let (wx, fz, rz) = (TYPES[self.kind as usize].2 + 25.0, TYPES[self.kind as usize].3 + 45.0, TYPES[self.kind as usize].4 - 45.0);
+        [self.to_world(wx, fz), self.to_world(-wx, fz), self.to_world(-wx, rz), self.to_world(wx, rz)]
+    }
+
+    /// Its outline and `other`'s overlap (no edge of either separates them), and they're at
+    /// about the same height.
+    pub fn overlaps(&self, other: &Vehicle) -> bool {
+        if (self.pos.y - other.pos.y).abs() > 150.0 {
+            return false;
+        }
+        let (a, b) = (self.corners(), other.corners());
+        for poly in [&a, &b] {
+            for i in 0..4 {
+                let e = poly[(i + 1) % 4] - poly[i];
+                let axis = vec2(-e.y, e.x);
+                let span = |q: &[Vec2; 4]| q.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| (lo.min(p.dot(axis)), hi.max(p.dot(axis))));
+                let ((alo, ahi), (blo, bhi)) = (span(&a), span(&b));
+                if ahi < blo || bhi < alo {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     pub fn forward(&self) -> Vec2 {
@@ -391,6 +439,10 @@ impl Vehicle {
         let moved = (new_mid - mid).dot(step.normalize_or_zero());
         let mut impact = None;
         let wanted = step.length();
+        // Slowed by a wall but getting along it: scraping.
+        if wanted > 1.0 && moved / wanted < 0.95 && self.scrapin < 10 {
+            self.scrapin += 1;
+        }
         if wanted.abs() > 1.0 && (moved / wanted) < 0.6 {
             // Hit something: bounce back a little from a real impact, else just stop (so the
             // driver can back away).
@@ -465,5 +517,25 @@ impl Vehicle {
         let along = d.dot(f);
         let side = d.dot(vec2(f.y, -f.x));
         along.abs() < HALF_LENGTH + 120.0 + margin && side.abs() < 130.0 + margin
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `Scrapin`: heard only over 5 and moving, and each time it's heard it wears down by two.
+    #[test]
+    fn scraping_is_heard_over_five_and_moving() {
+        let mut v = Vehicle::new(0, 1, Vec3::ZERO, 0.0, Key::None);
+        v.scrapin = 5;
+        v.speed = 800.0;
+        assert!(!v.scrape(), "5 isn't over 5");
+        v.scrapin = 8;
+        assert!(v.scrape());
+        assert_eq!(v.scrapin, 6);
+        v.speed = 0.0;
+        assert!(!v.scrape(), "standing still");
+        assert_eq!(v.scrapin, 4);
     }
 }

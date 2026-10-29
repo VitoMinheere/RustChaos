@@ -60,6 +60,10 @@ impl Game {
                     let nad = self.people[attacker].fig.anim() == uc_world::character::anim::KICK_NAD;
                     let male = self.people[victim].male();
                     let damage = damage + if !nad { 0 } else if male { 50 } else { 10 };
+                    if nad && male {
+                        let at = self.people[victim].fig.pos;
+                        self.sounds.push((Sfx::Nuts, at));
+                    }
                     self.people[victim].hurt_by = Some(attacker);
                     let damage = self.hurt(victim, damage);
                     let before = self.people[victim].health;
@@ -163,6 +167,15 @@ impl Game {
                     if (self.rand() % 1000) as f32 / 1000.0 < chance {
                         self.gunfx.spang(at);
                         self.shoot_barrel(k, attacker, level);
+                    }
+                }
+                // At nothing: a can in the air ahead goes flying, with a spang (`DIRT_shoot`,
+                // Person.cpp:6547), unless there's no floor (`GF_NO_FLOOR`).
+                Event::Shot { attacker, victim: None, .. } if !self.no_floor => {
+                    let p = &self.people[attacker];
+                    let (at, f) = (p.fig.pos, p.fig.facing());
+                    if let Some((x, y, z)) = self.dirt.shoot(at.x as i32, at.z as i32, (f.x, f.y)) {
+                        self.gunfx.spang(Vec3::new(x as f32, y as f32, z as f32));
                     }
                 }
                 Event::Shot { attacker, victim: Some(victim), weapon } => {
@@ -350,6 +363,8 @@ impl Game {
                 Event::Arrest { attacker, victim } => {
                     if Some(attacker) == self.player {
                         self.record.arrests += 1;
+                        // (Person.cpp:11585.)
+                        self.info = Some(("Arrested".to_string(), 0.0));
                     }
                     // "Hey!" (Person.cpp:9422).
                     self.noises.push((person::Noise::Hey, self.people[attacker].fig.pos, Some(attacker)));

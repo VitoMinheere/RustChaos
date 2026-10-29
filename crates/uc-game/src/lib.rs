@@ -62,6 +62,7 @@ pub use script::Shot;
 pub use vehicle::{Drive, Vehicle};
 pub use game::mines::Mine;
 pub use game::grenades::Grenade;
+pub use game::RadarDot;
 
 /// `facet_rand`'s LCG (fallen/Source/facet.cpp): the one source of chance in the game, so a
 /// run plays out the same way twice.
@@ -92,6 +93,23 @@ pub struct Barrel {
     pub on: Option<usize>,
     /// While it's moving, the two spheres it is (`BARREL_Sphere`, [`barrel`]).
     pub spheres: Option<[barrel::Sphere; 2]>,
+    /// Just knocked from standing (`BARREL_convert_stationary_to_moving`), for the game to
+    /// see to what comes of it.
+    pub tipped: bool,
+}
+
+impl Barrel {
+    /// A bin (`BT_BIN`, `BT_BURNING_BIN`: `BARREL_TYPE_BIN`, elev.cpp:1386), full of rubbish
+    /// (`BARREL_FLAG_RUBBISH`, barrel.cpp:1404).
+    pub fn bin(&self) -> bool {
+        matches!(self.kind, 2 | 4)
+    }
+
+    /// The sound of it being knocked (`BARREL_hit_noise`, barrel.cpp:72): a cone's
+    /// (`BT_TRAFFIC_CONE`), or a barrel's.
+    pub fn knock_sound(&self) -> person::Sfx {
+        if self.kind == 1 { person::Sfx::Cone } else { person::Sfx::Barrel }
+    }
 }
 
 impl Barrel {
@@ -123,6 +141,9 @@ pub struct Item {
     pub pos: Vec3,
     /// The rounds in a gun someone dropped (`special->ammo`); None for a full clip.
     pub rounds: Option<u32>,
+    /// When it was put there (`Game::time`): nobody picks it up for a second after
+    /// (`special->counter`, Special.cpp:1390).
+    pub born: f32,
 }
 
 /// The player going through a prop for whatever is hidden in it (`STATE_SEARCH`,
@@ -192,6 +213,10 @@ struct Driving {
     drunk: bool,
     /// Beat Cop's getaway driver: twice the limit, and stopping for nobody.
     reckless: bool,
+    /// On patrol: the point being driven to (`PCOM_MOVE_STATE_DRIVETO`'s `pcom_move_arg`).
+    patrol: Option<usize>,
+    /// Parked at the end of a patrol, for good (`PCOM_MOVE_STATE_PARK_CAR`).
+    parked: bool,
 }
 
 /// A camera fly-by in progress.
@@ -594,6 +619,9 @@ pub struct Game {
     /// Seconds left of fight music after the fighting stops.
     fight_timer: f32,
     sprinting: bool,
+    /// How near the player the nearest thug is (`Player->Danger`): 0 none within 0xc00, then
+    /// 1 to 3 by the 0x400 ([`Game::danger_level`]).
+    danger: u8,
     pub items: Vec<Item>,
     pub vehicles: Vec<Vehicle>,
     veh_by_way: HashMap<usize, usize>,
@@ -608,6 +636,8 @@ pub struct Game {
     briefing: Briefing,
     /// The players who pressed action this turn (one in single player).
     used: Vec<usize>,
+    /// The switch or valve (map object) someone pressed or turned this turn.
+    worked: Option<usize>,
     /// Who the player's gun is aimed at.
     pub target: Option<usize>,
     /// What else the player's gun is pointed at, and how steady it is.
@@ -670,6 +700,8 @@ pub struct Game {
     pub bikes: Vec<(bike::Bike, Option<Figure>)>,
     /// The navigation map and everyone's last route.
     routes: game::Routes,
+    /// Each target's four places round them to be fought from (`gang_attacks`).
+    gang_attacks: std::collections::HashMap<usize, [Option<usize>; 4]>,
     /// The mission's helicopters.
     pub choppers: Vec<chopper::Chopper>,
     /// Where everyone was at the barrels' last turn, to knock barrels with as they walk.
@@ -752,6 +784,13 @@ pub struct Game {
     pub end_of_world: Option<f32>,
     /// The mission's own tune, played throughout ([`Theme::of`]).
     theme: Option<Theme>,
+    /// A tutorial message up (`EWAY_tutorial_string`), and the seconds it's been up: the game
+    /// stands still under it ([`Game::tutorial_wait`]).
+    pub tutorial: Option<(String, f32)>,
+    /// The panel's info line (`PANEL_new_info_message`, DDEngine/Source/panel.cpp:3955): what
+    /// the player just picked up, or "Arrested", and the seconds it's been up. It goes after
+    /// two.
+    pub info: Option<(String, f32)>,
     /// How hard the camera is shaking from a blast nearby, 0 to 255 (`fc->shake`): it's
     /// thrown about by up to half that in world units each way.
     pub shake: f32,
@@ -786,11 +825,29 @@ fn player_name(mission: &str, kind: u8) -> &'static str {
     }
 }
 
+/// Where switch or valve `ob` (a map object) is worked from, and the way to face
+/// (radians): a quarter of a square in front of a switch, three quarters in front of a valve
+/// ([`Person::work_switch`]).
+pub fn switch_spot(level: &Level, ob: usize) -> (Vec3, f32) {
+    let o = &level.map.objects[ob];
+    let a = o.yaw as f32 * std::f32::consts::TAU / 2048.0;
+    let out = if o.prim == PRIM_SWITCH_OFF { 64.0 } else { 256.0 - 64.0 };
+    (Vec3::new(o.x as f32 + a.sin() * out, o.y as f32, o.z as f32 + a.cos() * out), a)
+}
+
 impl Game {
     /// Starts a level. With `scripted`, the mission's event points run (spawning the player,
     /// enemies, messages...); otherwise Darci just stands at the player start.
     pub fn new(level: &Level, scripted: bool) -> Game {
-        let script = scripted.then(|| Script::new(&level.mission));
+        let script = scripted.then(|| {
+            let mut s = Script::new(&level.mission);
+            let switches: Vec<(usize, Vec3)> = level.map.objects.iter().enumerate()
+                .filter(|(_, o)| matches!(o.prim, PRIM_SWITCH_OFF | PRIM_VALVE))
+                .map(|(k, o)| (k, Vec3::new(o.x as f32, o.y as f32, o.z as f32)))
+                .collect();
+            s.bind_switches(&switches);
+            s
+        });
         let mut g = Game {
             people: Vec::new(),
             player: None,
@@ -820,6 +877,7 @@ impl Game {
             sounds: Vec::new(),
             fight_timer: 0.0,
             sprinting: false,
+            danger: 0,
             items: Vec::new(),
             vehicles: Vec::new(),
             veh_by_way: HashMap::new(),
@@ -829,6 +887,7 @@ impl Game {
             convo: None,
             wide: None,
             used: Vec::new(),
+            worked: None,
             target: None,
             aiming: Aiming::default(),
             stats: [0; 4],
@@ -861,6 +920,7 @@ impl Game {
             snipe: None,
             bikes: Vec::new(),
             routes: game::Routes::new(level),
+            gang_attacks: Default::default(),
             choppers: Vec::new(),
             barrel_marks: Vec::new(),
             entering: Vec::new(),
@@ -906,6 +966,8 @@ impl Game {
             no_floor: false,
             end_of_world: None,
             theme: Theme::of(&level.name),
+            tutorial: None,
+            info: None,
             shake: 0.0,
             shake_turns: 0.0,
             estate: level.mission.mission_name.eq_ignore_ascii_case("estate2"),
@@ -937,7 +999,7 @@ impl Game {
             let at = Vec3::new(o.x as f32, o.y as f32, o.z as f32);
             let y = level.ground.surface(&level.map, at.x, at.z, at.y + 32.0);
             let yaw = radians(o.yaw as f32);
-            g.add_barrel(Barrel { kind: 0, prim: uc_world::level::BARREL_PROP, explodes: true, way: 0, gone: false,
+            g.add_barrel(Barrel { kind: 0, prim: uc_world::level::BARREL_PROP, explodes: true, way: 0, gone: false, tipped: false,
                                   pos: Vec3::new(at.x, y, at.z), yaw, tilt: 0.0, on: None, spheres: None });
         }
         g
@@ -1077,6 +1139,24 @@ impl Game {
         }
     }
 
+    /// While a tutorial message is up the game doesn't move (`should_i_process_game`,
+    /// Game.cpp:1913). It can be put away once it's been up two seconds: jump, punch, kick,
+    /// action or the inventory key (`hardware_input_continue`, Game.cpp:2042); before that, a
+    /// press only brings that moment forward (Game.cpp:2447). The press that puts it away
+    /// does nothing else. Whether this turn is spent waiting.
+    fn tutorial_wait(&mut self, c: Controls) -> bool {
+        let Some((_, t)) = &mut self.tutorial else { return false };
+        *t += TURN;
+        if c.jump || c.punch || c.kick || c.action || c.switch {
+            if *t > 2.0 {
+                self.tutorial = None;
+            } else {
+                *t = 2.0;
+            }
+        }
+        true
+    }
+
     /// One turn, with one `Controls` per seat (seat 0 first; missing seats stand still). What
     /// a co-op session plays: every machine steps the same turns with the same inputs. The
     /// seat in focus stays in focus.
@@ -1214,6 +1294,9 @@ impl Game {
     /// player's (aiming, using things, grenades, the hook, searching) runs once for each seat,
     /// with that seat in focus.
     fn turn(&mut self, inputs: &[Controls], level: &Level) {
+        if self.tutorial_wait(inputs.first().copied().unwrap_or_default()) {
+            return;
+        }
         let dt = TURN;
         let seats = self.seats();
         let seat_input = |s: usize| inputs.get(s).copied().unwrap_or_default();
@@ -1224,26 +1307,35 @@ impl Game {
         self.messages.retain(|m| m.left > 0.0);
         self.say_briefing();
         self.used = (0..seats).filter(|&s| seat_input(s).action).filter_map(|s| self.seat_person(s)).collect();
+        self.worked = None;
         for &i in &self.used.clone() {
             self.switches.flip_near(self.people[i].fig.pos);
             // A switch or a valve on the map (`OB_find_type`, `FIND_OB_SWITCH_OR_VALVE`,
             // within 0x180): she presses or turns it.
             let at = self.people[i].fig.pos;
-            let near = level.map.objects.iter()
-                .filter(|o| matches!(o.prim, PRIM_SWITCH_OFF | PRIM_VALVE))
-                .map(|o| (o, Vec3::new(o.x as f32, o.y as f32, o.z as f32)))
-                .filter(|(_, p)| (*p - at).length() < 0x180 as f32)
-                .min_by(|a, b| (a.1 - at).length().total_cmp(&(b.1 - at).length()));
-            if let Some((o, p)) = near {
+            let near = level.map.objects.iter().enumerate()
+                .filter(|(_, o)| matches!(o.prim, PRIM_SWITCH_OFF | PRIM_VALVE))
+                .map(|(k, o)| (k, o, Vec3::new(o.x as f32, o.y as f32, o.z as f32)))
+                .filter(|(_, _, p)| (*p - at).length() < 0x180 as f32)
+                .min_by(|a, b| (a.2 - at).length().total_cmp(&(b.2 - at).length()));
+            if let Some((k, o, p)) = near {
                 let (yaw, switch) = (o.yaw, o.prim == PRIM_SWITCH_OFF);
-                self.people[i].work_switch(p, yaw, switch);
+                if self.people[i].work_switch(p, yaw, switch) {
+                    self.worked = Some(k);
+                }
             }
         }
         for s in 0..seats {
             self.focus(s);
             let c = seat_input(s);
+            // Looking round, she turns as the view does (interfac.cpp:7572).
+            if let (Some((angle, _)), Some(pi)) = (c.look, self.player) {
+                if matches!(self.people[pi].state, State::Move) {
+                    self.people[pi].fig.angle = angle;
+                }
+            }
             if self.outcome.is_none() {
-                self.update_target(c.cycle_target, level);
+                self.update_target(c.cycle_target, c.look.map(|l| l.1), level);
                 self.aim_at_people();
             }
         }
@@ -1284,6 +1376,12 @@ impl Game {
         self.no_floor_falls();
         self.end_the_world(dt);
         self.settle_shake(dt);
+        if let Some((_, t)) = &mut self.info {
+            *t += dt;
+            if *t >= 2.0 {
+                self.info = None;
+            }
+        }
         self.go_indoors(level);
         self.move_platforms(dt, level);
         // Lightning dies away (the Men in Black's and the fences' too, where there are no
@@ -1386,8 +1484,11 @@ impl Game {
         self.walk_goals();
         self.run_ctf(dt, level);
         self.arm_bodyguards(level);
+        self.fetch_weapons(level);
         self.bonus_items(level);
         self.drop_held(level);
+        self.gang_slots();
+        self.hiding_places(level);
         self.find_ways(level);
         self.city_life(dt, level);
         self.board_cars(level);
@@ -1562,6 +1663,9 @@ impl Game {
             // Really sprinting: out of breath she's only running, whatever is held.
             let sprinting = pl.sprinting;
             self.fight_timer = if fighting { 6.0 } else { (self.fight_timer - dt).max(0.0) };
+            if s == 0 {
+                self.danger_level();
+            }
             self.sprinting = sprinting;
             if s == 0 {
                 // A fight, a fly-by or a conversation resets it; otherwise it counts up.

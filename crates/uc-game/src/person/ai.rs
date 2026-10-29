@@ -19,9 +19,10 @@ impl Person {
     /// `PCOM_process_investigating` (pcom.cpp:7768): a second turned to the sound, then, unless
     /// they can see where it came from from here, a walk over to it (to within 0x40), and
     /// there a look round: a quarter turn left after one second, half a turn right after three,
-    /// and after five back to what they were doing, which takes them home. The original
-    /// sometimes goes on to a likely hiding place first; here it doesn't.
-    fn investigate(&mut self, mut h: Heard, mut c: Controls, ground: &Ground, dt: f32) -> Controls {
+    /// and after five, half the time back to what they were doing, which takes them home, and
+    /// half the time on to somewhere someone might be hiding (pcom.cpp:7935), to look round
+    /// there in turn.
+    fn investigate(&mut self, mut h: Heard, mut c: Controls, ground: &Ground, dt: f32, rand: &mut impl FnMut() -> u32) -> Controls {
         let before = h.time;
         h.time += dt;
         let to = flat(h.at, self.fig.pos);
@@ -54,10 +55,15 @@ impl Person {
                     self.fig.angle += 2.0 * quarter;
                 }
                 if h.time > 5.0 {
-                    self.heard = None;
-                    return c;
+                    if rand() & 1 == 0 {
+                        self.heard = None;
+                        return c;
+                    }
+                    h = Heard { phase: Investigate::Hide, time: 0.0, ..h };
                 }
             }
+            // Waiting on the game to find somewhere.
+            Investigate::Hide => {}
         }
         self.heard = Some(h);
         c
@@ -99,7 +105,8 @@ impl Person {
     /// A noise the game made (`PCOM_oscillate_tympanum`, pcom.cpp:13240): `seen` whether they
     /// can see where it was. Civilians run from a killer's "what you looking at"; guards,
     /// gang members and cops go to look at a "Hey!" or that; a grenade landing sends whoever
-    /// sees it running (those that can), and the gang and cops who can't go to look.
+    /// sees it running (those that can), and the gang and cops who can't go to look; a car
+    /// coming fast sends civilians running from where it's headed.
     pub(crate) fn hear_noise(&mut self, noise: Noise, at: Vec3, by: Option<usize>, seen: bool) {
         if self.player || self.removed || self.is_dead() || self.is_down() {
             return;
@@ -112,6 +119,13 @@ impl Person {
                 }
             }
             Noise::LookingAtMe if self.ai == AI_CIV => self.scare(by, at),
+            // Civilians on foot run from the place (`PCOM_set_person_ai_flee_place`); the
+            // game leaves out those on a zebra crossing.
+            Noise::Van => {
+                if self.ai == AI_CIV && !matches!(self.state, State::InCar { .. }) {
+                    self.scare(None, at);
+                }
+            }
             Noise::Hey | Noise::LookingAtMe => {
                 if matches!(self.ai, AI_GUARD | AI_GANG | AI_COP) {
                     self.hear(at);
@@ -231,6 +245,18 @@ impl Person {
             .then(|| (self.attack_timer.max(0.0) * 20.0).min(100.0))
     }
 
+    /// The AI's gun is empty. Everyone starts with the pistol's 15 (`Ammo`, Person.cpp:573),
+    /// a shotgun given them holds 8 (Special.cpp:1613), and they carry no more; the AI's
+    /// AKs never run dry, nor do the Men in Black (Person.cpp:6003 and 6034).
+    pub(crate) fn out_of_rounds(&self) -> bool {
+        let load = match self.weapon {
+            Weapon::Shotgun => 8,
+            Weapon::Pistol | Weapon::Sniper => 15,
+            _ => return false,
+        };
+        !self.player && !self.is_mib() && self.ai_fired >= load
+    }
+
     /// One of the Men in Black (`PersonIsMIB`, Person.cpp:498).
     pub fn is_mib(&self) -> bool {
         use uc_world::character::person as ptype;
@@ -288,6 +314,16 @@ impl Person {
                 c.run = true;
                 return c;
             }
+        }
+        // Off for a weapon lying near (`PCOM_AI_STATE_GETITEM`, `PCOM_process_getitem`): there
+        // at a run, fight or no fight, and then back to what they were doing.
+        if let Some(at) = self.fetch {
+            let d = flat(at, self.fig.pos);
+            if d.length() > 40.0 {
+                c.wish = d.normalize();
+                c.run = true;
+            }
+            return c;
         }
         // Nobody to fight: walk the patrol, follow whoever is being followed, or stroll.
         // Dropping `aggro` matters as much as the walking does: the game only gives someone
@@ -355,7 +391,7 @@ impl Person {
         let notices = if gang || mib { self.can_see(&p, range, ground) } else { dist < range && (dy < 128.0 || hunter) };
         if !self.aggro && !notices {
             if let Some(h) = self.heard {
-                return self.investigate(h, c, ground, dt);
+                return self.investigate(h, c, ground, dt, rand);
             }
         }
         if !self.aggro && notices && !self.truce {
@@ -447,9 +483,19 @@ impl Person {
             c.block = true;
             return c;
         }
+        // Out of rounds: a click, and the gun put away for good, to come on hand to hand
+        // (`PCOM_AI_SUBSTATE_NOMOREAMMO`, pcom.cpp:9005 and 9077). They've still got it on
+        // them to be searched for.
+        if self.out_of_rounds() {
+            self.cues.push(Sfx::Click);
+            self.drop = self.drop.or(self.weapon.item());
+            self.weapon = Weapon::None;
+        }
         // Guns shoot from range when they can see the player, and close in otherwise.
         let skill = self.skill as f32;
-        if self.weapon.is_gun() && dist > 260.0 {
+        // A grenade is thrown from any range in sight (pcom.cpp:9930).
+        let thrower = self.weapon == Weapon::Grenade && self.grenades > 0;
+        if (self.weapon.is_gun() && dist > 260.0) || thrower {
             self.attack_timer -= dt;
             let eye = vec3(0.0, 140.0, 0.0);
             let seen = dist < SHOOT_RANGE && ground.line_of_sight(self.fig.pos + eye, p.pos + eye);
@@ -476,6 +522,20 @@ impl Person {
             c.wish = towards;
         } else if dist < 80.0 {
             c.wish = -d / dist.max(1.0) * 0.5;
+        }
+        // Round to the quarter of them that's ours to fight from (`AttackAngle`, Person.cpp:
+        // 21903): more than 30 of 2048 off it, a side-step that way, so a gang closes in from
+        // all round rather than queueing.
+        if let Some((_, quarter)) = self.slot.filter(|&(t, _)| Some(t) == player && self.ganged && dist < 400.0) {
+            let from = -d;
+            let bearing = from.x.atan2(from.y);
+            let want = quarter as f32 * std::f32::consts::FRAC_PI_2;
+            let off = (want - bearing + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+            if off.abs() > 30.0 / 2048.0 * std::f32::consts::TAU {
+                // Round them the way that brings the bearing to `want`.
+                let round = vec2(from.y, -from.x).normalize_or_zero() * off.signum();
+                c.wish = (c.wish + round).normalize_or_zero();
+            }
         }
         // After someone running, a hunter runs too, and once both are running within 0xc0 of
         // each other goes in with a sliding tackle (pcom.cpp:8681): if they can see them, not

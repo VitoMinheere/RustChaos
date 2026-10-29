@@ -19,6 +19,7 @@ mod hud;
 mod input;
 mod menu;
 mod options;
+mod par;
 mod pause;
 mod progress;
 mod replays;
@@ -248,9 +249,11 @@ impl App {
                 strafe: strafe.then_some(fwd),
                 ..Default::default()
             };
-            // Looking round, she stands where she is: the keys turn the view.
-            if w.look.is_some() {
+            // Looking round, she stands where she is, turning with the view, which the keys
+            // turn; her gun goes for whoever's at the height she's looking.
+            if let Some(look) = w.look {
                 (controls.wish, controls.run, controls.sprint) = (Vec2::ZERO, false, false);
+                controls.look = Some((look.yaw - std::f32::consts::PI, look.pitch));
             }
             let ahead = inp.axis(Act::Forward) - inp.axis(Act::Back);
             let turn = inp.axis(Act::Right) - inp.axis(Act::Left);
@@ -915,6 +918,18 @@ impl App {
         // (`MUSIC_MODE_FRONTEND`, frontend.cpp:1299).
         if let Some(s) = self.sound.as_mut() {
             s.audio.music(Some(if m.screen == menu::Screen::Credits { credits::MUSIC } else { sound::FRONTEND }));
+            // The picked mission's spoken briefing (`FRONTEND_MissionBrief`,
+            // frontend.cpp:3831), from the start each time another is picked; leaving the
+            // list stops it.
+            let picked = (m.screen == menu::Screen::Missions).then(|| m.entries.get(m.selected)).flatten();
+            let want = picked.map(|e| e.mission.clone());
+            if want != m.briefed {
+                s.audio.hush();
+                if let Some(file) = picked.and_then(|e| e.voice) {
+                    s.audio.briefing(file);
+                }
+                m.briefed = want;
+            }
             s.audio.update(dt);
         }
         self.input.pressed.clear();
@@ -1176,6 +1191,9 @@ impl App {
         let mut hud = if world.editor.is_some() { world.editor_overlay(&cam, size) } else { world.hud(size) };
         if world.pause.is_none() && world.editor.is_none() {
             draw_sights(&mut hud, &world.game.gun_sights(), &cam, size);
+            if let Some(path) = world.game.grenade_path(&world.level) {
+                draw_grenade_path(&mut hud, &path, world.game.time, &cam, size);
+            }
         }
         if let Some(c) = &self.coop {
             c.overlay(&mut hud, size);

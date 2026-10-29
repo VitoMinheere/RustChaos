@@ -58,8 +58,11 @@ impl Person {
                 if more && self.fire_round(me, target, events) {
                     shots += 1;
                 } else {
-                    self.state = State::Move;
-                    self.idle(false);
+                    // (Unless out of rounds she's getting out something else.)
+                    if matches!(self.state, State::Shoot { .. }) {
+                        self.state = State::Move;
+                        self.idle(false);
+                    }
                     return;
                 }
             }
@@ -409,15 +412,43 @@ impl Person {
         self.state = State::Grapple { victim, grab, hit, timer, frame };
     }
 
-    /// Fires one round from the gun in hand; false when it's empty.
+    /// Whether the player's gun will fire (`shoot_get_ammo_sound_anim_time` and
+    /// `set_person_shoot`, Person.cpp:6085 and 6898): a clip used up is changed instead, to a
+    /// dry click and no shot; out altogether, a click, and on to her best weapon with rounds
+    /// left, or put away. The AI has its one load ([`Person::out_of_rounds`]).
+    pub(super) fn trigger(&mut self) -> bool {
+        let Some(s) = self.weapon.slot().filter(|_| self.player) else { return true };
+        if self.ammo[s] == 0 {
+            self.cues.push(Sfx::Click);
+            let was = self.weapon;
+            self.weapon = self.best_with_ammo().unwrap_or(Weapon::None);
+            if self.weapon != was {
+                self.draw_weapon();
+            }
+            return false;
+        }
+        if self.spent[s] >= self.weapon.clip() {
+            self.spent[s] = 0;
+            self.cues.push(Sfx::Click);
+            return false;
+        }
+        true
+    }
+
+    /// Fires one round from the gun in hand; false when it's empty or the clip's changed.
     pub(super) fn fire_round(&mut self, me: usize, target: Option<usize>, events: &mut Vec<Event>) -> bool {
         let Some(s) = self.weapon.slot() else { return false };
+        if !self.trigger() {
+            return false;
+        }
         if self.player {
-            if self.ammo[s] == 0 {
-                self.cues.push(Sfx::Click);
-                return false;
-            }
             self.ammo[s] -= 1;
+            self.spent[s] += 1;
+        } else if self.out_of_rounds() {
+            self.cues.push(Sfx::Click);
+            return false;
+        } else {
+            self.ai_fired += 1;
         }
         self.cues.push(Sfx::Shot(self.weapon));
         self.flash = 0.07;

@@ -58,9 +58,18 @@ impl Game {
                         // Someone with a pistol doesn't drop another (pcom.cpp:5369).
                         let drop = if spec.has & 1 != 0 && spec.drop == 2 { 0 } else { spec.drop };
                         p.drop = game::special_item(drop);
-                        // A grenade to his name (`PCOM_HAS_GRENADE`, pcom.cpp:5551).
+                        // Grenades to his name, three (`PCOM_HAS_GRENADE`, pcom.cpp:5551,
+                        // `SPECIAL_AMMO_IN_A_GRENADE`), in hand unless he's a shotgun or an AK
+                        // to draw first (`PCOM_set_person_move_draw_gun`, pcom.cpp:3129). A
+                        // pistol besides waits for them to be gone.
                         if spec.has & script::HAS_GRENADE != 0 {
-                            p.grenades = p.grenades.max(1);
+                            p.grenades = p.grenades.max(3);
+                            if p.weapon == Weapon::Pistol {
+                                p.give(Weapon::Pistol);
+                            }
+                            if !matches!(p.weapon, Weapon::Shotgun | Weapon::Ak47) {
+                                p.weapon = Weapon::Grenade;
+                            }
                         }
                         p.fig.clothes = spec.colour & 3;
                         p.fig.jacket = spec.skill / 4;
@@ -79,7 +88,7 @@ impl Game {
                             let (kind, at) = (p.weapon.item(), p.fig.pos);
                             p.weapon = Weapon::None;
                             if let Some(kind) = kind {
-                                self.items.push(Item { way: 0, kind, pos: at + Vec3::new(40.0, 0.0, 0.0), rounds: None });
+                                self.items.push(Item { way: 0, kind, pos: at + Vec3::new(40.0, 0.0, 0.0), rounds: None, born: self.time });
                             }
                         }
                         // "MIB never have a low skill" (elev.cpp:885).
@@ -168,7 +177,7 @@ impl Game {
                     let near = level.ground.spawn_height(&level.map, pos.x, pos.z, pos.y);
                     let under = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
                     let y = if near == pos.y && under < near - uc_world::ground::STEP_HEIGHT { under } else { near };
-                    let item = Item { way, kind, pos: Vec3::new(pos.x, y, pos.z), rounds: None };
+                    let item = Item { way, kind, pos: Vec3::new(pos.x, y, pos.z), rounds: None, born: self.time };
                     // A stashed item goes into the nearest prop within eight squares, which
                     // becomes searchable; with none that near it is left lying in the open
                     // (`EWAY_create_item`).
@@ -184,7 +193,7 @@ impl Game {
                     if way == TRAINING_PISTOL && level.mission.mission_name.eq_ignore_ascii_case("train11") {
                         let at = Vec3::new(pos.x + 96.0, 0.0, pos.z);
                         let y = level.ground.surface(&level.map, at.x, at.z, pos.y + 32.0);
-                        self.items.push(Item { way: 0, kind: crate::SNIPER, pos: Vec3::new(at.x, y, at.z), rounds: None });
+                        self.items.push(Item { way: 0, kind: crate::SNIPER, pos: Vec3::new(at.x, y, at.z), rounds: None, born: self.time });
                     }
                 }
                 Command::Bike { way, pos, angle } => self.add_bike(level, way, pos, angle),
@@ -219,6 +228,10 @@ impl Game {
                 }
                 Command::Camera { way, shot } => {
                     let _ = way;
+                    if shot.lock_player {
+                        let at = self.player().map_or(Vec3::ZERO, |p| p.fig.pos);
+                        self.sounds.push((Sfx::Sting, at));
+                    }
                     self.cutscene = Some(Cutscene { pos: shot.start, shot, leg: 0, wait: 0.0 });
                 }
                 Command::Conversation { way, speech, lines, a, b, ambient } => {
@@ -242,6 +255,12 @@ impl Game {
                 }
                 Command::Message { way, speech, text, secs, speaker } => {
                     let _ = way;
+                    // Tutorial text stops the game under it, on a darkened screen
+                    // (`EWAY_MESSAGE_WHO_TUTORIAL`, eway.cpp:5122).
+                    if matches!(speaker, script::Speaker::Tutorial) {
+                        self.tutorial = Some((text, 0.0));
+                        continue;
+                    }
                     let face = match speaker {
                         script::Speaker::Street | script::Speaker::Tutorial => None,
                         script::Speaker::Radio => Some(talk::face::RADIO),
@@ -319,7 +338,7 @@ impl Game {
                     let yaw = (self.rand() % 628) as f32 / 100.0;
                     let semtex = level.name.eq_ignore_ascii_case("semtex");
                     let (prim, explodes) = Barrel::of_kind(kind, semtex);
-                    self.add_barrel(Barrel { kind, prim, explodes, way, gone: false, pos: Vec3::new(pos.x, y, pos.z), yaw, tilt: 0.0, on: None, spheres: None });
+                    self.add_barrel(Barrel { kind, prim, explodes, way, gone: false, pos: Vec3::new(pos.x, y, pos.z), yaw, tilt: 0.0, on: None, spheres: None, tipped: false });
                 }
                 Command::Sign { which, flip } => {
                     let text = match (which, flip) {
@@ -429,6 +448,11 @@ impl Game {
         }
     }
 
+    /// The switch or valve (map object) that sets off mission event point `i`, if any.
+    pub fn point_switch(&self, i: usize) -> Option<usize> {
+        self.script.as_ref()?.switch_of(i)
+    }
+
     /// Whether mission event point `i` is active (for tests and debugging).
     pub fn point_active(&self, i: usize) -> bool {
         self.script.as_ref().is_some_and(|s| s.point_active(i))
@@ -500,6 +524,9 @@ impl script::Query for Scene<'_> {
     }
     fn player_used(&self) -> bool {
         self.game.player_used()
+    }
+    fn worked(&self) -> Option<usize> {
+        self.game.worked
     }
     fn got_item(&self, way: usize) -> bool {
         self.game.got_item(way)

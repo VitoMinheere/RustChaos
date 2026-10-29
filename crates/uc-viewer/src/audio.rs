@@ -71,6 +71,8 @@ impl Sound {
         self.audio.siren(None);
         self.audio.crackle(None);
         self.audio.gush(None);
+        self.audio.slide(None);
+        self.audio.search(None);
     }
 
     /// Plays this frame's game sounds and keeps the music in step with the action.
@@ -161,6 +163,13 @@ impl Sound {
             (fade > 0.0).then_some(0.7 * fade * fade)
         });
         self.audio.gush(gush);
+        // Someone sliding, fading out 12 squares off; the search, not from anywhere.
+        let slide = world.game.slide_noise(listener.pos).and_then(|at| {
+            let fade = (1.0 - at.distance(listener.pos) / (12.0 * 256.0)).clamp(0.0, 1.0);
+            (fade > 0.0).then_some(0.8 * fade * fade)
+        });
+        self.audio.slide(slide);
+        self.audio.search(world.game.searching_body().then_some(0.8));
         self.audio.update(dt);
     }
 }

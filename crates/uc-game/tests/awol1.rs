@@ -63,9 +63,11 @@ impl Run {
         let p = self.player();
         let at = self.point(43);
         self.put(p, at, vec2(0.0, 1.0));
+        self.stand_at_switch(43);
         self.play(0.5, Controls::default());
         self.press_action();
-        self.play(1.0, Controls::default());
+        // Pressing the switch takes a couple of seconds.
+        self.play(2.5, Controls::default());
         assert!(self.said("Gate Open"), "{:?}", self.seen);
     }
 }

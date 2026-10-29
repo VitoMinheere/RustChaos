@@ -37,6 +37,36 @@ pub(crate) fn draw_sights(o: &mut Overlay, sights: &[uc_game::Sight], cam: &Came
     }
 }
 
+/// Where the grenade in hand would go (`show_grenade_path`, grenade.cpp:440): a dashed green
+/// line along its path, two turns in eight drawn, the dashes running with the game's turn,
+/// and a large gun sight where it comes to rest (`PANEL_draw_gun_sight(..., 1000, 400)`).
+pub(crate) fn draw_grenade_path(o: &mut Overlay, path: &[Vec3], time: f32, cam: &Camera, size: (u32, u32)) {
+    let (w, h) = (size.0 as f32, size.1 as f32);
+    let vp = cam.view_proj(size);
+    let screen = |p: Vec3| -> Option<Vec2> {
+        let c = vp * (p / uc_world::UNIT).extend(1.0);
+        (c.w > 0.01).then(|| vec2((c.x / c.w * 0.5 + 0.5) * w, (0.5 - c.y / c.w * 0.5) * h))
+    };
+    let green = [0, 0xaf, 0, 0x80];
+    let dot = (h / 360.0).round().max(2.0);
+    // `count` starts at minus the turn, so the dashes march along.
+    let start = -((time * 20.0) as i64);
+    for (k, seg) in path.windows(2).enumerate() {
+        if (start + k as i64).rem_euclid(8) > 1 {
+            continue;
+        }
+        let (Some(a), Some(b)) = (screen(seg[0]), screen(seg[1])) else { continue };
+        let n = ((b - a).length() / dot).ceil().max(1.0) as usize;
+        for j in 0..=n {
+            let p = a.lerp(b, j as f32 / n as f32);
+            o.rect(p.x - dot / 2.0, p.y - dot / 2.0, dot, dot, green);
+        }
+    }
+    if let Some(&end) = path.last() {
+        draw_sights(o, &[uc_game::Sight { at: end, accuracy: 1000.0, scale: 400.0 }], cam, size);
+    }
+}
+
 /// The chief's `n`th warning about civilian casualties (`X_CIVSDEAD_WARNING_1` to `_4`, the
 /// game's strings 151 to 154: `text\lang_english.txt`'s lines 152 to 155).
 pub(crate) fn civ_warning(game: &Path, n: u8) -> String {
@@ -54,6 +84,22 @@ impl World {
         let (w, h) = (size.0 as f32, size.1 as f32);
         let s = (h / 360.0).round().max(1.0);
         let white = [235, 235, 225, 255];
+
+        // A tutorial message: the whole screen darkened, the text in a bubble at the top left,
+        // and nothing else of the panel (`PANEL_last`, DDEngine/Source/panel.cpp:4327).
+        if let Some((text, _)) = &self.game.tutorial {
+            o.rect(0.0, 0.0, w, h, [0, 0, 0, 0x88]);
+            let k = h / 480.0;
+            let (x, y) = (16.0 * k, 16.0 * k);
+            let lines = Overlay::wrap(text, w - 2.0 * x - 12.0 * k, s);
+            let lh = 11.0 * s;
+            let right = lines.iter().map(|l| Overlay::text_width(l, s)).fold(0.0, f32::max);
+            o.rect(x - 6.0 * k, y - 4.0 * k, right + 12.0 * k, lines.len() as f32 * lh + 8.0 * k, [250, 250, 240, 60]);
+            for (n, line) in lines.iter().enumerate() {
+                o.text(x, y + n as f32 * lh, s, [255, 255, 255, 255], line);
+            }
+            return o;
+        }
 
         // The scope: dark round the edges, and cross hairs.
         if self.game.sniping().is_some() {
@@ -75,6 +121,13 @@ impl World {
             o.rect(bx - s, by - s, bw + 2.0 * s, bh + 2.0 * s, [0, 0, 0, 160]);
             let col = if frac > 0.5 { [90, 200, 90, 255] } else if frac > 0.25 { [230, 190, 60, 255] } else { [220, 60, 50, 255] };
             o.rect(bx, by, bw * frac, bh, col);
+            // The stamina marks (panel.cpp:5021): one a 25 of breath, red to green, each a
+            // little up and along from the last, above the bar's right end.
+            const MARKS: [[u8; 4]; 5] = [[255, 0, 0, 255], [192, 64, 0, 255], [128, 128, 0, 255], [64, 192, 0, 255], [0, 255, 0, 255]];
+            for (k, c) in MARKS.iter().take(p.stamina_marks()).enumerate() {
+                let (x, y) = (bx + bw - 24.0 * s + k as f32 * 3.0 * s, by - 6.0 * s - k as f32 * 2.0 * s);
+                o.rect(x, y, 4.0 * s, 4.0 * s, *c);
+            }
             // A grim reaper for each innocent killed (`PANEL_IC_GRIMREAPER`, panel.cpp:3315).
             for k in 0..self.game.red_marks as usize {
                 let (x, y) = (bx + k as f32 * 9.0 * s, by + bh + 4.0 * s);
@@ -116,6 +169,20 @@ impl World {
                     o.text(x + 4.0 * s, y, s, a(if held { white } else { [200, 200, 190, 255] }), &text);
                     y += 12.0 * s;
                 }
+            }
+            // The info line (`PANEL_new_info_message`, panel.cpp:5235): slid out to the right
+            // over its first 0.4 s, right-justified, fading in over a quarter second with a
+            // shadow that glows then goes.
+            if let Some((text, t)) = &self.game.info {
+                let ms = t * 1000.0;
+                let main = ms.min(255.0) as u8;
+                let shad = if ms < 255.0 { ms } else if ms < 768.0 { 255.0 - (ms - 256.0) / 2.0 } else { 0.0 }.clamp(0.0, 255.0) as u8;
+                let k = h / 480.0;
+                let right = bx + ((ms / 2.0).clamp(16.0, 205.0) - 16.0) * k + Overlay::text_width(text, s);
+                let x = right - Overlay::text_width(text, s);
+                let y = by + bh + 18.0 * s;
+                o.text(x + 2.0 * k, y + 2.0 * k, s, [shad, shad, shad, shad], text);
+                o.text(x, y, s, [255, 255, 255, main], text);
             }
             // Badge stats (gold for those raised in this mission; kept when it's won). In
             // co-op they're the host's, and only Darci's.
@@ -255,8 +322,9 @@ impl World {
         }
 
         // The minimap (top right): the city from above around Darci, north up, with the
-        // mission's beacons as gold dots (pinned to the edge when further off), enemies in a
-        // fight as red dots and Darci as a white one; the beacons are listed underneath.
+        // mission's beacons as gold dots (pinned to the edge when further off), gang members
+        // and Men in Black ([`uc_game::Game::radar`]) as red and white dots and Darci as a white
+        // one; the beacons are listed underneath.
         if self.game.cutscene.is_none() {
             if let Some(pl) = self.game.player() {
                 let driving = self.game.player_vehicle();
@@ -289,10 +357,14 @@ impl World {
                     o.rect(p.x - r - s, p.y - r - s, 2.0 * (r + s), 2.0 * (r + s), [0, 0, 0, 220]);
                     o.rect(p.x - r, p.y - r, 2.0 * r, 2.0 * r, col);
                 };
-                for q in self.game.people.iter().filter(|q| q.aggro() && !q.is_dead()) {
-                    let (p, outside) = at(vec2(q.fig.pos.x, q.fig.pos.z) / uc_world::UNIT);
+                // Gang members red and Men in Black white, pulsing when they're after her
+                // (`flash`, a sine of the 20-a-second turn).
+                let flash = (self.game.time * 20.0 * 0.2).sin().abs();
+                for d in self.game.radar() {
+                    let (p, outside) = at(vec2(d.pos.x, d.pos.z) / uc_world::UNIT);
                     if !outside {
-                        dot(&mut o, p, 1.5 * s, [230, 60, 50, 255]);
+                        let r = if d.after_her { 0.75 + flash } else { 1.5 };
+                        dot(&mut o, p, r * s, if d.mib { [221, 221, 221, 255] } else { [230, 60, 50, 255] });
                     }
                 }
                 let gold = [255, 210, 70, 255];
@@ -492,10 +564,27 @@ impl World {
             o.rect(0.0, h * 0.33, w, 50.0 * s, [0, 0, 0, 160]);
             o.text(w / 2.0 - Overlay::text_width(&title, big) / 2.0, h * 0.33 + 8.0 * s, big, col, &title);
             o.text(w / 2.0 - Overlay::text_width(&sub, s) / 2.0, h * 0.33 + 36.0 * s, s, white, &sub);
+            // Won: the criminals dealt with, and the time against the team's (`ScoresDraw`,
+            // Attract.cpp:684), with a code for beating it fairly (no console, no replay).
+            let mut below = h * 0.33 + 56.0 * s;
+            if let (Outcome::Won, Some((secs, _))) = (out, self.result) {
+                let mut rows = Vec::new();
+                if let Some((killed, arrested, left)) = self.game.criminals() {
+                    rows.push(format!("Criminals Killed: {killed}   Criminals Arrested: {arrested}   Criminals Still at Large: {left}"));
+                }
+                let fair = self.counts() && self.recorder.is_some();
+                let (taken, par) = par::line(&self.args.mission, secs, fair);
+                rows.push(format!("Time Taken: {taken}   Mucky Time: {par}"));
+                o.rect(0.0, below - 4.0 * s, w, (rows.len() as f32 * 11.0 + 6.0) * s, [0, 0, 0, 140]);
+                for (k, r) in rows.iter().enumerate() {
+                    o.text(w / 2.0 - Overlay::text_width(r, s) / 2.0, below + k as f32 * 11.0 * s, s, white, r);
+                }
+                below += (rows.len() as f32 * 11.0 + 8.0) * s;
+            }
             // The chief's word on the civilians killed (`deadcivs.tga`'s message).
             if let Some(warning) = &self.civ_warning {
                 let lines = Overlay::wrap(warning, w * 0.6, s);
-                let top = h * 0.33 + 56.0 * s;
+                let top = below;
                 o.rect(w * 0.18, top - 4.0 * s, w * 0.64, (lines.len() as f32 * 11.0 + 8.0) * s, [60, 0, 0, 190]);
                 for (k, l) in lines.iter().enumerate() {
                     o.text(w / 2.0 - Overlay::text_width(l, s) / 2.0, top + k as f32 * 11.0 * s, s, [255, 220, 200, 255], l);

@@ -213,7 +213,11 @@ impl Game {
         }
     }
 
-    pub(crate) fn update_target(&mut self, cycle: bool, level: &Level) {
+    ///
+    /// Looking round at `look` (up, radians), those at that height are favoured: someone
+    /// 128 of 2048 off it or more isn't picked, and nearer it, as if nearer
+    /// (`calc_target_score_new`, guns.cpp:379).
+    pub(crate) fn update_target(&mut self, cycle: bool, look: Option<f32>, level: &Level) {
         let Some(pi) = self.player else { return };
         let p = &self.people[pi];
         if !p.weapon.is_gun() || matches!(p.state, State::InCar { .. }) {
@@ -229,8 +233,12 @@ impl Game {
         let seen = |at: Vec3, aim: Aim| {
             let d = Vec2::new(at.x - pos.x, at.z - pos.z);
             let dist = d.length();
-            (dist < TARGET_RANGE && (at.y - pos.y).abs() < 4.0 * 256.0 && level.ground.line_of_sight(pos + eye, at + eye))
-                .then(|| (aim, dist, 1.0 - f.dot(d / dist.max(1.0))))
+            let height = look.map_or(1.0, |up| {
+                let off = ((at.y - pos.y).atan2(dist.max(1.0)) - up).abs() / std::f32::consts::TAU * 2048.0;
+                (128.0 - off.min(128.0)) / 128.0
+            });
+            (dist < TARGET_RANGE && height > 0.0 && (at.y - pos.y).abs() < 4.0 * 256.0 && level.ground.line_of_sight(pos + eye, at + eye))
+                .then(|| (aim, dist / height, 1.0 - f.dot(d / dist.max(1.0))))
         };
         // (who, how far, how far round from straight ahead), nearest first. Creatures can be
         // shot as well as people (`BAT_apply_hit` from `shoot_get_ammo_sound_and_damage`).
@@ -334,15 +342,60 @@ impl Game {
         if grenade.is_some() {
             p.grenades = 0;
         }
-        let kinds: Vec<u8> = [p.weapon.item(), p.melee.item(), p.drop.take(), grenade].into_iter().flatten().collect();
-        (p.weapon, p.melee) = (Weapon::None, Weapon::None);
+        // What else is in hand, and the knife and bat carried, in hand or not.
+        let gun = p.weapon.item().filter(|_| !matches!(p.weapon, Weapon::Knife | Weapon::Bat));
+        let knife = p.knife.then(|| Weapon::Knife.item()).flatten();
+        let bat = p.bat.then(|| Weapon::Bat.item()).flatten();
+        let kinds: Vec<u8> = [gun, knife, bat, p.drop.take(), grenade].into_iter().flatten().collect();
+        (p.weapon, p.knife, p.bat) = (Weapon::None, false, false);
         let hips = p.fig.hips();
         kinds.into_iter().enumerate().map(|(n, kind)| {
             let a = n as f32 * 2.4;
             let (x, z) = (hips.x + 24.0 * a.sin(), hips.z + 24.0 * a.cos());
             let y = level.ground.surface(&level.map, x, z, hips.y + 32.0);
-            Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds: None }
+            Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds: None, born: self.time }
         }).collect()
+    }
+
+    /// Anyone who'd fight, empty-handed, goes for a weapon someone dropped lying near
+    /// (`PCOM_is_there_an_item_i_should_get`, pcom.cpp:4969): a gun, shotgun, AK, bat or knife
+    /// within 0x300, which they can get to straight (`there_is_a_los_mav`). They look every
+    /// 128 ticks standing about (pcom.cpp:8176), and every 256 going for someone (7568, 8578),
+    /// then run there, pick it up and get back to it. Not civilians, the men in black (whose
+    /// arm is an AK), anyone in a warehouse, or anyone carrying anything at all; the player's
+    /// bodyguards have [`Game::arm_bodyguards`]. Only what was dropped: what the mission put
+    /// down stays the player's to find (as the bodyguards have it).
+    pub(crate) fn fetch_weapons(&mut self, level: &Level) {
+        let tick = (self.time * 20.0) as usize;
+        let eye = Vec3::new(0.0, 64.0, 0.0);
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            let armed = p.weapon != Weapon::None || p.knife || p.bat || p.guns != 0;
+            if let Some(at) = p.fetch {
+                let lying = self.items.iter().any(|it| it.way == 0 && it.pos.distance(at) < 1.0);
+                if armed || !lying || p.is_down() || p.is_dead() || p.removed {
+                    self.people[i].fetch = None;
+                } else if Vec2::new(at.x - p.fig.pos.x, at.z - p.fig.pos.z).length() < 60.0 {
+                    self.pick_up_for(i);
+                }
+                continue;
+            }
+            let every = if p.aggro() { 256 } else { 128 };
+            if !(tick + i).is_multiple_of(every) || armed || p.player || p.removed || p.is_down() || p.is_dead()
+                || p.ai == person::AI_CIV || p.ai == person::AI_BODYGUARD || p.is_mib() || !matches!(p.state, State::Move)
+                || self.wares.under_roof(&level.map, &level.ground, p.fig.pos).is_some()
+            {
+                continue;
+            }
+            let at = p.fig.pos;
+            let near = self.items.iter()
+                .filter(|it| it.way == 0 && matches!(it.kind, 2 | 4 | 5 | 6 | 8))
+                .filter(|it| it.pos.distance(at) < 0x300 as f32)
+                .min_by(|a, b| a.pos.distance(at).total_cmp(&b.pos.distance(at)))
+                .map(|it| it.pos)
+                .filter(|&to| level.ground.line_of_sight(at + eye, to + eye));
+            self.people[i].fetch = near;
+        }
     }
 
     /// Killed or arrested, someone may leave something behind (`generate_bonus_item`,
@@ -368,7 +421,7 @@ impl Game {
             let hips = self.people[i].fig.hips();
             let (x, z) = (hips.x + 24.0, hips.z);
             let y = level.ground.surface(&level.map, x, z, hips.y + 32.0);
-            self.items.push(Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds: None });
+            self.items.push(Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds: None, born: self.time });
         }
     }
 
@@ -399,16 +452,19 @@ impl Game {
                 let n = if w == Weapon::Pistol && !player { 3 + (roll & 3) } else { p.ammo[s].min(w.clip()) };
                 p.ammo[s] = p.ammo[s].saturating_sub(n);
                 p.guns &= !(1 << s);
+                p.spent[s] = 0;
                 n
             });
-            if w.slot().is_none() {
-                p.melee = Weapon::None;
+            match w {
+                Weapon::Knife => p.knife = false,
+                Weapon::Bat => p.bat = false,
+                _ => {}
             }
             p.weapon = Weapon::None;
             let hips = p.fig.hips();
             let (x, z) = (hips.x - 24.0, hips.z);
             let y = level.ground.surface(&level.map, x, z, hips.y + 32.0);
-            self.items.push(Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds });
+            self.items.push(Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds, born: self.time });
         }
     }
 
@@ -497,21 +553,23 @@ impl Game {
             return;
         }
         let pos = p.fig.pos;
-        // Badges are collected within 160 units, summing the three axes (as the original does).
-        let near = |it: &Item| if (BADGE..BADGE + 4).contains(&it.kind) {
+        // Anything is collected within 160 units, summing the three axes, once it's been there
+        // a second (Special.cpp:1388).
+        let now = self.time;
+        let near = |it: &Item| {
             let d = (it.pos - pos).abs();
-            d.x + d.y + d.z < 160.0
-        } else {
-            Vec2::new(it.pos.x - pos.x, it.pos.z - pos.z).length() < 80.0 && (it.pos.y - pos.y).abs() < 100.0
+            d.x + d.y + d.z < 160.0 && now - it.born > 1.0
         };
         let Some(i) = self.items.iter().position(near) else { return };
         let (kind, way, rounds) = (self.items[i].kind, self.items[i].way, self.items[i].rounds);
+        let had = Weapon::from_item(kind).is_some_and(|w| w.is_gun() && self.people[pi].has(w));
         if !player && !matches!(kind, 2..=6 | 8 | 10..=12 | SNIPER) {
             return;
         }
         let p = &mut self.people[pi];
         let took = match kind {
-            3 if p.health < p.max_health => {
+            // Not wasted on a scratch: only down 100 or more (Special.cpp:1361).
+            3 if p.health <= p.max_health - 100 => {
                 p.health = (p.health + 100).min(p.max_health);
                 true
             }
@@ -543,7 +601,8 @@ impl Game {
                 }
                 true
             }
-            5 | 8 if p.melee == Weapon::None => {
+            // One of each: a bat besides a knife, but not two (Special.cpp:284-304).
+            5 | 8 if !p.has(Weapon::from_item(kind).unwrap()) => {
                 let w = Weapon::from_item(kind).unwrap();
                 p.give(w);
                 if p.weapon == Weapon::None {
@@ -583,11 +642,39 @@ impl Game {
         };
         if took {
             p.cues.push(Sfx::Pickup);
+            if player {
+                self.info = info_text(kind, had).map(|t| (t.to_string(), 0.0));
+            }
             self.items.remove(i);
             if way != 0 {
                 self.tally.taken.insert(way);
             }
         }
+    }
+
+    /// `set_danger_level` (Controls.cpp:1672), every 16 ticks: the nearest thug (a gang
+    /// member's type, or a tramp, `am_i_a_thug`) within 0xc00 of the player puts the danger at
+    /// 1, 2 or 3 by the 0x400 he's off, nobody at 0. Coming to 1 plays the red sting, to 3
+    /// the green (`context_music`, Controls.cpp:1389); 2 is the yellow, which isn't played.
+    pub(crate) fn danger_level(&mut self) {
+        let tick = (self.time * 20.0) as u64;
+        let was_tick = ((self.time - TURN) * 20.0) as u64;
+        if tick / 16 == was_tick / 16 {
+            return;
+        }
+        let Some(me) = self.player() else { return };
+        let at = me.fig.pos;
+        use uc_world::character::person as ptype;
+        let nearest = self.people.iter()
+            .filter(|p| !p.removed && !p.is_dead() && matches!(p.kind, ptype::THUG_RASTA | ptype::THUG_GREY | ptype::THUG_RED | ptype::TRAMP))
+            .map(|p| (p.fig.pos - at).length())
+            .filter(|&d| d < 0xc00 as f32)
+            .min_by(|a, b| a.total_cmp(b));
+        let danger = nearest.map_or(0, |d| (d / 0x400 as f32) as u8 + 1).min(3);
+        if danger != self.danger && matches!(danger, 1 | 3) {
+            self.sounds.push((Sfx::Danger { near: danger == 1 }, at));
+        }
+        self.danger = danger;
     }
 
     /// What the music should be doing (`context_music`, Controls.cpp:1372): fight music while
@@ -612,6 +699,27 @@ impl Game {
             },
         }
     }
+}
+
+/// What the panel says the player picked up (`special_pickup`'s `x_message`, Special.cpp:360,
+/// in `lang_english.txt`): a gun she has already is ammo for it. The badges have their own
+/// message. Health says +50 though it heals 100, as it did.
+fn info_text(kind: u8, had: bool) -> Option<&'static str> {
+    Some(match kind {
+        2 | 4 | 6 if had => "Ammo",
+        2 => "Gun",
+        4 => "Shotgun",
+        6 => "M16",
+        10..=12 => "Ammo",
+        3 => "Health +50",
+        5 => "Knife",
+        8 => "Baseball Bat",
+        1 => "Keycard",
+        19 => "Video",
+        game::grenades::IT_GRENADE => "Grenade",
+        EXPLOSIVES => "Explosives",
+        _ => return None,
+    })
 }
 
 /// A `SPECIAL_*` item type as the `IT_*` one the items here use: the reverse of

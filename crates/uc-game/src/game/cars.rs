@@ -145,8 +145,9 @@ impl Game {
                 continue;
             }
             let Some(vi) = self.car_for(i) else { continue };
-            let door = self.vehicles[vi].door();
-            if Vec2::new(p.fig.pos.x - door.x, p.fig.pos.z - door.y).length() < 150.0 {
+            // At either door: `enter_car` takes the nearer (`position_person_for_vehicle`).
+            let v = &self.vehicles[vi];
+            if [v.door(), v.to_world(-200.0, 20.0)].iter().any(|d| Vec2::new(p.fig.pos.x - d.x, p.fig.pos.z - d.y).length() < 150.0) {
                 self.enter_car(i, vi, level);
                 self.streets.drivers.insert(i, Driving::default());
             }
@@ -156,15 +157,18 @@ impl Game {
     /// The controls of a car someone other than the player is driving. Wandering
     /// (`PCOM_MOVE_WANDER`) they drive the roads, picking a way at random at each junction
     /// (`PCOM_process_driving_wander`) and keeping to their lane (`DriveCar`, both in
-    /// fallen/Source/pcom.cpp); otherwise they pull up and stay put
-    /// (`PCOM_process_driving_still`).
+    /// fallen/Source/pcom.cpp); on patrol they drive their route ([`Game::drive_patrol`]);
+    /// otherwise they pull up and stay put (`PCOM_process_driving_still`).
     pub(crate) fn npc_drive(&mut self, vi: usize, pi: usize, dt: f32, level: &Level) -> Drive {
         const TURN: f32 = 896.0; // `LEFT_TURN_DIST`: how near the junction before turning
         let v = &self.vehicles[vi];
-        let (at, speed, yaw, y) = (Vec2::new(v.pos.x, v.pos.z), v.speed, v.yaw, v.pos.y);
+        let (at, speed) = (Vec2::new(v.pos.x, v.pos.z), v.speed);
         let stop = if speed.abs() > 30.0 { Drive { throttle: -speed.signum(), ..Default::default() } } else { Drive::default() };
-        let (mv, bent) = (self.people[pi].mv, self.people[pi].bent);
+        let mv = self.people[pi].mv;
         let mut st = self.streets.drivers.get(&pi).copied().unwrap_or_default();
+        if matches!(mv, 2 | 3) {
+            return self.drive_patrol(vi, pi, st, dt, level);
+        }
         if mv != 4 || self.streets.roads.nodes.len() < 2 {
             st.road = None;
             self.streets.drivers.insert(pi, st);
@@ -212,6 +216,56 @@ impl Game {
             let dr = Vec2::new(sign(ab.x), sign(ab.y)) * 256.0;
             dest = r1 + ab * t + dr * 2.0 + Vec2::new(-dr.y, dr.x);
         }
+        self.steer_car(vi, pi, dest, st, dt, level)
+    }
+
+    /// A patrol at the wheel (`PCOM_process_driving_patrol`, pcom.cpp:6376): to the nearest
+    /// point of their colour and group, then on to the next (on a random patrol, any other,
+    /// `EWAY_find_waypoint_rand`), each reached within 0x300; at one with the longest wait
+    /// (`EWAY_get_delay` of ten seconds) they park, and stay parked
+    /// (`PCOM_set_person_move_park_car`). Gang Order 1 and 2, MIB and Stealth Test have them.
+    fn drive_patrol(&mut self, vi: usize, pi: usize, mut st: Driving, dt: f32, level: &Level) -> Drive {
+        let v = &self.vehicles[vi];
+        let (at, speed) = (Vec2::new(v.pos.x, v.pos.z), v.speed);
+        let stop = if speed.abs() > 30.0 { Drive { throttle: -speed.signum(), ..Default::default() } } else { Drive::default() };
+        let (colour, group, rand_patrol) = (self.people[pi].colour, self.people[pi].group, self.people[pi].mv == 3);
+        let Some(script) = self.script.as_ref() else { return stop };
+        let points = script.patrol_points(colour, group);
+        if st.parked || points.is_empty() {
+            self.streets.drivers.insert(pi, st);
+            return stop;
+        }
+        let flat = |p: Vec3| Vec2::new(p.x, p.z);
+        let mut k = st.patrol.and_then(|w| points.iter().position(|q| q.0 == w)).unwrap_or_else(|| {
+            (0..points.len()).min_by(|&a, &b| (flat(points[a].1) - at).length().total_cmp(&(flat(points[b].1) - at).length())).unwrap_or(0)
+        });
+        if creature::qdist2(flat(points[k].1) - at) < 0x300 as f32 {
+            if script.point_delay(points[k].0, 0.0) == 10.0 * 1000.0 {
+                st.parked = true;
+                self.streets.drivers.insert(pi, st);
+                return stop;
+            }
+            k = if rand_patrol && points.len() > 1 {
+                let mut rng = self.rngs.main;
+                let n = rand(&mut rng) as usize;
+                self.rngs.main = rng;
+                (k + 1 + n % (points.len() - 1)) % points.len()
+            } else {
+                (k + 1) % points.len()
+            };
+        }
+        st.patrol = Some(points[k].0);
+        self.steer_car(vi, pi, flat(points[k].1), st, dt, level)
+    }
+
+    /// Steering car `vi`, driven by `pi`, for `dest`: slowing for a bend, backing off what it
+    /// ran into, and stopping for anyone in the road ahead.
+    fn steer_car(&mut self, vi: usize, pi: usize, dest: Vec2, mut st: Driving, dt: f32, level: &Level) -> Drive {
+        let v = &self.vehicles[vi];
+        let (at, speed, yaw, y) = (Vec2::new(v.pos.x, v.pos.z), v.speed, v.yaw, v.pos.y);
+        let stop = if speed.abs() > 30.0 { Drive { throttle: -speed.signum(), ..Default::default() } } else { Drive::default() };
+        let bent = self.people[pi].bent;
+        let reversing = st.reversing > 0.0;
         let to = dest - at;
         let diff = (to.x.atan2(to.y) - yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
         // Slow for a bend, down to a third of the limit; diligent drivers go twice as fast.
@@ -239,7 +293,13 @@ impl Game {
             let r = Vec2::new(o.fig.pos.x - at.x, o.fig.pos.z - at.y);
             j != pi && !o.removed && !matches!(o.state, State::InCar { .. }) && (o.fig.pos.y - y).abs() < 150.0
                 && r.dot(fwd) > 0.0 && r.dot(fwd) < 250.0 + speed.max(0.0) * 0.5 && r.dot(side).abs() < 170.0
-        }).map(|(_, o)| o.fig.pos);
+        }).map(|(_, o)| o.fig.pos)
+            // And for a car in the way (`VEH_find_runover_things` takes `CLASS_VEHICLE` too,
+            // vehicle.cpp:449).
+            .or_else(|| self.vehicles.iter().enumerate().find(|&(k, o)| {
+                let r = Vec2::new(o.pos.x - at.x, o.pos.z - at.y);
+                k != vi && (o.pos.y - y).abs() < 150.0 && r.dot(fwd) > 0.0 && r.dot(fwd) < 450.0 + speed.max(0.0) * 0.5 && r.dot(side).abs() < 170.0
+            }).map(|(_, o)| o.pos));
         self.streets.drivers.insert(pi, st);
         if let (Some(them), true) = (blocker, want > 0.0 && !st.drunk && !st.reckless) {
             // Off a zebra crossing, now and then a blast of the horn: on two turns in 128,
@@ -308,6 +368,10 @@ impl Game {
             v.work_siren(d);
             let sliding = v.slip.abs() > 300.0;
             let mut smashed = None;
+            let (was_pos, was_yaw) = (v.pos, v.yaw);
+            let v = &self.vehicles[vi];
+            let touching: Vec<usize> = (0..self.vehicles.len()).filter(|&j| j != vi && v.overlaps(&self.vehicles[j])).collect();
+            let v = &mut self.vehicles[vi];
             if let Some(speed) = v.update(d, dt, &level.ground, &level.map) {
                 // `DoDamage` (vehicle.cpp:2094), in its units of 1/256 a tick at 20 ticks a
                 // second: faster than 20000 smashes the prop it hit, as `OB_damage` does
@@ -330,6 +394,37 @@ impl Game {
                     }
                 }
             }
+            // Into another car (`CollideCar` with the vehicles round it, vehicle.cpp:1656): back
+            // where it was, bouncing off as off a wall, and both take the crash
+            // (`DoDamage`: the other car what this one does, vehicle.cpp:2101), with a
+            // smash if the player's in either (`VEH_co_damage`). Cars already touching can
+            // part. (The dents of `VEH_add_damage` aren't drawn.)
+            let hit = (0..self.vehicles.len()).find(|&j| j != vi && !touching.contains(&j) && self.vehicles[vi].overlaps(&self.vehicles[j]));
+            if let Some(j) = hit {
+                let v = &mut self.vehicles[vi];
+                let speed = v.speed.abs();
+                (v.pos, v.yaw) = (was_pos, was_yaw);
+                v.speed = if speed > 200.0 { v.speed * -0.25 } else { 0.0 };
+                v.slip = 0.0;
+                let damage = Vehicle::crash_damage(speed);
+                v.health -= damage;
+                self.vehicles[j].health -= damage;
+                let player = self.player.is_some() && (self.vehicles[vi].driver == self.player || self.vehicles[j].driver == self.player);
+                if player && speed > 10000.0 / 256.0 * 20.0 {
+                    self.sounds.push((Sfx::Crash, self.vehicles[vi].pos));
+                }
+                if let Some(dr) = npc.and_then(|(pi, _)| self.streets.drivers.get_mut(&pi)) {
+                    if dr.reversing <= 0.0 {
+                        dr.reversing = 1.5;
+                    }
+                }
+            }
+            if self.vehicles[vi].scrape() && self.turns.is_multiple_of(10) {
+                // (The original's moving channel keeps one scrape going; a fresh one every
+                // half second here.)
+                self.sounds.push((Sfx::Scrape, self.vehicles[vi].pos));
+            }
+            let v = &self.vehicles[vi];
             if !sliding && v.slip.abs() > 300.0 {
                 self.sounds.push((Sfx::Skid, v.pos));
             }
@@ -375,6 +470,13 @@ impl Game {
                     }
                 }
             }
+            // Going fast, it scares civilians near where it's headed: past `Velocity` 500
+            // (each worth 1.25 world units a second), a noise two squares ahead (`VEH_driving`,
+            // vehicle.cpp:3395).
+            if v.speed.abs() > 625.0 {
+                let ahead = fwd * v.speed.signum() * 512.0;
+                self.noises.push((person::Noise::Van, v.pos + Vec3::new(ahead.x, 0.0, ahead.y), v.driver));
+            }
             // People in the way.
             for (i, p) in self.people.iter_mut().enumerate() {
                 if Some(i) == v.driver || p.removed || matches!(p.state, State::InCar { .. }) || (p.fig.pos.y - v.pos.y).abs() > 150.0 || aboard.contains(&i) {
@@ -388,6 +490,8 @@ impl Game {
                     p.hurt_by = v.driver;
                     let behind = p.hit_from_behind(v.pos);
                     p.take_hit(v.pos, (v.speed.abs() / 12.0) as i32, person::ko::KNOCKDOWN, false, true, Weapon::None);
+                    // "A nice sound!" (vehicle.cpp:3339).
+                    self.sounds.push((Sfx::Squish, p.fig.pos));
                     // Killed by it, on the ground: `PERSON_DEATH_TYPE_OTHER` (vehicle.cpp:3329).
                     if p.is_dead() && !p.arrested {
                         p.knocked_dead(behind);
@@ -407,7 +511,7 @@ impl Game {
                 for at in ends {
                     for k in barrel::hit_with_sphere(&mut self.barrels, at, 0x60 as f32, &mut || rand(&mut seed)) {
                         let at = self.barrels[k].pos;
-                        self.sounds.push((Sfx::Cone, at));
+                        self.sounds.push((self.barrels[k].knock_sound(), at));
                     }
                 }
                 self.rngs.barrel = seed;
