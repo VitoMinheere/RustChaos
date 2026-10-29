@@ -345,6 +345,47 @@ impl Game {
         }).collect()
     }
 
+    /// Anyone who'd fight, empty-handed, goes for a weapon someone dropped lying near
+    /// (`PCOM_is_there_an_item_i_should_get`, pcom.cpp:4969): a gun, shotgun, AK, bat or knife
+    /// within 0x300, which they can get to straight (`there_is_a_los_mav`). They look every
+    /// 128 ticks standing about (pcom.cpp:8176), and every 256 going for someone (7568, 8578),
+    /// then run there, pick it up and get back to it. Not civilians, the men in black (whose
+    /// arm is an AK), anyone in a warehouse, or anyone carrying anything at all; the player's
+    /// bodyguards have [`Game::arm_bodyguards`]. Only what was dropped: what the mission put
+    /// down stays the player's to find (as the bodyguards have it).
+    pub(crate) fn fetch_weapons(&mut self, level: &Level) {
+        let tick = (self.time * 20.0) as usize;
+        let eye = Vec3::new(0.0, 64.0, 0.0);
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            let armed = p.weapon != Weapon::None || p.melee != Weapon::None || p.guns != 0;
+            if let Some(at) = p.fetch {
+                let lying = self.items.iter().any(|it| it.way == 0 && it.pos.distance(at) < 1.0);
+                if armed || !lying || p.is_down() || p.is_dead() || p.removed {
+                    self.people[i].fetch = None;
+                } else if Vec2::new(at.x - p.fig.pos.x, at.z - p.fig.pos.z).length() < 60.0 {
+                    self.pick_up_for(i);
+                }
+                continue;
+            }
+            let every = if p.aggro() { 256 } else { 128 };
+            if !(tick + i).is_multiple_of(every) || armed || p.player || p.removed || p.is_down() || p.is_dead()
+                || p.ai == person::AI_CIV || p.ai == person::AI_BODYGUARD || p.is_mib() || !matches!(p.state, State::Move)
+                || self.wares.under_roof(&level.map, &level.ground, p.fig.pos).is_some()
+            {
+                continue;
+            }
+            let at = p.fig.pos;
+            let near = self.items.iter()
+                .filter(|it| it.way == 0 && matches!(it.kind, 2 | 4 | 5 | 6 | 8))
+                .filter(|it| it.pos.distance(at) < 0x300 as f32)
+                .min_by(|a, b| a.pos.distance(at).total_cmp(&b.pos.distance(at)))
+                .map(|it| it.pos)
+                .filter(|&to| level.ground.line_of_sight(at + eye, to + eye));
+            self.people[i].fetch = near;
+        }
+    }
+
     /// Killed or arrested, someone may leave something behind (`generate_bonus_item`,
     /// Person.cpp:16763, called at 17052 and 17436): anyone of skill 12 or more, and one in
     /// 256/34 of the city's extra people bar civilians. The extras leave a health pack;
