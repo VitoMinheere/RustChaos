@@ -180,6 +180,14 @@ impl Pyro {
         self.puffs.push(Puff { pos: at, vel: Vec3::ZERO, radius: 60.0, grow: 150.0, age: 0.0, life, smoke: true, tint: [0xc9, 0xb7, 0xa3] });
     }
 
+    /// Smoke from a damaged car (vehicle.cpp:1309): a grey cloud going the car's way, `vel`,
+    /// and rising, 40 to 71 across.
+    pub fn engine_smoke(&mut self, at: Vec3, vel: Vec3) {
+        let radius = 40.0 + (rand(&mut self.rng) & 31) as f32;
+        let vel = vel + Vec3::new(self.spread() * 6.0, 80.0 + self.spread().abs() * 20.0, self.spread() * 6.0);
+        self.puffs.push(Puff { pos: at, vel, radius, grow: 40.0, age: 0.0, life: 1.5, smoke: true, tint: [0x70, 0x70, 0x70] });
+    }
+
     /// A number in -1..1.
     fn spread(&mut self) -> f32 {
         rand(&mut self.rng) as f32 / 32768.0 - 1.0
