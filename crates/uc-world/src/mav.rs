@@ -493,8 +493,9 @@ impl Mav {
 
 /// `MAV_calc_height_array`: the ground at each square's middle, a rooftop's own height, the
 /// highest walkable roof face over a building, and squares inside a building with no roof
-/// off limits at the top of the scale. With `ignore_warehouses`, the warehouses' roof faces
-/// are left out and the ground is under them.
+/// off limits at the top of the scale; on an older map, its walkable faces' heights over
+/// its buildings. With `ignore_warehouses`, the warehouses' roof faces are left out and the
+/// ground is under them.
 fn heights(map: &Map, level: &Level, ignore_warehouses: bool) -> Vec<i8> {
     let mut h = vec![0i8; MAP_SIZE * MAP_SIZE];
     for x in 0..MAP_SIZE {
@@ -516,6 +517,42 @@ fn heights(map: &Map, level: &Level, ignore_warehouses: bool) -> Vec<i8> {
         let y = (rf.y as i32 / 0x40).clamp(-127, 127) as i8;
         if h[x * MAP_SIZE + z] < y {
             h[x * MAP_SIZE + z] = y;
+        }
+    }
+    // An older map's roofs are walkable prim faces rather than roof faces
+    // (`uc_formats::iam::WalkablesLayout::Old`): a hidden square gets the height of the face
+    // over its middle, as the original did with these before its roof faces (mav.cpp:254,
+    // since commented out; the editor makes roof faces of them the same way,
+    // supermap.cpp:1898). Without, each building is off limits, roof and all.
+    for (w, f) in map.walkables.iter().flat_map(|w| w.faces.iter().map(move |f| (w, f))) {
+        let p: Vec<[f32; 3]> = f.points.iter().map(|&i| w.points[i as usize].map(|v| v as f32)).collect();
+        let tris: &[[usize; 3]] = if p.len() == 4 { &[[0, 1, 2], [1, 3, 2]] } else { &[[0, 1, 2]] };
+        for &[a, b, c] in tris {
+            let (a, b, c) = (p[a], p[b], p[c]);
+            let (lo_x, hi_x) = (a[0].min(b[0]).min(c[0]), a[0].max(b[0]).max(c[0]));
+            let (lo_z, hi_z) = (a[2].min(b[2]).min(c[2]), a[2].max(b[2]).max(c[2]));
+            let det = (b[0] - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (b[2] - a[2]);
+            if det.abs() < 1.0 {
+                continue;
+            }
+            for x in (lo_x / 256.0).floor() as i32..=(hi_x / 256.0).floor() as i32 {
+                for z in (lo_z / 256.0).floor() as i32..=(hi_z / 256.0).floor() as i32 {
+                    if !on_map(x, z) || !map.square(x as usize, z as usize).has(flags::HIDDEN) {
+                        continue;
+                    }
+                    let (mx, mz) = (x as f32 * 256.0 + 128.0, z as f32 * 256.0 + 128.0);
+                    let u = ((mx - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (mz - a[2])) / det;
+                    let v = ((b[0] - a[0]) * (mz - a[2]) - (mx - a[0]) * (b[2] - a[2])) / det;
+                    if u < 0.0 || v < 0.0 || u + v > 1.0 {
+                        continue;
+                    }
+                    let y = a[1] + u * (b[1] - a[1]) + v * (c[1] - a[1]);
+                    let y = ((y as i32) / 0x40).clamp(-127, 127) as i8;
+                    if h[idx(x, z)] < y {
+                        h[idx(x, z)] = y;
+                    }
+                }
+            }
         }
     }
     // The staircase prim (41) sets the height of the square under its middle to its own.

@@ -82,3 +82,30 @@ fn the_hostages_follow_darci_out_and_she_wins() {
     assert_eq!(r.g.outcome, Some(Outcome::Won));
 }
 
+/// A hostage follows Darci down off his roof and across the sector to the keycard gate
+/// (point 190): the roofs of `jumper1`, an older map's, are on the navigation map.
+#[test]
+fn a_hostage_follows_darci_down_off_his_roof() {
+    let Some(mut r) = common::start("Takeover1") else { return };
+    r.play(1.0, Controls::default());
+    r.each_turn = Some(|g| {
+        for p in g.people.iter_mut().filter(|p| p.hostile()) {
+            p.removed = true;
+        }
+    });
+    let w = r.who(WORKERS[0]);
+    r.before(w, 180.0);
+    assert!(r.until(3.0, |r| r.g.people[w].mv == person::MOVE_FOLLOW), "never followed");
+    let gate = r.point(190);
+    let me = r.player();
+    for _ in 0..240 {
+        r.stand(gate);
+        r.play(0.5, Controls::default());
+        if r.g.people[w].fig.pos.distance(r.g.people[me].fig.pos) < 300.0 {
+            break;
+        }
+    }
+    let at = r.g.people[w].fig.pos;
+    assert!(at.distance(r.g.people[me].fig.pos) < 300.0 && at.y < 64.0, "the hostage is at {at}");
+}
+
