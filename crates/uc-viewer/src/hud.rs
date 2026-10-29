@@ -37,6 +37,36 @@ pub(crate) fn draw_sights(o: &mut Overlay, sights: &[uc_game::Sight], cam: &Came
     }
 }
 
+/// Where the grenade in hand would go (`show_grenade_path`, grenade.cpp:440): a dashed green
+/// line along its path, two turns in eight drawn, the dashes running with the game's turn,
+/// and a large gun sight where it comes to rest (`PANEL_draw_gun_sight(..., 1000, 400)`).
+pub(crate) fn draw_grenade_path(o: &mut Overlay, path: &[Vec3], time: f32, cam: &Camera, size: (u32, u32)) {
+    let (w, h) = (size.0 as f32, size.1 as f32);
+    let vp = cam.view_proj(size);
+    let screen = |p: Vec3| -> Option<Vec2> {
+        let c = vp * (p / uc_world::UNIT).extend(1.0);
+        (c.w > 0.01).then(|| vec2((c.x / c.w * 0.5 + 0.5) * w, (0.5 - c.y / c.w * 0.5) * h))
+    };
+    let green = [0, 0xaf, 0, 0x80];
+    let dot = (h / 360.0).round().max(2.0);
+    // `count` starts at minus the turn, so the dashes march along.
+    let start = -((time * 20.0) as i64);
+    for (k, seg) in path.windows(2).enumerate() {
+        if (start + k as i64).rem_euclid(8) > 1 {
+            continue;
+        }
+        let (Some(a), Some(b)) = (screen(seg[0]), screen(seg[1])) else { continue };
+        let n = ((b - a).length() / dot).ceil().max(1.0) as usize;
+        for j in 0..=n {
+            let p = a.lerp(b, j as f32 / n as f32);
+            o.rect(p.x - dot / 2.0, p.y - dot / 2.0, dot, dot, green);
+        }
+    }
+    if let Some(&end) = path.last() {
+        draw_sights(o, &[uc_game::Sight { at: end, accuracy: 1000.0, scale: 400.0 }], cam, size);
+    }
+}
+
 /// The chief's `n`th warning about civilian casualties (`X_CIVSDEAD_WARNING_1` to `_4`, the
 /// game's strings 151 to 154: `text\lang_english.txt`'s lines 152 to 155).
 pub(crate) fn civ_warning(game: &Path, n: u8) -> String {
