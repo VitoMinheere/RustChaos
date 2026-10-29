@@ -418,6 +418,11 @@ impl Person {
                 return false;
             }
             self.ammo[s] -= 1;
+        } else if self.out_of_rounds() {
+            self.cues.push(Sfx::Click);
+            return false;
+        } else {
+            self.ai_fired += 1;
         }
         self.cues.push(Sfx::Shot(self.weapon));
         self.flash = 0.07;
