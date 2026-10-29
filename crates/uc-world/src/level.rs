@@ -183,6 +183,28 @@ fn open_the_store(mission_name: &str, map_file: &str, map: &mut Map) {
     map.facets[doorway].kind = facet_type::DOOR;
 }
 
+/// subdock1's ways in (Dock Extraction, #432). Its two goals are up on roofs nobody can get
+/// to from the streets Darci starts in: the dock operator's (point 37), whose way up (steps
+/// to an annex and a ladder to his roof) is in a corridor closed off by unclimbable fences,
+/// and the rendezvous on building 66 (point 42), whose only ladder (facet 595) is in a yard
+/// fenced in on every side. One fence of each is made one that can be climbed (it was
+/// `FACET_FLAG_UNCLIMBABLE`), flat-topped, so Darci climbs over it:
+///
+/// - facet 532, from (106,75) to (106,80), between the street and the corridor whose steps
+///   lead up to the operator's annex;
+/// - facet 606, from (81,109) to (81,111), between the street and the yard with the ladder.
+fn climb_into_the_docks(map_file: &str, map: &mut Map) {
+    if !map_file.eq_ignore_ascii_case(r"data\subdock1.iam") {
+        return;
+    }
+    for (i, x, z) in [(532, [106, 106], [80, 75]), (606, [81, 81], [109, 111])] {
+        // Only the map as shipped: an edited one may have it some other way.
+        if let Some(f) = map.facets.get_mut(i).filter(|f| f.kind == facet_type::FENCE_FLAT && (f.x, f.z) == (x, z)) {
+            f.flags &= !uc_formats::iam::facet_flags::UNCLIMBABLE;
+        }
+    }
+}
+
 /// The Missile Silos' missiles (`PRIM_OBJ` 245), which the mission is won by blowing up: its
 /// `prim_damaged` points (43, 46 and 48) watch them. Only a blast can damage one, and a
 /// blast steps through each map cell's props two at a time (`create_shockwave`,
@@ -624,6 +646,7 @@ impl Level {
         let mut map = Map::parse(&read(game, &mission.map)?).map_err(|e| format!("{}: {e}", mission.map))?;
         to_sea(&mission.map, &mut map);
         open_the_store(mission_name, &mission.map, &mut map);
+        climb_into_the_docks(&mission.map, &mut map);
         missiles_first(&mission.map, &mut map);
         open_the_bank_sector(mission_name, &mission.map, &mut map);
         // The mission's no-go squares: nobody walks into them, routes go round them, and
