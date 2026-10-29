@@ -435,6 +435,9 @@ pub enum Move {
     Knife3,
     Bat1,
     Bat2,
+    /// Clubbing with a two-handed gun in fight mode (#346).
+    Whip1,
+    Whip2,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -492,6 +495,9 @@ impl Move {
             Knife3 => d(anim::KNIFE_ATTACK3, 0.4, 160.0, Dir::Front, 70, false, ko::COMBO_ANY | ko::KNOCKDOWN, None),
             Bat1 => d(anim::BAT_HIT1, 0.5, 180.0, Dir::Front, 40, true, 0, Some(Bat2)),
             Bat2 => d(anim::BAT_HIT2, 0.5, 180.0, Dir::Front, 60, true, ko::COMBO_ANY | ko::KNOCKDOWN, None),
+            // Fight-tree node 1's blow, a jab's (`set_person_punch`'s `node = 1`).
+            Whip1 => d(anim::SHOTGUN_WHIP1, 0.5, 130.0, Dir::Front, 10, true, 0, None),
+            Whip2 => d(anim::SHOTGUN_WHIP2, 0.5, 130.0, Dir::Front, 10, true, 0, None),
         }
     }
     /// Back out of a move of a combo that wasn't followed up (the `fight_tree` node it goes
@@ -512,7 +518,8 @@ impl Move {
 
     /// Punches and weapon swings (the punch button).
     fn is_punch(self) -> bool {
-        matches!(self, Move::Punch1 | Move::Punch2 | Move::Punch3 | Move::Knife1 | Move::Knife2 | Move::Knife3 | Move::Bat1 | Move::Bat2)
+        matches!(self, Move::Punch1 | Move::Punch2 | Move::Punch3 | Move::Knife1 | Move::Knife2 | Move::Knife3 | Move::Bat1 | Move::Bat2
+            | Move::Whip1 | Move::Whip2)
     }
     /// The first move of the punch button's combo with `weapon`.
     fn punch_with(weapon: Weapon) -> Move {
@@ -972,6 +979,9 @@ pub struct Person {
     /// dice it's rolled with.
     pub(crate) fidget: Option<f32>,
     fidget_roll: u32,
+    /// The player's fight mode with a two-handed gun in hand (`PERSON_MODE_FIGHT`): hit in
+    /// a fight, until she runs or gets a gun out. A punch then clubs with it (#346).
+    gun_fight: bool,
     /// Cuffed: seconds to the next chance to struggle (`PTIME` coming round to 0).
     pub(crate) struggle: f32,
     /// The player: seconds stood about with nothing asked of her (`pcom_move_counter` while
@@ -1066,7 +1076,7 @@ impl Person {
             pace: Pace::Walk,
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
-            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, struggle: 0.0, idle_for: 0.0, breathed: false, screamed: false, fly_kick: None, splattered: false, sized_up: false, felon: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
+            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, struggle: 0.0, idle_for: 0.0, breathed: false, screamed: false, fly_kick: None, gun_fight: false, splattered: false, sized_up: false, felon: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }
@@ -1227,6 +1237,8 @@ impl Person {
     /// Person.cpp:19630): the pistol's draw unless it's the shotgun's or the AK's (one), the
     /// knife's or the bat's. Putting something away has no animation.
     pub(super) fn draw_weapon(&mut self) {
+        // "You can't be in fight mode with a gun out!" (`set_person_draw_gun`, Person.cpp:8132).
+        self.gun_fight = false;
         let a = match self.weapon {
             Weapon::None => {
                 if matches!(self.state, State::Draw) {
@@ -1243,6 +1255,11 @@ impl Person {
         if self.fig.restart(a, Play::Once) {
             self.state = State::Draw;
         }
+    }
+
+    /// The player hit in a fight goes into fight mode (combat.cpp:2183), gun or no gun.
+    pub(crate) fn hit_in_a_fight(&mut self) {
+        self.gun_fight |= self.player;
     }
 
     /// Whether what they're holding shows in their hand: not until the fourth frame of

@@ -51,6 +51,10 @@ pub mod anim {
     pub const ROTATE_R: usize = 194;
     /// Ready with a two-handed gun (`set_person_locked_idle_ready`, Person.cpp:7629).
     pub const SHOTGUN_STAND: usize = 212;
+    /// Clubbing with a two-handed gun, one or the other at random (`set_person_punch`,
+    /// Person.cpp:9650).
+    pub const SHOTGUN_WHIP1: usize = 208;
+    pub const SHOTGUN_WHIP2: usize = 209;
     /// Walking backwards (`set_person_walk_backwards`, Person.cpp:8862); and with a
     /// two-handed gun.
     pub const BACK_WALK: usize = 334;
