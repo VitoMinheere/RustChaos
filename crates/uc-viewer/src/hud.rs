@@ -55,6 +55,22 @@ impl World {
         let s = (h / 360.0).round().max(1.0);
         let white = [235, 235, 225, 255];
 
+        // A tutorial message: the whole screen darkened, the text in a bubble at the top left,
+        // and nothing else of the panel (`PANEL_last`, DDEngine/Source/panel.cpp:4327).
+        if let Some((text, _)) = &self.game.tutorial {
+            o.rect(0.0, 0.0, w, h, [0, 0, 0, 0x88]);
+            let k = h / 480.0;
+            let (x, y) = (16.0 * k, 16.0 * k);
+            let lines = Overlay::wrap(text, w - 2.0 * x - 12.0 * k, s);
+            let lh = 11.0 * s;
+            let right = lines.iter().map(|l| Overlay::text_width(l, s)).fold(0.0, f32::max);
+            o.rect(x - 6.0 * k, y - 4.0 * k, right + 12.0 * k, lines.len() as f32 * lh + 8.0 * k, [250, 250, 240, 60]);
+            for (n, line) in lines.iter().enumerate() {
+                o.text(x, y + n as f32 * lh, s, [255, 255, 255, 255], line);
+            }
+            return o;
+        }
+
         // The scope: dark round the edges, and cross hairs.
         if self.game.sniping().is_some() {
             let (cx, cy, r) = (w / 2.0, h / 2.0, h * 0.42);

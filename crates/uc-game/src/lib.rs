@@ -756,6 +756,9 @@ pub struct Game {
     pub end_of_world: Option<f32>,
     /// The mission's own tune, played throughout ([`Theme::of`]).
     theme: Option<Theme>,
+    /// A tutorial message up (`EWAY_tutorial_string`), and the seconds it's been up: the game
+    /// stands still under it ([`Game::tutorial_wait`]).
+    pub tutorial: Option<(String, f32)>,
     /// The panel's info line (`PANEL_new_info_message`, DDEngine/Source/panel.cpp:3955): what
     /// the player just picked up, or "Arrested", and the seconds it's been up. It goes after
     /// two.
@@ -914,6 +917,7 @@ impl Game {
             no_floor: false,
             end_of_world: None,
             theme: Theme::of(&level.name),
+            tutorial: None,
             info: None,
             shake: 0.0,
             shake_turns: 0.0,
@@ -1086,6 +1090,24 @@ impl Game {
         }
     }
 
+    /// While a tutorial message is up the game doesn't move (`should_i_process_game`,
+    /// Game.cpp:1913). It can be put away once it's been up two seconds: jump, punch, kick,
+    /// action or the inventory key (`hardware_input_continue`, Game.cpp:2042); before that, a
+    /// press only brings that moment forward (Game.cpp:2447). The press that puts it away
+    /// does nothing else. Whether this turn is spent waiting.
+    fn tutorial_wait(&mut self, c: Controls) -> bool {
+        let Some((_, t)) = &mut self.tutorial else { return false };
+        *t += TURN;
+        if c.jump || c.punch || c.kick || c.action || c.switch {
+            if *t > 2.0 {
+                self.tutorial = None;
+            } else {
+                *t = 2.0;
+            }
+        }
+        true
+    }
+
     /// One turn, with one `Controls` per seat (seat 0 first; missing seats stand still). What
     /// a co-op session plays: every machine steps the same turns with the same inputs. The
     /// seat in focus stays in focus.
@@ -1223,6 +1245,9 @@ impl Game {
     /// player's (aiming, using things, grenades, the hook, searching) runs once for each seat,
     /// with that seat in focus.
     fn turn(&mut self, inputs: &[Controls], level: &Level) {
+        if self.tutorial_wait(inputs.first().copied().unwrap_or_default()) {
+            return;
+        }
         let dt = TURN;
         let seats = self.seats();
         let seat_input = |s: usize| inputs.get(s).copied().unwrap_or_default();
