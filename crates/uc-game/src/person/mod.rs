@@ -823,6 +823,8 @@ pub enum Noise {
     LookingAtMe,
     /// A grenade hitting the ground (0x300).
     GrenadeHit,
+    /// A car coming fast, made two squares ahead of it (`PCOM_SOUND_VAN`, 0x180).
+    Van,
 }
 
 impl Noise {
@@ -832,6 +834,7 @@ impl Noise {
             Noise::Hey => 0x600 as f32,
             Noise::LookingAtMe => 0x400 as f32,
             Noise::GrenadeHit => 0x300 as f32,
+            Noise::Van => 0x180 as f32,
         }
     }
 }

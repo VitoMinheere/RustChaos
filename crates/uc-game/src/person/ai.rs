@@ -105,7 +105,8 @@ impl Person {
     /// A noise the game made (`PCOM_oscillate_tympanum`, pcom.cpp:13240): `seen` whether they
     /// can see where it was. Civilians run from a killer's "what you looking at"; guards,
     /// gang members and cops go to look at a "Hey!" or that; a grenade landing sends whoever
-    /// sees it running (those that can), and the gang and cops who can't go to look.
+    /// sees it running (those that can), and the gang and cops who can't go to look; a car
+    /// coming fast sends civilians running from where it's headed.
     pub(crate) fn hear_noise(&mut self, noise: Noise, at: Vec3, by: Option<usize>, seen: bool) {
         if self.player || self.removed || self.is_dead() || self.is_down() {
             return;
@@ -118,6 +119,13 @@ impl Person {
                 }
             }
             Noise::LookingAtMe if self.ai == AI_CIV => self.scare(by, at),
+            // Civilians on foot run from the place (`PCOM_set_person_ai_flee_place`); the
+            // game leaves out those on a zebra crossing.
+            Noise::Van => {
+                if self.ai == AI_CIV && !matches!(self.state, State::InCar { .. }) {
+                    self.scare(None, at);
+                }
+            }
             Noise::Hey | Noise::LookingAtMe => {
                 if matches!(self.ai, AI_GUARD | AI_GANG | AI_COP) {
                     self.hear(at);

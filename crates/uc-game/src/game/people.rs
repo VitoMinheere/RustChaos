@@ -809,6 +809,11 @@ impl Game {
                 if Some(j) == by || (self.people[j].fig.pos - at).length() >= noise.radius() {
                     continue;
                 }
+                // Civilians on a zebra crossing have a sense of security (pcom.cpp:13290).
+                let on = self.people[j].fig.pos;
+                if noise == person::Noise::Van && crate::wand::is_zebra(&level.map, (on.x / 256.0) as i32, (on.z / 256.0) as i32) {
+                    continue;
+                }
                 let seen = level.ground.line_of_sight(self.people[j].fig.pos + eye, at + Vec3::new(0.0, 16.0, 0.0));
                 self.people[j].hear_noise(noise, at, by, seen);
             }

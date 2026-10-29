@@ -470,6 +470,13 @@ impl Game {
                     }
                 }
             }
+            // Going fast, it scares civilians near where it's headed: past `Velocity` 500
+            // (each worth 1.25 world units a second), a noise two squares ahead (`VEH_driving`,
+            // vehicle.cpp:3395).
+            if v.speed.abs() > 625.0 {
+                let ahead = fwd * v.speed.signum() * 512.0;
+                self.noises.push((person::Noise::Van, v.pos + Vec3::new(ahead.x, 0.0, ahead.y), v.driver));
+            }
             // People in the way.
             for (i, p) in self.people.iter_mut().enumerate() {
                 if Some(i) == v.driver || p.removed || matches!(p.state, State::InCar { .. }) || (p.fig.pos.y - v.pos.y).abs() > 150.0 || aboard.contains(&i) {
