@@ -916,6 +916,18 @@ impl App {
         // (`MUSIC_MODE_FRONTEND`, frontend.cpp:1299).
         if let Some(s) = self.sound.as_mut() {
             s.audio.music(Some(if m.screen == menu::Screen::Credits { credits::MUSIC } else { sound::FRONTEND }));
+            // The picked mission's spoken briefing (`FRONTEND_MissionBrief`,
+            // frontend.cpp:3831), from the start each time another is picked; leaving the
+            // list stops it.
+            let picked = (m.screen == menu::Screen::Missions).then(|| m.entries.get(m.selected)).flatten();
+            let want = picked.map(|e| e.mission.clone());
+            if want != m.briefed {
+                s.audio.hush();
+                if let Some(file) = picked.and_then(|e| e.voice) {
+                    s.audio.briefing(file);
+                }
+                m.briefed = want;
+            }
             s.audio.update(dt);
         }
         self.input.pressed.clear();

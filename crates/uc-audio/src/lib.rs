@@ -301,6 +301,19 @@ impl Audio {
         }
     }
 
+    /// A mission's spoken briefing (`talk2\<file>`, `FRONTEND_MissionBrief`), cutting off
+    /// whatever was being said. Whether it's there to play.
+    pub fn briefing(&mut self, file: &str) -> bool {
+        self.hush();
+        match self.load(&format!("talk2\\{file}")) {
+            Some(c) => {
+                self.say(c);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Says a line, or stands it behind one already being said.
     fn say(&mut self, clip: Arc<Clip>) {
         if self.speaking.is_some() {
