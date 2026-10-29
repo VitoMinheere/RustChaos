@@ -345,6 +345,33 @@ impl Game {
         }).collect()
     }
 
+    /// Killed or arrested, someone may leave something behind (`generate_bonus_item`,
+    /// Person.cpp:16763, called at 17052 and 17436): anyone of skill 12 or more, and one in
+    /// 256/34 of the city's extra people bar civilians. The extras leave a health pack;
+    /// the skilled a health pack or pistol, shotgun or AK ammo, one in four each. It goes
+    /// on the ground by them (`find_nice_place_near_person`).
+    pub(crate) fn bonus_items(&mut self, level: &Level) {
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            let dead = p.knocked_out && matches!(p.state, State::Down) && p.fig.finished();
+            if p.bonus_rolled || p.player || p.removed || !(dead || p.arrested) {
+                continue;
+            }
+            self.people[i].bonus_rolled = true;
+            let p = &self.people[i];
+            let (skilled, fake) = (p.skill >= 12, p.fake && p.ai != person::AI_CIV);
+            if !skilled && !(fake && self.rand() & 0xff < 34) {
+                continue;
+            }
+            // `IT_HEALTH`, `IT_AMMO_PISTOL`, `_SHOTGUN`, `_AK47`.
+            let kind = if fake { 3 } else { [3, 10, 11, 12][(self.rand() & 3) as usize] };
+            let hips = self.people[i].fig.hips();
+            let (x, z) = (hips.x + 24.0, hips.z);
+            let y = level.ground.surface(&level.map, x, z, hips.y + 32.0);
+            self.items.push(Item { way: 0, kind, pos: Vec3::new(x, y, z) });
+        }
+    }
+
     pub(crate) fn searching(&mut self, dt: f32, held: bool, level: &Level) {
         let Some(mut s) = self.search.take() else { return };
         let standing = self.player.is_some_and(|p| matches!(self.people[p].state, State::Move));

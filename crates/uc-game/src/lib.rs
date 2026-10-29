@@ -1384,6 +1384,7 @@ impl Game {
         self.walk_goals();
         self.run_ctf(dt, level);
         self.arm_bodyguards(level);
+        self.bonus_items(level);
         self.find_ways(level);
         self.city_life(dt, level);
         self.board_cars(level);
