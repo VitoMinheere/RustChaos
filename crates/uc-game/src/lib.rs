@@ -636,6 +636,8 @@ pub struct Game {
     briefing: Briefing,
     /// The players who pressed action this turn (one in single player).
     used: Vec<usize>,
+    /// The switch or valve (map object) someone pressed or turned this turn.
+    worked: Option<usize>,
     /// Who the player's gun is aimed at.
     pub target: Option<usize>,
     /// What else the player's gun is pointed at, and how steady it is.
@@ -821,11 +823,29 @@ fn player_name(mission: &str, kind: u8) -> &'static str {
     }
 }
 
+/// Where switch or valve `ob` (a map object) is worked from, and the way to face
+/// (radians): a quarter of a square in front of a switch, three quarters in front of a valve
+/// ([`Person::work_switch`]).
+pub fn switch_spot(level: &Level, ob: usize) -> (Vec3, f32) {
+    let o = &level.map.objects[ob];
+    let a = o.yaw as f32 * std::f32::consts::TAU / 2048.0;
+    let out = if o.prim == PRIM_SWITCH_OFF { 64.0 } else { 256.0 - 64.0 };
+    (Vec3::new(o.x as f32 + a.sin() * out, o.y as f32, o.z as f32 + a.cos() * out), a)
+}
+
 impl Game {
     /// Starts a level. With `scripted`, the mission's event points run (spawning the player,
     /// enemies, messages...); otherwise Darci just stands at the player start.
     pub fn new(level: &Level, scripted: bool) -> Game {
-        let script = scripted.then(|| Script::new(&level.mission));
+        let script = scripted.then(|| {
+            let mut s = Script::new(&level.mission);
+            let switches: Vec<(usize, Vec3)> = level.map.objects.iter().enumerate()
+                .filter(|(_, o)| matches!(o.prim, PRIM_SWITCH_OFF | PRIM_VALVE))
+                .map(|(k, o)| (k, Vec3::new(o.x as f32, o.y as f32, o.z as f32)))
+                .collect();
+            s.bind_switches(&switches);
+            s
+        });
         let mut g = Game {
             people: Vec::new(),
             player: None,
@@ -865,6 +885,7 @@ impl Game {
             convo: None,
             wide: None,
             used: Vec::new(),
+            worked: None,
             target: None,
             aiming: Aiming::default(),
             stats: [0; 4],
@@ -1283,19 +1304,22 @@ impl Game {
         self.messages.retain(|m| m.left > 0.0);
         self.say_briefing();
         self.used = (0..seats).filter(|&s| seat_input(s).action).filter_map(|s| self.seat_person(s)).collect();
+        self.worked = None;
         for &i in &self.used.clone() {
             self.switches.flip_near(self.people[i].fig.pos);
             // A switch or a valve on the map (`OB_find_type`, `FIND_OB_SWITCH_OR_VALVE`,
             // within 0x180): she presses or turns it.
             let at = self.people[i].fig.pos;
-            let near = level.map.objects.iter()
-                .filter(|o| matches!(o.prim, PRIM_SWITCH_OFF | PRIM_VALVE))
-                .map(|o| (o, Vec3::new(o.x as f32, o.y as f32, o.z as f32)))
-                .filter(|(_, p)| (*p - at).length() < 0x180 as f32)
-                .min_by(|a, b| (a.1 - at).length().total_cmp(&(b.1 - at).length()));
-            if let Some((o, p)) = near {
+            let near = level.map.objects.iter().enumerate()
+                .filter(|(_, o)| matches!(o.prim, PRIM_SWITCH_OFF | PRIM_VALVE))
+                .map(|(k, o)| (k, o, Vec3::new(o.x as f32, o.y as f32, o.z as f32)))
+                .filter(|(_, _, p)| (*p - at).length() < 0x180 as f32)
+                .min_by(|a, b| (a.2 - at).length().total_cmp(&(b.2 - at).length()));
+            if let Some((k, o, p)) = near {
                 let (yaw, switch) = (o.yaw, o.prim == PRIM_SWITCH_OFF);
-                self.people[i].work_switch(p, yaw, switch);
+                if self.people[i].work_switch(p, yaw, switch) {
+                    self.worked = Some(k);
+                }
             }
         }
         for s in 0..seats {

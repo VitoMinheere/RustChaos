@@ -92,8 +92,10 @@ fn the_security_panel_switches_the_wires_off() {
     r.play(1.0, Controls::default());
     let e = r.level.mission.event_points.iter().find(|e| e.index == PANEL).unwrap();
     r.put(vec2(e.x as f32, e.z as f32), e.y as f32, vec2(0.0, 1.0));
+    r.stand_at_switch(PANEL);
     r.play(DT, Controls { action: true, ..Default::default() });
-    r.play(1.0, Controls::default());
+    // Pressing it takes a couple of seconds.
+    r.play(2.5, Controls::default());
     assert!(r.seen.iter().any(|m| m.contains("Security systems off")), "the panel did nothing: {:?}", r.seen);
     assert!(r.g.trips.wires.iter().all(|w| w.off), "a wire is still on");
     let (mid, across) = r.before_wire(150.0);

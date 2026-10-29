@@ -3,7 +3,6 @@
 //! is moved to the switch. Checks the mission logic (waves, groups, random placement, timers,
 //! fly-bys, conversations, switches), not the player's skill. Skipped without an install.
 
-use glam::Vec3;
 use uc_game::person::ko;
 use uc_game::{Controls, Game, Outcome, Weapon};
 use uc_world::{Level, LoadOptions};
@@ -89,9 +88,10 @@ fn physical_training_switch_stops_the_clock() {
     let clock = clock.expect("the course clock never started");
     println!("clock started at {clock:.0}s, after {:.1}s", g.time);
     assert!(clock > 100.0);
-    // Teleport to the finish and press the switch.
+    // Teleport to the finish and press the switch (point 12's).
     let p = g.player.unwrap();
-    g.people[p].fig.pos = Vec3::new(18639.0, 1536.0, 7842.0);
+    let (at, a) = uc_game::switch_spot(&level, g.point_switch(12).expect("no switch on point 12"));
+    (g.people[p].fig.pos, g.people[p].fig.angle) = (at, a);
     let press = Controls { action: true, ..Default::default() };
     g.update(DT, &press, &level);
     for _ in 0..(3.0 / DT) as usize {
