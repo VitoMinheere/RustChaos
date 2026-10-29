@@ -346,6 +346,12 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 /// at its finish. Here, once she's past the jumps, the switch has a beacon until it's
 /// used, and the finish one from then on.
 ///
+/// estate1 starts Darci at (4706, 22406), in a back yard closed in on every side, the
+/// estate's wall on one with an unclimbable fence along its top. Its map (`nestate0x.iam`)
+/// is a draft of Estate of Emergency's, whose yard has a ladder up the block in its corner
+/// (38, 92) to drop off into the alley beyond; the draft's hasn't. Here she starts in that
+/// alley, level with where she was, across the yard's east wall.
+///
 /// `mission_name` is the mission's file name: gang3's own name is "Gang order3", whose
 /// mission it was made from.
 pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
@@ -376,6 +382,12 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         }
         for e in mission.event_points.iter_mut().filter(|e| (e.index == 78 && e.trigger == trigger::CUBOID) || (e.index == 80 && e.kind == waypoint::NAV_BEACON)) {
             e.x += 1024;
+        }
+        return;
+    }
+    if name == "estate1" {
+        if let Some(e) = mission.event_points.iter_mut().find(|e| e.used != 0 && e.kind == waypoint::CREATE_PLAYER && (e.x, e.z) == (4706, 22406)) {
+            (e.x, e.z) = (7552, 22400);
         }
         return;
     }
