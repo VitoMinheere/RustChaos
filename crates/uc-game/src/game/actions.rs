@@ -341,7 +341,7 @@ impl Game {
             let a = n as f32 * 2.4;
             let (x, z) = (hips.x + 24.0 * a.sin(), hips.z + 24.0 * a.cos());
             let y = level.ground.surface(&level.map, x, z, hips.y + 32.0);
-            Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds: None }
+            Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds: None, born: self.time }
         }).collect()
     }
 
@@ -409,7 +409,7 @@ impl Game {
             let hips = self.people[i].fig.hips();
             let (x, z) = (hips.x + 24.0, hips.z);
             let y = level.ground.surface(&level.map, x, z, hips.y + 32.0);
-            self.items.push(Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds: None });
+            self.items.push(Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds: None, born: self.time });
         }
     }
 
@@ -449,7 +449,7 @@ impl Game {
             let hips = p.fig.hips();
             let (x, z) = (hips.x - 24.0, hips.z);
             let y = level.ground.surface(&level.map, x, z, hips.y + 32.0);
-            self.items.push(Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds });
+            self.items.push(Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds, born: self.time });
         }
     }
 
@@ -538,12 +538,12 @@ impl Game {
             return;
         }
         let pos = p.fig.pos;
-        // Badges are collected within 160 units, summing the three axes (as the original does).
-        let near = |it: &Item| if (BADGE..BADGE + 4).contains(&it.kind) {
+        // Anything is collected within 160 units, summing the three axes, once it's been there
+        // a second (Special.cpp:1388).
+        let now = self.time;
+        let near = |it: &Item| {
             let d = (it.pos - pos).abs();
-            d.x + d.y + d.z < 160.0
-        } else {
-            Vec2::new(it.pos.x - pos.x, it.pos.z - pos.z).length() < 80.0 && (it.pos.y - pos.y).abs() < 100.0
+            d.x + d.y + d.z < 160.0 && now - it.born > 1.0
         };
         let Some(i) = self.items.iter().position(near) else { return };
         let (kind, way, rounds) = (self.items[i].kind, self.items[i].way, self.items[i].rounds);
@@ -553,7 +553,8 @@ impl Game {
         }
         let p = &mut self.people[pi];
         let took = match kind {
-            3 if p.health < p.max_health => {
+            // Not wasted on a scratch: only down 100 or more (Special.cpp:1361).
+            3 if p.health <= p.max_health - 100 => {
                 p.health = (p.health + 100).min(p.max_health);
                 true
             }

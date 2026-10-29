@@ -37,7 +37,7 @@ fn setup(way: usize) -> Option<(Level, Game, usize)> {
         })
         .find(|&p| (p.y - at.y).abs() < 32.0 && level.ground.line_of_sight(at + eye, p + eye))
         .expect("no clear spot");
-    g.items.push(Item { way, kind: Weapon::Pistol.item().unwrap(), pos: spot, rounds: Some(5) });
+    g.items.push(Item { way, kind: Weapon::Pistol.item().unwrap(), pos: spot, rounds: Some(5), born: 0.0 });
     Some((level, g, ei))
 }
 

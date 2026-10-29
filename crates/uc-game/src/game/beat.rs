@@ -523,7 +523,7 @@ impl Game {
             Kind::DumpedWeapon => {
                 let way = b.next_way;
                 b.next_way += 1;
-                let item = Item { way, kind: 2, pos: at, rounds: None };
+                let item = Item { way, kind: 2, pos: at, rounds: None, born: self.time };
                 // In the nearest bin or skip within a few squares, if there is one; else
                 // lying where it was dumped.
                 match find_ob(level, at, 3.0 * 256.0, None) {

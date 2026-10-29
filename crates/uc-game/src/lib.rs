@@ -140,6 +140,9 @@ pub struct Item {
     pub pos: Vec3,
     /// The rounds in a gun someone dropped (`special->ammo`); None for a full clip.
     pub rounds: Option<u32>,
+    /// When it was put there (`Game::time`): nobody picks it up for a second after
+    /// (`special->counter`, Special.cpp:1390).
+    pub born: f32,
 }
 
 /// The player going through a prop for whatever is hidden in it (`STATE_SEARCH`,
