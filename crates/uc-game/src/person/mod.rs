@@ -874,8 +874,11 @@ pub struct Person {
     pub mv: u8,
     /// What's in hand.
     pub weapon: Weapon,
-    /// A knife or bat carried (drawn or not).
-    pub melee: Weapon,
+    /// A knife carried (drawn or not). One at most, and a bat besides
+    /// (`should_person_get_item`, Special.cpp:284).
+    pub knife: bool,
+    /// A bat carried (drawn or not), one at most.
+    pub bat: bool,
     /// The item (`IT_*`) they give up when searched, besides their weapons (`drop`).
     pub drop: Option<u8>,
     /// Searched already (`FLAG_PERSON_SEARCHED`): nothing more to find on them.
@@ -1104,7 +1107,7 @@ impl Person {
         Person {
             fig, way, player, kind, ai: 0, bent: 0, ko_moves: 0, health, max_health: health, state: State::Move,
             pace: Pace::Walk,
-            arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
+            arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, knife: false, bat: false, drop: None, searched: false, guns: 0, ammo: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, struggle: 0.0, idle_for: 0.0, breathed: false, screamed: false, fly_kick: None, gun_fight: false, topple: None, bonus_rolled: false, run_shot: 0.0, fetch: None, splattered: false, sized_up: false, felon: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
@@ -1160,8 +1163,10 @@ impl Person {
         } else if let Some(s) = w.slot() {
             self.guns |= 1 << s;
             self.ammo[s] += w.clip();
-        } else if w != Weapon::None {
-            self.melee = w;
+        } else if w == Weapon::Knife {
+            self.knife = true;
+        } else if w == Weapon::Bat {
+            self.bat = true;
         }
     }
 
@@ -1177,7 +1182,11 @@ impl Person {
         }
         match w.slot() {
             Some(s) => self.guns & (1 << s) != 0,
-            None => w == Weapon::None || self.melee == w,
+            None => match w {
+                Weapon::Knife => self.knife,
+                Weapon::Bat => self.bat,
+                _ => w == Weapon::None,
+            },
         }
     }
 
@@ -1205,24 +1214,22 @@ impl Person {
     /// original's panel lists these too (`PANEL_ADDWEAPON`), so a weapon picked up or handed
     /// over at the start can be seen without cycling to it.
     pub fn stowed(&self) -> Vec<(Weapon, Option<u32>)> {
-        let melee = (self.melee != Weapon::None).then_some((self.melee, None));
+        let melee = [(self.knife, Weapon::Knife), (self.bat, Weapon::Bat)].into_iter().filter(|&(c, _)| c).map(|(_, w)| (w, None));
         let guns = Weapon::GUNS.iter().enumerate()
             .filter(|(s, _)| self.guns & (1 << s) != 0)
             .map(|(s, &g)| (g, Some(self.ammo[s])));
         let charges = (self.explosives > 0).then_some((Weapon::Explosives, Some(self.explosives as u32)));
         let grenades = (self.grenades > 0).then_some((Weapon::Grenade, Some(self.grenades as u32)));
         let hook = self.hook.then_some((Weapon::Hook, None));
-        melee.into_iter().chain(guns).chain(charges).chain(grenades).chain(hook).filter(|&(w, _)| w != self.weapon).collect()
+        melee.chain(guns).chain(charges).chain(grenades).chain(hook).filter(|&(w, _)| w != self.weapon).collect()
     }
 
     /// What can be taken out, in the order the weapon key goes through them: bare hands
     /// first, as the original's panel lists them (`PANEL_inventory`).
     pub fn carried(&self) -> Vec<Weapon> {
-        [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Sniper, Weapon::Explosives, Weapon::Grenade, Weapon::Hook]
+        [Weapon::None, Weapon::Knife, Weapon::Bat, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Sniper, Weapon::Explosives, Weapon::Grenade, Weapon::Hook]
             .into_iter()
-            .enumerate()
-            .filter(|&(k, w)| self.has(w) && (k == 0 || w != Weapon::None))
-            .map(|(_, w)| w)
+            .filter(|&w| self.has(w))
             .collect()
     }
 

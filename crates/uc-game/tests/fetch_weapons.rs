@@ -27,7 +27,7 @@ fn setup(way: usize) -> Option<(Level, Game, usize)> {
     let at = g.people[ei].fig.pos;
     g.people[pi].fig.pos = at + glam::vec3(0.0, 0.0, 40.0 * 256.0);
     let e = &mut g.people[ei];
-    (e.weapon, e.melee, e.guns) = (Weapon::None, Weapon::None, 0);
+    (e.weapon, e.knife, e.bat, e.guns) = (Weapon::None, false, false, 0);
     let eye = glam::vec3(0.0, 64.0, 0.0);
     let spot = (0..16)
         .map(|k| {

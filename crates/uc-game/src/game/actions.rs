@@ -334,8 +334,12 @@ impl Game {
         if grenade.is_some() {
             p.grenades = 0;
         }
-        let kinds: Vec<u8> = [p.weapon.item(), p.melee.item(), p.drop.take(), grenade].into_iter().flatten().collect();
-        (p.weapon, p.melee) = (Weapon::None, Weapon::None);
+        // What else is in hand, and the knife and bat carried, in hand or not.
+        let gun = p.weapon.item().filter(|_| !matches!(p.weapon, Weapon::Knife | Weapon::Bat));
+        let knife = p.knife.then(|| Weapon::Knife.item()).flatten();
+        let bat = p.bat.then(|| Weapon::Bat.item()).flatten();
+        let kinds: Vec<u8> = [gun, knife, bat, p.drop.take(), grenade].into_iter().flatten().collect();
+        (p.weapon, p.knife, p.bat) = (Weapon::None, false, false);
         let hips = p.fig.hips();
         kinds.into_iter().enumerate().map(|(n, kind)| {
             let a = n as f32 * 2.4;
@@ -358,7 +362,7 @@ impl Game {
         let eye = Vec3::new(0.0, 64.0, 0.0);
         for i in 0..self.people.len() {
             let p = &self.people[i];
-            let armed = p.weapon != Weapon::None || p.melee != Weapon::None || p.guns != 0;
+            let armed = p.weapon != Weapon::None || p.knife || p.bat || p.guns != 0;
             if let Some(at) = p.fetch {
                 let lying = self.items.iter().any(|it| it.way == 0 && it.pos.distance(at) < 1.0);
                 if armed || !lying || p.is_down() || p.is_dead() || p.removed {
@@ -442,8 +446,10 @@ impl Game {
                 p.guns &= !(1 << s);
                 n
             });
-            if w.slot().is_none() {
-                p.melee = Weapon::None;
+            match w {
+                Weapon::Knife => p.knife = false,
+                Weapon::Bat => p.bat = false,
+                _ => {}
             }
             p.weapon = Weapon::None;
             let hips = p.fig.hips();
@@ -586,7 +592,8 @@ impl Game {
                 }
                 true
             }
-            5 | 8 if p.melee == Weapon::None => {
+            // One of each: a bat besides a knife, but not two (Special.cpp:284-304).
+            5 | 8 if !p.has(Weapon::from_item(kind).unwrap()) => {
                 let w = Weapon::from_item(kind).unwrap();
                 p.give(w);
                 if p.weapon == Weapon::None {
