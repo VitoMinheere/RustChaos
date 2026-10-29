@@ -691,6 +691,8 @@ pub struct Game {
     pub bikes: Vec<(bike::Bike, Option<Figure>)>,
     /// The navigation map and everyone's last route.
     routes: game::Routes,
+    /// Each target's four places round them to be fought from (`gang_attacks`).
+    gang_attacks: std::collections::HashMap<usize, [Option<usize>; 4]>,
     /// The mission's helicopters.
     pub choppers: Vec<chopper::Chopper>,
     /// Where everyone was at the barrels' last turn, to knock barrels with as they walk.
@@ -889,6 +891,7 @@ impl Game {
             snipe: None,
             bikes: Vec::new(),
             routes: game::Routes::new(level),
+            gang_attacks: Default::default(),
             choppers: Vec::new(),
             barrel_marks: Vec::new(),
             entering: Vec::new(),
@@ -1446,6 +1449,7 @@ impl Game {
         self.fetch_weapons(level);
         self.bonus_items(level);
         self.drop_held(level);
+        self.gang_slots();
         self.find_ways(level);
         self.city_life(dt, level);
         self.board_cars(level);
