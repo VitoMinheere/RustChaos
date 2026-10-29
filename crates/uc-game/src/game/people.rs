@@ -166,6 +166,12 @@ impl Game {
             ring[want as usize] = Some(i);
             self.people[i].slot = Some((t, want));
         }
+        // On their own, an attacker's place is wherever they are: only a gang side-steps.
+        for i in 0..self.people.len() {
+            let Some((t, _)) = self.people[i].slot else { continue };
+            let n = self.gang_attacks.get(&t).map_or(0, |ring| ring.iter().flatten().count());
+            self.people[i].ganged = n > 1;
+        }
     }
 
     /// Person `i` gives up their place round `t`.

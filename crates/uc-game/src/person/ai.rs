@@ -506,7 +506,7 @@ impl Person {
         // Round to the quarter of them that's ours to fight from (`AttackAngle`, Person.cpp:
         // 21903): more than 30 of 2048 off it, a side-step that way, so a gang closes in from
         // all round rather than queueing.
-        if let Some((_, quarter)) = self.slot.filter(|&(t, _)| Some(t) == player && dist < 400.0) {
+        if let Some((_, quarter)) = self.slot.filter(|&(t, _)| Some(t) == player && self.ganged && dist < 400.0) {
             let from = -d;
             let bearing = from.x.atan2(from.y);
             let want = quarter as f32 * std::f32::consts::FRAC_PI_2;
