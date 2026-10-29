@@ -178,7 +178,7 @@ impl Game {
             let d = f * 80.0 + side * (n as f32 - 1.0) * 60.0;
             let (x, z) = (at.x + d.x, at.z + d.y);
             let y = level.ground.surface(&level.map, x, z, at.y + 64.0);
-            self.items.push(Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds: None });
+            self.items.push(Item { way: 0, kind, pos: Vec3::new(x, y, z), rounds: None, born: self.time });
         }
     }
 

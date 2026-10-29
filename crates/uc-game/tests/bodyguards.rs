@@ -84,7 +84,7 @@ fn a_bodyguard_arms_himself() {
         .filter(|&v| (v - from).dot(from - darci) > 0.0)
         .find(|&v| (v.y - from.y).abs() < 32.0 && level.ground.line_of_sight(from + eye, v + eye))
         .expect("nowhere in sight to put it");
-    g.items.push(Item { way: 0, kind: 2, pos: at, rounds: None });
+    g.items.push(Item { way: 0, kind: 2, pos: at, rounds: None, born: 0.0 });
     run(&level, &mut g, 8.0);
     assert!(g.people[guard].weapon == Weapon::Pistol, "still has {:?}", g.people[guard].weapon);
     assert!(!g.items.iter().any(|it| it.way == 0 && it.kind == 2), "the pistol's still lying there");

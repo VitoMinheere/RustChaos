@@ -79,7 +79,7 @@ impl Game {
                             let (kind, at) = (p.weapon.item(), p.fig.pos);
                             p.weapon = Weapon::None;
                             if let Some(kind) = kind {
-                                self.items.push(Item { way: 0, kind, pos: at + Vec3::new(40.0, 0.0, 0.0), rounds: None });
+                                self.items.push(Item { way: 0, kind, pos: at + Vec3::new(40.0, 0.0, 0.0), rounds: None, born: self.time });
                             }
                         }
                         // "MIB never have a low skill" (elev.cpp:885).
@@ -168,7 +168,7 @@ impl Game {
                     let near = level.ground.spawn_height(&level.map, pos.x, pos.z, pos.y);
                     let under = level.ground.surface(&level.map, pos.x, pos.z, pos.y + 32.0);
                     let y = if near == pos.y && under < near - uc_world::ground::STEP_HEIGHT { under } else { near };
-                    let item = Item { way, kind, pos: Vec3::new(pos.x, y, pos.z), rounds: None };
+                    let item = Item { way, kind, pos: Vec3::new(pos.x, y, pos.z), rounds: None, born: self.time };
                     // A stashed item goes into the nearest prop within eight squares, which
                     // becomes searchable; with none that near it is left lying in the open
                     // (`EWAY_create_item`).
@@ -184,7 +184,7 @@ impl Game {
                     if way == TRAINING_PISTOL && level.mission.mission_name.eq_ignore_ascii_case("train11") {
                         let at = Vec3::new(pos.x + 96.0, 0.0, pos.z);
                         let y = level.ground.surface(&level.map, at.x, at.z, pos.y + 32.0);
-                        self.items.push(Item { way: 0, kind: crate::SNIPER, pos: Vec3::new(at.x, y, at.z), rounds: None });
+                        self.items.push(Item { way: 0, kind: crate::SNIPER, pos: Vec3::new(at.x, y, at.z), rounds: None, born: self.time });
                     }
                 }
                 Command::Bike { way, pos, angle } => self.add_bike(level, way, pos, angle),
