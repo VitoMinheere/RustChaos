@@ -94,6 +94,30 @@ fn el_cossa_island_runs_to_a_win() {
     assert_eq!(r.g.outcome, Some(Outcome::Won));
 }
 
+/// Each of Bane's six workmen has a beacon until he's down: with the four the script marks
+/// down, the other two (points 57 and 58, `uc_world::level::finish_unfinished`) are still
+/// marked, and the last of them down wins.
+#[test]
+fn el_cossa_island_marks_every_workman() {
+    let Some(mut r) = start("jung3") else { return };
+    r.run(3.0, false);
+    let targets = |r: &Run| r.g.beacons().into_iter().filter(|(l, _)| l == "Target").map(|(_, at)| at).collect::<Vec<_>>();
+    assert_eq!(targets(&r).len(), 6);
+    for way in [59, 60, 61, 64] {
+        r.kill(way);
+    }
+    r.run(2.0, false);
+    let left: Vec<_> = [57, 58].iter().map(|&w| r.g.people[r.g.people.iter().position(|p| p.way == w).unwrap()].fig.pos).collect();
+    assert_eq!(targets(&r), left);
+    assert_eq!(r.g.outcome, None);
+    r.kill(57);
+    r.kill(58);
+    r.run(5.0, false);
+    assert!(targets(&r).is_empty());
+    assert!(r.said("All Bane workers down!"), "{:?}", r.seen);
+    assert_eq!(r.g.outcome, Some(Outcome::Won));
+}
+
 /// Killing an islander loses it.
 #[test]
 fn el_cossa_island_needs_the_islanders_alive() {

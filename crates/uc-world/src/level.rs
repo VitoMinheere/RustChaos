@@ -287,6 +287,13 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 /// so in the original it watches a prop that can't be damaged, and the mission can't be
 /// won. Here the point is on the transmitter.
 ///
+/// jung3, El Cossa Island, is won once all of Bane's workmen are down, and each has a
+/// "Target" beacon until he is but the two by the compound's gate (points 57 and 58): the
+/// points that look meant to give them theirs (169 to 172) were made the wrong sorts, a
+/// `kill_waypoint` that kills itself and plain points. 58 is moved at random up onto the
+/// scaffolding (134 or 135) and stays there, easily missed once the others are down. Here
+/// both have one too, killed as the others' are.
+///
 /// `mission_name` is the mission's file name: gang3's own name is "Gang order3", whose
 /// mission it was made from.
 pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
@@ -305,9 +312,11 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         "crimescene" | "police5" => has(waypoint::END_GAME_WIN),
         // It has the contact's of its own.
         "getaway1" => beacons > 1,
+        // It has the other workmen's of its own.
+        "jung3" => mission.event_points.iter().any(|e| e.used != 0 && e.kind == waypoint::NAV_BEACON && e.data[1] == 57),
         _ => beacons > 0,
     };
-    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5" | "getaway1") || done {
+    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5" | "getaway1" | "jung3") || done {
         return;
     }
     let point = |m: &Mission, i: usize| m.event_points.iter().find(|e| e.index == i && e.used != 0).cloned();
@@ -394,6 +403,13 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: talked.index as u16, ..at(&contact) };
         add_point(mission, EventPoint { data: [contact.index as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
         add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: talked.index as u16, ..beacon(&mr_x, mr_x.index) }, Some("Mr X"));
+    } else if name == "jung3" {
+        for workman in [57, 58] {
+            let Some(w) = point(mission, workman).filter(|w| w.kind == waypoint::CREATE_ENEMIES) else { continue };
+            let b = add_point(mission, beacon(&w, workman), Some("Target"));
+            let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::KILLED, ep_ref: workman as u16, ..at(&w) };
+            add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
+        }
     } else {
         let (Some(op), Some(chopper), Some(rendezvous)) = (point(mission, 37), point(mission, 41), point(mission, 42)) else { return };
         add_point(mission, beacon(&op, 37), Some("Dock operator"));
