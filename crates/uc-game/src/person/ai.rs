@@ -473,7 +473,9 @@ impl Person {
         }
         // Guns shoot from range when they can see the player, and close in otherwise.
         let skill = self.skill as f32;
-        if self.weapon.is_gun() && dist > 260.0 {
+        // A grenade is thrown from any range in sight (pcom.cpp:9930).
+        let thrower = self.weapon == Weapon::Grenade && self.grenades > 0;
+        if (self.weapon.is_gun() && dist > 260.0) || thrower {
             self.attack_timer -= dt;
             let eye = vec3(0.0, 140.0, 0.0);
             let seen = dist < SHOOT_RANGE && ground.line_of_sight(self.fig.pos + eye, p.pos + eye);

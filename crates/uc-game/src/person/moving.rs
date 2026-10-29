@@ -748,6 +748,19 @@ impl Person {
                 return;
             }
         }
+        // The AI's grenade: primed and thrown in one (`shoot_get_ammo_sound_anim_time`,
+        // Person.cpp:6060, `set_person_can_release`).
+        if c.punch && !self.player && self.weapon == Weapon::Grenade && self.grenades > 0 {
+            if let Some(t) = c.target.filter(|&t| t != me && snaps[t].present) {
+                self.face(snaps[t].pos);
+            }
+            if self.fig.restart(anim::CAN_RELEASE, Play::Once) {
+                self.state = State::Throw { released: false };
+            } else {
+                events.push(Event::Throw { thrower: me });
+            }
+            return;
+        }
         // Punch with a can in hand throws it (`player_activate_in_hand`, interfac.cpp:668).
         if c.punch && self.can.is_some() {
             if self.fig.restart(anim::CAN_RELEASE, Play::Once) {
