@@ -95,13 +95,16 @@ fn three_balrogs() {
     r.won();
 }
 
-/// Mr Bates (`gang1`): Bates (point 113) down, and Mako back at the den.
+/// Mr Bates (`gang1`): Bates (point 113) down, and Mako back at the den, which has a beacon
+/// from then on, in place of Bates's (`uc_world::level::finish_unfinished`).
 #[test]
 fn mr_bates() {
     let Some(mut r) = common::start("gang1") else { return };
     r.play(2.0, Controls::default());
+    assert_eq!(r.labels(), ["Mr Bates."]);
     r.knock_out(113);
     assert!(r.until(5.0, |r| r.said("return to the den")), "{:?}", r.seen);
+    assert_eq!(r.labels(), ["The den"]);
     let den = r.point(116);
     r.stand(den);
     assert!(r.until(40.0, |r| r.g.outcome.is_some()));

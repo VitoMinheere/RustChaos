@@ -307,6 +307,10 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 /// where he is: only a message (154) on getting near York park, which he passes on the way.
 /// Here the contact's beacon goes once the talk's over (179), and Mr X has one from then on.
 ///
+/// gang1 has a beacon on Mr Bates (point 118), and once he's dead (115) says "return to the
+/// den", where Mako started (116), but the beacon stays on the body and the den has none.
+/// Here Bates's beacon goes then, and the den has one from then on.
+///
 /// Transmit1's `prim_damaged` point (120), which wins it once the transmitter on the TV
 /// building is blown up, is just over the edge of the map's block of props from the
 /// transmitter's: `EWAY_create_cond` looks for the nearest prop in the point's own block,
@@ -384,9 +388,11 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         "getaway1" => beacons > 1,
         // It has the other workmen's of its own.
         "jung3" => mission.event_points.iter().any(|e| e.used != 0 && e.kind == waypoint::NAV_BEACON && e.data[1] == 57),
+        // And Bates's.
+        "gang1" => beacons > 1,
         _ => beacons > 0,
     };
-    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5" | "getaway1" | "snow1" | "jung3" | "train11") || done {
+    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5" | "getaway1" | "snow1" | "jung3" | "train11" | "gang1") || done {
         return;
     }
     let point = |m: &Mission, i: usize| m.event_points.iter().find(|e| e.index == i && e.used != 0).cloned();
@@ -497,6 +503,11 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: switch.index as u16, ..at(&switch) };
         add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
         add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: switch.index as u16, ..beacon(&finish, 0) }, Some("Finish"));
+    } else if name == "gang1" {
+        let (Some(bates), Some(dead), Some(den)) = (point(mission, 118), point(mission, 115), point(mission, 116)) else { return };
+        let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: dead.index as u16, ..at(&bates) };
+        add_point(mission, EventPoint { data: [bates.index as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
+        add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: dead.index as u16, ..beacon(&den, 0) }, Some("The den"));
     } else {
         let (Some(op), Some(chopper), Some(rendezvous)) = (point(mission, 37), point(mission, 41), point(mission, 42)) else { return };
         add_point(mission, beacon(&op, 37), Some("Dock operator"));
