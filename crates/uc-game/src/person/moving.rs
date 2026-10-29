@@ -763,6 +763,20 @@ impl Person {
         if moving && c.run {
             self.gun_fight = false;
         }
+        // Running, the player fires without stopping (`set_person_shoot` going to
+        // `set_person_running_shoot`, Person.cpp:6607, for `SUB_STATE_RUNNING`): at whoever's
+        // targeted, a round at a time, no sooner than the gun's `time` after the last (64
+        // ticks, the shotgun's 400, counted down 16 a turn); an AK goes on firing while it's
+        // held (`continue_firing`, Person.cpp:15605). She runs on.
+        self.run_shot = (self.run_shot - dt).max(0.0);
+        let run_and_gun = self.player && moving && c.run && self.weapon.is_gun() && !self.gun_fight;
+        let trigger = c.punch || (c.fire && self.weapon == Weapon::Ak47);
+        if run_and_gun && trigger && self.run_shot <= 0.0
+            && self.fire_round(me, c.target.filter(|&t| t != me && snaps[t].present), events)
+        {
+            self.run_shot = if self.weapon == Weapon::Shotgun { 400.0 } else { 64.0 } / 16.0 / 20.0;
+        }
+        let c = &Controls { punch: c.punch && !run_and_gun, ..*c };
         if c.punch && self.gun_fight && matches!(self.weapon, Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper) {
             if let Some(t) = target {
                 self.face(snaps[t].pos);
