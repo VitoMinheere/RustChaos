@@ -287,6 +287,14 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 /// so in the original it watches a prop that can't be damaged, and the mission can't be
 /// won. Here the point is on the transmitter.
 ///
+/// train11, Officer Training, has the training officer (point 17) lead Darci round the
+/// course to the jumps, where he leaves her (107, once she's past them). From there the way
+/// on is to the loading lift across the training ground, worked by its switch (81), whose top
+/// leads to the end (the talk in 82's cuboid, which wins it), and nothing points there: there
+/// isn't a beacon in the mission, though the released assault course (`Assault1`) has one
+/// at its finish. Here, once she's past the jumps, the switch has a beacon until it's
+/// used, and the finish one from then on.
+///
 /// `mission_name` is the mission's file name: gang3's own name is "Gang order3", whose
 /// mission it was made from.
 pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
@@ -307,7 +315,7 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         "getaway1" => beacons > 1,
         _ => beacons > 0,
     };
-    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5" | "getaway1") || done {
+    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5" | "getaway1" | "train11") || done {
         return;
     }
     let point = |m: &Mission, i: usize| m.event_points.iter().find(|e| e.index == i && e.used != 0).cloned();
@@ -394,6 +402,12 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: talked.index as u16, ..at(&contact) };
         add_point(mission, EventPoint { data: [contact.index as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
         add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: talked.index as u16, ..beacon(&mr_x, mr_x.index) }, Some("Mr X"));
+    } else if name == "train11" {
+        let (Some(jumps), Some(switch), Some(finish)) = (point(mission, 107), point(mission, 81), point(mission, 82)) else { return };
+        let b = add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: jumps.index as u16, ..beacon(&switch, 0) }, Some("Lift"));
+        let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: switch.index as u16, ..at(&switch) };
+        add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
+        add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: switch.index as u16, ..beacon(&finish, 0) }, Some("Finish"));
     } else {
         let (Some(op), Some(chopper), Some(rendezvous)) = (point(mission, 37), point(mission, 41), point(mission, 42)) else { return };
         add_point(mission, beacon(&op, 37), Some("Dock operator"));
