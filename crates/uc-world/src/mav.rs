@@ -347,6 +347,49 @@ impl Mav {
         }
     }
 
+    /// `MAV_turn_movement_on`: walking out of (x, z) towards `dir` is all there is that way.
+    fn turn_movement_on(&mut self, x: i32, z: i32, dir: usize) {
+        if on_map(x, z) {
+            self.opts[idx(x, z)][dir] = caps(GOTO);
+        }
+    }
+
+    /// Opens the navigation map through a door that's been opened, from map point `a` to
+    /// `b` (its facet's ends): each square along it, on either side, can be walked out of
+    /// across it (`DOOR_open`, door.cpp:162).
+    pub fn open_door(&mut self, a: (i32, i32), b: (i32, i32)) {
+        // `MAV_DIR_*`.
+        const XS: usize = 0;
+        const XL: usize = 1;
+        const ZS: usize = 2;
+        const ZL: usize = 3;
+        let (dx, dz) = ((b.0 - a.0).signum(), (b.1 - a.1).signum());
+        if (dx, dz) == (0, 0) {
+            return;
+        }
+        let (left, right) = match (dx, dz) {
+            (1, _) => (ZS, ZL),
+            (-1, _) => (ZL, ZS),
+            (_, 1) => (XL, XS),
+            _ => (XS, XL),
+        };
+        let (mut x, mut z) = a;
+        // A slanting one that never lands on its far end would go on for ever: no further
+        // than across the map.
+        for _ in 0..MAP_SIZE {
+            // The squares either side of this stretch of it: half a square along, and half
+            // a square off to one side, then the other.
+            let (mx, mz) = ((x << 8) + (dx << 7), (z << 8) + (dz << 7));
+            self.turn_movement_on((mx + (-dz << 7)) >> 8, (mz + (dx << 7)) >> 8, left);
+            self.turn_movement_on((mx - (-dz << 7)) >> 8, (mz - (dx << 7)) >> 8, right);
+            x += dx;
+            z += dz;
+            if (x, z) == b {
+                break;
+            }
+        }
+    }
+
     /// `MAV_can_i_walk`: a straight walk from square a to square b, crossing only squares
     /// that can be walked between (corners included on the diagonals).
     pub fn can_walk(&self, a: (u8, u8), b: (u8, u8)) -> bool {

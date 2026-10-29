@@ -358,12 +358,22 @@ impl Game {
                 Command::EndOfWorld => {
                     self.end_of_world.get_or_insert(0.0);
                 }
-                Command::OpenDoor { pos } => {
-                    if !level.ground.open_door_near(pos.x, pos.z) {
-                        // The original says so too, on its console.
-                        eprintln!("mission: no door near {:.0},{:.0} to open", pos.x, pos.z);
+                Command::OpenDoor { pos } => match level.ground.open_door_near(pos.x, pos.z) {
+                    // And people finding their way can go through it now (`DOOR_open`,
+                    // door.cpp:206). Inside's map has the streets too, so it's opened there
+                    // as well.
+                    Some(d) => {
+                        let w = &level.ground.doors[d].wall;
+                        let sq = |p: [f32; 2]| ((p[0] / 256.0).round() as i32, (p[1] / 256.0).round() as i32);
+                        let (a, b) = (sq(w.a), sq(w.b));
+                        self.routes.mav.open_door(a, b);
+                        if let Some(inside) = self.routes.inside.as_mut() {
+                            inside.open_door(a, b);
+                        }
                     }
-                }
+                    // The original says so too, on its console.
+                    None => eprintln!("mission: no door near {:.0},{:.0} to open", pos.x, pos.z),
+                },
                 // Capture the flag: the bot's seat winning is Darci losing.
                 Command::Win { way } if self.bot_won(way) => self.finish(Outcome::Lost("Roper got the disk home".into())),
                 Command::Win { .. } => self.finish(Outcome::Won),

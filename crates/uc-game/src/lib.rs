@@ -1010,6 +1010,12 @@ impl Game {
         self.script.as_ref().map_or(&[], |s| &s.unsupported)
     }
 
+    /// The navigation map people find their way by, as it is now: the doors the mission has
+    /// opened are open on it.
+    pub fn nav(&self) -> &uc_world::mav::Mav {
+        &self.routes.mav
+    }
+
     /// Has the radio read out a briefing at the start, once any opening fly-by is over and
     /// the script's own opening messages are done: the `story` (left out if the script has
     /// already said something of its own), then the `objectives`. For missions the game never
