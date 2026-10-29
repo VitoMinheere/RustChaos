@@ -529,10 +529,27 @@ impl World {
             o.rect(0.0, h * 0.33, w, 50.0 * s, [0, 0, 0, 160]);
             o.text(w / 2.0 - Overlay::text_width(&title, big) / 2.0, h * 0.33 + 8.0 * s, big, col, &title);
             o.text(w / 2.0 - Overlay::text_width(&sub, s) / 2.0, h * 0.33 + 36.0 * s, s, white, &sub);
+            // Won: the criminals dealt with, and the time against the team's (`ScoresDraw`,
+            // Attract.cpp:684), with a code for beating it fairly (no console, no replay).
+            let mut below = h * 0.33 + 56.0 * s;
+            if let (Outcome::Won, Some((secs, _))) = (out, self.result) {
+                let mut rows = Vec::new();
+                if let Some((killed, arrested, left)) = self.game.criminals() {
+                    rows.push(format!("Criminals Killed: {killed}   Criminals Arrested: {arrested}   Criminals Still at Large: {left}"));
+                }
+                let fair = self.counts() && self.recorder.is_some();
+                let (taken, par) = par::line(&self.args.mission, secs, fair);
+                rows.push(format!("Time Taken: {taken}   Mucky Time: {par}"));
+                o.rect(0.0, below - 4.0 * s, w, (rows.len() as f32 * 11.0 + 6.0) * s, [0, 0, 0, 140]);
+                for (k, r) in rows.iter().enumerate() {
+                    o.text(w / 2.0 - Overlay::text_width(r, s) / 2.0, below + k as f32 * 11.0 * s, s, white, r);
+                }
+                below += (rows.len() as f32 * 11.0 + 8.0) * s;
+            }
             // The chief's word on the civilians killed (`deadcivs.tga`'s message).
             if let Some(warning) = &self.civ_warning {
                 let lines = Overlay::wrap(warning, w * 0.6, s);
-                let top = h * 0.33 + 56.0 * s;
+                let top = below;
                 o.rect(w * 0.18, top - 4.0 * s, w * 0.64, (lines.len() as f32 * 11.0 + 8.0) * s, [60, 0, 0, 190]);
                 for (k, l) in lines.iter().enumerate() {
                     o.text(w / 2.0 - Overlay::text_width(l, s) / 2.0, top + k as f32 * 11.0 * s, s, [255, 220, 200, 255], l);
