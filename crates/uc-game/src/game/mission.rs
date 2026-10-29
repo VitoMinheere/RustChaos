@@ -58,9 +58,18 @@ impl Game {
                         // Someone with a pistol doesn't drop another (pcom.cpp:5369).
                         let drop = if spec.has & 1 != 0 && spec.drop == 2 { 0 } else { spec.drop };
                         p.drop = game::special_item(drop);
-                        // A grenade to his name (`PCOM_HAS_GRENADE`, pcom.cpp:5551).
+                        // Grenades to his name, three (`PCOM_HAS_GRENADE`, pcom.cpp:5551,
+                        // `SPECIAL_AMMO_IN_A_GRENADE`), in hand unless he's a shotgun or an AK
+                        // to draw first (`PCOM_set_person_move_draw_gun`, pcom.cpp:3129). A
+                        // pistol besides waits for them to be gone.
                         if spec.has & script::HAS_GRENADE != 0 {
-                            p.grenades = p.grenades.max(1);
+                            p.grenades = p.grenades.max(3);
+                            if p.weapon == Weapon::Pistol {
+                                p.give(Weapon::Pistol);
+                            }
+                            if !matches!(p.weapon, Weapon::Shotgun | Weapon::Ak47) {
+                                p.weapon = Weapon::Grenade;
+                            }
                         }
                         p.fig.clothes = spec.colour & 3;
                         p.fig.jacket = spec.skill / 4;

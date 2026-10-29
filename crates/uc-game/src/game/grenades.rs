@@ -61,20 +61,32 @@ impl Game {
 
     /// The throw reaches its release (`SUB_STATE_CANNING_RELEASE`, frame 3): the primed
     /// grenade leaves her left hand (`SPECIAL_throw_grenade`, `CreateGrenadeFromPerson`).
+    ///
+    /// The AI primes theirs as they start the throw (`shoot_get_ammo_sound_anim_time`,
+    /// Person.cpp:6060), and lobs it half as far at someone within 0x500 they're out to get
+    /// (grenade.cpp:118). Their last gone, they get out a pistol if they've one.
     pub(crate) fn release_grenade(&mut self, pi: usize) {
-        let Some(fuse) = self.primed else { return };
+        let player = Some(pi) == self.player;
+        let Some(fuse) = (if player { self.primed } else { Some(FUSE) }) else { return };
+        let near = self.people[pi].foe.filter(|_| !player && self.people[pi].aggro())
+            .is_some_and(|t| Vec2::new(self.people[t].fig.pos.x - self.people[pi].fig.pos.x, self.people[t].fig.pos.z - self.people[pi].fig.pos.z).length() < 0x500 as f32);
         let p = &mut self.people[pi];
         if p.grenades == 0 {
             return;
         }
         let hand = p.fig.part_world(7).map_or(p.fig.pos + Vec3::new(0.0, 120.0, 0.0), |(_, at)| at);
         let f = p.fig.facing();
-        let vel = Vec3::new(f.x * THROW_ACROSS, THROW_UP, f.y * THROW_ACROSS);
+        let mut vel = Vec3::new(f.x * THROW_ACROSS, THROW_UP, f.y * THROW_ACROSS);
+        if near {
+            vel /= 2.0;
+        }
         p.grenades -= 1;
         if p.grenades == 0 {
-            p.weapon = Weapon::None;
+            p.weapon = if !player && p.has(Weapon::Pistol) { Weapon::Pistol } else { Weapon::None };
         }
-        self.primed = None;
+        if player {
+            self.primed = None;
+        }
         self.grenades.push(Grenade { owner: pi, pos: hand, vel, fuse, pitch: 0.0, warn: 0.0 });
     }
 
