@@ -293,7 +293,13 @@ impl Game {
             let r = Vec2::new(o.fig.pos.x - at.x, o.fig.pos.z - at.y);
             j != pi && !o.removed && !matches!(o.state, State::InCar { .. }) && (o.fig.pos.y - y).abs() < 150.0
                 && r.dot(fwd) > 0.0 && r.dot(fwd) < 250.0 + speed.max(0.0) * 0.5 && r.dot(side).abs() < 170.0
-        }).map(|(_, o)| o.fig.pos);
+        }).map(|(_, o)| o.fig.pos)
+            // And for a car in the way (`VEH_find_runover_things` takes `CLASS_VEHICLE` too,
+            // vehicle.cpp:449).
+            .or_else(|| self.vehicles.iter().enumerate().find(|&(k, o)| {
+                let r = Vec2::new(o.pos.x - at.x, o.pos.z - at.y);
+                k != vi && (o.pos.y - y).abs() < 150.0 && r.dot(fwd) > 0.0 && r.dot(fwd) < 450.0 + speed.max(0.0) * 0.5 && r.dot(side).abs() < 170.0
+            }).map(|(_, o)| o.pos));
         self.streets.drivers.insert(pi, st);
         if let (Some(them), true) = (blocker, want > 0.0 && !st.drunk && !st.reckless) {
             // Off a zebra crossing, now and then a blast of the horn: on two turns in 128,
@@ -362,6 +368,10 @@ impl Game {
             v.work_siren(d);
             let sliding = v.slip.abs() > 300.0;
             let mut smashed = None;
+            let (was_pos, was_yaw) = (v.pos, v.yaw);
+            let v = &self.vehicles[vi];
+            let touching: Vec<usize> = (0..self.vehicles.len()).filter(|&j| j != vi && v.overlaps(&self.vehicles[j])).collect();
+            let v = &mut self.vehicles[vi];
             if let Some(speed) = v.update(d, dt, &level.ground, &level.map) {
                 // `DoDamage` (vehicle.cpp:2094), in its units of 1/256 a tick at 20 ticks a
                 // second: faster than 20000 smashes the prop it hit, as `OB_damage` does
@@ -384,6 +394,32 @@ impl Game {
                     }
                 }
             }
+            // Into another car (`CollideCar` with the vehicles round it, vehicle.cpp:1656): back
+            // where it was, bouncing off as off a wall, and both take the crash
+            // (`DoDamage`: the other car what this one does, vehicle.cpp:2101), with a
+            // smash if the player's in either (`VEH_co_damage`). Cars already touching can
+            // part. (The dents of `VEH_add_damage` aren't drawn.)
+            let hit = (0..self.vehicles.len()).find(|&j| j != vi && !touching.contains(&j) && self.vehicles[vi].overlaps(&self.vehicles[j]));
+            if let Some(j) = hit {
+                let v = &mut self.vehicles[vi];
+                let speed = v.speed.abs();
+                (v.pos, v.yaw) = (was_pos, was_yaw);
+                v.speed = if speed > 200.0 { v.speed * -0.25 } else { 0.0 };
+                v.slip = 0.0;
+                let damage = Vehicle::crash_damage(speed);
+                v.health -= damage;
+                self.vehicles[j].health -= damage;
+                let player = self.player.is_some() && (self.vehicles[vi].driver == self.player || self.vehicles[j].driver == self.player);
+                if player && speed > 10000.0 / 256.0 * 20.0 {
+                    self.sounds.push((Sfx::Crash, self.vehicles[vi].pos));
+                }
+                if let Some(dr) = npc.and_then(|(pi, _)| self.streets.drivers.get_mut(&pi)) {
+                    if dr.reversing <= 0.0 {
+                        dr.reversing = 1.5;
+                    }
+                }
+            }
+            let v = &self.vehicles[vi];
             if !sliding && v.slip.abs() > 300.0 {
                 self.sounds.push((Sfx::Skid, v.pos));
             }

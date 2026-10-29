@@ -296,6 +296,40 @@ impl Vehicle {
         self.health -= damage >> 1;
     }
 
+    /// What a crash at `speed` takes off a car's health: nothing under [`CRASH_SPEED`], as
+    /// running into a wall does in [`Vehicle::update`].
+    pub fn crash_damage(speed: f32) -> i32 {
+        if speed > CRASH_SPEED { ((speed - CRASH_SPEED) / 20.0) as i32 } else { 0 }
+    }
+
+    /// Its outline on the ground, the body round its wheels (`GetCarPoints`, vehicle.cpp:
+    /// 2287): front right, front left, back left, back right.
+    pub fn corners(&self) -> [Vec2; 4] {
+        let (wx, fz, rz) = (TYPES[self.kind as usize].2 + 25.0, TYPES[self.kind as usize].3 + 45.0, TYPES[self.kind as usize].4 - 45.0);
+        [self.to_world(wx, fz), self.to_world(-wx, fz), self.to_world(-wx, rz), self.to_world(wx, rz)]
+    }
+
+    /// Its outline and `other`'s overlap (no edge of either separates them), and they're at
+    /// about the same height.
+    pub fn overlaps(&self, other: &Vehicle) -> bool {
+        if (self.pos.y - other.pos.y).abs() > 150.0 {
+            return false;
+        }
+        let (a, b) = (self.corners(), other.corners());
+        for poly in [&a, &b] {
+            for i in 0..4 {
+                let e = poly[(i + 1) % 4] - poly[i];
+                let axis = vec2(-e.y, e.x);
+                let span = |q: &[Vec2; 4]| q.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| (lo.min(p.dot(axis)), hi.max(p.dot(axis))));
+                let ((alo, ahi), (blo, bhi)) = (span(&a), span(&b));
+                if ahi < blo || bhi < alo {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     pub fn forward(&self) -> Vec2 {
         vec2(self.yaw.sin(), self.yaw.cos())
     }
