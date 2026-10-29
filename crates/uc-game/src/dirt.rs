@@ -409,6 +409,35 @@ impl Dirt {
         }
     }
 
+    /// A shot with nothing to aim at, from `(x, z)` facing `facing` (`DIRT_shoot`, dirt.cpp,
+    /// from Person.cpp:6547): the can in the air nearest straight ahead, within 200 of 2048
+    /// either side and five squares (`QDIST` x plus z), is knocked spinning up and about.
+    /// Where it was, if there was one.
+    pub fn shoot(&mut self, x: i32, z: i32, facing: (f32, f32)) -> Option<(i32, i32, i32)> {
+        let wide = 200.0 / 2048.0 * std::f32::consts::TAU;
+        let best = self.pieces.iter().enumerate()
+            .filter_map(|(i, p)| p.filter(|p| p.kind == Kind::ThrownCan).map(|p| (i, p)))
+            .filter_map(|(i, p)| {
+                let (dx, dz) = (p.x - x, p.z - z);
+                let (fx, fz) = facing;
+                let off = (fx * dz as f32 - fz * dx as f32).atan2(fx * dx as f32 + fz * dz as f32).abs();
+                let dist = dx.abs() + dz.abs();
+                (off <= wide && dist < 256 * 5).then_some((i, ((off / std::f32::consts::TAU * 2048.0) as i64) << 8 | (dist as i64) << 4))
+            })
+            .min_by_key(|&(_, score)| score)
+            .map(|(i, _)| i)?;
+        let r: Vec<i32> = (0..6).map(|_| self.random()).collect();
+        let d = self.pieces[best].as_mut()?;
+        d.dx = (r[0] & 0x1f) - 0xf;
+        d.dz = (r[1] & 0x1f) - 0xf;
+        d.dy += ((r[2] & 0xf) + 0xf) << TICK_SHIFT;
+        d.dyaw = (r[3] & 0x3f) + 0x7f;
+        if r[4] & 2 != 0 {
+            d.yaw = -d.yaw;
+        }
+        Some((d.x, d.y, d.z))
+    }
+
     pub fn nearest_can(&self, x: i32, y: i32, z: i32) -> Option<(usize, i32)> {
         self.pieces.iter().enumerate()
             .filter_map(|(i, p)| p.filter(|p| p.kind == Kind::Can).map(|p| (i, p)))
@@ -707,6 +736,22 @@ mod tests {
             assert!(qdist2((p.x - 64 * 256).abs(), (p.z - 64 * 256).abs()) <= FOCUS_RADIUS);
             assert!(p.still);
         }
+    }
+
+    /// `DIRT_shoot`: a can in the air straight ahead and near is knocked up and spinning; one
+    /// behind, or too far off, isn't.
+    #[test]
+    fn a_shot_knocks_a_can_flying() {
+        let mut d = Dirt::new(Ground::City, 0, 0, []);
+        let (x, z) = (64 * 256, 64 * 256);
+        let mut can = Piece::new(Kind::ThrownCan, x + 400, 120, z + 20);
+        can.still = false;
+        d.pieces[0] = Some(can);
+        assert_eq!(d.shoot(x, z, (-1.0, 0.0)), None, "behind her");
+        assert_eq!(d.shoot(x - 1200, z, (1.0, 0.0)), None, "too far");
+        assert_eq!(d.shoot(x, z, (1.0, 0.0)), Some((x + 400, 120, z + 20)));
+        let p = d.pieces[0].unwrap();
+        assert!(p.dy >= 0xf << TICK_SHIFT && p.dyaw >= 0x7f, "dy {} dyaw {}", p.dy, p.dyaw);
     }
 
     /// `DIRT_create_papers`: four bits of paper about the top of the bin, flying, and down

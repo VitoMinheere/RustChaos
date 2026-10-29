@@ -165,6 +165,15 @@ impl Game {
                         self.shoot_barrel(k, attacker, level);
                     }
                 }
+                // At nothing: a can in the air ahead goes flying, with a spang (`DIRT_shoot`,
+                // Person.cpp:6547), unless there's no floor (`GF_NO_FLOOR`).
+                Event::Shot { attacker, victim: None, .. } if !self.no_floor => {
+                    let p = &self.people[attacker];
+                    let (at, f) = (p.fig.pos, p.fig.facing());
+                    if let Some((x, y, z)) = self.dirt.shoot(at.x as i32, at.z as i32, (f.x, f.y)) {
+                        self.gunfx.spang(Vec3::new(x as f32, y as f32, z as f32));
+                    }
+                }
                 Event::Shot { attacker, victim: Some(victim), weapon } => {
                     // Firing at a target (Person.cpp:6219).
                     if Some(attacker) == self.player {
