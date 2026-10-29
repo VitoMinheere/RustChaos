@@ -621,22 +621,20 @@ impl Ground {
 
     /// Opens the door nearest `(x, z)`, as `DOOR_open` does: the closest one whose middle is
     /// within two squares, measured the engine's way (`QDIST2`, the larger axis plus half the
-    /// other). Returns whether it found one.
-    pub fn open_door_near(&self, x: f32, z: f32) -> bool {
+    /// other). Returns which of [`Ground::doors`] it opened, if it found one.
+    pub fn open_door_near(&self, x: f32, z: f32) -> Option<usize> {
         let at = vec2(x, z);
-        let near = |d: &&Door| {
+        let near = |d: &Door| {
             let v = (d.mid - at).abs();
             v.max_element() + v.min_element() / 2.0
         };
-        let found = self
-            .doors
-            .iter()
-            .filter(|d| near(d) < 512.0)
-            .min_by(|a, b| near(a).total_cmp(&near(b)));
-        if let Some(d) = found {
-            d.open.set(true);
+        let found = (0..self.doors.len())
+            .filter(|&i| near(&self.doors[i]) < 512.0)
+            .min_by(|&a, &b| near(&self.doors[a]).total_cmp(&near(&self.doors[b])));
+        if let Some(i) = found {
+            self.doors[i].open.set(true);
         }
-        found.is_some()
+        found
     }
 
     /// A ladder whose foot is within `reach` of `pos` (xz) and whose base is near `pos.y`.

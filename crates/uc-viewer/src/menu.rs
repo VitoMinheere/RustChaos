@@ -1122,7 +1122,8 @@ const UNRELEASED: [(&str, &str, &str); 8] = [
      "Mr X's gang have overrun the banking sector and sealed off the surrounding area. Get into \
       that sector and rescue the two hostages.\r\
       - Find the two workers: they'll follow you once they see you.\r\
-      - Get them out of the front gates and to the extraction point."),
+      - Get them out of the front gates and to the extraction point.\r\
+      - Keep them alive."),
     ("subdock1", "Dock Extraction",
      "Terminate the dock operator and get to the chopper for extraction. The extraction site is \
       on the most southern part of this sector.\r\

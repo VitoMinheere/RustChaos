@@ -209,6 +209,31 @@ fn missiles_first(map_file: &str, map: &mut Map) {
     }
 }
 
+/// Takeover1's gates (Bank Sector Takeover, #431). Its map, `jumper1.iam`, is an older
+/// layout than the mission was written for: the bank sector is closed off from the streets
+/// Darci starts in by unclimbable fences, and none of the gates the script opens
+/// (`activate_prim` doors) is a door here, for the map has no door facets at all. Three of
+/// those fences become doors (`STOREY_TYPE_OUTSIDE_DOOR`), which the script's points open:
+///
+/// - the front gates (facet 99, from (32,40) to (40,40)), which point 192 opens when Darci
+///   works point 193 inside them; the extraction point is just outside;
+/// - the keycard gate (facet 368, (41,58) to (41,59)), between the sector and the yard
+///   behind the front gates, which point 191 opens when she works point 190 in the sector;
+/// - the sector gate (facet 574, (77,45) to (77,50)), from the street running south from
+///   her start into the sector, which point 174 opens when she works point 175 (both moved
+///   there by [`finish_unfinished`]: where they were, by a tower, there's nothing to open).
+fn open_the_bank_sector(mission_name: &str, map_file: &str, map: &mut Map) {
+    if !mission_name.eq_ignore_ascii_case("takeover1") || !map_file.eq_ignore_ascii_case(r"data\jumper1.iam") {
+        return;
+    }
+    for (i, x, z) in [(99, [32, 40], [40, 40]), (368, [41, 41], [58, 59]), (574, [77, 77], [45, 50])] {
+        // Only the map as shipped: an edited one may have it some other way.
+        if let Some(f) = map.facets.get_mut(i).filter(|f| f.kind == facet_type::FENCE_FLAT && (f.x, f.z) == (x, z)) {
+            f.kind = facet_type::OUTSIDE_DOOR;
+        }
+    }
+}
+
 /// Textures for a mission the install has no clump for: the shipped missions only have
 /// clumps of their own, packed from the loose textures (`server\textures\`) that the
 /// install no longer has. The pages come from the clumps of other missions: first those on
@@ -282,6 +307,9 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 /// 1 rescued." and "Worker 2 rescued." as each gets there (points 65 and 64), but nothing
 /// ends it: here an `end_game_win` point goes off once both have. Each hostage (points 62
 /// and 63) has a beacon until they're rescued, and the extraction point one throughout.
+/// Nothing ends it either if a hostage is killed, when it can't be won: here it's lost. Its
+/// way in, the sector gate, is moved to a fence that's a door here (`open_the_bank_sector`),
+/// with a beacon on the switch that opens it until it's worked.
 ///
 /// subdock1 has a beacon on the dock operator (point 37), and one on the rendezvous (point
 /// 42) once the chopper (41) comes.
@@ -427,6 +455,34 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
             add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
         }
         add_point(mission, beacon(&one, 0), Some("Extraction point"));
+        // The way in (`open_the_bank_sector`): the gate (point 174), the switch Darci works
+        // to open it (175) and the camera that films it opening (177, looking at 178), from
+        // by the tower where there's nothing to open to the sector gate, a fence across the
+        // street south of her start. She works it from the street; the camera looks on from
+        // further up the street. A beacon shows it until it's worked.
+        let gate = (77 * 256, 47 * 256 + 128);
+        for (i, kind, x, y, z) in [
+            (174, waypoint::ACTIVATE_PRIM, gate.0, 0, gate.1),
+            (175, waypoint::SIMPLE, gate.0 - 160, 0, gate.1),
+            (177, waypoint::CREATE_CAMERA, gate.0 - 1000, 150, gate.1),
+            (178, waypoint::CREATE_TARGET, gate.0, 0, gate.1),
+        ] {
+            if let Some(e) = mission.event_points.iter_mut().find(|e| e.index == i && e.used != 0 && e.kind == kind) {
+                (e.x, e.y, e.z) = (x, y, z);
+            }
+        }
+        if let Some(switch) = point(mission, 175) {
+            let b = add_point(mission, beacon(&switch, 0), Some("Sector gate"));
+            let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: switch.index as u16, ..at(&switch) };
+            add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
+        }
+        // Nothing ends it if a hostage is killed: it can't be won any more. Here it's lost.
+        for worker in [62, 63] {
+            let Some(w) = point(mission, worker) else { continue };
+            let say = EventPoint { kind: waypoint::MESSAGE, trigger: trigger::KILLED, ep_ref: worker as u16, data: [0, 6, 0, 0, 0, 0, 0, 0, 0, 0], ..at(&w) };
+            let said = add_point(mission, say, Some("A hostage has been killed."));
+            add_point(mission, EventPoint { kind: waypoint::END_GAME_LOSE, trigger: trigger::DEPENDENCY, ep_ref: said as u16, ..at(&w) }, None);
+        }
     } else if name == "crimescene" || name == "police5" {
         // Who's to be brought in, with the point that goes off when they're arrested, what
         // they're called, what's said once it's done and what if one's killed, and the point
@@ -569,6 +625,7 @@ impl Level {
         to_sea(&mission.map, &mut map);
         open_the_store(mission_name, &mission.map, &mut map);
         missiles_first(&mission.map, &mut map);
+        open_the_bank_sector(mission_name, &mission.map, &mut map);
         // The mission's no-go squares: nobody walks into them, routes go round them, and
         // someone walking up to one stops short (elev.cpp:1813, after `MAV_precalculate`
         // and `WAND_init`, so they're turned off on top of whatever those found).
