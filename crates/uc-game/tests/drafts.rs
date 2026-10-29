@@ -397,6 +397,43 @@ fn the_final_reckoning() {
     r.won();
 }
 
+/// Officer Training past the jumps (point 107): a beacon to the loading lift's switch (81),
+/// then to the finish (82), which the lift takes her up to (`finish_unfinished`).
+#[test]
+fn officer_training_beacons_the_way_on() {
+    let Some(mut r) = common::start("train11") else { return };
+    r.play(2.0, Controls::default());
+    r.talk_to(17, vec3(110.0, 0.0, 0.0), 10.0);
+    assert!(r.said("Follow me"), "{:?}", r.seen);
+    assert!(r.labels().is_empty(), "{:?}", r.labels());
+    let jumps = r.point(107);
+    r.stand(jumps);
+    r.play(1.0, Controls::default());
+    assert_eq!(r.labels(), ["Lift"]);
+    r.press(81);
+    assert!(r.said("Loading lift activated"), "{:?}", r.seen);
+    assert_eq!(r.labels(), ["Finish"]);
+    // On at the bottom, off at the top on the finish's side.
+    let lift = |r: &Run| r.g.platforms.iter().find(|p| p.way == 70).unwrap().pos;
+    assert!(r.until(30.0, |r| lift(r).y > 900.0) && r.until(30.0, |r| lift(r).y < 20.0));
+    let on = lift(&r);
+    r.stand(on + vec3(0.0, 64.0, 0.0));
+    assert!(r.until(20.0, |r| lift(r).y > 1000.0));
+    r.play(8.0, Controls { wish: vec2(0.0, -1.0), run: true, ..Default::default() });
+    let me = r.player();
+    let finish = r.point(82);
+    for _ in 0..(20.0 / DT) as usize {
+        let p = r.g.people[me].fig.pos;
+        r.play(DT, Controls { wish: vec2(finish.x - p.x, finish.z - p.z).normalize_or_zero(), run: true, ..Default::default() });
+        if r.g.outcome.is_some() {
+            break;
+        }
+    }
+    assert!(r.until(40.0, |r| r.g.outcome.is_some()));
+    assert!(r.said("completed the course successfully"), "{:?}", r.seen);
+    r.won();
+}
+
 /// Officer Training (`train11`, in `UNRELEASED`): the end of the assault course wins.
 #[test]
 fn officer_training() {
