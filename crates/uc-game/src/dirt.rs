@@ -387,6 +387,28 @@ impl Dirt {
 
     /// The can lying about nearest (x, y, z), and how far (`QDIST3`), as
     /// `DIRT_get_nearest_can_or_head_dist` finds it.
+    /// Newspaper and crisp packets out of the top of a bin knocked over (`DIRT_create_papers`,
+    /// dirt.cpp): four bits of paper about `(x, y, z)`, in free places (looked for every 16th),
+    /// to flutter down as leaves do.
+    pub fn papers(&mut self, x: i32, y: i32, z: i32) {
+        let mut made = 0;
+        for i in (0..self.pieces.len()).step_by(16) {
+            if self.pieces[i].is_some() {
+                continue;
+            }
+            let (dx, dz, dy) = ((self.random() & 0x3f) - 0x1f, (self.random() & 0x3f) - 0x1f, self.random() & 0x1f);
+            let mut p = Piece::new(Kind::Leaf, x + dx, y + dy, z + dz);
+            p.still = false;
+            p.droll = (self.random() & 0x7f) - 0x3f;
+            p.dpitch = (self.random() & 0x7f) - 0x3f;
+            self.pieces[i] = Some(p);
+            made += 1;
+            if made >= 4 {
+                return;
+            }
+        }
+    }
+
     pub fn nearest_can(&self, x: i32, y: i32, z: i32) -> Option<(usize, i32)> {
         self.pieces.iter().enumerate()
             .filter_map(|(i, p)| p.filter(|p| p.kind == Kind::Can).map(|p| (i, p)))
@@ -685,6 +707,24 @@ mod tests {
             assert!(qdist2((p.x - 64 * 256).abs(), (p.z - 64 * 256).abs()) <= FOCUS_RADIUS);
             assert!(p.still);
         }
+    }
+
+    /// `DIRT_create_papers`: four bits of paper about the top of the bin, flying, and down
+    /// they flutter to the ground.
+    #[test]
+    fn a_bin_throws_out_four_papers() {
+        let mut d = Dirt::new(Ground::City, 0, 0, []);
+        d.papers(64 * 256, 160, 64 * 256);
+        let flying = |d: &Dirt| d.pieces.iter().flatten().filter(|p| p.kind == Kind::Leaf && !p.still).count();
+        assert_eq!(flying(&d), 4);
+        for p in d.pieces.iter().flatten() {
+            assert!((p.x - 64 * 256).abs() <= 0x20 && (160..160 + 0x20).contains(&p.y));
+        }
+        // (A paper can ride the air a while, as a leaf does.)
+        for _ in 0..4000 {
+            d.process(&Flat);
+        }
+        assert!(d.pieces.iter().flatten().all(|p| p.y == 0), "still up: {:?}", d.pieces.iter().flatten().map(|p| (p.y, p.still)).collect::<Vec<_>>());
     }
 
     #[test]

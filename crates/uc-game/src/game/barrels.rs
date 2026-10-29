@@ -42,6 +42,14 @@ impl Game {
                 let at = self.barrels[k].pos;
                 self.sounds.push((Sfx::Cone, at));
             }
+            // A bin knocked over throws out some of its rubbish (barrel.cpp:248), unless
+            // there's no floor for it to land on (`GF_NO_FLOOR`).
+            for b in &mut self.barrels {
+                if std::mem::take(&mut b.tipped) && b.bin() && !self.no_floor {
+                    let top = b.pos + Vec3::new(0.0, 0xa0 as f32, 0.0);
+                    self.dirt.papers(top.x as i32, top.y as i32, top.z as i32);
+                }
+            }
             self.rngs.barrel = seed;
         }
     }

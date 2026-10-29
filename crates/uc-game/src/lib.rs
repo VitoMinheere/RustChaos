@@ -92,6 +92,17 @@ pub struct Barrel {
     pub on: Option<usize>,
     /// While it's moving, the two spheres it is (`BARREL_Sphere`, [`barrel`]).
     pub spheres: Option<[barrel::Sphere; 2]>,
+    /// Just knocked from standing (`BARREL_convert_stationary_to_moving`), for the game to
+    /// see to what comes of it.
+    pub tipped: bool,
+}
+
+impl Barrel {
+    /// A bin (`BT_BIN`, `BT_BURNING_BIN`: `BARREL_TYPE_BIN`, elev.cpp:1386), full of rubbish
+    /// (`BARREL_FLAG_RUBBISH`, barrel.cpp:1404).
+    pub fn bin(&self) -> bool {
+        matches!(self.kind, 2 | 4)
+    }
 }
 
 impl Barrel {
@@ -950,7 +961,7 @@ impl Game {
             let at = Vec3::new(o.x as f32, o.y as f32, o.z as f32);
             let y = level.ground.surface(&level.map, at.x, at.z, at.y + 32.0);
             let yaw = radians(o.yaw as f32);
-            g.add_barrel(Barrel { kind: 0, prim: uc_world::level::BARREL_PROP, explodes: true, way: 0, gone: false,
+            g.add_barrel(Barrel { kind: 0, prim: uc_world::level::BARREL_PROP, explodes: true, way: 0, gone: false, tipped: false,
                                   pos: Vec3::new(at.x, y, at.z), yaw, tilt: 0.0, on: None, spheres: None });
         }
         g
