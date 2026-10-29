@@ -152,6 +152,37 @@ fn to_sea(map_file: &str, map: &mut Map) {
     }
 }
 
+/// The missions that send Mako into the store on Gangland's map (`gang1.iam`): the man with
+/// the drop-off's files and the shoppers are inside it, on its floor 256 up.
+const STORE_MISSIONS: [&str; 2] = ["gang order3", "gang3"];
+
+/// Gangland's store, finished so it can be walked into. The map has it built as a warehouse
+/// is, but never made one: its shell (building 40) is a plain house, and its insides (43,
+/// `BUILDING_TYPE_CRATE_IN`, the counters, shelves and back rooms) are the sort the original
+/// only draws from inside a warehouse (aeng.cpp:12399). The front wall at the back of its
+/// porch is split for a doorway one square wide, (110,66) to (110,65), with a lintel over it,
+/// just as bball2's club's door is, but that square was left a wall (`STOREY_TYPE_NORMAL`)
+/// rather than a doorway (`STOREY_TYPE_DOOR`). The store has no other way in, and nothing
+/// in either mission opens one, so in the original nobody gets in: Gang order3 and gang3
+/// can't be finished there. Here the shell is a warehouse (`BUILDING_TYPE_WAREHOUSE`) and that
+/// square of wall its doorway, which `slide_along` lets people through (collide.cpp:4488).
+fn open_the_store(mission_name: &str, map_file: &str, map: &mut Map) {
+    if !map_file.eq_ignore_ascii_case(r"data\gang1.iam") || !STORE_MISSIONS.contains(&mission_name.to_ascii_lowercase().as_str()) {
+        return;
+    }
+    const SHELL: usize = 40;
+    let Some(b) = map.buildings.get(SHELL) else { return };
+    let mut walls = b.start_facet as usize..b.end_facet as usize;
+    let doorway = walls.find(|&i| {
+        let f = &map.facets[i];
+        f.kind == facet_type::NORMAL && (f.x, f.z, f.y[0]) == ([110, 110], [66, 65], 256)
+    });
+    // Only the map as shipped: an edited one may have it some other way.
+    let Some(doorway) = doorway else { return };
+    map.buildings[SHELL].kind = BUILDING_TYPE_WAREHOUSE;
+    map.facets[doorway].kind = facet_type::DOOR;
+}
+
 /// Textures for a mission the install has no clump for: the shipped missions only have
 /// clumps of their own, packed from the loose textures (`server\textures\`) that the
 /// install no longer has. The pages come from the clumps of other missions: first those on
@@ -410,6 +441,7 @@ impl Level {
     pub fn load_with_mission(game: &Path, mission_name: &str, mission: Mission, opt: &LoadOptions) -> Result<Level, String> {
         let mut map = Map::parse(&read(game, &mission.map)?).map_err(|e| format!("{}: {e}", mission.map))?;
         to_sea(&mission.map, &mut map);
+        open_the_store(mission_name, &mission.map, &mut map);
         // The mission's no-go squares: nobody walks into them, routes go round them, and
         // someone walking up to one stops short (elev.cpp:1813, after `MAV_precalculate`
         // and `WAND_init`, so they're turned off on top of whatever those found).
@@ -567,6 +599,11 @@ impl Level {
             let refence = fence_page(&self.mission.map);
             for i in 1..self.map.facets.len() {
                 let kind = self.map.facets[i].kind;
+                // A doorway is a hole in the wall: the original draws a recess round it and
+                // never the facet itself (`AENG_draw_box_around_recessed_door`, aeng.cpp:9981).
+                if kind == facet_type::DOOR {
+                    continue;
+                }
                 let fence = matches!(kind, uc_formats::iam::facet_type::FENCE | uc_formats::iam::facet_type::FENCE_FLAT);
                 for q in facet::wall_quads(&self.map, styles, i) {
                     let p = q.corners.map(|c| vec3(c[0], c[1], c[2]) / UNIT);

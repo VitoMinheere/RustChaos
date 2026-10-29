@@ -1000,8 +1000,9 @@ pub struct Person {
     /// where it was going. Measured over half a second at a time, from where they were then.
     pub(crate) blocked: f32,
     pub(crate) walk_check: (Vec3, f32),
-    /// A Man in Black has seen or heard the player: everyone nearby who'd fight is to come
-    /// for her, round this point (`PCOM_alert_nearby_mib_to_attack`). The game takes it.
+    /// A Man in Black has seen or heard the player, or a guard has seen them: everyone nearby
+    /// who'd fight is to come for them, round this point (`PCOM_alert_nearby_mib_to_attack`).
+    /// The game takes it.
     pub(crate) alert: Option<Vec3>,
     /// Who they're out to get until they're down (`PCOM_set_person_ai_kill_person`): a bully's
     /// pick, or whoever a gang member's mate is fighting. And for a bully, the time to the

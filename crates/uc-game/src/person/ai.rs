@@ -382,6 +382,16 @@ impl Person {
             self.heard = None;
             return self.wander(c, ground, dt, rand);
         }
+        // A guard, a cop one too, looks out for the player as a Man in Black does: by sight,
+        // out to 8 squares (`PCOM_can_i_see_person_to_attack` is `can_a_see_b`), and on seeing
+        // them calls in every guard, gang member and Man in Black within 0x500 of himself,
+        // himself included (`PCOM_alert_nearby_mib_to_attack` in `PCOM_AI_GUARD`,
+        // pcom.cpp:11001). That comes before any taunt, so a cop, who never taunts
+        // (`PCOM_set_person_ai_taunt`, pcom.cpp:4803), still comes for them.
+        let guard = self.ai == AI_GUARD && !hunter;
+        if guard && !self.aggro && !self.truce && self.sees(&p, ground) {
+            self.alert = Some(self.fig.pos);
+        }
         // Gang members (and cops) pay Darci's footsteps no heed; guards listen to everything
         // (`PCOM_oscillate_tympanum`, pcom.cpp:13431).
         let darci_feet = p.footsteps && p.kind == uc_world::character::person::DARCI;
@@ -510,8 +520,12 @@ impl Person {
         }
         // Keep out of each other's way: hold back while another opponent is closer to the player
         // (not the one they're fighting, who's hostile too when two of the AI fight). Only
-        // the hostile make way for each other: a bodyguard wades in among them.
-        let crowded = self.hostile() && snaps.iter().enumerate().any(|(j, s)| {
+        // the hostile make way for each other: a bodyguard wades in among them. Only at close
+        // quarters, though: the original sends everyone after their target by its route until
+        // they're 240 from it (`hit_distance` in `PCOM_process_navtokill`, pcom.cpp:8440), so
+        // from further off nobody waits. Otherwise a cop called in from across the street
+        // stood where he was for as long as another was a little nearer the player.
+        let crowded = dist < AGGRO_RANGE && self.hostile() && snaps.iter().enumerate().any(|(j, s)| {
             j != me && Some(j) != player && s.standing && s.hostile && flat(p.pos, s.pos).length() + 20.0 < dist
                 && flat(s.pos, self.fig.pos).normalize_or_zero().dot(d.normalize_or_zero()) > 0.8
         });

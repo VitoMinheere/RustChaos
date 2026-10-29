@@ -538,9 +538,9 @@ impl Game {
         }
     }
 
-    /// A Man in Black has seen or heard the player: everyone within 0x500 of where he raised
-    /// it who'd fight comes for her, himself included (`PCOM_alert_nearby_mib_to_attack`,
-    /// pcom.cpp:10678).
+    /// A Man in Black has seen or heard the player, or a guard has seen them: everyone within
+    /// 0x500 of where he raised it who'd fight comes for them, himself included
+    /// (`PCOM_alert_nearby_mib_to_attack`, pcom.cpp:10678).
     pub(crate) fn raise_alerts(&mut self) {
         let alerts: Vec<Vec3> = self.people.iter_mut().filter_map(|p| p.alert.take()).collect();
         for at in alerts {
