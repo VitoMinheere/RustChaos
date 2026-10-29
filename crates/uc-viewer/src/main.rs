@@ -1191,6 +1191,9 @@ impl App {
         let mut hud = if world.editor.is_some() { world.editor_overlay(&cam, size) } else { world.hud(size) };
         if world.pause.is_none() && world.editor.is_none() {
             draw_sights(&mut hud, &world.game.gun_sights(), &cam, size);
+            if let Some(path) = world.game.grenade_path(&world.level) {
+                draw_grenade_path(&mut hud, &path, world.game.time, &cam, size);
+            }
         }
         if let Some(c) = &self.coop {
             c.overlay(&mut hud, size);
