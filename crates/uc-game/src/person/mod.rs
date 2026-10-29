@@ -1373,6 +1373,12 @@ impl Person {
         !matches!(self.kind, ptype::DARCI | ptype::ROPER | ptype::COP | ptype::HOSTAGE)
     }
 
+    /// The panel's stamina marks: a mark a 25 of breath, up to five
+    /// (DDEngine/Source/panel.cpp:5021).
+    pub fn stamina_marks(&self) -> usize {
+        (self.stamina.max(0.0) as usize / 25).min(5)
+    }
+
     /// `am_i_a_thug`: one of the three gangs.
     pub fn thug(&self) -> bool {
         use uc_world::character::person as ptype;

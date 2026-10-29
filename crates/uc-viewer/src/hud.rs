@@ -91,6 +91,13 @@ impl World {
             o.rect(bx - s, by - s, bw + 2.0 * s, bh + 2.0 * s, [0, 0, 0, 160]);
             let col = if frac > 0.5 { [90, 200, 90, 255] } else if frac > 0.25 { [230, 190, 60, 255] } else { [220, 60, 50, 255] };
             o.rect(bx, by, bw * frac, bh, col);
+            // The stamina marks (panel.cpp:5021): one a 25 of breath, red to green, each a
+            // little up and along from the last, above the bar's right end.
+            const MARKS: [[u8; 4]; 5] = [[255, 0, 0, 255], [192, 64, 0, 255], [128, 128, 0, 255], [64, 192, 0, 255], [0, 255, 0, 255]];
+            for (k, c) in MARKS.iter().take(p.stamina_marks()).enumerate() {
+                let (x, y) = (bx + bw - 24.0 * s + k as f32 * 3.0 * s, by - 6.0 * s - k as f32 * 2.0 * s);
+                o.rect(x, y, 4.0 * s, 4.0 * s, *c);
+            }
             // A grim reaper for each innocent killed (`PANEL_IC_GRIMREAPER`, panel.cpp:3315).
             for k in 0..self.game.red_marks as usize {
                 let (x, y) = (bx + k as f32 * 9.0 * s, by + bh + 4.0 * s);
