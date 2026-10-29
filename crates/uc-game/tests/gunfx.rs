@@ -23,7 +23,7 @@ fn load() -> Option<(Level, Game)> {
 fn fire(level: &Level, g: &mut Game, kind: u8) {
     let pi = g.player.unwrap();
     let pos = g.people[pi].fig.pos;
-    g.items.push(Item { way: 0, kind, pos });
+    g.items.push(Item { way: 0, kind, pos, rounds: None });
     for _ in 0..5 {
         g.update(DT, &Controls::default(), level);
     }

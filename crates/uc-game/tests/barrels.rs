@@ -57,6 +57,10 @@ fn semtex_is_won_by_shooting_the_two_drums() {
     for way in [199, 183] {
         let k = r.barrel(way);
         assert!(r.g.barrels[k].explodes, "drum {way} doesn't explode");
+        // The first blast knocks her down, and her pistol falls from her hand
+        // (`drop_current_gun`): up again first (`line_up` hands her another).
+        let pi = r.g.player.unwrap();
+        assert!(r.until(8.0, |r| matches!(r.g.people[pi].state, uc_game::State::Move)), "still down");
         r.line_up(k);
         r.play(0.5, Controls::default());
         assert_eq!(r.g.aiming.barrel, Some(k), "the gun isn't on drum {way}");

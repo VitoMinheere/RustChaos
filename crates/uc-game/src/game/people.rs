@@ -107,7 +107,7 @@ impl Game {
                     let f = self.people[i].facing_dir();
                     let at = pos + Vec3::new(f.x, 0.0, f.y) * 128.0;
                     let y = level.ground.surface(&level.map, at.x, at.z, pos.y + 64.0);
-                    self.items.push(Item { way: 0, kind: crate::SNIPER, pos: Vec3::new(at.x, y, at.z) });
+                    self.items.push(Item { way: 0, kind: crate::SNIPER, pos: Vec3::new(at.x, y, at.z), rounds: None });
                 }
             }
         }
