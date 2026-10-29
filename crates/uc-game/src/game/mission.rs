@@ -219,6 +219,10 @@ impl Game {
                 }
                 Command::Camera { way, shot } => {
                     let _ = way;
+                    if shot.lock_player {
+                        let at = self.player().map_or(Vec3::ZERO, |p| p.fig.pos);
+                        self.sounds.push((Sfx::Sting, at));
+                    }
                     self.cutscene = Some(Cutscene { pos: shot.start, shot, leg: 0, wait: 0.0 });
                 }
                 Command::Conversation { way, speech, lines, a, b, ambient } => {

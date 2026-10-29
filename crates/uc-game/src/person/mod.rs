@@ -316,6 +316,13 @@ pub enum Sfx {
     Elec,
     /// Someone run over (`S_THUMP_SQUISH`, vehicle.cpp:3339).
     Squish,
+    /// A car rubbing along a wall (`S_CAR_SCRAPE_START` to `_END`, vehicle.cpp:2350).
+    Scrape,
+    /// A kick in the nuts (`S_KICK_IN_THE_NUTS_START`, `_END`, combat.cpp:2289).
+    Nuts,
+    /// A camera fly-by that holds the player starting (`S_CUTSCENE_STING`, eway.cpp:5389),
+    /// heard wherever she is.
+    Sting,
     /// A car's tyres started sliding.
     Skid,
     /// A driver held up by someone in the road sounds the horn (`S_CAR_HORN_START` and the

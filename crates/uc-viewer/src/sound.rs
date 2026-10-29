@@ -145,6 +145,10 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         Sfx::Barrel => at(audio, numbered("sfx080799+/Barrel", 1..=3, ".wav"), 0.8),
         Sfx::Elec => at(audio, numbered("f_ELEC", 1..=5, ".wav"), 0.9),
         Sfx::Squish => at(audio, vec!["thumpsquish.wav".into()], 1.0),
+        Sfx::Scrape => at(audio, numbered("Scrape", 3..=6, ".wav"), 0.8),
+        Sfx::Nuts => at(audio, vec!["General/Bollox1.wav".into(), "General/Bollox3.wav".into()], 1.0),
+        // Not placed: a sting over the shot (`MFX_play_stereo`).
+        Sfx::Sting => audio.play("6Sound.wav", 1.0),
         Sfx::Skid => at(audio, numbered("Skid", 1..=3, ".wav"), 0.8),
         Sfx::Horn => at(audio, numbered("Horn", 1..=3, ".wav"), 0.8),
         Sfx::CarDoor => at(audio, vec!["DoorOpenCls1.wav".into()], 0.8),
