@@ -328,12 +328,20 @@ fn station_bombed_with_a_dead_wildcat() {
 }
 
 /// The Final Reckoning (`Finale1b`), on Day Of Reckoning's map as its own is missing
-/// (`uc_world::level::stand_in_map`): the three survivors brought to safety, both fuel pumps
-/// on, the explosives on the prop point 62 watches, and into the safe zone.
+/// (`uc_world::level::stand_in_map`): the three survivors brought to safety; Darci over the
+/// drop to the pumps' roof on Day Of Reckoning's platforms, which the gate's switch (point
+/// 125) sets going (`uc_world::level::finish_unfinished`); both fuel pumps on, the
+/// explosives on the prop point 62 watches, and into the safe zone, on that roof.
 #[test]
 fn the_final_reckoning() {
     let Some(mut r) = common::start("Finale1b") else { return };
     assert!(r.level.mission.map.ends_with("Rooftest2.iam"), "{}", r.level.mission.map);
+    // Bane's men are taken off: the fighting isn't what's tested.
+    r.each_turn = Some(|g| {
+        for p in g.people.iter_mut().filter(|p| p.hostile()) {
+            p.removed = true;
+        }
+    });
     r.play(25.0, Controls::default());
     for (survivor, safe) in [(31, 30), (32, 67), (33, 66)] {
         let (i, at) = (r.who(survivor), r.point(safe));
@@ -342,6 +350,33 @@ fn the_final_reckoning() {
     assert!(r.until(20.0, |r| r.said("I got them all in safely")), "{:?}", r.seen);
     assert!(r.until(10.0, |r| r.g.items.iter().any(|i| i.way == 77)), "no explosives");
     r.fetch(77);
+    r.press(125);
+    assert!(r.said("Gate open"), "{:?}", r.seen);
+    // Onto the first platform, at the edge of her roof; off it onto the second as it comes
+    // by at the far end, and off that onto the walkway it ends by.
+    // Told apart by their heights: one runs along x at 448, the other along z at 608.
+    let platform = |r: &Run, y: f32| r.g.platforms.iter().position(|p| (p.pos.y - y).abs() < 8.0).unwrap_or_else(|| panic!("no platform at {y}"));
+    let (a, b) = (platform(&r, 448.0), platform(&r, 608.0));
+    assert!(r.until(20.0, |r| (r.g.platforms[a].pos.x - 13824.0).abs() < 8.0), "the first platform never came back");
+    let at = r.g.platforms[a].pos;
+    r.stand(at + vec3(0.0, 100.0, 0.0));
+    let me = r.player();
+    let met = |r: &Run| (r.g.platforms[a].pos.x - 16128.0).abs() < 8.0 && (r.g.platforms[b].pos.z - 13056.0).abs() < 60.0;
+    for _ in 0..(30.0 / DT) as usize {
+        if met(&r) {
+            break;
+        }
+        r.play(DT, Controls::default());
+    }
+    assert!(met(&r), "the platforms never met: {} {}", r.g.platforms[a].pos, r.g.platforms[b].pos);
+    r.g.people[me].fig.angle = uc_world::character::angle_of(vec2(0.0, -1.0));
+    for f in 0..45 {
+        r.play(DT, Controls { wish: vec2(0.0, -1.0), run: true, jump: f == 3, ..Default::default() });
+    }
+    assert!(r.until(20.0, |r| (r.g.platforms[b].pos.z - 10496.0).abs() < 8.0), "the second platform never got there");
+    r.play(2.0, Controls { wish: vec2(1.0, 0.0), ..Default::default() });
+    let p = r.g.people[me].fig.pos;
+    assert!(p.x > 16384.0 && p.y > 600.0 && !r.g.people[me].is_dead(), "not over the drop: {p}");
     r.press(48);
     r.press(50);
     assert!(r.said("Fuel Pump 1 ACTIVE") && r.said("Fuel Pump 2 ACTIVE"), "{:?}", r.seen);
@@ -351,8 +386,13 @@ fn the_final_reckoning() {
     r.play(DT, Controls { action: true, ..Default::default() });
     r.stand(t + vec3(0.0, 0.0, 1500.0));
     assert!(r.until(10.0, |r| r.g.point_active(63)), "the pumps never went up");
+    // The safe zone is on that roof, and its beacon there.
     let safe = r.point(78);
     r.stand(safe);
+    let p = r.g.people[me].fig.pos;
+    assert!(p.y > 400.0, "the safe zone's over the drop: {p}");
+    let beacon = r.g.beacons().into_iter().find(|b| b.0 == "Safe Zone").expect("no beacon to the safe zone").1;
+    assert!(vec2(beacon.x - p.x, beacon.z - p.z).length() < 256.0, "the beacon's at {beacon}, the safe zone {p}");
     assert!(r.until(15.0, |r| r.g.outcome.is_some()));
     r.won();
 }

@@ -287,6 +287,14 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 /// so in the original it watches a prop that can't be damaged, and the mission can't be
 /// won. Here the point is on the transmitter.
 ///
+/// Finale1b is played on Day Of Reckoning's map ([`stand_in_map`]), where the roof Darci
+/// starts on is cut off from the fuel pumps' by a two-square drop with no floor below. Its
+/// own way over, a gate its switch (point 125) opens (142, `activate_prim`), isn't on this
+/// map; Day Of Reckoning's is two moving platforms its switch sets going (its points 142 and
+/// 163, and 166 and 167), whose props are. Here Finale1b's switch sets those going. Its safe
+/// zone (cuboid 78, beacon 80) is on top of the block between the two roofs, which can't be
+/// got onto: here it's moved the four squares east over the drop, onto the roof beyond.
+///
 /// `mission_name` is the mission's file name: gang3's own name is "Gang order3", whose
 /// mission it was made from.
 pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
@@ -295,6 +303,28 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
     if name == "transmit1" {
         if let Some(e) = mission.event_points.iter_mut().find(|e| e.index == 120 && e.used != 0 && e.trigger == trigger::PRIM_DAMAGED) {
             (e.x, e.z) = (20228, 18180);
+        }
+        return;
+    }
+    if name == "finale1b" {
+        // Not twice.
+        let Some(gate) = mission.event_points.iter().find(|e| e.index == 125 && e.used != 0).cloned() else { return };
+        if mission.event_points.iter().any(|e| e.used != 0 && e.kind == waypoint::LINK_PLATFORM) {
+            return;
+        }
+        // Day Of Reckoning's (Finale1.ucm): each platform's point, gone off with the
+        // switch, and the stop at the other end of its run, of its colour and group.
+        for (group, from, to, wait) in [(7, (13824, 448, 13568), (16128, 448, 13568), 30), (8, (16128, 576, 10496), (16128, 576, 13056), 0)] {
+            let stop = |(x, y, z): (i32, i32, i32)| EventPoint {
+                kind: waypoint::SIMPLE, trigger: trigger::NONE, on_trigger: on_trigger::ACTIVE, ep_ref: 0, ep_ref_bool: 0,
+                after_timer: 0, data: [0; 10], radius: 0, next: 0, prev: 0, colour: 8, group, x, y, z, ..gate.clone()
+            };
+            add_point(mission, EventPoint { kind: waypoint::LINK_PLATFORM, trigger: trigger::DEPENDENCY, ep_ref: gate.index as u16,
+                                            data: [50, 1, 0, 0, 0, 0, 0, 0, 0, 0], ..stop(from) }, None);
+            add_point(mission, EventPoint { data: [wait, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..stop(to) }, None);
+        }
+        for e in mission.event_points.iter_mut().filter(|e| (e.index == 78 && e.trigger == trigger::CUBOID) || (e.index == 80 && e.kind == waypoint::NAV_BEACON)) {
+            e.x += 1024;
         }
         return;
     }
