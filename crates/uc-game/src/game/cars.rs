@@ -419,6 +419,11 @@ impl Game {
                     }
                 }
             }
+            if self.vehicles[vi].scrape() && self.turns.is_multiple_of(10) {
+                // (The original's moving channel keeps one scrape going; a fresh one every
+                // half second here.)
+                self.sounds.push((Sfx::Scrape, self.vehicles[vi].pos));
+            }
             let v = &self.vehicles[vi];
             if !sliding && v.slip.abs() > 300.0 {
                 self.sounds.push((Sfx::Skid, v.pos));

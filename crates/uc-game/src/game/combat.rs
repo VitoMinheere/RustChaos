@@ -60,6 +60,10 @@ impl Game {
                     let nad = self.people[attacker].fig.anim() == uc_world::character::anim::KICK_NAD;
                     let male = self.people[victim].male();
                     let damage = damage + if !nad { 0 } else if male { 50 } else { 10 };
+                    if nad && male {
+                        let at = self.people[victim].fig.pos;
+                        self.sounds.push((Sfx::Nuts, at));
+                    }
                     self.people[victim].hurt_by = Some(attacker);
                     let damage = self.hurt(victim, damage);
                     let before = self.people[victim].health;
