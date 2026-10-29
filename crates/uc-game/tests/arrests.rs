@@ -62,8 +62,12 @@ fn try_arrest(damage: i32, dress: impl Fn(&mut Person)) -> Option<bool> {
     let body = g.people[other].body_pos();
     g.people[pi].fig.pos = body + Vec3::new(60.0, 0.0, 0.0);
     run(&level, &mut g, 0.2, Controls { action: true, ..Default::default() });
+    // The panel says so (`PANEL_new_info_message`, Person.cpp:11585).
+    let said = g.info.as_ref().is_some_and(|(t, _)| t == "Arrested");
     run(&level, &mut g, 4.0, Controls::default());
-    Some(g.people[other].arrested || matches!(g.people[other].state, State::Cuffed))
+    let arrested = g.people[other].arrested || matches!(g.people[other].state, State::Cuffed);
+    assert_eq!(said, arrested, "the info line");
+    Some(arrested)
 }
 
 #[test]

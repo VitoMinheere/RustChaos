@@ -752,6 +752,10 @@ pub struct Game {
     pub end_of_world: Option<f32>,
     /// The mission's own tune, played throughout ([`Theme::of`]).
     theme: Option<Theme>,
+    /// The panel's info line (`PANEL_new_info_message`, DDEngine/Source/panel.cpp:3955): what
+    /// the player just picked up, or "Arrested", and the seconds it's been up. It goes after
+    /// two.
+    pub info: Option<(String, f32)>,
     /// How hard the camera is shaking from a blast nearby, 0 to 255 (`fc->shake`): it's
     /// thrown about by up to half that in world units each way.
     pub shake: f32,
@@ -906,6 +910,7 @@ impl Game {
             no_floor: false,
             end_of_world: None,
             theme: Theme::of(&level.name),
+            info: None,
             shake: 0.0,
             shake_turns: 0.0,
             estate: level.mission.mission_name.eq_ignore_ascii_case("estate2"),
@@ -1284,6 +1289,12 @@ impl Game {
         self.no_floor_falls();
         self.end_the_world(dt);
         self.settle_shake(dt);
+        if let Some((_, t)) = &mut self.info {
+            *t += dt;
+            if *t >= 2.0 {
+                self.info = None;
+            }
+        }
         self.go_indoors(level);
         self.move_platforms(dt, level);
         // Lightning dies away (the Men in Black's and the fences' too, where there are no

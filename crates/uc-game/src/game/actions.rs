@@ -547,6 +547,7 @@ impl Game {
         };
         let Some(i) = self.items.iter().position(near) else { return };
         let (kind, way, rounds) = (self.items[i].kind, self.items[i].way, self.items[i].rounds);
+        let had = Weapon::from_item(kind).is_some_and(|w| w.is_gun() && self.people[pi].has(w));
         if !player && !matches!(kind, 2..=6 | 8 | 10..=12 | SNIPER) {
             return;
         }
@@ -624,6 +625,9 @@ impl Game {
         };
         if took {
             p.cues.push(Sfx::Pickup);
+            if player {
+                self.info = info_text(kind, had).map(|t| (t.to_string(), 0.0));
+            }
             self.items.remove(i);
             if way != 0 {
                 self.tally.taken.insert(way);
@@ -653,6 +657,27 @@ impl Game {
             },
         }
     }
+}
+
+/// What the panel says the player picked up (`special_pickup`'s `x_message`, Special.cpp:360,
+/// in `lang_english.txt`): a gun she has already is ammo for it. The badges have their own
+/// message. Health says +50 though it heals 100, as it did.
+fn info_text(kind: u8, had: bool) -> Option<&'static str> {
+    Some(match kind {
+        2 | 4 | 6 if had => "Ammo",
+        2 => "Gun",
+        4 => "Shotgun",
+        6 => "M16",
+        10..=12 => "Ammo",
+        3 => "Health +50",
+        5 => "Knife",
+        8 => "Baseball Bat",
+        1 => "Keycard",
+        19 => "Video",
+        game::grenades::IT_GRENADE => "Grenade",
+        EXPLOSIVES => "Explosives",
+        _ => return None,
+    })
 }
 
 /// A `SPECIAL_*` item type as the `IT_*` one the items here use: the reverse of
