@@ -259,6 +259,46 @@ fn twenty_fourth_street_shooting_without_the_geek() {
     assert!(matches!(r.g.outcome, Some(Outcome::Lost(_))), "{:?}", r.g.outcome);
 }
 
+/// ...and the one on the roof (point 44), seen, runs for it over the roofs: across the gap
+/// to the next roof (a route's jump and pull-up), not down into the street.
+#[test]
+fn twenty_fourth_street_shooting_roof_runner_makes_the_jump() {
+    let Some(mut r) = common::start("Crimescene") else { return };
+    r.play(1.0, Controls::default());
+    let roof = r.who(44);
+    r.stand(r.point(53));
+    // Over the street at z 13824..14368, onto the roof beyond, 1216 up.
+    assert!(r.until(30.0, |r| r.g.people[roof].fig.pos.z < 13700.0), "never got across: {:?}", r.g.people[roof].fig.pos);
+    let p = &r.g.people[roof];
+    assert!(!p.is_dead() && p.fig.pos.y > 1000.0, "fell: {:?}, health {}", p.fig.pos, p.health);
+}
+
+/// ...and once the one on the roof (point 44) has told what he saw, or is dead, a beacon
+/// points Darci at the workman (58), until he's led her to the alley.
+#[test]
+fn twenty_fourth_street_shooting_points_to_the_workman() {
+    for beaten in [true, false] {
+        let Some(mut r) = common::start("Crimescene") else { return };
+        r.play(2.0, Controls::default());
+        assert!(!r.labels().iter().any(|l| l == "The workman"), "too soon: {:?}", r.labels());
+        let roof = r.who(44);
+        if beaten {
+            // Half his health gone, and he talks (point 36).
+            let at = r.g.people[roof].fig.pos;
+            let half = r.g.people[roof].health / 2 + 1;
+            r.g.people[roof].take_hit(at + vec3(50.0, 0.0, 0.0), half, 0, false, false, Weapon::None);
+            r.stand(at + vec3(150.0, 0.0, 0.0));
+        } else {
+            r.knock_out(44);
+        }
+        assert!(r.until(30.0, |r| r.labels().iter().any(|l| l == "The workman")), "beaten {beaten}: {:?}", r.labels());
+        r.talk_to(58, vec3(110.0, 0.0, 0.0), 6.0);
+        let (w, alley) = (r.who(58), r.point(64));
+        r.g.people[w].fig.pos = alley;
+        assert!(r.until(5.0, |r| !r.labels().iter().any(|l| l == "The workman")), "{:?}", r.labels());
+    }
+}
+
 /// Station Bombed (`police5`): the five Wildcats arrested wins, each with a beacon until
 /// he's in. The mission had no ending (`uc_world::level::finish_unfinished`).
 #[test]

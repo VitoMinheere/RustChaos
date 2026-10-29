@@ -380,12 +380,15 @@ impl Game {
                 if let Some(l) = ladder {
                     let foot = l.foot + l.out * 60.0;
                     let at = Vec3::new(foot.x, from.y, foot.y);
-                    self.people[i].leap = Some((at, -l.out, false));
+                    self.people[i].leap = Some((at, -l.out, false, false));
                     return Some(at);
                 }
                 return Some(edge);
             }
-            self.people[i].leap = Some((edge, d, true));
+            // Across a gap to pull up on the far side, at velocity 40 where any other jump
+            // has 24 (`PCOM_if_i_wanted_to_jump_how_fast_should_i_do_it`, pcom.cpp:15055).
+            let far = matches!(action, uc_world::mav::JUMPPULL | uc_world::mav::JUMPPULL2);
+            self.people[i].leap = Some((edge, d, true, far));
             return Some(edge);
         }
         let dest = middle(dest?);
