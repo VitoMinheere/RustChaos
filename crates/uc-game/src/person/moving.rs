@@ -2,33 +2,11 @@
 
 use super::*;
 use crate::tracks::Foot;
+use uc_world::ground::slope_at;
 
 /// How close Darci has to be to kick between the legs (`dist < 100`, Person.cpp:9909), a
 /// little more as our fighters stand a touch further apart.
 const NAD_RANGE: f32 = 120.0;
-
-/// How steep the ground is at (x, z), as `PAP_on_slope` has it (pap.cpp:459, halved as
-/// `check_on_slippy_slope` takes it): the two height differences of the triangle of the
-/// square that (x, z) is in, over 8, and the way down it. None under a building.
-pub(crate) fn slope_at(map: &Map, x: f32, z: f32) -> Option<(f32, Vec2)> {
-    let (mx, mz) = ((x / 256.0).floor() as i32, (z / 256.0).floor() as i32);
-    if !(0..127).contains(&mx) || !(0..127).contains(&mz) {
-        return None;
-    }
-    let (mx, mz) = (mx as usize, mz as usize);
-    if map.square(mx, mz).has(uc_formats::iam::flags::HIDDEN) {
-        return None;
-    }
-    let h = |a: usize, b: usize| map.corner_alt(a, b) as f32;
-    let (h0, h1, h2, h3) = (h(mx, mz), h(mx, mz + 1), h(mx + 1, mz), h(mx + 1, mz + 1));
-    let (fx, fz) = (x - mx as f32 * 256.0, z - mz as f32 * 256.0);
-    let (slope, grad) = if fx + fz < 256.0 {
-        (((h2 - h0).abs() + (h1 - h0).abs()) / 8.0, vec2(h2 - h0, h1 - h0))
-    } else {
-        (((h1 - h3).abs() + (h2 - h3).abs()) / 8.0, vec2(h3 - h1, h3 - h2))
-    };
-    Some((slope, -grad.normalize_or_zero()))
-}
 
 /// Ground steeper than this can't be stood on (`check_on_slippy_slope`'s `size`).
 const SLIPPY: f32 = 50.0;

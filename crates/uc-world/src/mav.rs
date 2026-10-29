@@ -323,6 +323,18 @@ impl Mav {
                 }
             }
         }
+        // Nor into one too steep to stand on (`MAV_precalculate`, mav.cpp:1270): where
+        // `PAP_on_slope` is over 100 a quarter of the way in from either corner, 50 as
+        // `slope_at` halves it. A walker heading straight into one would slide back down it
+        // for ever: Mr X's Getaway's Mr X, at the foot of the ramp up to his van.
+        for x in 0..MAP_SIZE as i32 - 1 {
+            for z in 0..MAP_SIZE as i32 - 1 {
+                let steep = |dx: f32| crate::ground::slope_at(map, x as f32 * 256.0 + dx, z as f32 * 256.0 + dx).is_some_and(|(s, _)| s > 50.0);
+                if steep(64.0) || steep(192.0) {
+                    self.turn_off_whole_square(x, z);
+                }
+            }
+        }
     }
 
     /// `MAV_turn_off_whole_square`: nothing gets into (x, z) from any side.
