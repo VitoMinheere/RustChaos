@@ -216,9 +216,10 @@ impl Mav {
             if !hit {
                 return (true, false);
             }
+            // Only a fence that can be scaled (mav.cpp:797): an unclimbable one is a wall.
             let fence = near(&fence_grid, a, b).into_iter().any(|k| {
                 let f = &ground.fences[k];
-                crosses(pa, pb, f.a.into(), f.b.into())
+                ground.fence_climb[k].scalable() && crosses(pa, pb, f.a.into(), f.b.into())
             });
             (false, fence)
         };

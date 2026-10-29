@@ -52,6 +52,24 @@ pub struct Ladder {
     pub top: f32,
 }
 
+/// What can be done with a fence (`DFacet`'s type and flags).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FenceClimb {
+    /// It can be climbed at all: no `FACET_FLAG_UNCLIMBABLE` (`set_person_land_on_fence` asks,
+    /// Person.cpp:10146). A third of the flat-topped fences in the shipped maps have it.
+    pub climbable: bool,
+    /// Climbed, it can be climbed over: a flat-topped one (`STOREY_TYPE_FENCE_FLAT`). On an
+    /// angle-topped one the hands come off at the top and down she drops (Person.cpp:14357).
+    pub over: bool,
+}
+
+impl FenceClimb {
+    /// The AI scales it on its way somewhere (mav.cpp:797).
+    pub fn scalable(self) -> bool {
+        self.climbable && self.over
+    }
+}
+
 /// The flat top of a walkable prop: a rotated rectangle at height `top`.
 #[derive(Debug, Clone, Copy)]
 struct PropTop {
@@ -231,10 +249,13 @@ pub struct Ground {
     pub doors: Vec<Door>,
     pub ladders: Vec<Ladder>,
     pub cables: Vec<Cable>,
-    /// Fences that can be climbed (chain-link: `STOREY_TYPE_FENCE`, `_FENCE_FLAT`).
+    /// The chain-link fences (`STOREY_TYPE_FENCE`, `_FENCE_FLAT`): which can be climbed is in
+    /// [`Ground::fence_climb`].
     pub fences: Vec<WallSegment>,
     /// The building each fence belongs to (a fence is electrified a building at a time).
     pub fence_buildings: Vec<u16>,
+    /// Whether each fence can be climbed, and climbed over.
+    pub fence_climb: Vec<FenceClimb>,
     /// The moving walkable faces where they are now (`WMOVE`), on platforms and vehicles: the
     /// game moves them, and they're in a `RefCell` for the same reason the doors' state is in
     /// a `Cell`.
@@ -411,22 +432,29 @@ impl Ground {
             }
         }
         let cables = map.facets.iter().skip(1).filter(|f| f.kind == facet_type::CABLE).map(|f| Cable { points: cable_points(f) }).collect();
-        let (fences, fence_buildings): (Vec<WallSegment>, Vec<u16>) = map
+        let fence_list: Vec<(WallSegment, u16, FenceClimb)> = map
             .facets
             .iter()
             .skip(1)
             .filter(|f| matches!(f.kind, facet_type::FENCE | facet_type::FENCE_FLAT) && f.flags & uc_formats::iam::facet_flags::INVISIBLE == 0)
             .map(|f| {
                 let y0 = f.y[0].min(f.y[1]) as f32;
+                let climb = FenceClimb {
+                    climbable: f.flags & uc_formats::iam::facet_flags::UNCLIMBABLE == 0,
+                    over: f.kind == facet_type::FENCE_FLAT,
+                };
                 (WallSegment {
                     a: [f.x[0] as f32 * 256.0, f.z[0] as f32 * 256.0],
                     b: [f.x[1] as f32 * 256.0, f.z[1] as f32 * 256.0],
                     y0,
                     y1: y0 + f.height as f32 * f.block_height as f32 * 4.0,
-                }, f.building)
+                }, f.building, climb)
             })
-            .filter(|(w, _)| w.y1 > w.y0)
-            .unzip();
+            .filter(|(w, _, _)| w.y1 > w.y0)
+            .collect();
+        let fences = fence_list.iter().map(|f| f.0).collect();
+        let fence_buildings = fence_list.iter().map(|f| f.1).collect();
+        let fence_climb = fence_list.iter().map(|f| f.2).collect();
         // Every prop, the moving ones too (Target UC's missiles ride platforms), whose prims
         // the collision above skips.
         let prop_damage = map.objects.iter()
@@ -435,7 +463,7 @@ impl Ground {
                     .as_ref().map_or((0, 0), |p| (p.damage, p.flag))
             })
             .collect();
-        Ground { roofs, prop_tops, prop_tris, walls, doors, ladders, cables, fences, fence_buildings, prop_walls, prop_damage, moving: Default::default() }
+        Ground { roofs, prop_tops, prop_tris, walls, doors, ladders, cables, fences, fence_buildings, fence_climb, prop_walls, prop_damage, moving: Default::default() }
     }
 
     /// The heights at (x, z) of the roofs over its square.
@@ -603,8 +631,21 @@ impl Ground {
         })
     }
 
-    /// A climbable fence within `reach` of `pos` that `dir` walks into: (fence, nearest point on
-    /// it, unit normal pointing over to the far side).
+    /// A fence the AI can't scale (mav.cpp:797) stands between `a` and `b`, across the line
+    /// from one to the other and reaching above `a`'s feet.
+    pub fn unscalable_fence_between(&self, a: Vec3, b: Vec3) -> bool {
+        let (p, q) = (vec2(a.x, a.z), vec2(b.x, b.z));
+        let side = |o: Vec2, u: Vec2, v: Vec2| (u - o).perp_dot(v - o);
+        self.fences.iter().zip(&self.fence_climb).any(|(f, c)| {
+            let (fa, fb) = (Vec2::from(f.a), Vec2::from(f.b));
+            !c.scalable() && f.y1 > a.y + STEP_HEIGHT && f.y0 < a.y + 64.0
+                && side(p, q, fa) * side(p, q, fb) < 0.0 && side(fa, fb, p) * side(fa, fb, q) < 0.0
+        })
+    }
+
+    /// A fence within `reach` of `pos` that `dir` walks into, climbable or not (a low one is
+    /// vaulted either way): (fence, nearest point on it, unit normal pointing over to the far
+    /// side).
     pub fn fence_ahead(&self, pos: Vec3, dir: Vec2, reach: f32) -> Option<(usize, Vec2, Vec2)> {
         let p = vec2(pos.x, pos.z);
         self.fences.iter().enumerate().find_map(|(i, w)| {

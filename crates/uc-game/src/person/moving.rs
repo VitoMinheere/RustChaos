@@ -1022,8 +1022,12 @@ impl Person {
                         self.state = State::Vault { from: self.fig.pos, to: vec3(far.x, self.fig.pos.y, far.y) };
                         return;
                     }
-                    self.climb_fence(at, over, f.y1);
-                    return;
+                    // Climbed only if it can be, and over the top only if it's flat.
+                    let climb = ground.fence_climb[i];
+                    if climb.climbable {
+                        self.climb_fence(at, over, f.y1, climb.over);
+                        return;
+                    }
                 }
             }
             // Getting nowhere (the AI): under a quarter of the way they'd walk, over half a

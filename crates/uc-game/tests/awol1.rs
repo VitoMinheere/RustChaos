@@ -116,7 +116,8 @@ fn cop_killers_runs_to_a_win() {
     assert_eq!(r.g.outcome, Some(Outcome::Won));
 }
 
-/// Climbing an electrified fence: thrown off it with sparks, knocked down.
+/// Climbing an electrified fence: thrown off it with sparks,
+/// knocked down.
 #[test]
 fn an_electrified_fence_throws_off_whoever_climbs_it() {
     let Some(mut r) = start() else { return };
@@ -125,8 +126,11 @@ fn an_electrified_fence_throws_off_whoever_climbs_it() {
     let ground = &r.level.ground;
     let (k, w) = ground.fences.iter().enumerate()
         .find(|(k, w)| r.g.electrified.contains(&ground.fence_buildings[*k]) && w.y1 - w.y0 > 150.0)
+        .map(|(k, w)| (k, *w))
         .expect("no electrified fence");
-    let _ = k;
+    // AWOL1's own are all unclimbable (`FACET_FLAG_UNCLIMBABLE`): one that could be climbed.
+    assert!(!ground.fence_climb[k].climbable);
+    r.level.ground.fence_climb[k].climbable = true;
     let (a, b) = (Vec2::from(w.a), Vec2::from(w.b));
     let mid = (a + b) / 2.0;
     let across = (b - a).perp().normalize();

@@ -480,7 +480,8 @@ pub fn arena(level: &Level, start: Vec3, radius: f32) -> Grid {
             if flat_dist(next, start) > radius || (next.y - here.y).abs() > uc_world::ground::STEP_HEIGHT {
                 continue;
             }
-            if !level.ground.line_of_sight(here + waist, next + waist) {
+            // Nor over a fence that can't be climbed over (it's a wall to the AI, mav.cpp:797).
+            if !level.ground.line_of_sight(here + waist, next + waist) || level.ground.unscalable_fence_between(here, next) {
                 continue;
             }
             leads.push((nx, nz));

@@ -53,6 +53,8 @@ pub mod facet_flags {
     pub const INSIDE: u16 = 1 << 3;
     pub const HUG_FLOOR: u16 = 1 << 5;
     pub const TWO_SIDED: u16 = 1 << 7;
+    /// `FACET_FLAG_UNCLIMBABLE`: a fence nobody can climb.
+    pub const UNCLIMBABLE: u16 = 1 << 8;
     pub const SEETHROUGH: u16 = 1 << 11;
     pub const TWO_TEXTURED: u16 = 1 << 14;
 }

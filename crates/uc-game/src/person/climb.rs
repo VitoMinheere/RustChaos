@@ -46,14 +46,15 @@ impl Person {
         self.state = State::PullUp { start, end, to };
     }
 
-    /// Starts climbing over a fence whose near face is at `at` (xz), top at `top`.
-    pub(super) fn climb_fence(&mut self, at: Vec2, over: Vec2, top: f32) {
+    /// Starts climbing a fence whose near face is at `at` (xz), top at `top`, and over it if
+    /// `cross`.
+    pub(super) fn climb_fence(&mut self, at: Vec2, over: Vec2, top: f32, cross: bool) {
         let from = self.fig.hips();
         self.fig.angle = uc_world::character::angle_of(over);
         self.fig.pin_root = true;
         self.fig.restart_now(anim::LAND_ON_FENCE, Play::Once);
         self.fig.set_speed(1.5);
-        self.state = State::Fence { phase: 0, at, over, base: self.fig.pos.y, top, from };
+        self.state = State::Fence { phase: 0, at, over, base: self.fig.pos.y, top, from, cross };
         self.place_hips(from);
     }
 
@@ -175,7 +176,8 @@ impl Person {
 
     /// `step` in [`State::Fence`].
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn step_fence(&mut self, mut phase: u8, at: Vec2, over: Vec2, base: f32, top: f32, from: Vec3, dt: f32) {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn step_fence(&mut self, mut phase: u8, at: Vec2, over: Vec2, base: f32, top: f32, from: Vec3, cross: bool, dt: f32) {
         // Hips just in front of the fence, hands up on it.
         let near = vec3(at.x, 0.0, at.y) - vec3(over.x, 0.0, over.y) * 28.0;
         let grip = |y: f32| vec3(near.x, y, near.z);
@@ -198,6 +200,15 @@ impl Person {
             1 => {
                 let y = (self.fig.hips().y + 220.0 * dt).min(high);
                 self.place_hips(grip(y));
+                if y >= high && !cross {
+                    // An angle-topped fence: the hands come off at the top, and she drops
+                    // back down (`set_person_drop_down`, Person.cpp:14367).
+                    let h = self.fig.hips();
+                    self.fig.pin_root = false;
+                    self.fig.pos = h - vec3(0.0, self.fig.stand_root().y, 0.0);
+                    self.fall(-over * 30.0);
+                    return;
+                }
                 if y >= high {
                     phase = 2;
                     self.fig.restart(anim::CLIMB_OVER_FENCE, Play::Once);
@@ -220,7 +231,7 @@ impl Person {
                 }
             }
         }
-        self.state = State::Fence { phase, at, over, base, top, from };
+        self.state = State::Fence { phase, at, over, base, top, from, cross };
     }
 
     /// `step` in [`State::Zip`].
