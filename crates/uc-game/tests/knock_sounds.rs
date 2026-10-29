@@ -60,3 +60,18 @@ fn someone_run_over_squishes() {
     }
     assert!(squished, "no squish; victim {:?}", g.people[victim].state);
 }
+
+/// A fly-by that holds the player opens with a sting (`S_CUTSCENE_STING`, eway.cpp:5389):
+/// police1's first shot does.
+#[test]
+fn a_held_fly_by_opens_with_a_sting() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let level = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let mut g = Game::new(&level, true);
+    let mut stung = 0;
+    for _ in 0..10 {
+        g.update(DT, &Controls::default(), &level);
+        stung += g.take_sounds().iter().filter(|(s, _)| *s == Sfx::Sting).count();
+    }
+    assert_eq!(stung, 1);
+}
