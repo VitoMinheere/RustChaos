@@ -697,6 +697,22 @@ fn strafing() {
     assert!((p.fig.pos - at).length() < 300.0 && (vec2(p.fig.pos.x, p.fig.pos.z) - vec2(at.x, at.z)).length() < 1.0, "turned on the spot");
 }
 
+/// No back flip into a wall (#415, `should_person_backflip`, interfac.cpp:831): with the
+/// central platform's side 128 behind her, jump with back is a jump on the spot.
+#[test]
+fn no_back_flip_into_a_wall() {
+    use uc_world::character::anim;
+    let Some(level) = level() else { return };
+    // Facing west, her back to the platform (its wall at x = 47 squares, 128 high).
+    let f = vec2(-1.0, 0.0);
+    let mut p = darci(&level, vec3(46.5 * 256.0, 0.0, 55.0 * 256.0), f);
+    let from = p.fig.pos;
+    run(&mut p, &level, Controls { jump: true, wish: -f, strafe: Some(f), ..Default::default() }, DT, 60.0, |_| false);
+    assert_ne!(p.fig.anim(), anim::BACK_FLIP, "flipped into the wall");
+    until(&mut p, &level, Controls::default(), 4.0, 60.0, |p| matches!(p.state, State::Move));
+    assert!((p.fig.pos.x - from.x).abs() < 20.0, "went {:?}", p.fig.pos - from);
+}
+
 /// Up from a knockdown with a two-handed gun, they hold it ready (`ANIM_SHOTGUN_STAND`,
 /// `set_person_locked_idle_ready`).
 #[test]

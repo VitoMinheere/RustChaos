@@ -1148,7 +1148,15 @@ impl Person {
 
     /// The standing jump backwards (`set_person_standing_jump_backwards`, Person.cpp:10214):
     /// a back flip, going back at `Velocity` 32 (Person.cpp:13184), not off a steep slope.
+    /// With a wall within 256 behind her (0x60 up, `should_person_backflip`,
+    /// interfac.cpp:831) she jumps on the spot instead.
     fn back_flip(&mut self, ground: &Ground, map: &Map) {
+        let up = vec3(0.0, 0x60 as f32, 0.0);
+        let behind = -self.fig.facing() * 256.0;
+        if !ground.line_of_sight(self.fig.pos + up, self.fig.pos + up + vec3(behind.x, 0.0, behind.y)) {
+            self.jump(Vec2::ZERO);
+            return;
+        }
         if self.slipping(ground, map).is_some() || !self.fig.restart(anim::BACK_FLIP, Play::Once) {
             return;
         }
