@@ -435,6 +435,11 @@ impl Game {
         }
     }
 
+    /// The switch or valve (map object) that sets off mission event point `i`, if any.
+    pub fn point_switch(&self, i: usize) -> Option<usize> {
+        self.script.as_ref()?.switch_of(i)
+    }
+
     /// Whether mission event point `i` is active (for tests and debugging).
     pub fn point_active(&self, i: usize) -> bool {
         self.script.as_ref().is_some_and(|s| s.point_active(i))
@@ -506,6 +511,9 @@ impl script::Query for Scene<'_> {
     }
     fn player_used(&self) -> bool {
         self.game.player_used()
+    }
+    fn worked(&self) -> Option<usize> {
+        self.game.worked
     }
     fn got_item(&self, way: usize) -> bool {
         self.game.got_item(way)
