@@ -213,7 +213,11 @@ impl Game {
         }
     }
 
-    pub(crate) fn update_target(&mut self, cycle: bool, level: &Level) {
+    ///
+    /// Looking round at `look` (up, radians), those at that height are favoured: someone
+    /// 128 of 2048 off it or more isn't picked, and nearer it, as if nearer
+    /// (`calc_target_score_new`, guns.cpp:379).
+    pub(crate) fn update_target(&mut self, cycle: bool, look: Option<f32>, level: &Level) {
         let Some(pi) = self.player else { return };
         let p = &self.people[pi];
         if !p.weapon.is_gun() || matches!(p.state, State::InCar { .. }) {
@@ -229,8 +233,12 @@ impl Game {
         let seen = |at: Vec3, aim: Aim| {
             let d = Vec2::new(at.x - pos.x, at.z - pos.z);
             let dist = d.length();
-            (dist < TARGET_RANGE && (at.y - pos.y).abs() < 4.0 * 256.0 && level.ground.line_of_sight(pos + eye, at + eye))
-                .then(|| (aim, dist, 1.0 - f.dot(d / dist.max(1.0))))
+            let height = look.map_or(1.0, |up| {
+                let off = ((at.y - pos.y).atan2(dist.max(1.0)) - up).abs() / std::f32::consts::TAU * 2048.0;
+                (128.0 - off.min(128.0)) / 128.0
+            });
+            (dist < TARGET_RANGE && height > 0.0 && (at.y - pos.y).abs() < 4.0 * 256.0 && level.ground.line_of_sight(pos + eye, at + eye))
+                .then(|| (aim, dist / height, 1.0 - f.dot(d / dist.max(1.0))))
         };
         // (who, how far, how far round from straight ahead), nearest first. Creatures can be
         // shot as well as people (`BAT_apply_hit` from `shoot_get_ammo_sound_and_damage`).

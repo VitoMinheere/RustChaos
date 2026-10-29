@@ -405,6 +405,11 @@ pub struct Controls {
     /// go are then hers, as the original's were: to the side a step that way, back walking
     /// backwards, jump with back a back flip; standing, she turns on the spot to face it.
     pub strafe: Option<Vec2>,
+    /// Looking round (`FLAG2_PERSON_LOOK`): the way she's turned to (her `fig.angle`) and
+    /// how far up she's looking (radians, down negative). She turns with the view, and her
+    /// gun picks out whoever's at that height (`apply_button_input_first_person`,
+    /// interfac.cpp:7459).
+    pub look: Option<(f32, f32)>,
 }
 
 impl Controls {

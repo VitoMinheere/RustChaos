@@ -1293,8 +1293,14 @@ impl Game {
         for s in 0..seats {
             self.focus(s);
             let c = seat_input(s);
+            // Looking round, she turns as the view does (interfac.cpp:7572).
+            if let (Some((angle, _)), Some(pi)) = (c.look, self.player) {
+                if matches!(self.people[pi].state, State::Move) {
+                    self.people[pi].fig.angle = angle;
+                }
+            }
             if self.outcome.is_none() {
-                self.update_target(c.cycle_target, level);
+                self.update_target(c.cycle_target, c.look.map(|l| l.1), level);
                 self.aim_at_people();
             }
         }

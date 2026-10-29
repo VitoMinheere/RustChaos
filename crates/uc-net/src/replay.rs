@@ -19,9 +19,11 @@ use uc_game::{Difficulty, Game, Outcome, Weapon, TURN};
 use uc_world::Level;
 
 /// The file's first bytes, with the format's version in the last.
-pub const MAGIC: &[u8; 4] = b"UCR3";
+pub const MAGIC: &[u8; 4] = b"UCR4";
 
-/// The version before inputs held the strafe key (#309), still read.
+/// The versions before inputs held looking round, and before that the strafe key (#309),
+/// still read.
+const MAGIC_3: &[u8; 4] = b"UCR3";
 const MAGIC_2: &[u8; 4] = b"UCR2";
 
 /// The weapons a game can start with, by their number in a file.
@@ -235,9 +237,10 @@ impl Replay {
 
     pub fn from_bytes(b: &[u8]) -> io::Result<Replay> {
         let bad = |why: &str| io::Error::new(io::ErrorKind::InvalidData, why.to_string());
-        let (b, strafe) = match (b.strip_prefix(MAGIC), b.strip_prefix(MAGIC_2)) {
-            (Some(b), _) => (b, true),
-            (_, Some(b)) => (b, false),
+        let (b, version) = match (b.strip_prefix(MAGIC), b.strip_prefix(MAGIC_3), b.strip_prefix(MAGIC_2)) {
+            (Some(b), ..) => (b, 4),
+            (_, Some(b), _) => (b, 3),
+            (.., Some(b)) => (b, 2),
             _ => return Err(bad("not a replay, or another version")),
         };
         let mut i = In(b);
@@ -288,7 +291,7 @@ impl Replay {
         let mut turns = Vec::with_capacity(total.min(1 << 20));
         for _ in 0..i.u32()? {
             let n = i.u32()? as usize;
-            let inputs = (0..seats).map(|_| i.input_of(strafe)).collect::<io::Result<Vec<_>>>()?;
+            let inputs = (0..seats).map(|_| i.input_of(version)).collect::<io::Result<Vec<_>>>()?;
             if turns.len() + n > total {
                 return Err(bad("more turns than it says"));
             }
@@ -465,7 +468,7 @@ mod tests {
 
     #[test]
     fn a_replay_round_trips() {
-        let i = |x: f32, b: u16| Input { wish: [x, -x], drive: [0.5, x], buttons: b, strafe: (b & 1 != 0).then_some([x, 1.0]) };
+        let i = |x: f32, b: u16| Input { wish: [x, -x], drive: [0.5, x], buttons: b, strafe: (b & 1 != 0).then_some([x, 1.0]), look: (b & 2 != 0).then_some([x, 0.25]) };
         let r = Replay {
             start: Start {
                 mission: "Assault1".into(), mode: Mode::Beat { seed: 7, centre: Some([256.0, -512.0]), shift: None },
