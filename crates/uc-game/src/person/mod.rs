@@ -1687,7 +1687,7 @@ impl Person {
                 }
             }
             State::Shoot { target, shots } => self.step_shoot(target, shots, me, c, snaps, ground, map, dt, events),
-            State::Fence { phase, at, over, base, top, from } => self.step_fence(phase, at, over, base, top, from, dt),
+            State::Fence { phase, at, over, base, top, from } => self.step_fence(phase, at, over, base, top, from, c, dt),
             State::Zip { cable, t, dir, speed, ridden } => self.step_zip(cable, t, dir, speed, ridden, c, ground, map, dt),
             State::Attack { mv, hit, queued } => self.step_attack(mv, hit, queued, me, c, snaps, ground, map, dt, events),
             State::Slide { phase, speed, hit } => self.step_slide(phase, speed, hit, me, snaps, ground, map, dt, events),
