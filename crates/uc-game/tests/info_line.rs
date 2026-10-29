@@ -9,7 +9,7 @@ const DT: f32 = 1.0 / 30.0;
 /// Puts item `kind` at the player's feet and lets her pick it up: what the info line says.
 fn pick_up(g: &mut Game, level: &Level, kind: u8) -> Option<String> {
     let pos = g.player().unwrap().fig.pos;
-    g.items.push(Item { way: 0, kind, pos, rounds: None });
+    g.items.push(Item { way: 0, kind, pos, rounds: None, born: 0.0 });
     for _ in 0..5 {
         g.update(DT, &Controls::default(), level);
     }

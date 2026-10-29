@@ -66,8 +66,10 @@ fn to_bane(r: &mut Run) {
 
     // 1. The override switch in the pool house (point 88) turns the security off.
     r.put(r.point(88));
+    r.stand_at_switch(88);
     r.play(DT, Controls { action: true, ..Default::default() });
-    r.play(1.0, Controls::default());
+    // Pressing it takes a couple of seconds.
+    r.play(2.5, Controls::default());
     assert!(r.said("Security systems off!"), "the switch did nothing: {:?}", r.seen);
 
     // 2. Inside the house, near Bane (within 512 of point 124): he taunts her, and his

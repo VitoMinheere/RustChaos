@@ -419,6 +419,11 @@ impl Game {
                     }
                 }
             }
+            if self.vehicles[vi].scrape() && self.turns.is_multiple_of(10) {
+                // (The original's moving channel keeps one scrape going; a fresh one every
+                // half second here.)
+                self.sounds.push((Sfx::Scrape, self.vehicles[vi].pos));
+            }
             let v = &self.vehicles[vi];
             if !sliding && v.slip.abs() > 300.0 {
                 self.sounds.push((Sfx::Skid, v.pos));
@@ -464,6 +469,13 @@ impl Game {
                         p.dodge = Some((away, 0.9));
                     }
                 }
+            }
+            // Going fast, it scares civilians near where it's headed: past `Velocity` 500
+            // (each worth 1.25 world units a second), a noise two squares ahead (`VEH_driving`,
+            // vehicle.cpp:3395).
+            if v.speed.abs() > 625.0 {
+                let ahead = fwd * v.speed.signum() * 512.0;
+                self.noises.push((person::Noise::Van, v.pos + Vec3::new(ahead.x, 0.0, ahead.y), v.driver));
             }
             // People in the way.
             for (i, p) in self.people.iter_mut().enumerate() {

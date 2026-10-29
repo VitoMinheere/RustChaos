@@ -51,13 +51,15 @@ impl Out {
         self.f32(i.drive[0]);
         self.f32(i.drive[1]);
         self.u16(i.buttons);
-        match i.strafe {
-            Some([x, z]) => {
-                self.u8(1);
-                self.f32(x);
-                self.f32(z);
+        for v in [i.strafe, i.look] {
+            match v {
+                Some([x, z]) => {
+                    self.u8(1);
+                    self.f32(x);
+                    self.f32(z);
+                }
+                None => self.u8(0),
             }
-            None => self.u8(0),
         }
     }
     pub(crate) fn setup(&mut self, s: &Setup) {
@@ -102,13 +104,17 @@ impl In<'_> {
         String::from_utf8(self.bytes(n)?.to_vec()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
     pub(crate) fn input(&mut self) -> io::Result<Input> {
-        self.input_of(true)
+        self.input_of(4)
     }
-    /// An input, from before strafing (#309) went with it if not `strafe`.
-    pub(crate) fn input_of(&mut self, strafe: bool) -> io::Result<Input> {
-        let mut i = Input { wish: [self.f32()?, self.f32()?], drive: [self.f32()?, self.f32()?], buttons: self.u16()?, strafe: None };
-        if strafe && self.u8()? != 0 {
+    /// An input as replay version `version` had it: from 3 with the strafe key (#309), from 4
+    /// with looking round.
+    pub(crate) fn input_of(&mut self, version: u8) -> io::Result<Input> {
+        let mut i = Input { wish: [self.f32()?, self.f32()?], drive: [self.f32()?, self.f32()?], buttons: self.u16()?, strafe: None, look: None };
+        if version >= 3 && self.u8()? != 0 {
             i.strafe = Some([self.f32()?, self.f32()?]);
+        }
+        if version >= 4 && self.u8()? != 0 {
+            i.look = Some([self.f32()?, self.f32()?]);
         }
         Ok(i)
     }
@@ -246,13 +252,28 @@ mod tests {
             o.f32(v);
         }
         o.u16(7);
-        let i = In(&o.0).input_of(false).unwrap();
-        assert_eq!(i, Input { wish: [0.5, -1.0], drive: [1.0, 0.0], buttons: 7, strafe: None });
+        let i = In(&o.0).input_of(2).unwrap();
+        assert_eq!(i, Input { wish: [0.5, -1.0], drive: [1.0, 0.0], buttons: 7, strafe: None, look: None });
+    }
+
+    /// Replays from before looking round went with the input have the strafe key and no more.
+    #[test]
+    fn inputs_from_before_looking_round_still_read() {
+        let mut o = Out(Vec::new());
+        for v in [0.5, -1.0, 1.0, 0.0] {
+            o.f32(v);
+        }
+        o.u16(7);
+        o.u8(1);
+        o.f32(0.6);
+        o.f32(-0.8);
+        let i = In(&o.0).input_of(3).unwrap();
+        assert_eq!(i, Input { wish: [0.5, -1.0], drive: [1.0, 0.0], buttons: 7, strafe: Some([0.6, -0.8]), look: None });
     }
 
     #[test]
     fn every_message_round_trips() {
-        let input = Input { wish: [0.5, -1.0], drive: [1.0, 0.0], buttons: 0x1234, strafe: Some([0.6, -0.8]) };
+        let input = Input { wish: [0.5, -1.0], drive: [1.0, 0.0], buttons: 0x1234, strafe: Some([0.6, -0.8]), look: Some([1.5, -0.2]) };
         let setup = Setup { mission: "police1".into(), difficulty: 2, stats: [1, 2, 3, 4] };
         let all = [
             Msg::Hello { protocol: 7, build: "abc-dirty".into(), name: "Vito".into() },

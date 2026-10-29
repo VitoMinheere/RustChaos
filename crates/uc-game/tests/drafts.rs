@@ -26,8 +26,10 @@ impl Run {
 
     /// Stands on point `way` and presses action there.
     fn press(&mut self, way: usize) {
-        let p = self.point(way);
-        self.stand(p);
+        if !self.stand_at_switch(way) {
+            let p = self.point(way);
+            self.stand(p);
+        }
         self.play(DT, Controls { action: true, ..Default::default() });
         self.play(2.0, Controls::default());
     }

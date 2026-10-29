@@ -37,8 +37,8 @@ fn a_shot_lights_up_for_a_moment() {
     let Some((level, mut g)) = load("fight2") else { return };
     let pi = g.player.unwrap();
     let pos = g.people[pi].fig.pos;
-    g.items.push(Item { way: 0, kind: 2, pos, rounds: None });
-    for _ in 0..5 {
+    g.items.push(Item { way: 0, kind: 2, pos, rounds: None, born: 0.0 });
+    for _ in 0..40 {
         g.update(DT, &Controls::default(), &level);
     }
     let mut lit = false;

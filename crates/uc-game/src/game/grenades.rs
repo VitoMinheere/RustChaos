@@ -37,6 +37,46 @@ pub struct Grenade {
     warn: f32,
 }
 
+impl Grenade {
+    /// One step of the flight: falling, bouncing off the ground (losing half its speed
+    /// upwards) and off buildings (losing half across, `under > 0x4000`), and settling.
+    /// Where it was when it hit the ground hard enough to hear (`dy` over 0x80000,
+    /// grenade.cpp:259).
+    fn fly(&mut self, dt: f32, level: &Level) -> Option<Vec3> {
+        let g = self;
+        g.vel.y = (g.vel.y - GRAVITY * dt).max(-FASTEST_FALL);
+        let old = g.pos;
+        g.pos += g.vel * dt;
+        g.pitch += 50.0 * dt;
+        let floor = level.ground.map_height(&level.map, g.pos.x, g.pos.z) + 11.0;
+        let mut heard = None;
+        if g.pos.y < floor {
+            if floor - g.pos.y > 64.0 || g.vel.y > 0.0 {
+                // A building: back out across whichever square edge it crossed.
+                if (old.x / 256.0).floor() != (g.pos.x / 256.0).floor() {
+                    g.pos.x = old.x;
+                    g.vel.x = -g.vel.x / 2.0;
+                }
+                if (old.z / 256.0).floor() != (g.pos.z / 256.0).floor() {
+                    g.pos.z = old.z;
+                    g.vel.z = -g.vel.z / 2.0;
+                }
+            } else {
+                if g.vel.y.abs() > 8.0 * 20.0 {
+                    heard = Some(old);
+                }
+                g.vel.y = g.vel.y.abs() / 2.0;
+                g.pos.y = old.y;
+                if g.vel.y <= SETTLE {
+                    g.vel = Vec3::ZERO;
+                    g.pos.y = floor;
+                }
+            }
+        }
+        heard
+    }
+}
+
 impl Game {
     /// Attack or action with a grenade in hand: the first press primes it
     /// (`SPECIAL_prime_grenade`), the next starts the throw (`set_person_can_release`:
@@ -61,21 +101,55 @@ impl Game {
 
     /// The throw reaches its release (`SUB_STATE_CANNING_RELEASE`, frame 3): the primed
     /// grenade leaves her left hand (`SPECIAL_throw_grenade`, `CreateGrenadeFromPerson`).
+    ///
+    /// The AI primes theirs as they start the throw (`shoot_get_ammo_sound_anim_time`,
+    /// Person.cpp:6060), and lobs it half as far at someone within 0x500 they're out to get
+    /// (grenade.cpp:118). Their last gone, they get out a pistol if they've one.
     pub(crate) fn release_grenade(&mut self, pi: usize) {
-        let Some(fuse) = self.primed else { return };
+        let player = Some(pi) == self.player;
+        let Some(fuse) = (if player { self.primed } else { Some(FUSE) }) else { return };
+        let near = self.people[pi].foe.filter(|_| !player && self.people[pi].aggro())
+            .is_some_and(|t| Vec2::new(self.people[t].fig.pos.x - self.people[pi].fig.pos.x, self.people[t].fig.pos.z - self.people[pi].fig.pos.z).length() < 0x500 as f32);
         let p = &mut self.people[pi];
         if p.grenades == 0 {
             return;
         }
         let hand = p.fig.part_world(7).map_or(p.fig.pos + Vec3::new(0.0, 120.0, 0.0), |(_, at)| at);
         let f = p.fig.facing();
-        let vel = Vec3::new(f.x * THROW_ACROSS, THROW_UP, f.y * THROW_ACROSS);
+        let mut vel = Vec3::new(f.x * THROW_ACROSS, THROW_UP, f.y * THROW_ACROSS);
+        if near {
+            vel /= 2.0;
+        }
         p.grenades -= 1;
         if p.grenades == 0 {
-            p.weapon = Weapon::None;
+            p.weapon = if !player && p.has(Weapon::Pistol) { Weapon::Pistol } else { Weapon::None };
         }
-        self.primed = None;
+        if player {
+            self.primed = None;
+        }
         self.grenades.push(Grenade { owner: pi, pos: hand, vel, fuse, pitch: 0.0, warn: 0.0 });
+    }
+
+    /// Where the grenade in the player's hand would go, thrown now (`show_grenade_path`,
+    /// grenade.cpp:440, from `OVERLAY_draw_gun_sights`): its path, turn by turn, to where it
+    /// comes to rest. Only standing still with one in hand, and not inside a warehouse.
+    pub fn grenade_path(&self, level: &Level) -> Option<Vec<Vec3>> {
+        let p = self.player()?;
+        if self.indoors.is_some() || p.weapon != Weapon::Grenade || p.grenades == 0
+            || !matches!(p.state, State::Move) || p.fig.anim() == uc_world::character::anim::WALK
+        {
+            return None;
+        }
+        let hand = p.fig.part_world(7).map_or(p.fig.pos + Vec3::new(0.0, 120.0, 0.0), |(_, at)| at);
+        let f = p.fig.facing();
+        let mut g = Grenade { owner: 0, pos: hand, vel: Vec3::new(f.x * THROW_ACROSS, THROW_UP, f.y * THROW_ACROSS), fuse: FUSE, pitch: 0.0, warn: 0.0 };
+        let mut path = vec![g.pos];
+        while g.fuse > 0.0 && g.vel != Vec3::ZERO {
+            g.fuse -= TURN;
+            g.fly(TURN, level);
+            path.push(g.pos);
+        }
+        Some(path)
     }
 
     /// `ProcessGrenades`, for the player in focus: a primed grenade still in hand goes off
@@ -118,35 +192,9 @@ impl Game {
             if warn {
                 g.warn = 16.0 / 20.0;
             }
-            g.vel.y = (g.vel.y - GRAVITY * dt).max(-FASTEST_FALL);
-            let old = g.pos;
-            g.pos += g.vel * dt;
-            g.pitch += 50.0 * dt;
-            let floor = level.ground.map_height(&level.map, g.pos.x, g.pos.z) + 11.0;
-            if g.pos.y < floor {
-                if floor - g.pos.y > 64.0 || g.vel.y > 0.0 {
-                    // A building: back out across whichever square edge it crossed.
-                    if (old.x / 256.0).floor() != (g.pos.x / 256.0).floor() {
-                        g.pos.x = old.x;
-                        g.vel.x = -g.vel.x / 2.0;
-                    }
-                    if (old.z / 256.0).floor() != (g.pos.z / 256.0).floor() {
-                        g.pos.z = old.z;
-                        g.vel.z = -g.vel.z / 2.0;
-                    }
-                } else {
-                    // Hitting the ground hard enough to hear (`dy` over 0x80000, grenade.cpp:259).
-                    if g.vel.y.abs() > 8.0 * 20.0 {
-                        let owner = g.owner;
-                        self.noises.push((person::Noise::GrenadeHit, old, Some(owner)));
-                    }
-                    g.vel.y = g.vel.y.abs() / 2.0;
-                    g.pos.y = old.y;
-                    if g.vel.y <= SETTLE {
-                        g.vel = Vec3::ZERO;
-                        g.pos.y = floor;
-                    }
-                }
+            if let Some(old) = g.fly(dt, level) {
+                let owner = g.owner;
+                self.noises.push((person::Noise::GrenadeHit, old, Some(owner)));
             }
             let (at, owner) = (g.pos, g.owner);
             if warn {

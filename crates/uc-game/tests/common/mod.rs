@@ -101,6 +101,17 @@ impl Run {
         vec3(e.x as f32, e.y as f32, e.z as f32)
     }
 
+    /// If point `way` is set off by a switch or a valve, stands the player where it's
+    /// worked from, facing it, and says so.
+    pub fn stand_at_switch(&mut self, way: usize) -> bool {
+        let Some(ob) = self.g.point_switch(way) else { return false };
+        let (at, a) = uc_game::switch_spot(&self.level, ob);
+        self.stand(at);
+        let p = self.player();
+        self.g.people[p].fig.angle = a;
+        true
+    }
+
     /// The person made by event point `way`.
     pub fn who(&self, way: usize) -> usize {
         self.g.people.iter().position(|p| p.way == way).unwrap_or_else(|| panic!("nobody from point {way}"))

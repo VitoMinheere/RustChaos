@@ -107,9 +107,127 @@ impl Game {
                     let f = self.people[i].facing_dir();
                     let at = pos + Vec3::new(f.x, 0.0, f.y) * 128.0;
                     let y = level.ground.surface(&level.map, at.x, at.z, pos.y + 64.0);
-                    self.items.push(Item { way: 0, kind: crate::SNIPER, pos: Vec3::new(at.x, y, at.z), rounds: None });
+                    self.items.push(Item { way: 0, kind: crate::SNIPER, pos: Vec3::new(at.x, y, at.z), rounds: None, born: self.time });
                 }
             }
+        }
+    }
+
+    /// Who fights whom from where (`gang_attacks`, combat.cpp:55; `PCOM_new_gang_attack`,
+    /// pcom.cpp:3602): everyone set on someone hand to hand, near them, holds a quarter round
+    /// them, the one they're on (`(angle + 256) >> 9`). Taken, the others are pushed round a
+    /// place or two to make room (`push_into_attack_group_at_angle`, pcom.cpp:3530), or if
+    /// all four are, they share it. Every ten turns each takes their place again from where
+    /// they've got to (Person.cpp:21878).
+    pub(crate) fn gang_slots(&mut self) {
+        let tick = (self.time * 20.0) as usize;
+        let quarter = |from: Vec3, to: Vec3| {
+            let v = Vec2::new(from.x - to.x, from.z - to.z);
+            ((v.x.atan2(v.y) / std::f32::consts::FRAC_PI_2).round() as i32).rem_euclid(4) as u8
+        };
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            let target = p.foe.filter(|&t| {
+                p.aggro() && !p.player && !p.weapon.is_gun() && !p.removed && !p.is_down() && !p.is_dead()
+                    && t < self.people.len() && !self.people[t].removed
+                    && Vec2::new(p.fig.pos.x - self.people[t].fig.pos.x, p.fig.pos.z - self.people[t].fig.pos.z).length() < 600.0
+            });
+            let held = p.slot;
+            if let Some((t, _)) = held.filter(|&(t, _)| Some(t) != target) {
+                self.leave_slot(i, t);
+            }
+            let Some(t) = target else { continue };
+            if held.is_some_and(|(ht, _)| ht == t) && !(tick + i).is_multiple_of(10) {
+                continue;
+            }
+            self.leave_slot(i, t);
+            let want = quarter(self.people[i].fig.pos, self.people[t].fig.pos);
+            let ring = self.gang_attacks.entry(t).or_insert([None; 4]);
+            if ring[want as usize].is_some() {
+                // Shunt round to the nearer free place, one way then the other.
+                'shunt: for c in 1..=2u8 {
+                    for sign in [1i8, -1] {
+                        let free = (want as i8 + sign * c as i8).rem_euclid(4) as usize;
+                        if ring[free].is_none() {
+                            let mut at = free;
+                            for _ in 0..c {
+                                let from = (at as i8 - sign).rem_euclid(4) as usize;
+                                ring[at] = ring[from];
+                                if let Some(k) = ring[at] {
+                                    self.people[k].slot = Some((t, at as u8));
+                                }
+                                at = from;
+                            }
+                            break 'shunt;
+                        }
+                    }
+                }
+            }
+            ring[want as usize] = Some(i);
+            self.people[i].slot = Some((t, want));
+        }
+        // On their own, an attacker's place is wherever they are: only a gang side-steps.
+        for i in 0..self.people.len() {
+            let Some((t, _)) = self.people[i].slot else { continue };
+            let n = self.gang_attacks.get(&t).map_or(0, |ring| ring.iter().flatten().count());
+            self.people[i].ganged = n > 1;
+        }
+    }
+
+    /// Person `i` gives up their place round `t`.
+    fn leave_slot(&mut self, i: usize, t: usize) {
+        if let Some(ring) = self.gang_attacks.get_mut(&t) {
+            for s in ring.iter_mut().filter(|s| **s == Some(i)) {
+                *s = None;
+            }
+        }
+        self.people[i].slot = None;
+    }
+
+    /// Somewhere someone might be hiding, for whoever investigated a noise and is going on
+    /// to look there (`PCOM_find_hiding_place`, pcom.cpp:1589): a square within five
+    /// (each way) not in a building, two or more away (x plus z), that can't be seen from
+    /// their head (0x60 up) to a head standing on it, with a route there that doesn't start
+    /// off a long way round (its first leg at most two further, `MAV_do`); of those, at
+    /// random, the nearer the likelier (`0x1000 - Random() % (dist << 4)`). Nowhere, and
+    /// home they go.
+    pub(crate) fn hiding_places(&mut self, level: &Level) {
+        for i in 0..self.people.len() {
+            if !self.people[i].heard.is_some_and(|h| h.phase == person::Investigate::Hide) {
+                continue;
+            }
+            let at = self.people[i].fig.pos;
+            let (mx0, mz0) = ((at.x / 256.0) as i32, (at.z / 256.0) as i32);
+            let eye = at + Vec3::new(0.0, 0x60 as f32, 0.0);
+            let mut seed = self.rngs.mav;
+            let mut best: Option<(i32, Vec3)> = None;
+            for dx in -5..=5 {
+                for dz in -5..=5 {
+                    let (mx, mz) = (mx0 + dx, mz0 + dz);
+                    let dist = dx.abs() + dz.abs();
+                    if !(0..128).contains(&mx) || !(0..128).contains(&mz) || dist < 2
+                        || level.map.square(mx as usize, mz as usize).has(uc_formats::iam::flags::HIDDEN)
+                    {
+                        continue;
+                    }
+                    let (x, z) = (mx as f32 * 256.0 + 128.0, mz as f32 * 256.0 + 128.0);
+                    let spot = Vec3::new(x, level.map.ground_height(x, z), z);
+                    if level.ground.line_of_sight(eye, spot + Vec3::new(0.0, 0x60 as f32, 0.0)) {
+                        continue;
+                    }
+                    let (step, found) = self.routes.mav.route((mx0 as u8, mz0 as u8), (mx as u8, mz as u8), uc_world::mav::CAPS_DARCI, &mut || rand(&mut seed));
+                    let leg = (step.dest.0 as i32 - mx0).abs() + (step.dest.1 as i32 - mz0).abs();
+                    if !found || leg > dist + 2 {
+                        continue;
+                    }
+                    let score = 0x1000 - (rand(&mut seed) % (dist << 4) as u32) as i32;
+                    if best.is_none_or(|(b, _)| score > b) {
+                        best = Some((score, spot));
+                    }
+                }
+            }
+            self.rngs.mav = seed;
+            self.people[i].heard = best.map(|(_, spot)| person::Heard { at: spot, phase: person::Investigate::WalkOver, time: 0.0 });
         }
     }
 
@@ -760,6 +878,11 @@ impl Game {
         for (noise, at, by) in std::mem::take(&mut self.noises) {
             for j in 0..self.people.len() {
                 if Some(j) == by || (self.people[j].fig.pos - at).length() >= noise.radius() {
+                    continue;
+                }
+                // Civilians on a zebra crossing have a sense of security (pcom.cpp:13290).
+                let on = self.people[j].fig.pos;
+                if noise == person::Noise::Van && crate::wand::is_zebra(&level.map, (on.x / 256.0) as i32, (on.z / 256.0) as i32) {
                     continue;
                 }
                 let seen = level.ground.line_of_sight(self.people[j].fig.pos + eye, at + Vec3::new(0.0, 16.0, 0.0));

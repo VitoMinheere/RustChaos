@@ -60,6 +60,9 @@ fn muddy_prints_off_grass_not_tarmac() {
     let Some(level) = common::load("police1") else { return };
     let mut r = Run::new(level);
     r.play(1.0, Controls::default());
+    // Nothing to pick up on her way round: a gun drawn sends the passers-by running over
+    // the grass.
+    r.g.items.clear();
     let at = r.g.people[r.player()].fig.pos;
     // Page 1 is a road texture, not grass or gravel.
     r.paint(at, 8, 1);

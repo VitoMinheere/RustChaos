@@ -316,6 +316,13 @@ pub enum Sfx {
     Elec,
     /// Someone run over (`S_THUMP_SQUISH`, vehicle.cpp:3339).
     Squish,
+    /// A car rubbing along a wall (`S_CAR_SCRAPE_START` to `_END`, vehicle.cpp:2350).
+    Scrape,
+    /// A kick in the nuts (`S_KICK_IN_THE_NUTS_START`, `_END`, combat.cpp:2289).
+    Nuts,
+    /// A camera fly-by that holds the player starting (`S_CUTSCENE_STING`, eway.cpp:5389),
+    /// heard wherever she is.
+    Sting,
     /// A car's tyres started sliding.
     Skid,
     /// A driver held up by someone in the road sounds the horn (`S_CAR_HORN_START` and the
@@ -330,6 +337,10 @@ pub enum Sfx {
     Explosion,
     /// The radio's beep before a message (`S_RADIO_MESSAGE`), heard wherever she is.
     Radio,
+    /// The danger stings, heard wherever she is (`context_music`, Controls.cpp:1389): a thug
+    /// come within 0x400 of her (`S_TUNE_DANGER_RED`, `near`), or the nearest now two to three
+    /// times that off (`S_TUNE_DANGER_GREEN`).
+    Danger { near: bool },
     /// A police siren (`S_SIREN_START`), from where it's given.
     Siren,
     /// One of the game's own sounds by id (`sound_list`), asked for by a mission.
@@ -405,6 +416,11 @@ pub struct Controls {
     /// go are then hers, as the original's were: to the side a step that way, back walking
     /// backwards, jump with back a back flip; standing, she turns on the spot to face it.
     pub strafe: Option<Vec2>,
+    /// Looking round (`FLAG2_PERSON_LOOK`): the way she's turned to (her `fig.angle`) and
+    /// how far up she's looking (radians, down negative). She turns with the view, and her
+    /// gun picks out whoever's at that height (`apply_button_input_first_person`,
+    /// interfac.cpp:7459).
+    pub look: Option<(f32, f32)>,
 }
 
 impl Controls {
@@ -754,6 +770,9 @@ pub enum Investigate {
     WalkOver,
     /// `_LOOK`: looking left and right for trouble.
     Look,
+    /// The look round over, off to somewhere someone might be hiding: the game finds it
+    /// (`PCOM_find_hiding_place`, [`crate::Game::hiding_places`]).
+    Hide,
 }
 
 /// What everyone else needs to know about a person this frame.
@@ -813,6 +832,8 @@ pub enum Noise {
     LookingAtMe,
     /// A grenade hitting the ground (0x300).
     GrenadeHit,
+    /// A car coming fast, made two squares ahead of it (`PCOM_SOUND_VAN`, 0x180).
+    Van,
 }
 
 impl Noise {
@@ -822,6 +843,7 @@ impl Noise {
             Noise::Hey => 0x600 as f32,
             Noise::LookingAtMe => 0x400 as f32,
             Noise::GrenadeHit => 0x300 as f32,
+            Noise::Van => 0x180 as f32,
         }
     }
 }
@@ -861,8 +883,11 @@ pub struct Person {
     pub mv: u8,
     /// What's in hand.
     pub weapon: Weapon,
-    /// A knife or bat carried (drawn or not).
-    pub melee: Weapon,
+    /// A knife carried (drawn or not). One at most, and a bat besides
+    /// (`should_person_get_item`, Special.cpp:284).
+    pub knife: bool,
+    /// A bat carried (drawn or not), one at most.
+    pub bat: bool,
     /// The item (`IT_*`) they give up when searched, besides their weapons (`drop`).
     pub drop: Option<u8>,
     /// Searched already (`FLAG_PERSON_SEARCHED`): nothing more to find on them.
@@ -989,6 +1014,12 @@ pub struct Person {
     /// dice it's rolled with.
     pub(crate) fidget: Option<f32>,
     fidget_roll: u32,
+    /// Fighting someone hand to hand: who, and the quarter round them that's theirs to
+    /// fight from (`AttackAngle` in the target's `gang_attacks` entry), kept by
+    /// [`crate::Game::gang_slots`].
+    pub(crate) slot: Option<(usize, u8)>,
+    /// Someone else holds a place round who they're fighting too, so they keep to theirs.
+    pub(crate) ganged: bool,
     /// The player's fight mode with a two-handed gun in hand (`PERSON_MODE_FIGHT`): hit in
     /// a fight, until she runs or gets a gun out. A punch then clubs with it (#346).
     gun_fight: bool,
@@ -1095,9 +1126,9 @@ impl Person {
         Person {
             fig, way, player, kind, ai: 0, bent: 0, ko_moves: 0, health, max_health: health, state: State::Move,
             pace: Pace::Walk,
-            arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, melee: Weapon::None, drop: None, searched: false, guns: 0, ammo: [0; 4], spent: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
+            arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, knife: false, bat: false, drop: None, searched: false, guns: 0, ammo: [0; 4], spent: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
-            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, struggle: 0.0, idle_for: 0.0, breathed: false, screamed: false, fly_kick: None, gun_fight: false, topple: None, bonus_rolled: false, run_shot: 0.0, fetch: None, splattered: false, sized_up: false, felon: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
+            invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, struggle: 0.0, idle_for: 0.0, breathed: false, screamed: false, fly_kick: None, gun_fight: false, topple: None, bonus_rolled: false, run_shot: 0.0, fetch: None, splattered: false, sized_up: false, felon: false, slot: None, ganged: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
             peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }
@@ -1154,8 +1185,10 @@ impl Person {
             }
             self.guns |= 1 << s;
             self.ammo[s] += w.clip();
-        } else if w != Weapon::None {
-            self.melee = w;
+        } else if w == Weapon::Knife {
+            self.knife = true;
+        } else if w == Weapon::Bat {
+            self.bat = true;
         }
     }
 
@@ -1171,7 +1204,11 @@ impl Person {
         }
         match w.slot() {
             Some(s) => self.guns & (1 << s) != 0,
-            None => w == Weapon::None || self.melee == w,
+            None => match w {
+                Weapon::Knife => self.knife,
+                Weapon::Bat => self.bat,
+                _ => w == Weapon::None,
+            },
         }
     }
 
@@ -1199,24 +1236,22 @@ impl Person {
     /// original's panel lists these too (`PANEL_ADDWEAPON`), so a weapon picked up or handed
     /// over at the start can be seen without cycling to it.
     pub fn stowed(&self) -> Vec<(Weapon, Option<u32>)> {
-        let melee = (self.melee != Weapon::None).then_some((self.melee, None));
+        let melee = [(self.knife, Weapon::Knife), (self.bat, Weapon::Bat)].into_iter().filter(|&(c, _)| c).map(|(_, w)| (w, None));
         let guns = Weapon::GUNS.iter().enumerate()
             .filter(|(s, _)| self.guns & (1 << s) != 0)
             .map(|(s, &g)| (g, Some(self.ammo[s])));
         let charges = (self.explosives > 0).then_some((Weapon::Explosives, Some(self.explosives as u32)));
         let grenades = (self.grenades > 0).then_some((Weapon::Grenade, Some(self.grenades as u32)));
         let hook = self.hook.then_some((Weapon::Hook, None));
-        melee.into_iter().chain(guns).chain(charges).chain(grenades).chain(hook).filter(|&(w, _)| w != self.weapon).collect()
+        melee.chain(guns).chain(charges).chain(grenades).chain(hook).filter(|&(w, _)| w != self.weapon).collect()
     }
 
     /// What can be taken out, in the order the weapon key goes through them: bare hands
     /// first, as the original's panel lists them (`PANEL_inventory`).
     pub fn carried(&self) -> Vec<Weapon> {
-        [Weapon::None, self.melee, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Sniper, Weapon::Explosives, Weapon::Grenade, Weapon::Hook]
+        [Weapon::None, Weapon::Knife, Weapon::Bat, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47, Weapon::Sniper, Weapon::Explosives, Weapon::Grenade, Weapon::Hook]
             .into_iter()
-            .enumerate()
-            .filter(|&(k, w)| self.has(w) && (k == 0 || w != Weapon::None))
-            .map(|(_, w)| w)
+            .filter(|&w| self.has(w))
             .collect()
     }
 
@@ -1703,7 +1738,7 @@ impl Person {
                 }
             }
             State::Shoot { target, shots } => self.step_shoot(target, shots, me, c, snaps, ground, map, dt, events),
-            State::Fence { phase, at, over, base, top, from } => self.step_fence(phase, at, over, base, top, from, dt),
+            State::Fence { phase, at, over, base, top, from } => self.step_fence(phase, at, over, base, top, from, c, dt),
             State::Zip { cable, t, dir, speed, ridden } => self.step_zip(cable, t, dir, speed, ridden, c, ground, map, dt),
             State::Attack { mv, hit, queued } => self.step_attack(mv, hit, queued, me, c, snaps, ground, map, dt, events),
             State::Slide { phase, speed, hit } => self.step_slide(phase, speed, hit, me, snaps, ground, map, dt, events),
