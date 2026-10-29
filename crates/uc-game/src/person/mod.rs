@@ -971,8 +971,9 @@ pub struct Person {
     /// straight there (set by the game each frame from the navigation map).
     pub via: Option<Vec3>,
     /// On a route, what to do at its next edge (set by the game each frame): where, which
-    /// way, and whether to jump there (a gap or a ledge) or walk on (into a ladder).
-    pub leap: Option<(Vec3, Vec2, bool)>,
+    /// way, whether to jump there (a gap or a ledge) or walk on (into a ladder), and whether
+    /// the jump's across a gap to a ledge to pull up onto, taken flat out.
+    pub leap: Option<(Vec3, Vec2, bool, bool)>,
     /// Where a game mode wants them to head next, in place of the navigation map's way
     /// (endless mode's arena routes).
     pub steer: Option<Vec3>,

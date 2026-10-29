@@ -301,6 +301,18 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
              "We needed those Wildcats alive, Stern! Now we'll never find out who bombed the station.", 0)
         };
         let Some(start) = point(mission, wanted[0].0) else { return };
+        if name == "crimescene" {
+            // Nothing points Darci at the workman (58) who leads her to the brutes: once the
+            // one on the roof (44) has talked (36) or is dead, a beacon on him, until he's
+            // brought her to the alley (64).
+            let (Some(talk), Some(workman), Some(alley)) = (point(mission, 36), point(mission, 58), point(mission, 64)) else { return };
+            let talked = add_point(mission, EventPoint { kind: waypoint::SIMPLE, trigger: trigger::CONVERSATION_OVER, ep_ref: talk.index as u16, ..at(&talk) }, None);
+            let dead = add_point(mission, EventPoint { kind: waypoint::SIMPLE, trigger: trigger::KILLED, ep_ref: 44, ..at(&talk) }, None);
+            let either = add_point(mission, EventPoint { kind: waypoint::SIMPLE, trigger: trigger::BOOLEAN_OR, ep_ref: talked as u16, ep_ref_bool: dead as u16, ..at(&talk) }, None);
+            let b = add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: either as u16, ..beacon(&workman, 58) }, Some("The workman"));
+            let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: alley.index as u16, ..at(&alley) };
+            add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
+        }
         let say = |text_from: &EventPoint, secs: i32| EventPoint { kind: waypoint::MESSAGE, data: [0, secs, 0, 0, 0, 0, 0, 0, 0, 0], ..at(text_from) };
         let mut got = Vec::new();
         for &(who, arrested) in &wanted {

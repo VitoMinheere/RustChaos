@@ -207,13 +207,13 @@ impl Person {
         }
         let mut c = self.decide(me, snaps, ground, dt, rand);
         // At a route's jump: run at the edge and jump; at a ladder, walk into it.
-        if let Some((at, dir, jump)) = self.leap {
+        if let Some((at, dir, jump, far)) = self.leap {
             let near = flat(at, self.fig.pos).length() < 64.0;
             // Even once they're as good as at the edge, where they'd stop walking.
             let going = self.goal.is_some() || self.via.is_some();
             if near && going && matches!(self.state, State::Move) {
                 c.wish = dir;
-                (c.run, c.jump) = (jump, jump);
+                (c.run, c.jump, c.sprint) = (jump, jump, far);
             }
         }
         // `SlideOdd`: slid along a prop, a person or a car for 50 turns in a row on the way

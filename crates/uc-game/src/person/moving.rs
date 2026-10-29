@@ -500,7 +500,10 @@ impl Person {
             self.state = State::Zip { cable, t, dir, speed: vel.length() * 0.5, ridden: 0.0 };
             return;
         }
-        let dir = if c.wish.length_squared() > 0.25 { c.wish.normalize() } else { vel.normalize_or_zero() };
+        // The AI catches what's ahead the way it jumped: its wish is where it's headed after,
+        // which at a route's jump can be off to one side (`grab_ledge` looks the way the
+        // person faces, set to the jump's way, pcom.cpp:12357).
+        let dir = if self.player && c.wish.length_squared() > 0.25 { c.wish.normalize() } else { vel.normalize_or_zero() };
         // Catch a ladder ahead on the way down, as `grab_ledge` does when the face it
         // finds is a ladder (fallen/Source/Person.cpp). A ladder that starts above the
         // ground, like the one up to The Fallen's first clue, can only be got on this way.
