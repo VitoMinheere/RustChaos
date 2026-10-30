@@ -48,5 +48,10 @@
   "sample": "clips/slag/MIB.ucm12C.wav",
   "exaggeration": 0.5,
   "cfg_weight": 0.5
+ },
+ "rasta": {
+  "sample": "clips/rasta/Bankbomb1.ucm6.wav",
+  "exaggeration": 0.75,
+  "cfg_weight": 0.05
  }
 }
