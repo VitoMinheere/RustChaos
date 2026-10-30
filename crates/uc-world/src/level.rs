@@ -539,9 +539,11 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         let say = |text_from: &EventPoint, secs: i32| EventPoint { kind: waypoint::MESSAGE, data: [0, secs, 0, 0, 0, 0, 0, 0, 0, 0], ..at(text_from) };
         if name == "crimescene" {
             // Nothing says what's next once the geek's friend has called to him (87): that
-            // he's to be brought in.
+            // he's to be brought in. Darci's to say it, not despatch.
             let Some(talk) = point(mission, 87).filter(|e| e.kind == waypoint::CONVERSATION) else { return };
-            let next = EventPoint { trigger: trigger::CONVERSATION_OVER, ep_ref: talk.index as u16, ..say(&talk, 6) };
+            let darci = mission.event_points.iter().find(|e| e.used != 0 && e.kind == waypoint::CREATE_PLAYER).map_or(0, |e| e.index as i32);
+            let mut next = EventPoint { trigger: trigger::CONVERSATION_OVER, ep_ref: talk.index as u16, ..say(&talk, 6) };
+            next.data[2] = darci;
             add_point(mission, next, Some("Nothin', huh? This geek knows somethin' about 24th Street...time to bring him in."));
         }
         let mut got = Vec::new();
