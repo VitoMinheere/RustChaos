@@ -37,7 +37,10 @@ pub fn missing(game: &Path, overrides: Option<&Path>) -> Result<(), String> {
         // in the install has at all.
         let have: BTreeSet<u32> = level.clump.ids().map(entry_page).collect();
         let pages = worlds.entry(level.map.texture_set).or_default();
-        for p in level.build().pages().into_iter().filter(|&p| world_page(p)) {
+        let mut used = level.build().pages();
+        // The doors' too, which the game draws.
+        used.extend(level.doors().into_iter().flatten().map(|q| q.page));
+        for p in used.into_iter().filter(|&p| world_page(p)) {
             if level.stand_in_pages.contains(&p) || !have.contains(&p) {
                 pages.entry(p).or_default().push(name.clone());
             }

@@ -24,6 +24,7 @@ pub use game::{Aiming, Show, Sight, Snipe};
 pub mod creature;
 pub mod dike;
 pub mod dirt;
+pub mod door;
 pub mod goals;
 pub mod lights;
 pub mod gunfx;
@@ -759,6 +760,8 @@ pub struct Game {
     pub(crate) noises: Vec<(person::Noise, Vec3, Option<usize>)>,
     /// The floor squares on the sea, drawn with the waves.
     sea: Vec<uc_world::level::SeaSquare>,
+    /// The map's doors, drawn as far open as they've swung.
+    pub doors: door::Doors,
     /// Leaves, cans and snow lying about round the player.
     pub dirt: dirt::Dirt,
     /// Which extras are drawn (the Options screen's).
@@ -953,6 +956,7 @@ impl Game {
             bench: game::Bench::default(),
             noises: Vec::new(),
             sea: level.sea(),
+            doors: door::Doors::new(level),
             dirt: Game::new_dirt(level),
             show: Default::default(),
             dirt_marks: Vec::new(),
@@ -1390,6 +1394,7 @@ impl Game {
         }
         self.go_indoors(level);
         self.move_platforms(dt, level);
+        self.doors.process(dt, &level.ground);
         // Lightning dies away (the Men in Black's and the fences' too, where there are no
         // creatures).
         for s in &mut self.sparks {

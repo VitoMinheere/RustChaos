@@ -1,10 +1,14 @@
 //! Doors: solid until the mission opens one, which is the only way one ever opens
-//! (`DOOR_open`'s only caller is `EWAY_DO_CONTROL_DOOR`). Skipped without an install.
+//! (`DOOR_open`'s only caller is `EWAY_DO_CONTROL_DOOR`), and then drawn swinging open.
+//! Skipped without an install.
 
-use glam::{vec2, Vec2};
-use uc_game::Game;
+use glam::{vec2, Vec2, Vec3};
+use std::collections::BTreeMap;
+use uc_game::{Controls, Game};
 use uc_world::mav::{caps, Mav, GOTO};
 use uc_world::{Level, LoadOptions};
+
+const DT: f32 = 1.0 / 30.0;
 
 fn load(mission: &str) -> Option<Level> {
     let game = uc_formats::default_install()?;
@@ -94,4 +98,47 @@ fn an_opened_door_opens_the_navigation_map() {
     let g = Game::new(&level, true);
     assert!(door.is_open(), "the mission opened its door");
     assert!(across(g.nav(), door).iter().all(|&w| w), "still shut on the navigation map");
+}
+
+/// An opened door is drawn swinging open round its first end (`DOOR_process`, door.cpp:389,
+/// and `FACET_draw`'s `p_facet->Open`, facet.cpp:4009; #446): 16 a tick of the original's 20
+/// a second, until it's `DOOR_AJAR` short of half a turn, and no further. The level leaves
+/// it out of the walls it builds for the game to draw.
+#[test]
+fn an_opened_door_swings_open() {
+    let Some(level) = load("e3") else { return };
+    assert!(!level.doors()[0].is_empty(), "the level has the door's quads for the game");
+    let mut g = Game::new(&level, true);
+    let corners = |g: &Game| -> Vec<Vec3> {
+        let mut out = BTreeMap::new();
+        g.doors.batches(&mut out);
+        out.values().flat_map(|b| b.vertices.iter().map(|v| Vec3::from(v.pos))).collect()
+    };
+    assert_eq!(g.doors.doors[0].open, 0.0, "it has only just been opened");
+    let shut = corners(&g);
+    let play = |g: &mut Game, secs: f32| {
+        for _ in 0..(secs / DT).round() as usize {
+            g.update(DT, &Controls::default(), &level);
+        }
+    };
+
+    play(&mut g, 0.5);
+    let open = g.doors.doors[0].open;
+    assert!((open - 160.0).abs() < 1.0, "half a second in it should be 160 open, not {open:.0}");
+    play(&mut g, 1.0);
+    assert_eq!(g.doors.doors[0].open, 240.0, "it stops just short of half a turn");
+
+    // Its far end has come round, nearly to the far side of the hinge; the hinge stays put,
+    // and nothing rises or falls.
+    let w = &level.ground.doors[0].wall;
+    let (hinge, long) = (Vec2::from(w.a) / 256.0, (Vec2::from(w.b) - Vec2::from(w.a)).length() / 256.0);
+    let swung = corners(&g);
+    let reach = 2.0 * long * (240.0 * std::f32::consts::PI / 512.0).sin();
+    let moved = shut.iter().zip(&swung).map(|(a, b)| (*a - *b).length()).fold(0.0, f32::max);
+    assert!((moved - reach).abs() < 0.01, "its far end should have moved {reach:.2} squares, not {moved:.2}");
+    for (a, b) in shut.iter().zip(&swung) {
+        assert_eq!(a.y, b.y);
+        let r = |p: &Vec3| (vec2(p.x, p.z) - hinge).length();
+        assert!((r(a) - r(b)).abs() < 1e-3, "it should turn round its hinge");
+    }
 }

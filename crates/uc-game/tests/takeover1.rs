@@ -182,6 +182,10 @@ fn darci_gets_into_the_sector_through_its_gate() {
     let Some(mut r) = start() else { return };
     into_the_sector(&mut r);
     assert!(r.at().x > 79.0 * 256.0);
+    // And the gate is drawn swung open, as far as it goes: a quarter turn less `DOOR_AJAR`
+    // (#446).
+    let gate = r.level.ground.doors.iter().position(|d| d.facet == 574).expect("the sector gate");
+    assert_eq!(r.g.doors.doors[gate].open, 128.0 - 15.0, "the gate should be drawn open");
 }
 
 /// The whole of it, won.

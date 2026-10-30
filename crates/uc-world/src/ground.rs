@@ -301,6 +301,8 @@ pub struct Ground {
 /// each person's movement.
 #[derive(Debug)]
 pub struct Door {
+    /// Its facet, which the game draws swung open (`DFacet::Open`).
+    pub facet: usize,
     pub wall: WallSegment,
     /// The middle of the facet, which `DOOR_find` measures its search from.
     pub mid: Vec2,
@@ -348,9 +350,9 @@ impl Ground {
         let mut walls = collision_segments(map);
         let doors: Vec<Door> = door_segments(map)
             .into_iter()
-            .map(|wall| {
+            .map(|(facet, wall)| {
                 let mid = (Vec2::from(wall.a) + Vec2::from(wall.b)) * 0.5;
-                Door { wall, mid, open: std::cell::Cell::new(false) }
+                Door { facet, wall, mid, open: std::cell::Cell::new(false) }
             })
             .collect();
         let mut prop_tops: HashMap<(i32, i32), Vec<PropTop>> = HashMap::new();
