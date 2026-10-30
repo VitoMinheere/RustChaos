@@ -931,7 +931,7 @@ impl App {
             let want = picked.map(|e| e.mission.clone());
             if want != m.briefed {
                 s.audio.hush();
-                if let Some(file) = picked.and_then(|e| e.voice) {
+                if let Some(file) = picked.and_then(|e| e.voice.as_deref()) {
                     s.audio.briefing(file);
                 }
                 m.briefed = want;

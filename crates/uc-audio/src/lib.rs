@@ -329,11 +329,12 @@ impl Audio {
         }
     }
 
-    /// A mission's spoken briefing (`talk2\<file>`, `FRONTEND_MissionBrief`), cutting off
-    /// whatever was being said. Whether it's there to play.
+    /// A mission's spoken briefing (`talk2\<file>`, `FRONTEND_MissionBrief`): the install's,
+    /// else one from [`Audio::set_voices`]'s folder. Cuts off whatever was being said.
+    /// Whether it's there to play.
     pub fn briefing(&mut self, file: &str) -> bool {
         self.hush();
-        match self.load(&format!("talk2\\{file}")) {
+        match self.line(file) {
             Some(c) => {
                 self.say(c);
                 true

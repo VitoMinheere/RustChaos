@@ -1,0 +1,78 @@
+{
+ "FreeCD1.brief.wav": {
+  "voice": "radio",
+  "text": "The local Wildcat chapter have stormed the construction site and taken some workers hostage, and they've spread out all over this section of town. We want those hostages ALIVE, Stern!"
+ },
+ "jung3.brief.wav": {
+  "voice": "radio",
+  "text": "That nut Bane an' his men have retreated to El Cossa Island. We got sightings of a construction site, possibly building MORE silos. We want those sites LEVELLED, Stern! Island residents have already been killed, so expect severe resistance."
+ },
+ "train11.brief.wav": {
+  "voice": "radio",
+  "text": "Welcome to officer training, Stern. Learn to jump, climb, drive and shoot like a Union City officer. There's the assault course, the shooting range, with a sniper rifle to try out, the driving school with its motorbike, and the hand to hand arena."
+ },
+ "snow1.brief.wav": {
+  "voice": "radio",
+  "text": "The Wildcats have three missiles up on the mountain, and they'll launch them the moment they see you coming. Take a bike and get there first."
+ },
+ "Takeover1.brief.wav": {
+  "voice": "radio",
+  "text": "Mister X's gang have overrun the banking sector, and have sealed off the surrounding area. Get into that sector and rescue the two hostages."
+ },
+ "subdock1.brief.wav": {
+  "voice": "radio",
+  "text": "Terminate the dock operator and get to the chopper for extraction. The extraction site is on the most southern part of this sector."
+ },
+ "bball1.brief.wav": {
+  "voice": "radio",
+  "text": "Get into the Union City baseball ground, and be sure to apprehend at least one of the gang superiors. The gate's Wild Bill's patch. Nobody gets in unless he says so."
+ },
+ "Gang order3.brief.wav": {
+  "voice": "rasta",
+  "text": "There's been a drop-off at the store, Mako. Some files we want, and we want 'em now. Get one of the boys along, pick up what the guy at the den's got for you, and shake the store down. Then get to the van."
+ },
+ "fight3.brief.wav": {
+  "voice": "radio",
+  "text": "For the gold grade you need to use combat techniques against skilled and sometimes armed opponents. The area is littered with paint mines, and you have limited time."
+ },
+ "BAALROG1.brief.wav": {
+  "voice": "radio",
+  "text": "Darci, looks like Bane has finally done it. Somehow, three Balrogs have been summoned and unleashed on Union City... until I can find out where these things are comin' from, you need to take 'em out one by one."
+ },
+ "gang1.brief.wav": {
+  "voice": "rasta",
+  "text": "There's a Mister Bates hanging out by the park, Mako, and the gang wants him gone. Ask around, take Razor along if he's up for it, and come back to the den when it's done."
+ },
+ "gang3.brief.wav": {
+  "voice": "rasta",
+  "text": "There's been a drop-off at the store, Mako. Some files we want. Round up one of the boys, pick up what the guy at the den's got for you, and shake the store down."
+ },
+ "gang2.brief.wav": {
+  "voice": "rasta",
+  "text": "Go fetch hoods Bish and McLean, Mako, then you be told what to do next. Blood's got some work for you guys. A Mister Frazer McIntyre, the father of that cop's friend. He'll be very useful as a bargaining tool."
+ },
+ "Getaway1.brief.wav": {
+  "voice": "radio",
+  "text": "Meet your contact at the corner of Lexington and 12th. Check your nav map. Mister X and his bodyguards are making a hasty exit from the TV station."
+ },
+ "Transmit1.brief.wav": {
+  "voice": "radio",
+  "text": "Destroy the main transmitter at the top of the television building. Roper has the sabotage equipment."
+ },
+ "estate1.brief.wav": {
+  "voice": "radio",
+  "text": "This building contains the main computer. To get in, you will need to disarm the security measures. They can be disarmed by throwing the override switch in the pool house."
+ },
+ "Crimescene.brief.wav": {
+  "voice": "radio",
+  "text": "A man's been shot dead on 24th Street, Stern. Two forty-four slugs, and he wasn't no gang-banger. The uniforms are on the scene. Find out who did it."
+ },
+ "police5.brief.wav": {
+  "voice": "radio",
+  "text": "Someone's bombed the station, Stern, and there's Wildcats out all over the West District beating on whoever they please. Ask around, and bring 'em in."
+ },
+ "Finale1b.brief.wav": {
+  "voice": "roper",
+  "text": "D'arci, now is the final reckoning. Here, we will probably die, but what we will avert may very well save this city and even this earth. Bane has retreated his men to guard him at the top of Clandon Towers..."
+ }
+}
