@@ -67,6 +67,40 @@ pub(crate) fn draw_grenade_path(o: &mut Overlay, path: &[Vec3], time: f32, cam: 
     }
 }
 
+/// The beacons' colours, the first gold as all of them used to be. None is the minimap's red
+/// (gang members), white (Darci, Men in Black) or light blue (the console's `bonus`).
+pub(crate) const BEACON_COLOURS: [[u8; 4]; 8] = [
+    [255, 210, 70, 255],  // gold
+    [90, 225, 90, 255],   // green
+    [240, 100, 240, 255], // magenta
+    [255, 140, 40, 255],  // orange
+    [40, 210, 170, 255],  // teal
+    [170, 130, 255, 255], // violet
+    [210, 255, 90, 255],  // lime
+    [255, 160, 190, 255], // pink
+];
+
+/// The colour of each beacon in `labels`, as shown now. One that was shown last time keeps its
+/// colour; a new one takes the first that none of the others has (round again past eight).
+/// `kept` is each beacon's colour from last time, by its label (and which of the beacons with
+/// that label it is).
+pub(crate) fn beacon_colours(kept: &mut Vec<(String, usize)>, labels: &[&str]) -> Vec<[u8; 4]> {
+    let keys: Vec<String> = labels.iter().enumerate()
+        .map(|(i, l)| format!("{l}#{}", labels[..i].iter().filter(|m| *m == l).count()))
+        .collect();
+    kept.retain(|(k, _)| keys.contains(k));
+    let slots: Vec<usize> = keys.iter().map(|k| {
+        if let Some(&(_, slot)) = kept.iter().find(|(kk, _)| kk == k) {
+            return slot;
+        }
+        let used = |n: usize| kept.iter().any(|&(_, slot)| slot == n);
+        let slot = (0..).find(|&n| !used(n)).unwrap_or(0);
+        kept.push((k.clone(), slot));
+        slot
+    }).collect();
+    slots.into_iter().map(|n| BEACON_COLOURS[n % BEACON_COLOURS.len()]).collect()
+}
+
 /// The chief's `n`th warning about civilian casualties (`X_CIVSDEAD_WARNING_1` to `_4`, the
 /// game's strings 151 to 154: `text\lang_english.txt`'s lines 152 to 155).
 pub(crate) fn civ_warning(game: &Path, n: u8) -> String {
@@ -322,9 +356,10 @@ impl World {
         }
 
         // The minimap (top right): the city from above around Darci, north up, with the
-        // mission's beacons as gold dots (pinned to the edge when further off), gang members
-        // and Men in Black ([`uc_game::Game::radar`]) as red and white dots and Darci as a white
-        // one; the beacons are listed underneath.
+        // mission's beacons as dots of their own colours (pinned to the edge when further
+        // off), gang members and Men in Black ([`uc_game::Game::radar`]) as red and white dots
+        // and Darci as a white one; the beacons are listed underneath, each in its dot's
+        // colour.
         if self.game.cutscene.is_none() {
             if let Some(pl) = self.game.player() {
                 let driving = self.game.player_vehicle();
@@ -367,14 +402,16 @@ impl World {
                         dot(&mut o, p, r * s, if d.mib { [221, 221, 221, 255] } else { [230, 60, 50, 255] });
                     }
                 }
-                let gold = [255, 210, 70, 255];
                 let mut y = my + size_px + 6.0 * s;
-                for (label, pos) in self.game.beacons() {
+                let beacons = self.game.beacons();
+                let labels: Vec<&str> = beacons.iter().map(|b| b.0.as_str()).collect();
+                let colours = beacon_colours(&mut self.beacon_colours.borrow_mut(), &labels);
+                for ((label, pos), col) in beacons.iter().zip(colours) {
                     let (p, _) = at(vec2(pos.x, pos.z) / uc_world::UNIT);
-                    dot(&mut o, p, 2.0 * s, gold);
-                    let dist = (pl.fig.pos - pos).length() / uc_world::UNIT;
+                    dot(&mut o, p, 2.0 * s, col);
+                    let dist = (pl.fig.pos - *pos).length() / uc_world::UNIT;
                     let text = format!("{} {dist:.0}", label.trim_end_matches('.'));
-                    o.text(w - Overlay::text_width(&text, s) - 10.0 * s, y, s, gold, &text);
+                    o.text(w - Overlay::text_width(&text, s) - 10.0 * s, y, s, col, &text);
                     y += 10.0 * s;
                 }
                 // The console's `bonus`: what's left to find, in light blue, numbered for `telb`.
@@ -628,5 +665,22 @@ impl World {
         self.replay_overlay(&mut o, w, h, s);
         self.draw_console(&mut o, w, h, s);
         o
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each beacon has a colour of its own, and keeps it while others come and go.
+    #[test]
+    fn beacons_keep_colours_of_their_own() {
+        let mut kept = Vec::new();
+        let [gold, green, magenta, ..] = BEACON_COLOURS;
+        assert_eq!(beacon_colours(&mut kept, &["Car crash", "District Station"]), [gold, green]);
+        // The first goes: the station stays green, and a new one takes the free gold.
+        assert_eq!(beacon_colours(&mut kept, &["District Station", "Mugger"]), [green, gold]);
+        // Two with the same label are told apart too.
+        assert_eq!(beacon_colours(&mut kept, &["District Station", "Mugger", "Mugger"]), [green, gold, magenta]);
     }
 }
