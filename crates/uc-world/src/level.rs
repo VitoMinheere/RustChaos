@@ -850,7 +850,9 @@ impl Level {
                 }
             }
         }
-        let moving: std::collections::BTreeSet<usize> = self.platforms.iter().map(|&(_, ob)| ob).chain(self.barrel_props.iter().copied()).collect();
+        // Switches too: pressed, they turn green, so the game draws them.
+        let switches = self.map.objects.iter().enumerate().filter(|(_, o)| o.prim == SWITCH_OFF).map(|(i, _)| i);
+        let moving: std::collections::BTreeSet<usize> = self.platforms.iter().map(|&(_, ob)| ob).chain(self.barrel_props.iter().copied()).chain(switches).collect();
         build_props(&mut b, &self.map, &self.game, &sh, &moving);
         build_details(&mut b, &self.map, &sh);
         WorldGeometry { crinkles, ..b.finish() }
@@ -1071,6 +1073,11 @@ pub const ITEM_PRIMS: [(u8, u8); 27] = [
 /// The prop every map's barrels are (prim 33, `PRIM_OBJ_BIN`, which ob.cpp calls "the
 /// barrel prim").
 pub const BARREL_PROP: u8 = 33;
+
+/// A switch to press (`PRIM_OBJ_SWITCH_OFF`), and the green one it becomes when pressed
+/// (`PRIM_OBJ_SWITCH_ON`, interfac.cpp:1765). The level leaves switches to the game.
+pub const SWITCH_OFF: u8 = 216;
+pub const SWITCH_ON: u8 = 157;
 
 pub const EXTRA_PRIMS: [u8; 19] = [33, 67, 145, 188, 88, 87, 108, 220, 155, 150, 159, 90, 91, 131, 27, 74, 75, CAN_PRIM, 86];
 

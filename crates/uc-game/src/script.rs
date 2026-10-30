@@ -410,6 +410,9 @@ struct Way {
     /// A `player_uses_radius` point with a switch or valve near: the map object, worked to
     /// set it off ([`Script::bind_switches`]).
     switch: Option<usize>,
+    /// That switch has been worked (`EWAY_FLAG_TRIGGERED`), which it stays: so an
+    /// `active_while` point on it stays on.
+    switched: bool,
 }
 
 impl Script {
@@ -525,7 +528,7 @@ impl Script {
             }
             ways[ep.index] = Some(Way {
                 ep: ep.clone(), text: texts.get(&ep.index).cloned(), active: false, dead: false, killed: false,
-                finished: false, timer: None, countdown: hundredths(ep.radius), baseline: None, switch: None,
+                finished: false, timer: None, countdown: hundredths(ep.radius), baseline: None, switch: None, switched: false,
             });
         }
         Script {
@@ -659,11 +662,9 @@ impl Script {
             trigger::CUBOID => q.players_pos().iter().any(|p| {
                 (p.x - pos.x).abs() <= (radius & 0xFFFF) as f32 && (p.z - pos.z).abs() <= (radius >> 16) as f32
             }),
-            // Bound to a switch, only working it sets it off, and only the first point on it
-            // (`EWAY_prim_activated`, eway.cpp:7986).
+            // Bound to a switch, only working it sets it off ([`Script::update`]).
             trigger::PLAYER_USES_RADIUS => match w.switch {
-                Some(ob) => q.worked() == Some(ob)
-                    && !self.ways[..i].iter().flatten().any(|v| v.switch == Some(ob)),
+                Some(_) => w.switched,
                 None => q.users_pos().iter().any(|p| p.distance(pos) < radius as f32),
             },
             trigger::TIMER => self.time >= hundredths(radius),
@@ -1010,6 +1011,13 @@ impl Script {
     /// Runs one tick and returns what the game should do.
     pub fn update(&mut self, dt: f32, q: &dyn Query) -> Vec<Command> {
         self.time += dt;
+        // A switch or valve worked: the first point on it is triggered, for good
+        // (`EWAY_prim_activated`, eway.cpp:7986; `EWAY_COND_PRIM_ACTIVATED`, eway.cpp:3508).
+        if let Some(ob) = q.worked() {
+            if let Some(w) = self.ways.iter_mut().flatten().find(|w| w.switch == Some(ob)) {
+                w.switched = true;
+            }
+        }
         for i in 0..self.ways.len() {
             let Some(w) = &self.ways[i] else { continue };
             if w.dead {
