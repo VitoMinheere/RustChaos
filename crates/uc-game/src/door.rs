@@ -8,7 +8,7 @@ use glam::{vec2, Vec2};
 use std::collections::BTreeMap;
 use uc_formats::iam::facet_flags;
 use uc_world::ground::Ground;
-use uc_world::level::DoorQuad;
+use uc_world::level::FacetQuad;
 use uc_world::{Batch, Level};
 
 /// `DOOR_AJAR`: how far short of the whole way a door stops (door.cpp:409).
@@ -22,7 +22,7 @@ const SPEED: f32 = 4.0 * 4.0 * 20.0;
 /// One of the map's doors, as it's drawn.
 pub struct Door {
     /// Its quads, shut.
-    quads: Vec<DoorQuad>,
+    quads: Vec<FacetQuad>,
     /// What it swings round, in map squares: the facet's first end (`FACET_draw`'s `sx`,
     /// `sz`).
     hinge: Vec2,

@@ -877,15 +877,34 @@ impl Level {
 
     /// The doors' quads, shut, one list for each of [`Ground::doors`]: which [`Level::build`]
     /// leaves to the game to draw swung as far open as they are, lit as the walls are.
-    pub fn doors(&self) -> Vec<Vec<DoorQuad>> {
+    pub fn doors(&self) -> Vec<Vec<FacetQuad>> {
         let lighter = self.lighter();
         let sh = Shader { lighter: lighter.as_ref() };
         let Some(styles) = &self.styles else { return vec![Vec::new(); self.ground.doors.len()] };
         self.ground.doors.iter().map(|d| {
             facet::wall_quads(&self.map, styles, d.facet).into_iter().map(|q| {
                 let corners = q.corners.map(|c| vec3(c[0], c[1], c[2]) / UNIT);
-                DoorQuad { page: q.page, uv: q.uv, corners, colour: sh.quad(&corners) }
+                FacetQuad { page: q.page, uv: q.uv, corners, colour: sh.quad(&corners) }
             }).collect()
+        }).collect()
+    }
+
+    /// The fences, each with its facet's index and its quads: which [`Level::build`] leaves to
+    /// the game to draw rattling when a car scrapes them (`VEH_shake_fences`), lit as the
+    /// walls are.
+    pub fn fences(&self) -> Vec<(usize, Vec<FacetQuad>)> {
+        let lighter = self.lighter();
+        let sh = Shader { lighter: lighter.as_ref() };
+        let Some(styles) = &self.styles else { return Vec::new() };
+        let refence = fence_page(&self.mission.map);
+        (1..self.map.facets.len()).filter(|&i| shakes(self.map.facets[i].kind)).map(|i| {
+            let chain_link = self.map.facets[i].kind != facet_type::FENCE_BRICK;
+            let quads = facet::wall_quads(&self.map, styles, i).into_iter().map(|q| {
+                let corners = q.corners.map(|c| vec3(c[0], c[1], c[2]) / UNIT);
+                let page = refence.filter(|_| chain_link).unwrap_or(q.page);
+                FacetQuad { page, uv: q.uv, corners, colour: sh.quad(&corners) }
+            }).collect();
+            (i, quads)
         }).collect()
     }
 
@@ -902,7 +921,6 @@ impl Level {
         let mut crinkles = Vec::new();
         let mut crinkle_of: HashMap<u32, Option<u32>> = HashMap::new();
         if let Some(styles) = &self.styles {
-            let refence = fence_page(&self.mission.map);
             for i in 1..self.map.facets.len() {
                 let kind = self.map.facets[i].kind;
                 // A doorway is a hole in the wall: the original draws a recess round it and
@@ -910,14 +928,14 @@ impl Level {
                 if kind == facet_type::DOOR {
                     continue;
                 }
-                // A door that can open is left to the game, which swings it ([`Level::doors`]).
-                if kind == facet_type::OUTSIDE_DOOR {
+                // A door that can open is left to the game, which swings it ([`Level::doors`]),
+                // and so is a fence, which rattles when a car scrapes it ([`Level::fences`]).
+                if kind == facet_type::OUTSIDE_DOOR || shakes(kind) {
                     continue;
                 }
-                let fence = matches!(kind, uc_formats::iam::facet_type::FENCE | uc_formats::iam::facet_type::FENCE_FLAT);
                 for q in facet::wall_quads(&self.map, styles, i) {
                     let p = q.corners.map(|c| vec3(c[0], c[1], c[2]) / UNIT);
-                    let page = refence.filter(|_| fence).unwrap_or(q.page);
+                    let page = q.page;
                     let crinkle = *crinkle_of.entry(page).or_insert_with(|| {
                         let c = self.clump.crinkle(page).ok().flatten()?;
                         crinkles.push(c);
@@ -999,9 +1017,16 @@ pub struct SeaSquare {
     pub colour: [[u8; 4]; 4],
 }
 
-/// One quad of a door, as it is shut ([`Level::doors`]).
+/// The facets a car scraping them shakes (`VEH_shake_fences`, vehicle.cpp:1876): the three
+/// kinds of fence.
+pub fn shakes(kind: u8) -> bool {
+    matches!(kind, facet_type::FENCE | facet_type::FENCE_FLAT | facet_type::FENCE_BRICK)
+}
+
+/// One quad of a facet the game draws, a door as it is shut ([`Level::doors`]) or a fence
+/// standing still ([`Level::fences`]).
 #[derive(Debug, Clone)]
-pub struct DoorQuad {
+pub struct FacetQuad {
     pub page: u32,
     pub uv: [[f32; 2]; 4],
     /// In map squares.

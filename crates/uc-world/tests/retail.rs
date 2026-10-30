@@ -57,8 +57,9 @@ fn capflag_fences_are_chain_link() {
     let Some(game) = uc_formats::default_install() else { return };
     let level = Level::load(&game, "Capflag1", &LoadOptions { fullbright: true, character: false, overrides: None }).unwrap();
     assert!(level.clump.texture(284).unwrap().is_some_and(|t| t.has_alpha), "no see-through chain link");
-    let geo = level.build();
-    assert!(geo.pages().contains(&284), "the chain link isn't drawn");}
+    // (The game draws the fences: the level hands them over.)
+    assert!(level.fences().iter().flat_map(|f| &f.1).any(|q| q.page == 284), "the chain link isn't drawn");
+}
 
 /// Walls with a crinkle are raised near the camera and nowhere else, quickly enough to do
 /// every frame (#113).
