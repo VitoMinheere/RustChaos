@@ -374,6 +374,7 @@ impl Game {
         self.draw_balloons(&mut out, level, eye);
         self.trips.batches(&mut out);
         self.doors.batches(&mut out);
+        self.fences.batches(&mut out, self.turns as u32);
         if show.skyline {
             self.sky(&mut out, level, eye);
         }
@@ -518,6 +519,8 @@ impl Game {
         out.extend(level.sea().iter().map(|s| s.page));
         // The doors, which the level leaves to the game.
         out.extend(level.doors().iter().flatten().map(|q| q.page));
+        // The fences, which the level leaves to the game too.
+        out.extend(level.fences().into_iter().flat_map(|(_, q)| q).map(|q| q.page));
         // The platforms' props, which the level leaves to the game.
         for &(_, ob) in &level.platforms {
             if let Some(prim) = uc_world::level::load_prim(&level.game, level.map.objects[ob].prim) {

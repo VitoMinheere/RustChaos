@@ -419,6 +419,12 @@ impl Game {
                     }
                 }
             }
+            // Against a wall: the fences on the car's square's edges rattle (`VEH_shake_fences`,
+            // vehicle.cpp:2339).
+            if self.vehicles[vi].walled {
+                let p = self.vehicles[vi].pos;
+                self.fences.shake((p.x / uc_world::UNIT).floor() as i32, (p.z / uc_world::UNIT).floor() as i32);
+            }
             if self.vehicles[vi].scrape() && self.turns.is_multiple_of(10) {
                 // (The original's moving channel keeps one scrape going; a fresh one every
                 // half second here.)

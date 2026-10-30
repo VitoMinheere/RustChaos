@@ -213,6 +213,9 @@ pub struct Vehicle {
     /// Rubbing along a wall (`Scrapin`, vehicle.cpp:2330): up a turn it does, to 10, and down
     /// two each turn it's scraping loud; over 5 it's heard.
     pub scrapin: u8,
+    /// A wall slowed it this turn: the original's car edges crossing one
+    /// (`there_is_a_los_car`, vehicle.cpp:2321), which shakes the fences round it.
+    pub walled: bool,
     /// `Dir < 0`: put in reverse, till it stops; pressing on then brakes rather than spins.
     reverse: bool,
     /// `Siren`: the siren going and the light bar flashing.
@@ -223,7 +226,7 @@ impl Vehicle {
     pub fn new(way: usize, kind: u8, pos: Vec3, yaw: f32, key: Key) -> Vehicle {
         Vehicle {
             way, kind: kind.min(8), pos, yaw, speed: 0.0, slip: 0.0, slide: 0.0, steer: 0.0, health: 300, hurt_by: None, driver: None, stalled: false,
-            key, pitch: 0.0, roll: 0.0, wheel_spin: 0.0, smokin: false, scrapin: 0, reverse: false, siren: false,
+            key, pitch: 0.0, roll: 0.0, wheel_spin: 0.0, smokin: false, scrapin: 0, walled: false, reverse: false, siren: false,
         }
     }
 
@@ -440,7 +443,8 @@ impl Vehicle {
         let mut impact = None;
         let wanted = step.length();
         // Slowed by a wall but getting along it: scraping.
-        if wanted > 1.0 && moved / wanted < 0.95 && self.scrapin < 10 {
+        self.walled = wanted > 1.0 && moved / wanted < 0.95;
+        if self.walled && self.scrapin < 10 {
             self.scrapin += 1;
         }
         if wanted.abs() > 1.0 && (moved / wanted) < 0.6 {
