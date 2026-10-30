@@ -209,7 +209,7 @@ impl Bindings {
         vec![
             format!("{mv}   {run}   {} jump   {} action (hold: sprint)   {} crouch (move: crawl)", k(Act::Jump), k(Act::Action), k(Act::Crouch)),
             format!("{} / left mouse punch   {} kick   {} block   {} strafe   {} look around   M mouse look on/off", k(Act::Punch), k(Act::Kick), k(Act::Block), k(Act::Strafe), k(Act::Look)),
-            format!("{} next weapon   {} next target   {} scope (sniper rifle)   Tab checklist   R restart   {} free camera (T: go there)   B ghost   ~ console   H hide help",
+            format!("{} next weapon   {} next target   {} scope (sniper rifle)   Tab checklist   {} free camera (T: go there)   B ghost   ~ console   H hide help",
                     k(Act::Weapon), k(Act::Target), k(Act::Scope), k(Act::View)),
         ]
     }

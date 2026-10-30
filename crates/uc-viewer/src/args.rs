@@ -78,10 +78,11 @@ Free camera (V): mouse look, WASD move, Space/E up, C/Q down, Shift fast,
 Replays (REPLAYS in the menu): Space pause, Up/Down speed, Right 10 s on, R from the start,
   F follow the other player (co-op), V free camera, Esc back to the list. Every mission won,
   lost, or left after ten seconds is kept (the last 20, or for good with K at the end).
-Both: R restart, 1-6 toggle floor/walls/props/roofs/details/people, H hide help,
-  F12 screenshot, Esc pause (resume, restart or abandon).
+Both: 1-6 toggle floor/walls/props/roofs/details/people, H hide help, F12 screenshot,
+  Esc pause (resume, restart or abandon).
 Co-op: the host is Darci (or whoever the mission's player is) and the other player Roper. The
-  host's R restarts for both; Enter after a win plays the next mission. Leaving the mission
+  host's restart (in the pause menu) restarts for both; Enter after a win plays the next
+  mission. Leaving the mission
   leaves the game: your player stands still for the other.";
 
 #[derive(Clone)]
