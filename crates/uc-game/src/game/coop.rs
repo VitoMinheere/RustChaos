@@ -77,6 +77,15 @@ impl Game {
         }
     }
 
+    /// Who the player `pi` has their gun on, whichever seat they play and whichever is in
+    /// focus.
+    pub(crate) fn target_of(&self, pi: usize) -> Option<usize> {
+        if self.player == Some(pi) {
+            return self.target;
+        }
+        self.partners.iter().find(|s| s.player == Some(pi)).and_then(|s| s.target)
+    }
+
     /// Everyone playing, seat 0 first.
     pub(crate) fn seat_people(&self) -> Vec<usize> {
         (0..self.seats()).filter_map(|s| self.seat_person(s)).collect()

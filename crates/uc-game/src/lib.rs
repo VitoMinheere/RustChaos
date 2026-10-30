@@ -1568,6 +1568,21 @@ impl Game {
                             let o = &self.people[j];
                             !o.removed && !o.is_dead() && (o.fig.pos - p.fig.pos).length() < GUARDS * 256.0
                         });
+                    // Who the client is having a go at themselves (their `Target`): the one
+                    // the player has their gun on, or the foe of a client of the AI's.
+                    let busy_with = client.and_then(|c| {
+                        let q = &self.people[c];
+                        if q.player { self.target_of(c) } else { q.foe.filter(|_| q.aggro()) }
+                    });
+                    // The nearest by x plus z plus twice the height, and four times as far
+                    // if the client is already at them, so that with several bodyguards
+                    // and several attackers they spread out over the others
+                    // (`PCOM_find_bodyguard_victim`, pcom.cpp:10770).
+                    let score = |j: usize, o: &Person| {
+                        let d = (o.fig.pos - p.fig.pos).abs();
+                        let dist = d.x + d.z + 2.0 * d.y;
+                        if Some(j) == busy_with { dist * 4.0 } else { dist }
+                    };
                     hit_back.or_else(|| self.people
                         .iter()
                         .enumerate()
@@ -1577,10 +1592,7 @@ impl Game {
                                 && (o.fig.pos - p.fig.pos).length() < GUARDS * 256.0
                                 && level.ground.line_of_sight(p.fig.pos + eye, o.fig.pos + eye)
                         })
-                        .min_by(|a, b| {
-                            let d = |o: &Person| (o.fig.pos - p.fig.pos).length();
-                            d(a.1).total_cmp(&d(b.1))
-                        })
+                        .min_by(|a, b| score(a.0, a.1).total_cmp(&score(b.0, b.1)))
                         .map(|(j, _)| j))
                 }
                 // Someone out to get a particular person (a bully's pick, a gang mate's fight).
@@ -1604,9 +1616,15 @@ impl Game {
                 }
                 _ => self.nearest_seat(p.fig.pos),
             };
-            // Twenty blocks from the player, a bodyguard is out of harm's way.
-            let away = p.ai == person::AI_BODYGUARD
-                && darci.is_some_and(|d| (d - p.fig.pos).length() > 20.0 * 256.0);
+            // Twenty blocks (QDIST3) from the player they guard, a bodyguard is out of harm's
+            // way; anyone else's bodyguards never are (`PCOM_AI_BODYGUARD`, pcom.cpp:11225).
+            let away = p.ai == person::AI_BODYGUARD && {
+                let client = if p.other == 0 { player } else { self.by_way.get(&p.other).copied() };
+                client.filter(|&c| self.people[c].player).is_some_and(|c| {
+                    let d = (self.people[c].fig.pos - p.fig.pos).abs();
+                    d.max_element() + (d.x + d.y + d.z - d.max_element()) / 4.0 > 20.0 * 256.0
+                })
+            };
             self.people[i].foe = foe;
             // God mode (#147): nothing lands on the player.
             self.people[i].invulnerable = away || self.people[i].protected || (self.cheats.god && Some(i) == self.player);
