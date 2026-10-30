@@ -52,3 +52,32 @@ fn only_so_many_lines_wait() {
     assert!(talking);
     assert!(waiting <= 3, "{waiting} lines queued up behind the one being said");
 }
+
+/// A line the install has no recording of is said from the voices folder, when there is one;
+/// the install's own recordings come first.
+#[test]
+fn made_lines_fill_in_for_missing_ones() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let Ok(mut audio) = uc_audio::Audio::new(&game) else { return };
+    let dir = std::env::temp_dir().join(format!("uc-voices-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("talk2")).unwrap();
+    // Half a second of 16-bit silence.
+    let data = vec![0u8; 22050];
+    let mut wav = b"RIFF".to_vec();
+    wav.extend((36 + data.len() as u32).to_le_bytes());
+    wav.extend(b"WAVEfmt ");
+    wav.extend(16u32.to_le_bytes());
+    for n in [1u16, 1] { wav.extend(n.to_le_bytes()); }
+    for n in [22050u32, 44100] { wav.extend(n.to_le_bytes()); }
+    for n in [2u16, 16] { wav.extend(n.to_le_bytes()); }
+    wav.extend(b"data");
+    wav.extend((data.len() as u32).to_le_bytes());
+    wav.extend(&data);
+    std::fs::write(dir.join("talk2").join("Crimescene.ucm15B.wav"), wav).unwrap();
+
+    assert!(!audio.conversation_line("Crimescene", 15, 1), "the install has no recording of 24th Street's lines");
+    audio.set_voices(Some(dir.clone()));
+    assert!(audio.conversation_line("Crimescene", 15, 1), "the made one should be said");
+    assert!(audio.voice("Bankbomb1", 22), "the install's own lines still play");
+    std::fs::remove_file(dir.join("talk2").join("Crimescene.ucm15B.wav")).unwrap();
+}

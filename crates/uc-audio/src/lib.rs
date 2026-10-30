@@ -140,6 +140,9 @@ pub fn music_world(game: &Path, mission: &str, from_mission: u8) -> u8 {
 pub struct Audio {
     sink: rodio::MixerDeviceSink,
     game: PathBuf,
+    /// Where voice lines the install hasn't got are looked for (`talk2\<name>`), if
+    /// anywhere: the ones made for the unreleased missions.
+    voices: Option<PathBuf>,
     cache: HashMap<String, Option<Arc<Clip>>>,
     music: Vec<Track>,
     ambience: Option<Arc<Control>>,
@@ -187,10 +190,35 @@ impl Audio {
         let mut sink = rodio::DeviceSinkBuilder::open_default_sink().map_err(|e| format!("no audio device: {e}"))?;
         sink.log_on_drop(false);
         Ok(Audio {
-            sink, game: game.to_path_buf(), cache: HashMap::new(), music: Vec::new(), ambience: None, bed: None, engine: None, rotor: None, siren: None, crackle: None, gush: None, slide: None, search: None, rng: 12345,
+            sink, game: game.to_path_buf(), voices: None, cache: HashMap::new(), music: Vec::new(), ambience: None, bed: None, engine: None, rotor: None, siren: None, crackle: None, gush: None, slide: None, search: None, rng: 12345,
             speaking: None, waiting: VecDeque::new(), effect: None,
             sfx_volume: 0.8, music_volume: 0.55,
         })
+    }
+
+    /// Looks for the voice lines the install hasn't got in `dir` too (`dir\talk2\<name>`).
+    pub fn set_voices(&mut self, dir: Option<PathBuf>) {
+        self.voices = dir;
+        self.cache.retain(|k, _| !k.starts_with("made\\"));
+    }
+
+    /// A voice line (`talk2\<name>`): the install's, else one from [`Audio::set_voices`]'s folder.
+    fn line(&mut self, name: &str) -> Option<Arc<Clip>> {
+        let rel = format!("talk2\\{name}");
+        if let Some(c) = self.load(&rel) {
+            return Some(c);
+        }
+        let key = format!("made\\{rel}");
+        if let Some(c) = self.cache.get(&key) {
+            return c.clone();
+        }
+        let clip = self.voices.as_ref()
+            .and_then(|d| uc_formats::resolve(d, &rel))
+            .and_then(|p| std::fs::read(p).ok())
+            .and_then(|b| wav::decode(&b).ok())
+            .map(Arc::new);
+        self.cache.insert(key, clip.clone());
+        clip
     }
 
     /// Loads (and caches) a file relative to the install.
@@ -279,7 +307,7 @@ impl Audio {
     /// Plays a mission's recorded line for event point `point`, if it has one. Returns
     /// whether it did.
     pub fn voice(&mut self, mission: &str, point: usize) -> bool {
-        match self.load(&format!("talk2\\{mission}.ucm{point}.wav")) {
+        match self.line(&format!("{mission}.ucm{point}.wav")) {
             Some(c) => {
                 self.say(c);
                 true
@@ -292,7 +320,7 @@ impl Audio {
     /// `point` (`talk2\<mission>.ucm<point><letter>.wav`, as `EWAY_talk_conv`).
     pub fn conversation_line(&mut self, mission: &str, point: usize, line: usize) -> bool {
         let letter = (b'A' + (line as u8).min(25)) as char;
-        match self.load(&format!("talk2\\{mission}.ucm{point}{letter}.wav")) {
+        match self.line(&format!("{mission}.ucm{point}{letter}.wav")) {
             Some(c) => {
                 self.say(c);
                 true

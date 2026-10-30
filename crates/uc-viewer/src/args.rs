@@ -12,6 +12,8 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --mission NAME    mission to play, e.g. ftutor1, testdrive1a, police1 (default: the menu)
   --explore         don't run the mission script: just Darci and the level
   --mute            no sound or music
+  --voices DIR      voice lines made for the unreleased missions, said where the install has
+                    none (default: the progress folder's voices folder); --voices off for none
   --endless         endless mode on the mission's map: waves of thugs (with --seed N to repeat a run)
   --beat           a Beat Cop shift on the mission's map: incidents over the radio (--seed, --arena too)
   --shift MINUTES  the shift's length (default 10), or endless for an open-ended one
@@ -93,6 +95,8 @@ pub(crate) struct Args {
     pub(crate) mission_given: bool,
     pub(crate) explore: bool,
     pub(crate) mute: bool,
+    /// Where voice lines the install hasn't got are looked for, if anywhere.
+    pub(crate) voices: Option<PathBuf>,
     /// Endless mode on the mission's map (#129), with this seed or a new one.
     pub(crate) endless: bool,
     /// A Beat Cop shift on the mission's map (#130).
@@ -149,6 +153,7 @@ impl Default for Args {
             mission_given: false,
             explore: false,
             mute: false,
+            voices: crate::progress::Progress::folder().map(|f| f.join("voices")),
             endless: false,
             beat: false,
             shift: uc_game::game::beat::DEFAULT_SHIFT,
@@ -205,6 +210,7 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             }
             "--explore" => a.explore = true,
             "--mute" => a.mute = true,
+            "--voices" => a.voices = Some(value()?).filter(|v| v != "off").map(PathBuf::from),
             "--endless" => a.endless = true,
             "--beat" => a.beat = true,
             "--shift" => {
