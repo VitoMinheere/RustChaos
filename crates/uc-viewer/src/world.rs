@@ -104,6 +104,9 @@ pub(crate) struct World {
     pub(crate) editor: Option<editor::Editor>,
     /// An edited mission being played: nothing it does goes into the progress or a replay.
     pub(crate) edited: bool,
+    /// Which of [`hud::BEACON_COLOURS`] each beacon shown is in, so it keeps its colour while
+    /// others come and go ([`hud::beacon_colours`]).
+    pub(crate) beacon_colours: std::cell::RefCell<Vec<(String, usize)>>,
 }
 
 /// The ghost race for a new game of `level`, if it's one of the missions raced (and played
@@ -247,6 +250,7 @@ impl World {
             replay,
             editor: None,
             edited: false,
+            beacon_colours: Default::default(),
         })
     }
 
