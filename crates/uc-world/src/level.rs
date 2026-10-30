@@ -409,6 +409,11 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 /// `mission_name` is the mission's file name: gang3's own name is "Gang order3", whose
 /// mission it was made from.
 pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
+    // The recording of the first line said by a point added here (`Data[9]`, the speech
+    // number, `talk2\<mission>.ucm<speech>.wav`), and so on from it: past any mission's own
+    // points, and fixed, so a made recording stays with its line however many points are
+    // added before it.
+    const SPEECH: i32 = 901;
     use uc_formats::ucm::{on_trigger, trigger, waypoint, EventPoint};
     let name = mission_name.to_ascii_lowercase();
     if name == "transmit1" {
@@ -505,7 +510,7 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         // Nothing ends it if a hostage is killed: it can't be won any more. Here it's lost.
         for worker in [62, 63] {
             let Some(w) = point(mission, worker) else { continue };
-            let say = EventPoint { kind: waypoint::MESSAGE, trigger: trigger::KILLED, ep_ref: worker as u16, data: [0, 6, 0, 0, 0, 0, 0, 0, 0, 0], ..at(&w) };
+            let say = EventPoint { kind: waypoint::MESSAGE, trigger: trigger::KILLED, ep_ref: worker as u16, data: [0, 6, 0, 0, 0, 0, 0, 0, 0, SPEECH], ..at(&w) };
             let said = add_point(mission, say, Some("A hostage has been killed."));
             add_point(mission, EventPoint { kind: waypoint::END_GAME_LOSE, trigger: trigger::DEPENDENCY, ep_ref: said as u16, ..at(&w) }, None);
         }
@@ -538,14 +543,15 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         }
         let say = |text_from: &EventPoint, secs: i32| EventPoint { kind: waypoint::MESSAGE, data: [0, secs, 0, 0, 0, 0, 0, 0, 0, 0], ..at(text_from) };
         // Who says it once they're in: in 24th Street it's Darci, to the geek, not despatch.
+        // And the recordings of what's said if one's killed and once they're in.
         let darci = mission.event_points.iter().find(|e| e.used != 0 && e.kind == waypoint::CREATE_PLAYER).map_or(0, |e| e.index as i32);
-        let done_by = if name == "crimescene" { darci } else { 0 };
+        let (done_by, lost_speech, done_speech) = if name == "crimescene" { (darci, SPEECH + 1, SPEECH + 2) } else { (0, SPEECH, SPEECH + 1) };
         if name == "crimescene" {
             // Nothing says what's next once the geek's friend has called to him (87): that
             // he's to be brought in. Darci's to say it too.
             let Some(talk) = point(mission, 87).filter(|e| e.kind == waypoint::CONVERSATION) else { return };
             let mut next = EventPoint { trigger: trigger::CONVERSATION_OVER, ep_ref: talk.index as u16, ..say(&talk, 6) };
-            next.data[2] = darci;
+            (next.data[2], next.data[9]) = (darci, SPEECH);
             add_point(mission, next, Some("Nothin', huh? This geek knows somethin' about 24th Street...time to bring him in."));
         }
         let mut got = Vec::new();
@@ -555,7 +561,8 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
             let b = add_point(mission, EventPoint { trigger: if from == 0 { trigger::NONE } else { trigger::DEPENDENCY }, ep_ref: from as u16, ..beacon(&w, who) }, Some(label));
             let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: arrested as u16, ..at(&w) };
             add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
-            let killed = EventPoint { trigger: trigger::KILLED_NOT_ARRESTED, ep_ref: who as u16, ..say(&w, 6) };
+            let mut killed = EventPoint { trigger: trigger::KILLED_NOT_ARRESTED, ep_ref: who as u16, ..say(&w, 6) };
+            killed.data[9] = lost_speech;
             let killed = add_point(mission, killed, Some(lost_text));
             add_point(mission, EventPoint { kind: waypoint::END_GAME_LOSE, trigger: trigger::DEPENDENCY, ep_ref: killed as u16, ..at(&w) }, None);
             got.push(arrested);
@@ -569,7 +576,7 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
             all = add_point(mission, EventPoint { kind: waypoint::SIMPLE, trigger: trigger::BOOLEAN_AND, ep_ref: from as u16, ep_ref_bool: all as u16, ..at(&start) }, None);
         }
         let mut said = EventPoint { trigger: trigger::DEPENDENCY, ep_ref: all as u16, ..say(&start, 6) };
-        said.data[2] = done_by;
+        (said.data[2], said.data[9]) = (done_by, done_speech);
         let said = add_point(mission, said, Some(done_text));
         add_point(mission, EventPoint { kind: waypoint::END_GAME_WIN, trigger: trigger::DEPENDENCY, ep_ref: said as u16, ..at(&start) }, None);
     } else if name == "gang3" {
