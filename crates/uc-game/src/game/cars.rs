@@ -438,7 +438,10 @@ impl Game {
                 }
             }
             if let Some(i) = smashed {
-                self.damage_prop(level, i);
+                // (`VEH_collide` passes the car's x and y as where the knock came from,
+                // vehicle.cpp:2123, not its x and z.)
+                let p = self.vehicles[vi].pos;
+                self.damage_prop(level, i, (p.x, p.y));
             }
             let after = self.vehicle_tops(vi, level);
             self.carry(&riders, &tops, &after);

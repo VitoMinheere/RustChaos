@@ -18,6 +18,7 @@ pub mod chopper;
 pub mod barrel;
 pub mod canid;
 pub mod city;
+pub mod bend;
 pub mod cloth;
 pub mod game;
 pub use game::{Aiming, Show, Sight, Snipe};
@@ -667,6 +668,11 @@ pub struct Game {
     pub show_crime_rate: bool,
     /// Props damaged (`OB_FLAG_DAMAGED`), as indices into the map's objects.
     pub damaged: BTreeSet<usize>,
+    /// The damaged props that lean or crumple, and how: `OB_ob[].flags`' top two bits
+    /// ([`bend::knock`]).
+    pub prop_bends: BTreeMap<usize, u8>,
+    /// Those props, as drawn.
+    pub bends: bend::Bends,
     /// Hydrants knocked over and gushing: where, which way the jet goes (radians, as a
     /// facing), and the seconds left of it.
     pub hydrants: Vec<(Vec3, f32, f32)>,
@@ -908,6 +914,8 @@ impl Game {
             red_marks: 0,
             show_crime_rate: level.mission.flags & MISSION_FLAG_SHOW_CRIMERATE != 0,
             damaged: BTreeSet::new(),
+            prop_bends: BTreeMap::new(),
+            bends: bend::Bends::new(level),
             hydrants: Vec::new(),
             arrest_me: Vec::new(),
             bored: 0.0,
@@ -1404,6 +1412,7 @@ impl Game {
             }
         }
         self.go_indoors(level);
+        self.bends.update(level, &self.prop_bends);
         self.move_platforms(dt, level);
         self.doors.process(dt, &level.ground);
         // Lightning dies away (the Men in Black's and the fences' too, where there are no
