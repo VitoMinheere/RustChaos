@@ -36,3 +36,11 @@ fn one_recording_for_each_line() {
         assert!(lines.iter().enumerate().all(|(k, l)| l.1 == 901 + k as i32), "{mission}: {lines:?}");
     }
 }
+
+#[test]
+fn mr_mcintyres_lines() {
+    let Some(lines) = added("gang2") else { return };
+    // Mcintyre (point 122) gives in, and despatch says he's in.
+    assert_eq!(lines, [("Okay okay! I SURRENDER!!".to_string(), 901, 122),
+                       ("You got him! Mr Mcintyre's gonna be our guest for a while.".to_string(), 902, 0)]);
+}

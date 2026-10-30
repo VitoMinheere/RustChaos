@@ -1152,7 +1152,7 @@ const UNRELEASED: [(&str, &str, &str); 8] = [
 /// district whose map they share; the rest are in the list alone. None has a title in the
 /// game, so these are this project's, and the briefings are their opening messages where
 /// they have them, made up from their scripts where they don't.
-const DRAFTS: [(&str, &str, &str); 10] = [
+const DRAFTS: [(&str, &str, &str); 11] = [
     // Combat Gold with bigger waves, on the same course: it calls itself the gold grade.
     ("fight3", "Combat Platinum",
      "For the gold grade you need to use combat techniques against skilled and sometimes armed \
@@ -1174,6 +1174,14 @@ const DRAFTS: [(&str, &str, &str); 10] = [
      "There's been a drop-off at the store, Mako: some files we want. Round up one of the boys, \
       pick up what the guy at the den's got for you, and shake the store down.\r\
       - Get the files off the man at the store, alive.\r- Bring them back to the den."),
+    // gang2 is an early Gangorder2, with no opening message: the boss at the den sends Mako
+    // for Bish and Mclean, and Blood has the job for the three of them.
+    ("gang2", "Mr Mcintyre",
+     "Go fetch hoods Bish and Mclean, Mako, then you be told what to do next. Blood's got some \
+      work for you guys: a Mr Frazer Mcintyre, the father of that cop's friend. He'll be very \
+      useful as a bargaining tool.\r\
+      - Fetch Bish and Mclean.\r- Meet Blood.\r\
+      - Kidnap Mr Mcintyre and bring him back to the den."),
     // Prototypes on the TV centre's map.
     ("Getaway1", "Mr X's Getaway",
      "Meet your contact at the corner of Lexington and 12th. Check your nav map. Mr X and his \
@@ -1406,7 +1414,7 @@ mod tests {
             let i = m.entries.iter().position(|e| e.mission == mission).unwrap_or_else(|| panic!("{mission} isn't listed"));
             m.pins.iter().find(|p| p.missions.contains(&i)).map(|p| p.name.as_str())
         };
-        for (mission, district) in [("fight3", "Combat Centre"), ("BAALROG1", "Central Park"), ("gang1", "Gangland"), ("gang3", "Gangland"),
+        for (mission, district) in [("fight3", "Combat Centre"), ("BAALROG1", "Central Park"), ("gang1", "Gangland"), ("gang2", "Gangland"), ("gang3", "Gangland"),
                                     ("Getaway1", "Television Centre"), ("Transmit1", "Television Centre"),
                                     ("Crimescene", "Southside Beach"), ("police5", "West District")] {
             assert_eq!(pin(mission), Some(district), "{mission}");
