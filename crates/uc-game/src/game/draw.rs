@@ -263,6 +263,8 @@ impl Game {
                 uc_world::level::prim_batches(prim, |v| p.pos + Vec3::new(c * v.x + s * v.z, v.y, -s * v.x + c * v.z), lighter.as_ref(), &mut out);
             }
         }
+        // The props that lean or crumple, bent as far as they've been knocked.
+        self.bends.batches(&mut out);
         // Switches, green once pressed.
         for (k, o) in level.map.objects.iter().enumerate().filter(|(_, o)| o.prim == uc_world::level::SWITCH_OFF) {
             let Some(prim) = &self.switch_prims[self.pressed.contains(&k) as usize] else { continue };
@@ -525,6 +527,8 @@ impl Game {
                 out.extend(prim.faces.iter().map(|f| f.texture().0));
             }
         }
+        // The props that lean or crumple, which it leaves to the game too.
+        out.extend(bend::Bends::pages(level));
         // The switches, off and on, which it leaves to the game too.
         if level.map.objects.iter().any(|o| o.prim == uc_world::level::SWITCH_OFF) {
             for id in [uc_world::level::SWITCH_OFF, uc_world::level::SWITCH_ON] {

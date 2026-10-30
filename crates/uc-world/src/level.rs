@@ -908,6 +908,21 @@ impl Level {
         }).collect()
     }
 
+    /// The props a knock leans over or crumples (`OB_damage`, ob.cpp:1510): damageable ones
+    /// whose prims lean (lamp posts, signs) or crumple, as indices into the map's objects.
+    /// [`Level::build`] leaves them to the game, which draws them bent once they're damaged.
+    /// (Any other damaged prop is drawn crumpled too, but by the smallest amount, two and a
+    /// half units: nothing to see.)
+    pub fn bendable(&self) -> Vec<usize> {
+        self.ground.prop_damage.iter().enumerate()
+            .filter(|&(i, &(d, _))| {
+                d & prim_damage::DAMAGABLE != 0 && d & (prim_damage::LEAN | prim_damage::CRUMPLE) != 0
+                    && self.platforms.iter().all(|&(_, ob)| ob != i) && !self.barrel_props.contains(&i)
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
     /// Builds all static geometry, lit with the level's baked lighting.
     pub fn build(&self) -> WorldGeometry {
         let lighter = self.lighter();
@@ -948,9 +963,14 @@ impl Level {
                 }
             }
         }
-        // Switches too: pressed, they turn green, so the game draws them.
+        // Switches too: pressed, they turn green, so the game draws them. And the props a
+        // knock leans over or crumples ([`Level::bendable`]).
         let switches = self.map.objects.iter().enumerate().filter(|(_, o)| o.prim == SWITCH_OFF).map(|(i, _)| i);
-        let moving: std::collections::BTreeSet<usize> = self.platforms.iter().map(|&(_, ob)| ob).chain(self.barrel_props.iter().copied()).chain(switches).collect();
+        let moving: std::collections::BTreeSet<usize> = self.platforms.iter().map(|&(_, ob)| ob)
+            .chain(self.barrel_props.iter().copied())
+            .chain(switches)
+            .chain(self.bendable())
+            .collect();
         build_props(&mut b, &self.map, &self.game, &sh, &moving);
         build_details(&mut b, &self.map, &sh);
         WorldGeometry { crinkles, ..b.finish() }
@@ -1178,6 +1198,14 @@ pub const ITEM_PRIMS: [(u8, u8); 27] = [
 /// The prop every map's barrels are (prim 33, `PRIM_OBJ_BIN`, which ob.cpp calls "the
 /// barrel prim").
 pub const BARREL_PROP: u8 = 33;
+
+/// `PRIM_DAMAGE_*` (fallen/Editor/Headers/Prim.h): a prim's [`Prim::damage`] flags.
+pub mod prim_damage {
+    pub const DAMAGABLE: u8 = 1 << 0;
+    pub const EXPLODES: u8 = 1 << 1;
+    pub const CRUMPLE: u8 = 1 << 2;
+    pub const LEAN: u8 = 1 << 3;
+}
 
 /// A switch to press (`PRIM_OBJ_SWITCH_OFF`), and the green one it becomes when pressed
 /// (`PRIM_OBJ_SWITCH_ON`, interfac.cpp:1765). The level leaves switches to the game.

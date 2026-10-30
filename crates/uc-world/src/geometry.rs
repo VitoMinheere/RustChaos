@@ -128,6 +128,13 @@ impl Batch {
         self.indices.extend_from_slice(&[base, base + 1, base + 2, base + 1, base + 3, base + 2]);
     }
 
+    /// Adds everything in `other`.
+    pub fn append(&mut self, other: &Batch) {
+        let base = self.vertices.len() as u32;
+        self.vertices.extend_from_slice(&other.vertices);
+        self.indices.extend(other.indices.iter().map(|i| i + base));
+    }
+
     pub fn tri(&mut self, p: [Vec3; 3], uv: [[f32; 2]; 3], c: [[u8; 4]; 3]) {
         let base = self.vertices.len() as u32;
         for i in 0..3 {

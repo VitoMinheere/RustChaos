@@ -295,13 +295,15 @@ impl Game {
             }
         }
         for i in hit {
-            self.damage_prop(level, i);
+            self.damage_prop(level, i, (at.x, at.z));
         }
     }
 
     /// `OB_damage`: the prop is marked damaged, and one that explodes (or a lamppost) goes up
     /// in a firebomb the first time, with a shockwave of its own; a hydrant gushes.
-    pub fn damage_prop(&mut self, level: &Level, i: usize) {
+    /// `from` is what the caller passes as where the knock came from, which only says which
+    /// way a lamp post or sign leans ([`crate::bend::knock`]).
+    pub fn damage_prop(&mut self, level: &Level, i: usize, from: (f32, f32)) {
         /// `PRIM_OBJ_HYDRANT`.
         const HYDRANT: u8 = 228;
         let (damage, flag) = level.ground.prop_damage.get(i).copied().unwrap_or_default();
@@ -310,6 +312,13 @@ impl Game {
         }
         // Marked before the blast, so the shockwave it sets off doesn't set it off again.
         let first = self.damaged.insert(i);
+        // A lamp post or sign leans, others crumple (ob.cpp:1510).
+        if damage & (uc_world::level::prim_damage::LEAN | uc_world::level::prim_damage::CRUMPLE) != 0 {
+            let random = self.rand();
+            let bits = self.prop_bends.get(&i).copied().unwrap_or(0);
+            let yaw = level.map.objects[i].yaw;
+            self.prop_bends.insert(i, crate::bend::knock(bits, damage, yaw, from, random));
+        }
         // A hydrant gushes for fifteen seconds (`OB_damage`, ob.cpp:1551), its jet a
         // quarter turn off one way or the other, ahead or behind, as it leaned.
         let o = &level.map.objects[i];
