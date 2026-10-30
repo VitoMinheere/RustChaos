@@ -13,7 +13,7 @@ fn a_broken_hydrant_gushes_then_dries_up() {
     let i = r.level.map.objects.iter().position(|o| o.prim == 228).expect("a hydrant");
     let o = &r.level.map.objects[i];
     let at = Vec3::new(o.x as f32, o.y as f32, o.z as f32);
-    r.g.damage_prop(&r.level, i);
+    r.g.damage_prop(&r.level, i, at);
     r.play(1.0, Controls::default());
     assert_eq!(r.g.hydrant_noise(at), Some(at), "no hiss");
     let water = r.g.drops.drops.iter().filter(|d| d.water && (d.pos - at).length() < 200.0).count();

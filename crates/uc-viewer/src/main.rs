@@ -1193,6 +1193,8 @@ impl App {
             _ => return,
         };
         let view = frame.texture.create_view(&Default::default());
+        // Damaged props are drawn bent with the rest of the moving things, not as they were.
+        g.renderer.hide_props(world.game.bent_props());
         g.renderer.render(&view, size, &cam, &settings, &dynamic, &hud);
         g.window.pre_present_notify();
         g.renderer.queue.present(frame);
@@ -1352,6 +1354,7 @@ fn headless_screenshot(mut world: World, path: &Path) -> Result<(), String> {
     let size = world.args.size;
     let cam = world.camera();
     let hud = if world.editor.is_some() { world.editor_overlay(&cam, size) } else { world.hud(size) };
+    r.hide_props(world.game.bent_props());
     let img = r.render_to_image(size, &cam, &world.settings(), &world.dynamic(), &hud);
     save_png(path, size, &img)?;
     println!("saved {} ({}/{} chunks drawn, {} draw calls, {} triangles)", path.display(),

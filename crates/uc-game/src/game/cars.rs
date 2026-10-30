@@ -343,7 +343,8 @@ impl Game {
                 }
             }
             if let Some(i) = smashed {
-                self.damage_prop(level, i);
+                let from = self.vehicles[vi].pos;
+                self.damage_prop(level, i, from);
             }
             let after = self.vehicle_tops(vi, level);
             self.carry(&riders, &tops, &after);

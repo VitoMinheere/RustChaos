@@ -235,6 +235,10 @@ impl Game {
                 uc_world::level::prim_batches(prim, |v| p.pos + Vec3::new(c * v.x + s * v.z, v.y, -s * v.x + c * v.z), lighter.as_ref(), &mut out);
             }
         }
+        // Damaged props, bent.
+        for b in self.bent.values() {
+            uc_world::level::prim_batches(&b.prim, |v| b.place(v), lighter.as_ref(), &mut out);
+        }
         // Charges sit still where they were put.
         if let Some(prim) = uc_world::level::item_prim(EXPLOSIVES).and_then(|id| level.item_prims.get(&id)) {
             let lift = 4.0 - uc_world::level::prim_bounds(prim).0.y;

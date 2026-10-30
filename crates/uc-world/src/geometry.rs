@@ -148,6 +148,9 @@ pub struct Chunk {
     pub crinkled: BTreeMap<u32, Batch>,
     /// Those walls' quads, to raise.
     pub reliefs: Vec<ReliefQuad>,
+    /// The one prop this chunk is (an index into the map's objects), for a prop that can be
+    /// damaged: once it is, the game draws it bent, and this is left out.
+    pub prop: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -197,6 +200,8 @@ impl WorldGeometry {
 #[derive(Default)]
 pub struct Builder {
     chunks: BTreeMap<(i32, i32), Parts>,
+    /// Props in chunks of their own ([`Chunk::prop`]).
+    props: BTreeMap<usize, Parts>,
 }
 
 #[derive(Default)]
@@ -216,6 +221,11 @@ impl Builder {
         self.parts(at).batches.entry((layer, page)).or_default()
     }
 
+    /// A batch in prop `prop`'s own chunk.
+    pub fn prop_batch(&mut self, prop: usize, layer: Layer, page: u32) -> &mut Batch {
+        self.props.entry(prop).or_default().batches.entry((layer, page)).or_default()
+    }
+
     /// A wall quad with a crinkle: drawn flat, and kept to raise.
     pub fn crinkled(&mut self, q: ReliefQuad) {
         let parts = self.parts(q.corners[0]);
@@ -227,14 +237,16 @@ impl Builder {
         let chunks = self
             .chunks
             .into_values()
-            .filter(|p| !p.batches.is_empty() || !p.crinkled.is_empty())
-            .map(|Parts { batches, crinkled, reliefs }| {
+            .map(|p| (None, p))
+            .chain(self.props.into_iter().map(|(i, p)| (Some(i), p)))
+            .filter(|(_, p)| !p.batches.is_empty() || !p.crinkled.is_empty())
+            .map(|(prop, Parts { batches, crinkled, reliefs })| {
                 let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
                 for v in batches.values().chain(crinkled.values()).flat_map(|b| &b.vertices) {
                     min = min.min(Vec3::from(v.pos));
                     max = max.max(Vec3::from(v.pos));
                 }
-                Chunk { min, max, batches, crinkled, reliefs }
+                Chunk { min, max, batches, crinkled, reliefs, prop }
             })
             .collect();
         WorldGeometry { chunks, crinkles: Vec::new() }

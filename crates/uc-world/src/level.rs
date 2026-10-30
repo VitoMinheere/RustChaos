@@ -834,10 +834,19 @@ fn platform_props(map: &Map, mission: &Mission) -> Vec<(usize, usize)> {
     out
 }
 
+/// Whether a prop of `prim` is drawn bent once it's damaged (`PRIM_DAMAGE_DAMAGABLE` with
+/// `_CRUMPLE` or `_LEAN`, `OB_find`, ob.cpp:353).
+pub fn bends(prim: &Prim) -> bool {
+    prim.damage & 1 != 0 && prim.damage & (4 | 8) != 0
+}
+
 fn build_props(b: &mut Builder, map: &Map, game: &Path, sh: &Shader, moving: &std::collections::BTreeSet<usize>) {
     let mut cache: HashMap<u8, Option<Prim>> = HashMap::new();
-    for ob in map.objects.iter().enumerate().filter(|(i, _)| !moving.contains(i)).map(|(_, o)| o) {
+    for (i, ob) in map.objects.iter().enumerate().filter(|(i, _)| !moving.contains(i)) {
         let Some(prim) = cache.entry(ob.prim).or_insert_with(|| load_prim(game, ob.prim)) else { continue };
+        // One that leans or crumples when it's damaged is a chunk of its own, for the game
+        // to draw instead once it has been.
+        let own = bends(prim);
         let a = radians(ob.yaw as f32);
         let (s, c) = a.sin_cos();
         let origin = vec3(ob.x as f32, ob.y as f32, ob.z as f32);
@@ -851,7 +860,7 @@ fn build_props(b: &mut Builder, map: &Map, game: &Path, sh: &Shader, moving: &st
             let pts: Vec<Vec3> = f.points.iter().map(|&i| place(prim.points[i as usize])).collect();
             let n = (pts[1] - pts[0]).cross(pts[2] - pts[0]);
             let col: Vec<[u8; 4]> = pts.iter().map(|&p| sh.at(p, n)).collect();
-            let batch = b.batch(origin / UNIT, Layer::Props, page);
+            let batch = if own { b.prop_batch(i, Layer::Props, page) } else { b.batch(origin / UNIT, Layer::Props, page) };
             if pts.len() == 4 {
                 batch.quad([pts[0], pts[1], pts[2], pts[3]], [uv[0], uv[1], uv[2], uv[3]], [col[0], col[1], col[2], col[3]]);
             } else {

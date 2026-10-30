@@ -272,13 +272,15 @@ impl Game {
             }
         }
         for i in hit {
-            self.damage_prop(level, i);
+            self.damage_prop(level, i, at);
         }
     }
 
     /// `OB_damage`: the prop is marked damaged, and one that explodes (or a lamppost) goes up
     /// in a firebomb the first time, with a shockwave of its own; a hydrant gushes.
-    pub fn damage_prop(&mut self, level: &Level, i: usize) {
+    /// `from`: where the blow came from (the blast, the car), which the original takes as
+    /// the way a lamppost or a sign leans.
+    pub fn damage_prop(&mut self, level: &Level, i: usize, from: Vec3) {
         /// `PRIM_OBJ_HYDRANT`.
         const HYDRANT: u8 = 228;
         let (damage, flag) = level.ground.prop_damage.get(i).copied().unwrap_or_default();
@@ -295,6 +297,9 @@ impl Game {
             let at = Vec3::new(o.x as f32, o.y as f32, o.z as f32);
             self.hydrants.retain(|h| h.0 != at);
             self.hydrants.push((at, uc_formats::units::radians((o.yaw + lean) as f32), 15.0));
+        }
+        if damage & (LEAN | CRUMPLE) != 0 {
+            self.bend_prop(level, i, damage & LEAN != 0, from);
         }
         if first && (damage & EXPLODES != 0 || flag & LAMPOST != 0) {
             let o = &level.map.objects[i];

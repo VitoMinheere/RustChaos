@@ -120,6 +120,8 @@ struct ChunkDraws {
     min: Vec3,
     max: Vec3,
     ranges: Vec<DrawRange>,
+    /// The prop it is, if it's one of its own ([`uc_world::geometry::Chunk::prop`]).
+    prop: Option<usize>,
 }
 
 struct Targets {
@@ -156,6 +158,7 @@ pub struct Renderer {
     mist_tex: wgpu::BindGroup,
     statics: Option<(wgpu::Buffer, wgpu::Buffer)>,
     chunks: Vec<ChunkDraws>,
+    hidden_props: std::collections::HashSet<usize>,
     dynamic: Option<(wgpu::Buffer, wgpu::Buffer, usize, usize)>,
     targets: Option<Targets>,
     overlay_pipeline: wgpu::RenderPipeline,
@@ -732,7 +735,7 @@ impl Renderer {
         Renderer {
             device, queue, format, pipeline, globals_buf, globals_bg, tex_layout, sampler,
             textures: HashMap::new(), white, shadow_pipeline, decal_pipeline, glow_pipeline, additive_pipeline, sprite_pipeline, ghost_depth_pipeline, ghost_pipeline, sky_pipeline, moon_pipeline, puddle_mask_pipeline, reflect_pipeline, moon_reflect_pipeline, smap_pipeline, shadow_tex, mist_tex,
-            statics: None, chunks: Vec::new(), dynamic: None, targets: None,
+            statics: None, chunks: Vec::new(), hidden_props: Default::default(), dynamic: None, targets: None,
             overlay_pipeline, screen_buf, screen_bg, font, overlay_buf: None, backdrop: None, minimap: None, faces: [None, None], stats: Stats::default(),
         }
     }
@@ -758,6 +761,12 @@ impl Renderer {
 
     /// Uploads the static world and the textures it (and `extra_pages`) use.
     /// Returns (textures loaded, of which from overrides).
+    /// The props whose own chunks aren't drawn: those the game draws itself, bent.
+    pub fn hide_props(&mut self, props: impl IntoIterator<Item = usize>) {
+        self.hidden_props.clear();
+        self.hidden_props.extend(props);
+    }
+
     pub fn upload_world(&mut self, geo: &WorldGeometry, extra_pages: &[u32],
                         texture: impl Fn(u32) -> Option<(Texture, bool)>) -> (usize, usize) {
         let (mut vertices, mut indices): (Vec<Vertex>, Vec<u32>) = (Vec::new(), Vec::new());
@@ -772,7 +781,7 @@ impl Renderer {
                 indices.extend(b.indices.iter().map(|i| i + base));
                 ranges.push(DrawRange { layer, crinkled, page, first, count: b.indices.len() as u32 });
             }
-            self.chunks.push(ChunkDraws { min: c.min, max: c.max, ranges });
+            self.chunks.push(ChunkDraws { min: c.min, max: c.max, ranges, prop: c.prop });
         }
         let vb = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("world vertices"),
@@ -1042,7 +1051,7 @@ impl Renderer {
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
                 for c in &self.chunks {
-                    if !aabb_visible(&planes, c.min, c.max) {
+                    if c.prop.is_some_and(|p| self.hidden_props.contains(&p)) || !aabb_visible(&planes, c.min, c.max) {
                         continue;
                     }
                     stats.chunks_drawn += 1;

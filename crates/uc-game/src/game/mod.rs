@@ -2,6 +2,8 @@
 //! (`Game::update`) are in the crate root.
 
 mod blast;
+mod bend;
+pub use bend::Bend;
 mod creatures;
 mod dogs;
 mod setpieces;

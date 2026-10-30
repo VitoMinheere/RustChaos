@@ -317,10 +317,12 @@ pub const SNIPER: u8 = 200;
 /// A sniper rifle shot (`SNIPE_shoot`: `HIT_TYPE_GUN_SHOT_M` for 260).
 pub const SNIPER_DAMAGE: i32 = 260;
 
-/// `PRIM_DAMAGE_DAMAGABLE`, `PRIM_DAMAGE_EXPLODES` and `PRIM_FLAG_LAMPOST`
+/// `PRIM_DAMAGE_DAMAGABLE`, `_EXPLODES`, `_CRUMPLE`, `_LEAN` and `PRIM_FLAG_LAMPOST`
 /// (fallen/Editor/Headers/Prim.h).
 const DAMAGABLE: u8 = 1;
 const EXPLODES: u8 = 2;
+const CRUMPLE: u8 = 4;
+const LEAN: u8 = 8;
 const LAMPOST: u8 = 1;
 
 /// Whose blast it is: a creature isn't hurt by its own, and the Balrog goes after whoever
@@ -621,6 +623,9 @@ pub struct Game {
     /// Hydrants knocked over and gushing: where, which way the jet goes (radians, as a
     /// facing), and the seconds left of it.
     pub hydrants: Vec<(Vec3, f32, f32)>,
+    /// Damaged props drawn bent (leaning or crumpled), by index into the map's objects:
+    /// their own chunks in the static world are left out for these.
+    pub bent: BTreeMap<usize, game::Bend>,
     /// Villains seen at it this turn, for a cop to come after (`arrest_me`, at most
     /// `MAX_ARREST_ME`).
     arrest_me: Vec<usize>,
@@ -824,6 +829,7 @@ impl Game {
             show_crime_rate: level.mission.flags & MISSION_FLAG_SHOW_CRIMERATE != 0,
             damaged: BTreeSet::new(),
             hydrants: Vec::new(),
+            bent: BTreeMap::new(),
             arrest_me: Vec::new(),
             bored: 0.0,
             grenades: Vec::new(),
