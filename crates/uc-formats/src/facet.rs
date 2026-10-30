@@ -6,8 +6,8 @@
 //! Simplifications compared with the original (fine for a viewer):
 //! - The engine picks a different style row when it sees a two-sided facet from behind
 //!   (`facet_backwards`, view-dependent). Here every facet uses its front style.
-//! - Foundations (`FHeight`) that follow the terrain, barbed wire, open doors and
-//!   per-vertex lighting are ignored.
+//! - Foundations (`FHeight`) that follow the terrain, barbed wire and per-vertex lighting
+//!   are ignored. Doors are built shut: the game swings them open.
 
 use crate::iam::{facet_flags, facet_type, Facet, Map};
 use crate::tma::{piece, StyleTable};
@@ -167,7 +167,7 @@ pub struct WallSegment {
 /// game handles those with their own rules), and so are doors: they block too, but a mission
 /// can open one, so [`door_segments`] keeps them apart.
 pub fn collision_segments(map: &Map) -> Vec<WallSegment> {
-    segments(map, false)
+    segments(map, false).into_iter().map(|(_, w)| w).collect()
 }
 
 /// The map's doors, in the order they appear, as the shapes they block with while shut.
@@ -175,13 +175,14 @@ pub fn collision_segments(map: &Map) -> Vec<WallSegment> {
 /// A door here is `STOREY_TYPE_OUTSIDE_DOOR`, which is the one kind `DOOR_find` looks for
 /// (fallen/Source/door.cpp) and the one a mission can open. Maps carry a handful each, and
 /// the count matches the mission's door points: botanicc has two of both.
-pub fn door_segments(map: &Map) -> Vec<WallSegment> {
+/// Each comes with its facet's index.
+pub fn door_segments(map: &Map) -> Vec<(usize, WallSegment)> {
     segments(map, true)
 }
 
-fn segments(map: &Map, doors: bool) -> Vec<WallSegment> {
+fn segments(map: &Map, doors: bool) -> Vec<(usize, WallSegment)> {
     let mut out = Vec::new();
-    for f in map.facets.iter().skip(1) {
+    for (i, f) in map.facets.iter().enumerate().skip(1) {
         let is_door = f.kind == facet_type::OUTSIDE_DOOR;
         // `STOREY_TYPE_DOOR` is a doorway rather than a door: nothing opens one and the
         // original walks straight through, so it is drawn and never collided with.
@@ -198,12 +199,12 @@ fn segments(map: &Map, doors: bool) -> Vec<WallSegment> {
             continue;
         }
         let y0 = (f.y[0].min(f.y[1])) as f32;
-        out.push(WallSegment {
+        out.push((i, WallSegment {
             a: [f.x[0] as f32 * 256.0, f.z[0] as f32 * 256.0],
             b: [f.x[1] as f32 * 256.0, f.z[1] as f32 * 256.0],
             y0,
             y1: y0 + height,
-        });
+        }));
     }
     out
 }

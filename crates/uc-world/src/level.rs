@@ -11,7 +11,7 @@ use crate::ground::Ground;
 use std::sync::Arc;
 use uc_formats::all::AnimChunk;
 use uc_formats::facet;
-use uc_formats::iam::{facet_type, flags, Map, BUILDING_TYPE_WAREHOUSE, KERB_HEIGHT, MAP_SIZE};
+use uc_formats::iam::{facet_flags, facet_type, flags, Map, BUILDING_TYPE_WAREHOUSE, KERB_HEIGHT, MAP_SIZE};
 use uc_formats::lgt::{Lighter, Lighting};
 use uc_formats::prm::Prim;
 use uc_formats::tma::StyleTable;
@@ -244,6 +244,10 @@ fn missiles_first(map_file: &str, map: &mut Map) {
 /// - the sector gate (facet 574, (77,45) to (77,50)), from the street running south from
 ///   her start into the sector, which point 174 opens when she works point 175 (both moved
 ///   there by [`finish_unfinished`]: where they were, by a tower, there's nothing to open).
+///
+/// They open only by 90 degrees (`FACET_FLAG_90DEGREE`), as some maps' doors do (stealth1's,
+/// training1's): swung as far as a door otherwise goes, nearly half a turn, they'd fold back
+/// into what's beside them.
 fn open_the_bank_sector(mission_name: &str, map_file: &str, map: &mut Map) {
     if !mission_name.eq_ignore_ascii_case("takeover1") || !map_file.eq_ignore_ascii_case(r"data\jumper1.iam") {
         return;
@@ -252,6 +256,7 @@ fn open_the_bank_sector(mission_name: &str, map_file: &str, map: &mut Map) {
         // Only the map as shipped: an edited one may have it some other way.
         if let Some(f) = map.facets.get_mut(i).filter(|f| f.kind == facet_type::FENCE_FLAT && (f.x, f.z) == (x, z)) {
             f.kind = facet_type::OUTSIDE_DOOR;
+            f.flags |= facet_flags::NINETY_DEGREE;
         }
     }
 }
@@ -790,6 +795,20 @@ impl Level {
         out
     }
 
+    /// The doors' quads, shut, one list for each of [`Ground::doors`]: which [`Level::build`]
+    /// leaves to the game to draw swung as far open as they are, lit as the walls are.
+    pub fn doors(&self) -> Vec<Vec<DoorQuad>> {
+        let lighter = self.lighter();
+        let sh = Shader { lighter: lighter.as_ref() };
+        let Some(styles) = &self.styles else { return vec![Vec::new(); self.ground.doors.len()] };
+        self.ground.doors.iter().map(|d| {
+            facet::wall_quads(&self.map, styles, d.facet).into_iter().map(|q| {
+                let corners = q.corners.map(|c| vec3(c[0], c[1], c[2]) / UNIT);
+                DoorQuad { page: q.page, uv: q.uv, corners, colour: sh.quad(&corners) }
+            }).collect()
+        }).collect()
+    }
+
     /// Builds all static geometry, lit with the level's baked lighting.
     pub fn build(&self) -> WorldGeometry {
         let lighter = self.lighter();
@@ -809,6 +828,10 @@ impl Level {
                 // A doorway is a hole in the wall: the original draws a recess round it and
                 // never the facet itself (`AENG_draw_box_around_recessed_door`, aeng.cpp:9981).
                 if kind == facet_type::DOOR {
+                    continue;
+                }
+                // A door that can open is left to the game, which swings it ([`Level::doors`]).
+                if kind == facet_type::OUTSIDE_DOOR {
                     continue;
                 }
                 let fence = matches!(kind, uc_formats::iam::facet_type::FENCE | uc_formats::iam::facet_type::FENCE_FLAT);
@@ -891,6 +914,16 @@ pub struct SeaSquare {
     pub height: [f32; 4],
     /// Which corners are on the water and move.
     pub wave: [bool; 4],
+    pub colour: [[u8; 4]; 4],
+}
+
+/// One quad of a door, as it is shut ([`Level::doors`]).
+#[derive(Debug, Clone)]
+pub struct DoorQuad {
+    pub page: u32,
+    pub uv: [[f32; 2]; 4],
+    /// In map squares.
+    pub corners: [Vec3; 4],
     pub colour: [[u8; 4]; 4],
 }
 

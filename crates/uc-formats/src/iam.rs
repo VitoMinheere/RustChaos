@@ -56,6 +56,8 @@ pub mod facet_flags {
     /// `FACET_FLAG_UNCLIMBABLE`: a fence nobody can climb.
     pub const UNCLIMBABLE: u16 = 1 << 8;
     pub const SEETHROUGH: u16 = 1 << 11;
+    /// `FACET_FLAG_90DEGREE`: a door that opens only by 90 degrees (building.h:113).
+    pub const NINETY_DEGREE: u16 = 1 << 13;
     pub const TWO_TEXTURED: u16 = 1 << 14;
 }
 
