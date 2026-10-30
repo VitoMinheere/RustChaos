@@ -376,26 +376,47 @@ fn at(e: &EventPointJson) -> Vec3 {
 }
 
 impl World {
-    /// The point the free camera looks at, on the ground or a roof (the teleport's).
+    /// The point the free camera looks at within 60 squares, on the ground or a roof, or
+    /// under the camera looking at nothing (the editor's).
     pub(crate) fn look_point(&self) -> Vec3 {
+        self.look_at(60.0).unwrap_or_else(|| self.under_camera())
+    }
+
+    /// The point the free camera looks at within `reach` squares, on the ground or a roof:
+    /// along the line of sight, the first wall it meets puts it on whatever is on top just
+    /// beyond it (a building's roof), and the first ground or roof it reaches there. None
+    /// looking at the sky, or off the map.
+    pub(crate) fn look_at(&self, reach: f32) -> Option<Vec3> {
         let eye = self.fly.pos * uc_world::UNIT;
         let dir = self.fly.forward();
         let flat = vec3(dir.x, 0.0, dir.z).normalize_or_zero();
         let step = 32.0;
+        let edge = (uc_formats::iam::MAP_SIZE - 1) as f32 * uc_world::UNIT;
+        let on_map = |p: Vec3| (0.0..edge).contains(&p.x) && (0.0..edge).contains(&p.z);
         let mut prev = eye;
-        for k in 1..(60.0 * uc_world::UNIT / step) as usize {
+        for k in 1..(reach * uc_world::UNIT / step) as usize {
             let p = eye + dir * step * k as f32;
+            // Gone off the edge of the map from over it: nothing more to see.
+            if !on_map(p) && on_map(prev) {
+                return None;
+            }
             if let Some(t) = self.level.ground.first_hit(prev, p) {
                 let beyond = prev + (p - prev) * t + flat * 48.0;
                 let top = self.level.ground.surface(&self.level.map, beyond.x, beyond.z, 1.0e5);
-                return vec3(beyond.x, top, beyond.z);
+                return Some(vec3(beyond.x, top, beyond.z));
             }
             let s = self.level.ground.surface(&self.level.map, p.x, p.z, p.y + 1.0);
-            if p.y <= s {
-                return vec3(p.x, s, p.z);
+            if p.y <= s && on_map(p) {
+                return Some(vec3(p.x, s, p.z));
             }
             prev = p;
         }
+        None
+    }
+
+    /// The ground or roof under the free camera.
+    pub(crate) fn under_camera(&self) -> Vec3 {
+        let eye = self.fly.pos * uc_world::UNIT;
         let s = self.level.ground.surface(&self.level.map, eye.x, eye.z, eye.y);
         vec3(eye.x, s, eye.z)
     }

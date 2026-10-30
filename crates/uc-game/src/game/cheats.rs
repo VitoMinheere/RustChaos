@@ -110,13 +110,24 @@ impl Game {
     }
 
     /// Puts the player on foot at `at` (world units), on whatever is there to stand on from
-    /// a little above it. Not while driving or riding. Whether it did.
+    /// a little above it. Whatever she was doing stops: a climb, a hang, a fight, someone
+    /// carried (who's dropped where they were), the scope. Not while driving or
+    /// riding, once she's dead or arrested, or off the map ([`Game::teleport_refusal`]).
+    /// Whether it did.
     pub fn teleport(&mut self, at: Vec3, level: &Level) -> bool {
-        let Some(pi) = self.player else { return false };
-        if matches!(self.people[pi].state, State::InCar { .. } | State::Bike { .. } | State::Enter { .. }) {
+        if self.teleport_refusal(at).is_some() {
             return false;
         }
-        let y = level.ground.surface(&level.map, at.x, at.z, at.y + 64.0);
+        let Some(pi) = self.player else { return false };
+        let mut y = level.ground.surface(&level.map, at.x, at.z, at.y + 64.0);
+        // Under the roof of a building with no inside to it (one that's not a warehouse),
+        // she'd be walled in: she goes on the roof.
+        let (sx, sz) = ((at.x as i32) >> 8, (at.z as i32) >> 8);
+        let roof = level.ground.map_height(&level.map, at.x, at.z);
+        if level.map.square(sx as usize, sz as usize).has(uc_formats::iam::flags::HIDDEN)
+            && self.wares.which_contains(&level.map, sx, sz).is_none() && roof - y > 128.0 {
+            y = level.ground.surface(&level.map, at.x, at.z, roof);
+        }
         let p = &mut self.people[pi];
         p.fig.pos = Vec3::new(at.x, y, at.z);
         if !matches!(p.state, State::Move) {
@@ -124,7 +135,25 @@ impl Game {
         }
         p.fig.lift = 0.0;
         self.search = None;
+        // The scope looked out from where she was. (A hook caught on a roof lets go by
+        // itself if she's gone further than its line.)
+        self.snipe = None;
         true
+    }
+
+    /// Why [`Game::teleport`] won't put the player at `at` now, if it won't.
+    pub fn teleport_refusal(&self, at: Vec3) -> Option<&'static str> {
+        let Some(p) = self.player() else { return Some("No player to teleport") };
+        let edge = (uc_formats::iam::MAP_SIZE - 1) as f32 * uc_formats::iam::SQUARE as f32;
+        if matches!(p.state, State::InCar { .. } | State::Bike { .. } | State::Enter { .. }) {
+            Some("Not while driving")
+        } else if p.health <= 0 || p.is_dead() {
+            Some("Not now she's out of it")
+        } else if !(0.0..edge).contains(&at.x) || !(0.0..edge).contains(&at.z) {
+            Some("That's off the map")
+        } else {
+            None
+        }
     }
 
     /// Where event point `n` is (world units), for `telw`.

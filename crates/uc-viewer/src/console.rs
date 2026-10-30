@@ -5,6 +5,9 @@
 
 use crate::*;
 
+/// How far the free camera's teleport looks (squares): right across the map.
+const TELEPORT_REACH: f32 = 182.0;
+
 /// The commands that change the game, not just what's shown: a run that used one can't be
 /// played back from its inputs, so it isn't kept as a replay (#184).
 const CHANGES: [&str; 22] = [
@@ -110,7 +113,7 @@ impl World {
             "telw" => match arg.and_then(|a| a.parse::<usize>().ok()) {
                 Some(n) => match Game::point_pos(&self.level, n) {
                     Some(at) if self.game.teleport(at, &self.level) => self.console.say(format!("At event point {n}")),
-                    Some(_) => self.console.say("Not while driving"),
+                    Some(at) => self.console.say(self.game.teleport_refusal(at).unwrap_or("Can't teleport there")),
                     None => self.console.say(format!("No event point {n}")),
                 },
                 None => self.console.say("telw N: teleport to event point N"),
@@ -121,7 +124,7 @@ impl World {
             }
             "telr" => match self.console.stored {
                 Some(at) if self.game.teleport(at, &self.level) => self.console.say("Back to the stored position"),
-                Some(_) => self.console.say("Not while driving"),
+                Some(at) => self.console.say(self.game.teleport_refusal(at).unwrap_or("Can't teleport there")),
                 None => self.console.say("Nothing stored: tels first"),
             },
             "wpt" => match self.game.nearest_point(&self.level) {
@@ -222,7 +225,7 @@ impl World {
             "telb" => match arg.and_then(|a| a.parse::<usize>().ok()) {
                 Some(n) => match self.bonus_points().get(n.wrapping_sub(1)).cloned() {
                     Some((label, at)) if self.game.teleport(at, &self.level) => self.console.say(format!("At {label}")),
-                    Some(_) => self.console.say("Not while driving"),
+                    Some((_, at)) => self.console.say(self.game.teleport_refusal(at).unwrap_or("Can't teleport there")),
                     None => self.console.say(format!("No bonus objective {n}: bonus lists them")),
                 },
                 None => self.console.say("telb N: teleport to bonus objective N (see bonus)"),
@@ -274,18 +277,20 @@ impl World {
         sides.chain(badges).collect()
     }
 
-    /// The free camera's teleport: Darci goes where the camera is looking. Along the line
-    /// of sight, the first wall it meets puts her on whatever is on top just beyond it (a
-    /// building's roof), and the first ground or roof it reaches puts her there. Looking at
-    /// nothing within 60 squares, she goes under the camera.
+    /// The free camera's teleport: Darci goes where the camera is looking, anywhere across
+    /// the map ([`World::look_at`]; under a building's roof, onto it). Looking at the sky she
+    /// goes under the camera, and says so. When she can't go, the console says why.
     pub(crate) fn teleport_to_view(&mut self) {
-        let to = self.look_point();
-        if self.game.teleport(to, &self.level) {
+        let (to, said) = match self.look_at(TELEPORT_REACH) {
+            Some(at) => (at, "Teleported"),
+            None => (self.under_camera(), "Teleported under the camera (looking at nothing to stand on)"),
+        };
+        if let Some(why) = self.game.teleport_refusal(to) {
+            self.console.say(why);
+        } else if self.game.teleport(to, &self.level) {
             self.third_person = true;
-            self.console.say("Teleported");
+            self.console.say(said);
             self.meddled();
-        } else {
-            self.console.say("Not while driving");
         }
     }
 
@@ -310,5 +315,62 @@ impl World {
                 o.text(s * 6.0, h * 0.42, s, [255, 230, 120, 255], &text);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Police1 to teleport about in, or None without an install.
+    fn world() -> Option<World> {
+        let game = uc_formats::default_install()?;
+        Some(World::load(Args { game, mission: "police1".into(), mission_given: true, ..Default::default() }).unwrap())
+    }
+
+    /// What the console said last, but for the warning that the run won't be kept.
+    fn said(w: &World) -> &str {
+        w.console.log.iter().rev().map(|l| l.0.as_str()).find(|s| !s.contains("replay")).unwrap_or("")
+    }
+
+    /// T from the free camera: inside a building (which it flies through) she goes on its
+    /// roof, not walled in under it; looking further than 60 squares she goes there, not
+    /// under the camera; looking at the sky she goes under the camera, and is told; and off
+    /// the map she doesn't go, and is told why.
+    #[test]
+    fn the_free_camera_teleport_goes_where_it_looks_or_says_why_not() {
+        let Some(mut w) = world() else { return };
+        let (map, ground) = (&w.level.map, &w.level.ground);
+        let inside = (0..128 * 128).map(|k| (k % 128, k / 128)).find_map(|(sx, sz)| {
+            let (x, z) = (sx as f32 * 256.0 + 128.0, sz as f32 * 256.0 + 128.0);
+            let roof = ground.surface(map, x, z, 1.0e5);
+            (map.square(sx, sz).has(uc_formats::iam::flags::HIDDEN) && w.game.wares.which_contains(map, sx as i32, sz as i32).is_none()
+                && roof - map.ground_height(x, z) > 400.0).then_some(vec3(x, roof, z))
+        }).expect("a building");
+        w.third_person = false;
+        w.fly = FlyCam { pos: vec3(inside.x, 64.0, inside.z) / uc_world::UNIT, yaw: 0.0, pitch: -1.5 };
+        w.teleport_to_view();
+        let at = w.game.player().unwrap().fig.pos;
+        assert!((at.y - inside.y).abs() < 1.0 && w.third_person, "on the roof at {}, not {at}", inside.y);
+        assert_eq!(said(&w), "Teleported");
+
+        // From high over the map, 90 squares off.
+        w.third_person = false;
+        w.fly = FlyCam { pos: vec3(20.0, 50.0, 20.0), yaw: std::f32::consts::FRAC_PI_4, pitch: -(50.0f32 / 90.0).atan() };
+        w.teleport_to_view();
+        let at = w.game.player().unwrap().fig.pos / uc_world::UNIT;
+        assert!(vec2(at.x - 20.0, at.z - 20.0).length() > 60.0, "she's at {at}");
+        assert_eq!(said(&w), "Teleported");
+
+        w.fly = FlyCam { pos: vec3(64.0, 3.0, 64.0), yaw: 0.0, pitch: 0.8 };
+        w.teleport_to_view();
+        let at = w.game.player().unwrap().fig.pos / uc_world::UNIT;
+        assert!((at.x - 64.0).abs() < 0.01 && (at.z - 64.0).abs() < 0.01);
+        assert!(said(&w).contains("under the camera"), "{}", said(&w));
+
+        w.fly = FlyCam { pos: vec3(-10.0, 3.0, 64.0), yaw: -1.0, pitch: 0.0 };
+        w.teleport_to_view();
+        assert_eq!(said(&w), "That's off the map");
+        assert!((w.game.player().unwrap().fig.pos / uc_world::UNIT - at).length() < 0.5, "she stays put");
     }
 }

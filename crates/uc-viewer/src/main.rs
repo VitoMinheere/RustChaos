@@ -318,8 +318,14 @@ impl App {
             let pad_mv = fwd * pad.mv.y + right * pad.mv.x;
             w.fly.pos += (mv.normalize_or_zero() + pad_mv) * speed * dt;
             // T: Darci goes where the camera looks, and the camera's back on her.
-            if inp.own(KeyCode::KeyT) && w.game.player.is_some() && self.coop.is_none() && w.replay.is_none() && w.editor.is_none() {
-                w.teleport_to_view();
+            if inp.free_cam(KeyCode::KeyT) && w.game.player.is_some() && w.editor.is_none() {
+                if self.coop.is_some() {
+                    w.console.say("No teleporting in co-op");
+                } else if w.replay.is_some() {
+                    w.console.say("No teleporting in a replay");
+                } else {
+                    w.teleport_to_view();
+                }
             }
         }
         // The editor: the game stays stopped.
