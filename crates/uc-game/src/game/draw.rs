@@ -263,6 +263,13 @@ impl Game {
                 uc_world::level::prim_batches(prim, |v| p.pos + Vec3::new(c * v.x + s * v.z, v.y, -s * v.x + c * v.z), lighter.as_ref(), &mut out);
             }
         }
+        // Switches, green once pressed.
+        for (k, o) in level.map.objects.iter().enumerate().filter(|(_, o)| o.prim == uc_world::level::SWITCH_OFF) {
+            let Some(prim) = &self.switch_prims[self.pressed.contains(&k) as usize] else { continue };
+            let (s, c) = radians(o.yaw as f32).sin_cos();
+            let at = Vec3::new(o.x as f32, o.y as f32, o.z as f32);
+            uc_world::level::prim_batches(prim, |v| at + Vec3::new(c * v.x + s * v.z, v.y, -s * v.x + c * v.z), lighter.as_ref(), &mut out);
+        }
         // Charges sit still where they were put.
         if let Some(prim) = uc_world::level::item_prim(EXPLOSIVES).and_then(|id| level.item_prims.get(&id)) {
             let lift = 4.0 - uc_world::level::prim_bounds(prim).0.y;
@@ -510,6 +517,14 @@ impl Game {
         for &(_, ob) in &level.platforms {
             if let Some(prim) = uc_world::level::load_prim(&level.game, level.map.objects[ob].prim) {
                 out.extend(prim.faces.iter().map(|f| f.texture().0));
+            }
+        }
+        // The switches, off and on, which it leaves to the game too.
+        if level.map.objects.iter().any(|o| o.prim == uc_world::level::SWITCH_OFF) {
+            for id in [uc_world::level::SWITCH_OFF, uc_world::level::SWITCH_ON] {
+                if let Some(prim) = uc_world::level::load_prim(&level.game, id) {
+                    out.extend(prim.faces.iter().map(|f| f.texture().0));
+                }
             }
         }
         // And any creature the mission makes.

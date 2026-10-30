@@ -547,7 +547,7 @@ pub const TURN: f32 = 1.0 / 30.0;
 
 /// The prims that are a switch to press (`PRIM_OBJ_SWITCH_OFF`) and a valve to turn
 /// (`PRIM_OBJ_VALVE`).
-const PRIM_SWITCH_OFF: u8 = 216;
+const PRIM_SWITCH_OFF: u8 = uc_world::level::SWITCH_OFF;
 const PRIM_VALVE: u8 = 196;
 
 /// Where everything that moves is, and which way it faces: kept from the start of each turn
@@ -638,6 +638,11 @@ pub struct Game {
     used: Vec<usize>,
     /// The switch or valve (map object) someone pressed or turned this turn.
     worked: Option<usize>,
+    /// Switches pressed (map objects), turned green (`PRIM_OBJ_SWITCH_ON`): not switches
+    /// any more, so not pressed again (interfac.cpp:1765).
+    pub pressed: BTreeSet<usize>,
+    /// The switch's prims, off and on, loaded once.
+    switch_prims: [Option<uc_formats::prm::Prim>; 2],
     /// Who the player's gun is aimed at.
     pub target: Option<usize>,
     /// What else the player's gun is pointed at, and how steady it is.
@@ -888,6 +893,8 @@ impl Game {
             wide: None,
             used: Vec::new(),
             worked: None,
+            pressed: BTreeSet::new(),
+            switch_prims: [PRIM_SWITCH_OFF, uc_world::level::SWITCH_ON].map(|id| uc_world::level::load_prim(&level.game, id)),
             target: None,
             aiming: Aiming::default(),
             stats: [0; 4],
@@ -1320,7 +1327,7 @@ impl Game {
             // within 0x180): she presses or turns it.
             let at = self.people[i].fig.pos;
             let near = level.map.objects.iter().enumerate()
-                .filter(|(_, o)| matches!(o.prim, PRIM_SWITCH_OFF | PRIM_VALVE))
+                .filter(|(k, o)| matches!(o.prim, PRIM_SWITCH_OFF | PRIM_VALVE) && !self.pressed.contains(k))
                 .map(|(k, o)| (k, o, Vec3::new(o.x as f32, o.y as f32, o.z as f32)))
                 .filter(|(_, _, p)| (*p - at).length() < 0x180 as f32)
                 .min_by(|a, b| (a.2 - at).length().total_cmp(&(b.2 - at).length()));
@@ -1328,6 +1335,10 @@ impl Game {
                 let (yaw, switch) = (o.yaw, o.prim == PRIM_SWITCH_OFF);
                 if self.people[i].work_switch(p, yaw, switch) {
                     self.worked = Some(k);
+                    // Turn the switch green! (interfac.cpp:1765)
+                    if switch {
+                        self.pressed.insert(k);
+                    }
                 }
             }
         }
