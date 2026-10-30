@@ -370,6 +370,16 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 /// den", where Mako started (116), but the beacon stays on the body and the den has none.
 /// Here Bates's beacon goes then, and the den has one from then on.
 ///
+/// gang2, an early Gangorder2, has Mako fetch Bish and Mclean (points 110 and 113), meet
+/// Blood (120), and kidnap the man he points them at (122), who'll "have to fight" them
+/// first (124 makes him a guard who hits back). Killing him says "Oh no...you killed the
+/// guy...get back to the den...!" (125), and at the den "Well done...that guy was just too
+/// dumb." (128), but nothing ends it, nor is there any way to take him alive. Here that "Well
+/// done" wins, and, as in Gangorder2, beating him half dead (and no further) makes him give
+/// in and follow Mako, and getting him to the den alive wins too. Bish's, Mclean's and
+/// Blood's beacons, which stay on where they started, go once each has joined or talked, the
+/// kidnap's once he's given in or dead, and the den has one from then on.
+///
 /// Transmit1's `prim_damaged` point (120), which wins it once the transmitter on the TV
 /// building is blown up, is just over the edge of the map's block of props from the
 /// transmitter's: `EWAY_create_cond` looks for the nearest prop in the point's own block,
@@ -466,9 +476,11 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         "jung3" => mission.event_points.iter().any(|e| e.used != 0 && e.kind == waypoint::NAV_BEACON && e.data[1] == 57),
         // And Bates's.
         "gang1" => beacons > 1,
+        // It has beacons of its own, and only an ending is added with them.
+        "gang2" => has(waypoint::END_GAME_WIN),
         _ => beacons > 0,
     };
-    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5" | "getaway1" | "snow1" | "jung3" | "train11" | "gang1") || done {
+    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5" | "getaway1" | "snow1" | "jung3" | "train11" | "gang1" | "gang2") || done {
         return;
     }
     let point = |m: &Mission, i: usize| m.event_points.iter().find(|e| e.index == i && e.used != 0).cloned();
@@ -627,6 +639,50 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: dead.index as u16, ..at(&bates) };
         add_point(mission, EventPoint { data: [bates.index as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
         add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: dead.index as u16, ..beacon(&den, 0) }, Some("The den"));
+    } else if name == "gang2" {
+        let (Some(man), Some(dead), Some(den), Some(well_done)) = (point(mission, 122), point(mission, 125), point(mission, 127), point(mission, 128)) else { return };
+        // Bish's and Mclean's beacons (118 and 117) go once each has joined (112 and 115),
+        // Blood's (119) once he's had his say (129), the "Kidnap" one (126) once the man's
+        // given in or dead.
+        let kill = |beacon: usize, gone: usize| EventPoint {
+            kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: gone as u16,
+            data: [beacon as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..at(&man)
+        };
+        for (beacon, gone) in [(118, 112), (117, 115), (119, 129)] {
+            if point(mission, beacon).is_some() && point(mission, gone).is_some() {
+                add_point(mission, kill(beacon, gone), None);
+            }
+        }
+        // Killed, and back at the den: "Well done...that guy was just too dumb."
+        add_point(mission, EventPoint { kind: waypoint::END_GAME_WIN, trigger: trigger::DEPENDENCY, ep_ref: well_done.index as u16, ..at(&well_done) }, None);
+        // Beaten half dead and still alive, he gives in and comes along, as in Gangorder2.
+        let alive = add_point(mission, EventPoint {
+            kind: waypoint::SIMPLE, trigger: trigger::KILLED, on_trigger: on_trigger::ACTIVE_WHILE, ep_ref: man.index as u16,
+            flags: uc_formats::ucm::point_flags::INVERSE, ..at(&man)
+        }, None);
+        let beaten = add_point(mission, EventPoint { kind: waypoint::SIMPLE, trigger: trigger::HALF_DEAD, ep_ref: man.index as u16, ..at(&man) }, None);
+        let say = |trigger: u8, ep_ref: usize, ep_ref_bool: usize, by: usize, speech: i32, e: &EventPoint| EventPoint {
+            kind: waypoint::MESSAGE, trigger, ep_ref: ep_ref as u16, ep_ref_bool: ep_ref_bool as u16,
+            data: [0, 6, by as i32, 0, 0, 0, 0, 0, 0, speech], ..at(e)
+        };
+        let gives_in = add_point(mission, say(trigger::BOOLEAN_AND, beaten, alive, man.index, SPEECH, &man), Some("Okay okay! I SURRENDER!!"));
+        // A civilian who follows Mako and ignores everything else (Gangorder2's point 63,
+        // `PCOM_BENT_ROBOT`), and doesn't run off from a last blow landing either
+        // (`PCOM_BENT_FIGHT_BACK`, which a robot never acts on).
+        add_point(mission, EventPoint {
+            kind: waypoint::ADJUST_ENEMY, trigger: trigger::DEPENDENCY, ep_ref: gives_in as u16,
+            data: [65537, 1, 50, 4, 32 | 8, 196609, man.index as i32, 0, 0, 0], ..at(&man)
+        }, None);
+        let either = add_point(mission, EventPoint { kind: waypoint::SIMPLE, trigger: trigger::BOOLEAN_OR, ep_ref: gives_in as u16, ep_ref_bool: dead.index as u16, ..at(&man) }, None);
+        if point(mission, 126).is_some() {
+            add_point(mission, kill(126, either), None);
+        }
+        add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: either as u16, ..beacon(&den, 0) }, Some("The den"));
+        // Him at the den, alive (Gangorder2's point 69).
+        let home = add_point(mission, EventPoint { kind: waypoint::SIMPLE, trigger: trigger::ENEMY_RADIUS, ep_ref: man.index as u16, radius: 384, ..at(&den) }, None);
+        let brought = add_point(mission, EventPoint { kind: waypoint::SIMPLE, trigger: trigger::BOOLEAN_AND, ep_ref: home as u16, ep_ref_bool: gives_in as u16, ..at(&den) }, None);
+        let got = add_point(mission, say(trigger::BOOLEAN_AND, brought, alive, 0, SPEECH + 1, &den), Some("You got him! Mr Mcintyre's gonna be our guest for a while."));
+        add_point(mission, EventPoint { kind: waypoint::END_GAME_WIN, trigger: trigger::DEPENDENCY, ep_ref: got as u16, ..at(&den) }, None);
     } else {
         let (Some(op), Some(chopper), Some(rendezvous)) = (point(mission, 37), point(mission, 41), point(mission, 42)) else { return };
         add_point(mission, beacon(&op, 37), Some("Dock operator"));

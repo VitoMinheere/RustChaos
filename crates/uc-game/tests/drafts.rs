@@ -551,3 +551,89 @@ fn officer_training() {
     assert!(r.said("completed the course successfully"), "{:?}", r.seen);
     r.won();
 }
+
+impl Run {
+    /// Mr Mcintyre (`gang2`) up to the kidnap: the boss at the den (point 10), Bish (110) and
+    /// Mclean (113) fetched, each beacon going as they join, both following Mako at once,
+    /// Blood (120) met, and Mcintyre (122) talked to.
+    fn up_to_the_kidnap(&mut self) {
+        self.play(2.0, Controls::default());
+        let mut labels = self.labels();
+        labels.sort();
+        assert_eq!(labels, ["Bish", "Mclean"]);
+        self.talk_to(10, vec3(110.0, 0.0, 0.0), 10.0);
+        assert!(self.said("Go fetch hoods Bish and Mclean"), "{:?}", self.seen);
+        self.talk_to(110, vec3(110.0, 0.0, 0.0), 10.0);
+        assert!(self.until(5.0, |r| r.labels() == ["Mclean"]), "{:?}", self.labels());
+        self.talk_to(113, vec3(110.0, 0.0, 0.0), 10.0);
+        assert!(self.until(10.0, |r| r.said("meet Blood")), "{:?}", self.seen);
+        assert_eq!(self.labels(), ["Blood"]);
+        // Both after Mako at once: brought to him, they keep up as he runs off.
+        let (bish, mclean, me) = (self.who(110), self.who(113), self.player());
+        let at = self.g.people[me].fig.pos;
+        self.g.people[bish].fig.pos = at + vec3(200.0, 0.0, 0.0);
+        self.g.people[mclean].fig.pos = at + vec3(-200.0, 0.0, 0.0);
+        self.play(1.0, Controls::default());
+        let blood = self.point(119);
+        assert!(self.walk_to(blood, 60.0), "stuck at {}", self.g.people[me].fig.pos);
+        let now = self.g.people[me].fig.pos;
+        assert!((now - at).length() > 2000.0, "Mako hardly moved: {at} to {now}");
+        self.play(2.0, Controls::default());
+        for (who, i) in [("Bish", bish), ("Mclean", mclean)] {
+            let p = &self.g.people[i];
+            assert!(!p.is_dead() && (p.fig.pos - now).length() < 800.0, "{who} left behind at {}, Mako at {now}", p.fig.pos);
+        }
+        assert!(self.until(10.0, |r| r.g.people.iter().any(|p| p.way == 120)), "no Blood");
+        self.talk_to(120, vec3(110.0, 0.0, 0.0), 40.0);
+        assert!(self.said("kidnap a Mr Frazer Mcintyre"), "{:?}", self.seen);
+        assert!(self.until(5.0, |r| r.labels() == ["Kidnap"]), "{:?}", self.labels());
+        assert!(self.until(10.0, |r| r.g.people.iter().any(|p| p.way == 122)), "no Mcintyre");
+        self.talk_to(122, vec3(110.0, 0.0, 0.0), 20.0);
+        assert!(self.said("You'll have to fight me first"), "{:?}", self.seen);
+        assert_eq!(self.g.outcome, None);
+    }
+}
+
+/// Mr Mcintyre (`gang2`): beaten half dead, Mcintyre gives in and follows Mako, and getting
+/// him back to the den alive wins. The mission had no ending (`uc_world::level::finish_unfinished`).
+#[test]
+fn mr_mcintyre() {
+    let Some(mut r) = common::start("gang2") else { return };
+    r.up_to_the_kidnap();
+    let m = r.who(122);
+    let at = r.g.people[m].fig.pos;
+    let half = r.g.people[m].health / 2 + 1;
+    r.g.people[m].take_hit(at + vec3(50.0, 0.0, 0.0), half, 0, false, false, Weapon::None);
+    assert!(r.until(10.0, |r| r.said("I SURRENDER")), "{:?}", r.seen);
+    assert!(r.until(5.0, |r| r.labels() == ["The den"]), "{:?}", r.labels());
+    // Another blow once he's given in doesn't send him running.
+    let at = r.g.people[m].fig.pos;
+    r.g.people[m].take_hit(at + vec3(50.0, 0.0, 0.0), 1, 0, false, false, Weapon::None);
+    r.play(5.0, Controls::default());
+    // And he comes along all the way back to the den.
+    let den = r.point(127);
+    let me = r.player();
+    // (Won on the way in, the walk's cut short.)
+    assert!(r.walk_to(den, 150.0) || r.g.outcome.is_some(), "stuck at {}", r.g.people[me].fig.pos);
+    assert!(r.until(20.0, |r| r.g.outcome.is_some()), "{:?} at {}, Mako at {}", r.seen, r.g.people[m].fig.pos, r.g.people[me].fig.pos);
+    assert!(!r.g.people[m].is_dead());
+    assert!(r.said("You got him!"), "{:?}", r.seen);
+    r.won();
+}
+
+/// ...and killing him wins too, back at the den: "Well done...that guy was just too dumb."
+#[test]
+fn mr_mcintyre_killed() {
+    let Some(mut r) = common::start("gang2") else { return };
+    r.up_to_the_kidnap();
+    r.knock_out(122);
+    assert!(r.until(10.0, |r| r.said("you killed the guy")), "{:?}", r.seen);
+    assert!(!r.said("I SURRENDER"), "{:?}", r.seen);
+    assert!(r.until(5.0, |r| r.labels() == ["The den"]), "{:?}", r.labels());
+    assert_eq!(r.g.outcome, None, "won before getting back");
+    let den = r.point(127);
+    r.stand(den);
+    assert!(r.until(10.0, |r| r.g.outcome.is_some()));
+    assert!(r.said("too dumb"), "{:?}", r.seen);
+    r.won();
+}
