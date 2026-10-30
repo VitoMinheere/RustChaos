@@ -1,6 +1,6 @@
 """Voices for the unreleased missions' lines that were never recorded, made with Chatterbox.
 
-    make_voices.py EXPORT OUT [--only VOICE,...] [--missions M,...]
+    make_voices.py EXPORT OUT [--only VOICE,...] [--missions M,...] [--briefings]
 
 EXPORT is what `cargo run --example voice_lines -- EXPORT` wrote (lines.tsv, and the
 recorded lines under clips/). OUT gets talk2/<mission>.ucm<speech><letter>.wav, named as
@@ -11,6 +11,10 @@ A line some other mission has a recording of, word for word and in the same voic
 that recording instead. voices.json says, per voice, which recording to copy the voice
 from and how much feeling to put in; overrides.json gives a line other words to say (by
 "<mission>.ucm<speech><letter>"), or null for none.
+
+--briefings makes the unreleased missions' spoken briefings instead, which the game never
+had: briefings.json gives each file (talk2/<mission>.brief.wav, as the menu looks for it)
+its voice and words.
 """
 import argparse, csv, json, os, re, shutil, time
 
@@ -57,8 +61,46 @@ def main():
     a.add_argument("--only", help="voices to make, comma separated")
     a.add_argument("--missions", help="missions to make, comma separated")
     a.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    a.add_argument("--briefings", action="store_true", help="the unreleased missions' briefings")
     args = a.parse_args()
     voices = json.load(open(os.path.join(here, "voices.json")))
+    talk2 = os.path.join(args.out, "talk2")
+    os.makedirs(talk2, exist_ok=True)
+    log = open(os.path.join(args.out, "made.tsv"), "a", encoding="utf-8")
+    model = None
+    loudness = {}
+
+    def make(name, voice, text):
+        nonlocal model
+        if model is None:
+            from chatterbox.tts import ChatterboxTTS
+            model = ChatterboxTTS.from_pretrained(device=args.device)
+        v = voices[voice]
+        sample = os.path.join(args.export, v["sample"])
+        if voice not in loudness:
+            s, _ = torchaudio.load(sample)
+            loudness[voice] = rms(s)
+        t = time.time()
+        wav = model.generate(text, audio_prompt_path=sample, exaggeration=v["exaggeration"], cfg_weight=v["cfg_weight"])
+        wav = torchaudio.functional.resample(wav.mean(0, keepdim=True), model.sr, RATE)
+        # As loud as the recording it copies.
+        wav = (wav * loudness[voice] / max(rms(wav), 1e-6)).clamp(-1, 1)
+        torchaudio.save(os.path.join(talk2, name + ".wav"), wav, RATE, encoding="PCM_S", bits_per_sample=16)
+        log.write(f"{name}\t{voice}\tmade\t{time.time() - t:.1f}s\t{text}\n")
+        log.flush()
+        print(f"{name} ({voice}): {text}", flush=True)
+
+    if args.briefings:
+        briefings = json.load(open(os.path.join(here, "briefings.json"), encoding="utf-8"))
+        for file, b in briefings.items():
+            name = file.removesuffix(".wav")
+            mission = name.removesuffix(".brief")
+            if (args.only and b["voice"] not in args.only.split(",")) or (args.missions and mission not in args.missions.split(",")):
+                continue
+            if not os.path.exists(os.path.join(talk2, file)):
+                make(name, b["voice"], spoken(b["text"]))
+        return
+
     overrides = json.load(open(os.path.join(here, "overrides.json"), encoding="utf-8"))
     only = set(args.only.split(",")) if args.only else set(voices)
     missions = set(args.missions.split(",")) if args.missions else UNRELEASED
@@ -68,11 +110,6 @@ def main():
     for r in rows:
         if r["recorded"] == "1":
             recorded.setdefault((" ".join(words(r["text"])), r["voice"]), r)
-    talk2 = os.path.join(args.out, "talk2")
-    os.makedirs(talk2, exist_ok=True)
-    log = open(os.path.join(args.out, "made.tsv"), "a", encoding="utf-8")
-    model = None
-    loudness = {}
     for r in rows:
         if r["mission"] not in missions or r["recorded"] == "1" or r["voice"] not in only:
             continue
@@ -90,23 +127,7 @@ def main():
             log.write(f"{name}\t{r['voice']}\trecorded\t{same['mission']}.ucm{same['speech']}{same['line']}\t{r['text']}\n")
             log.flush()
             continue
-        if model is None:
-            from chatterbox.tts import ChatterboxTTS
-            model = ChatterboxTTS.from_pretrained(device=args.device)
-        v = voices[r["voice"]]
-        sample = os.path.join(args.export, v["sample"])
-        if r["voice"] not in loudness:
-            s, _ = torchaudio.load(sample)
-            loudness[r["voice"]] = rms(s)
-        t = time.time()
-        wav = model.generate(text, audio_prompt_path=sample, exaggeration=v["exaggeration"], cfg_weight=v["cfg_weight"])
-        wav = torchaudio.functional.resample(wav.mean(0, keepdim=True), model.sr, RATE)
-        # As loud as the recording it copies.
-        wav = (wav * loudness[r["voice"]] / max(rms(wav), 1e-6)).clamp(-1, 1)
-        torchaudio.save(path, wav, RATE, encoding="PCM_S", bits_per_sample=16)
-        log.write(f"{name}\t{r['voice']}\tmade\t{time.time() - t:.1f}s\t{text}\n")
-        log.flush()
-        print(f"{name} ({r['voice']}): {text}", flush=True)
+        make(name, r["voice"], text)
 
 
 if __name__ == "__main__":

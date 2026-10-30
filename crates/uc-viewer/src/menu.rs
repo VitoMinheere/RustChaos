@@ -33,8 +33,9 @@ pub struct Entry {
     /// The district it's pinned to on the city map, by its place in `urban.sty`'s list (none
     /// for the unreleased missions).
     pub district: Option<usize>,
-    /// Its spoken briefing in `talk2`, if it has one ([`briefing_voice`]).
-    pub voice: Option<&'static str>,
+    /// Its spoken briefing in `talk2`, if it has one: the install's ([`briefing_voice`]), or
+    /// for an unreleased mission one made for it ([`made_briefing`]).
+    pub voice: Option<String>,
 }
 
 /// `brief_wav[]` (fallen/Source/frontend.cpp:3737): the spoken briefing for a mission by its
@@ -51,6 +52,12 @@ pub fn briefing_voice(id: u32) -> Option<&'static str> {
         "roperm21.wav", "roperm23.wav", "roperm24.wav",
     ];
     BRIEF_WAV.get(id as usize).copied().filter(|f| !f.is_empty())
+}
+
+/// The spoken briefing made for an unreleased mission, which the game never had one for
+/// (`tools/voices/briefings.json`): `talk2\<mission>.brief.wav` in the voices folder.
+pub fn made_briefing(mission: &str) -> String {
+    format!("{mission}.brief.wav")
 }
 
 /// Each mission's `urban.sty` id (its line's first field), by mission file.
@@ -265,7 +272,10 @@ impl Menu {
             }
             map_of.push(map);
             let district = district_of.get(&mission.to_ascii_lowercase()).copied();
-            let voice = ids.iter().find(|(m, _)| m.eq_ignore_ascii_case(&mission)).and_then(|&(_, id)| briefing_voice(id));
+            let voice = ids.iter().find(|(m, _)| m.eq_ignore_ascii_case(&mission))
+                .and_then(|&(_, id)| briefing_voice(id))
+                .map(str::to_string)
+                .or_else(|| unreleased(&mission).then(|| made_briefing(&mission)));
             entries.push(Entry { mission, title, briefing, playable, goals, district, voice });
         }
         let progress = Progress::load();
@@ -1470,13 +1480,26 @@ mod tests {
         assert_eq!(briefing_voice(34), None);
     }
 
+    /// Each unreleased mission has a briefing to make in `tools/voices/briefings.json`, by the
+    /// name the menu looks for.
+    #[test]
+    fn the_made_briefings_are_listed() {
+        let made: serde_json::Value =
+            serde_json::from_str(include_str!("../../../tools/voices/briefings.json")).unwrap();
+        for (mission, _, _) in UNRELEASED.iter().chain(DRAFTS.iter()) {
+            let b = &made[made_briefing(mission)];
+            assert!(b["text"].as_str().is_some_and(|t| !t.is_empty()), "{mission} has no briefing to make");
+            assert!(b["voice"].is_string(), "{mission}'s briefing has no voice");
+        }
+    }
+
     /// Every shipped mission with a spoken briefing has its file in `talk2`, but for the
     /// `policem.wav` the table asks for that never shipped.
     #[test]
     fn the_briefings_are_there() {
         let Some(game) = uc_formats::default_install() else { return };
         let m = Menu::new(&game);
-        let voiced: Vec<&str> = m.entries.iter().filter_map(|e| e.voice).collect();
+        let voiced: Vec<&str> = m.entries.iter().filter(|e| !unreleased(&e.mission)).filter_map(|e| e.voice.as_deref()).collect();
         assert!(voiced.len() >= 20, "only {} voiced", voiced.len());
         for f in voiced.iter().filter(|f| **f != "policem.wav") {
             assert!(uc_formats::resolve(&game, &format!("talk2\\{f}")).is_some(), "{f} missing");
