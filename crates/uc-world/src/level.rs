@@ -537,11 +537,13 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
             add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
         }
         let say = |text_from: &EventPoint, secs: i32| EventPoint { kind: waypoint::MESSAGE, data: [0, secs, 0, 0, 0, 0, 0, 0, 0, 0], ..at(text_from) };
+        // Who says it once they're in: in 24th Street it's Darci, to the geek, not despatch.
+        let darci = mission.event_points.iter().find(|e| e.used != 0 && e.kind == waypoint::CREATE_PLAYER).map_or(0, |e| e.index as i32);
+        let done_by = if name == "crimescene" { darci } else { 0 };
         if name == "crimescene" {
             // Nothing says what's next once the geek's friend has called to him (87): that
-            // he's to be brought in. Darci's to say it, not despatch.
+            // he's to be brought in. Darci's to say it too.
             let Some(talk) = point(mission, 87).filter(|e| e.kind == waypoint::CONVERSATION) else { return };
-            let darci = mission.event_points.iter().find(|e| e.used != 0 && e.kind == waypoint::CREATE_PLAYER).map_or(0, |e| e.index as i32);
             let mut next = EventPoint { trigger: trigger::CONVERSATION_OVER, ep_ref: talk.index as u16, ..say(&talk, 6) };
             next.data[2] = darci;
             add_point(mission, next, Some("Nothin', huh? This geek knows somethin' about 24th Street...time to bring him in."));
@@ -566,7 +568,9 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         if from != 0 {
             all = add_point(mission, EventPoint { kind: waypoint::SIMPLE, trigger: trigger::BOOLEAN_AND, ep_ref: from as u16, ep_ref_bool: all as u16, ..at(&start) }, None);
         }
-        let said = add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: all as u16, ..say(&start, 6) }, Some(done_text));
+        let mut said = EventPoint { trigger: trigger::DEPENDENCY, ep_ref: all as u16, ..say(&start, 6) };
+        said.data[2] = done_by;
+        let said = add_point(mission, said, Some(done_text));
         add_point(mission, EventPoint { kind: waypoint::END_GAME_WIN, trigger: trigger::DEPENDENCY, ep_ref: said as u16, ..at(&start) }, None);
     } else if name == "gang3" {
         let (Some(man), Some(files), Some(den), Some(good)) = (point(mission, 134), point(mission, 139), point(mission, 137), point(mission, 138)) else { return };
