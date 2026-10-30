@@ -187,13 +187,9 @@ impl App {
                 }
             }
         }
-        if inp.own(KeyCode::KeyR) && self.coop.is_some() {
-            if let Some(c) = self.coop.as_mut().filter(|c| c.is_host()) {
-                if let Some(s) = c.setup.clone() {
-                    c.client.choose(s);
-                }
-            }
-        } else if inp.own(KeyCode::KeyR) && w.editor.is_none() {
+        // R plays a replay from the start. A game isn't started over by a key, which is too
+        // easily hit by mistake: the pause menu does that.
+        if inp.own(KeyCode::KeyR) && w.replay.is_some() {
             w.restart();
             // Starting over shouldn't be talked over by the run before it.
             if let Some(s) = self.sound.as_mut() {

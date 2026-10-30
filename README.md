@@ -88,7 +88,6 @@ These are the default keys. **Options → Controls** rebinds them (Enter on an a
 | V | Switch to free camera | Back to Darci |
 | 1 – 6 | Toggle floor / walls / props / roofs / details (cables, ladders) / people | same |
 | H | Hide the controls help | same |
-| R | Restart the mission | same |
 
 **Gamepad** (any controller `gilrs` knows):
 
@@ -103,12 +102,12 @@ These are the default keys. **Options → Controls** rebinds them (Enter on an a
 | Right stick click | Next target |
 | Y / Triangle | Kick |
 | B / Circle | Action (arrest, climb); hold while running to sprint |
-| Start | Restart |
+| Start | Pause: resume, restart or abandon the mission |
 | Back / Select | Free camera |
 | F12 | Screenshot to `screenshots/` | same |
-| Esc | Quit | same |
+| Esc | Pause: resume, restart or abandon the mission | same |
 
-**Menu and missions:** Up/Down and Enter choose a mission; Esc in a mission goes back to the menu (Esc on the menu quits). After a win, Enter goes on to the next mission.
+**Menu and missions:** Up/Down and Enter choose a mission; Esc in a mission pauses it, and abandoning it from there goes back to the menu (Esc on the menu quits). After a win, Enter goes on to the next mission.
 
 **Progress:** each win is saved, with its time, to `%APPDATA%\urban-chaos-rs\progress.txt` (`~/.config/urban-chaos-rs/` elsewhere). The mission list puts a medal before each completed mission, its colour from the hardest difficulty it was won on (bronze Easy, silver Normal, gold Hard); the menu counts them, the panel shows each one's best time, and the win banner says whether you beat it.
 
@@ -318,7 +317,7 @@ Two players play a story mission together over the network: the host is the miss
 - **In the game:**
   - Enemies go for whichever of you is nearer, and either of you sets off the mission's triggers.
   - Knocked out, Roper is back on his feet next to Darci a few seconds later. The mission is lost when Darci is, as alone.
-  - The host's R (or RESTART) starts over for both, and Enter after a win plays the next mission.
+  - The host's RESTART in the pause menu starts over for both, and Enter after a win plays the next mission.
   - The pause menu doesn't stop the game: your player stands still while it's up.
   - Leaving the mission leaves the game: your player stands still for the other.
 - **The server on its own:** `cargo run --release -p uc-server -- --port 7777` runs one with no window and no game data; both players then join it.
