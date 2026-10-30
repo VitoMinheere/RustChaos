@@ -359,6 +359,52 @@ fn twenty_fourth_street_shooting_points_to_the_workman() {
     }
 }
 
+/// ...and at Harley Blvd as it's played: Darci runs from the beacon to the geek (point 79),
+/// at the gate of a yard his two friends (80 and 81) hang about in. He talks to her (86),
+/// one of them calls to him from behind the gate (87), and she's told to bring him in. Set
+/// on, he fights back and his friends, of his gang, come over the gate after her; with them
+/// down, arresting him wins.
+#[test]
+fn twenty_fourth_street_shooting_at_harley_blvd() {
+    let Some(mut r) = common::start("Crimescene") else { return };
+    r.follow_the_trail();
+    let blvd = r.point(77);
+    r.stand(blvd);
+    let g = r.who(79);
+    let geek = r.g.people[g].fig.pos;
+    assert!(r.walk_to(geek + vec3(0.0, 0.0, 150.0), 30.0), "stuck at {}", r.g.people[r.player()].fig.pos);
+    r.talk_to(79, vec3(0.0, 0.0, 150.0), 1.0);
+    assert!(r.until(30.0, |r| r.said("bring him in")), "{:?}", r.seen);
+    assert!(r.said("That bitch sweatin' you?"), "{:?}", r.seen);
+    // The yard: west of the gate (x 15360), north of its wall (z 1792).
+    let in_yard = |r: &Run, way: usize| {
+        let p = r.g.people[r.who(way)].fig.pos;
+        p.x < 15360.0 && p.z < 1792.0
+    };
+    assert!(in_yard(&r, 80) && in_yard(&r, 81), "the friends aren't behind the gate");
+    assert_eq!(r.g.outcome, None);
+    // Punches until he fights back, then back to the street.
+    r.talk_to(79, vec3(0.0, 0.0, 120.0), DT);
+    for k in 0..90 {
+        if r.g.people[g].hostile() {
+            break;
+        }
+        r.play(0.1, Controls { punch: k % 2 == 0, ..Default::default() });
+    }
+    assert!(r.g.people[g].hostile(), "he never fought back");
+    let street = r.point(90);
+    r.stand(street);
+    assert!(r.until(30.0, |r| !in_yard(r, 80) && !in_yard(r, 81)), "still behind the gate: {} {}",
+            r.g.people[r.who(80)].fig.pos, r.g.people[r.who(81)].fig.pos);
+    for friend in [80, 81] {
+        r.knock_out(friend);
+    }
+    r.arrest(79);
+    assert!(r.until(10.0, |r| r.g.outcome.is_some()));
+    assert!(r.said("talk about 24th Street"), "{:?}", r.seen);
+    r.won();
+}
+
 /// Station Bombed (`police5`): the five Wildcats arrested wins, each with a beacon until
 /// he's in. The mission had no ending (`uc_world::level::finish_unfinished`).
 #[test]
