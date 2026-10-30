@@ -40,6 +40,46 @@ fn a_teleport_over_a_building_lands_on_the_roof() {
     assert!((y - roof.y).abs() < 40.0, "she should be on the roof at {}, is at {y}", roof.y);
 }
 
+/// A teleport to the ground under a building's roof (where the free camera, flying through
+/// walls, can look) puts her on the roof, not walled in inside it.
+#[test]
+fn a_teleport_inside_a_building_lands_on_its_roof() {
+    let Some(mut r) = common::start("police1") else { return };
+    r.play(1.0, Controls::default());
+    let (map, ground) = (&r.level.map, &r.level.ground);
+    let inside = (0..128 * 128).map(|k| (k % 128, k / 128)).find_map(|(sx, sz)| {
+        let (x, z) = (sx as f32 * 256.0 + 128.0, sz as f32 * 256.0 + 128.0);
+        let roof = ground.surface(map, x, z, 1.0e5);
+        (map.square(sx, sz).has(uc_formats::iam::flags::HIDDEN) && r.g.wares.which_contains(map, sx as i32, sz as i32).is_none()
+            && roof - map.ground_height(x, z) > 400.0).then_some(vec3(x, roof, z))
+    }).expect("a building");
+    assert!(r.g.teleport(vec3(inside.x, r.level.map.ground_height(inside.x, inside.z), inside.z), &r.level));
+    r.play(1.0, Controls::default());
+    let y = r.g.player().unwrap().fig.pos.y;
+    assert!((y - inside.y).abs() < 40.0, "she should be on the roof at {}, is at {y}", inside.y);
+}
+
+/// No teleport off the map, or once she's knocked out, and why; whatever else she was
+/// doing (hanging off a ledge, here) stops.
+#[test]
+fn a_teleport_says_why_not() {
+    let Some(mut r) = common::start("police1") else { return };
+    r.play(1.0, Controls::default());
+    let p = r.player();
+    let at = r.g.people[p].fig.pos;
+    let off = vec3(-300.0, 0.0, at.z);
+    assert_eq!(r.g.teleport_refusal(off), Some("That's off the map"));
+    assert!(!r.g.teleport(off, &r.level));
+    r.g.people[p].state = State::Dangle { to: at, dir: glam::vec2(1.0, 0.0), shift: None };
+    let to = at + vec3(256.0, 0.0, 0.0);
+    assert_eq!(r.g.teleport_refusal(to), None);
+    assert!(r.g.teleport(to, &r.level));
+    assert!(matches!(r.g.people[p].state, State::Move));
+    r.g.people[p].knocked_out = true;
+    assert_eq!(r.g.teleport_refusal(at), Some("Not now she's out of it"));
+    assert!(!r.g.teleport(at, &r.level));
+}
+
 /// `win` and `lose` end the mission.
 #[test]
 fn win_and_lose_end_the_mission() {

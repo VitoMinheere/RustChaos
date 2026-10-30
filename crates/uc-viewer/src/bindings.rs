@@ -284,6 +284,13 @@ impl Input {
     pub(crate) fn own(&self, k: KeyCode) -> bool {
         self.hit(k) && !self.bindings.uses(k)
     }
+
+    /// One of the free camera's keys (T, its teleport) pressed. Flying free she takes no
+    /// controls, so what's bound for play doesn't stand in its way (both layouts put the
+    /// next target on T): only the key back to her does.
+    pub(crate) fn free_cam(&self, k: KeyCode) -> bool {
+        self.hit(k) && !self.bindings.of(Act::View).keys.contains(&k)
+    }
 }
 
 /// A key's name on screen: `KeyZ` as Z, `ArrowUp` as UP, `ShiftLeft` as LEFT SHIFT.
@@ -345,6 +352,21 @@ pub(crate) const KEYS: [KeyCode; 79] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T teleports from the free camera in either layout, though both have the next
+    /// target on it in play; with the free camera itself put on T, T is the way back.
+    #[test]
+    fn t_teleports_from_the_free_camera_in_either_layout() {
+        for b in [Bindings::modern(), Bindings::classic()] {
+            assert!(b.uses(K::KeyT), "the next target is on T");
+            let mut inp = Input { bindings: b, ..Default::default() };
+            inp.pressed.insert(K::KeyT);
+            assert!(!inp.own(K::KeyT));
+            assert!(inp.free_cam(K::KeyT));
+            inp.bindings.set_key(Act::View, K::KeyT);
+            assert!(!inp.free_cam(K::KeyT));
+        }
+    }
 
     #[test]
     fn saved_and_read_back_the_same() {
