@@ -30,13 +30,14 @@ impl Sound {
         if args.mute {
             return None;
         }
-        let audio = match Audio::new(&args.game) {
+        let mut audio = match Audio::new(&args.game) {
             Ok(a) => a,
             Err(e) => {
                 eprintln!("{e}; playing without sound");
                 return None;
             }
         };
+        audio.set_voices(args.voices.clone());
         Some(Sound { audio, music_world: 1, fights: 0, mood: Mood::Calm, indoors: None, weather: Weather::new(Wtype::BusyCity, false), turns: 0.0, dead: false })
     }
 

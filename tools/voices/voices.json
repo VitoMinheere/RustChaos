@@ -1,0 +1,52 @@
+{
+ "darci": {
+  "sample": "clips/darci/bball2.ucm213C.wav",
+  "exaggeration": 1.0,
+  "cfg_weight": 0.3
+ },
+ "radio": {
+  "sample": "clips/radio/factory1.ucm10.wav",
+  "exaggeration": 0.5,
+  "cfg_weight": 0.5
+ },
+ "civ": {
+  "sample": "clips/civ/bball2.ucm205.wav",
+  "exaggeration": 0.5,
+  "cfg_weight": 0.5
+ },
+ "cop": {
+  "sample": "clips/cop/skymiss2.ucm36C.wav",
+  "exaggeration": 0.6,
+  "cfg_weight": 0.45
+ },
+ "gang": {
+  "sample": "clips/gang/Gangorder2.ucm25D.wav",
+  "exaggeration": 0.75,
+  "cfg_weight": 0.35
+ },
+ "red": {
+  "sample": "clips/red/semtex.ucm79A.wav",
+  "exaggeration": 0.75,
+  "cfg_weight": 0.35
+ },
+ "grey": {
+  "sample": "clips/grey/Stealtst1.ucm33D.wav",
+  "exaggeration": 0.75,
+  "cfg_weight": 0.35
+ },
+ "roper": {
+  "sample": "clips/roper/semtex.ucm72J.wav",
+  "exaggeration": 0.6,
+  "cfg_weight": 0.45
+ },
+ "workman": {
+  "sample": "clips/workman/bball2.ucm213D.wav",
+  "exaggeration": 0.6,
+  "cfg_weight": 0.45
+ },
+ "slag": {
+  "sample": "clips/slag/MIB.ucm12C.wav",
+  "exaggeration": 0.5,
+  "cfg_weight": 0.5
+ }
+}
