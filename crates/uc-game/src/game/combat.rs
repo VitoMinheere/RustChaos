@@ -68,6 +68,7 @@ impl Game {
                     let damage = self.hurt(victim, damage);
                     let before = self.people[victim].health;
                     self.people[victim].take_hit(from, damage, ko, high, low, weapon);
+                    self.set_on(victim, attacker);
                     if !weapon.is_gun() {
                         self.people[victim].hit_in_a_fight();
                     }
@@ -242,6 +243,7 @@ impl Game {
                                     // `PCOM_attack_happened`: a fighter goes for them, anyone
                                     // else runs.
                                     let from = self.people[attacker].fig.pos;
+                                    self.set_on(victim, attacker);
                                     let v = &mut self.people[victim];
                                     v.hurt_by = Some(attacker);
                                     if v.fights() { v.go_for() } else { v.scare(Some(attacker), from) }
@@ -255,6 +257,7 @@ impl Game {
                         let damage = self.hurt(victim, damage);
                         let behind = self.people[victim].hit_from_behind(from);
                         self.people[victim].take_hit(from, damage, ko, true, false, weapon);
+                        self.set_on(victim, attacker);
                         // Shot dead on the street, not on a roof (`person_on_floor`,
                         // `OnFace == 0`), they die as the shot had it (combat.cpp:2433): the
                         // pavement counts, anything a storey up doesn't. Which of the three
@@ -467,6 +470,22 @@ impl Game {
                         p.z = to.y;
                     }
                 }
+            }
+        }
+    }
+
+    /// Person `victim` set on by `attacker` (`PCOM_attack_happened`): one who fights back
+    /// goes for them (`Person::fight_back`), and has their gang come and help at once
+    /// (`PCOM_alert_my_gang_to_a_fight`), knocked down or not: `back_up_gangs` would only
+    /// once they're up, and not at all if they're cuffed first.
+    fn set_on(&mut self, victim: usize, attacker: usize) {
+        if !self.people[victim].fight_back(attacker) || self.people[victim].bent & person::BENT_GANG == 0 {
+            return;
+        }
+        let colour = self.people[victim].colour;
+        for (j, q) in self.people.iter_mut().enumerate() {
+            if j != victim && j != attacker && q.bent & person::BENT_GANG != 0 && q.colour == colour && !q.aggro() {
+                q.join_fight(attacker);
             }
         }
     }

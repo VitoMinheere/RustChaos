@@ -342,9 +342,13 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 /// man has a beacon until the files are in hand (point 139), the den one from then on.
 ///
 /// Crimescene follows the trail of a shooting to Harley Blvd, where the brutes who knew of
-/// it were to meet "some geek" (point 76), and stops there, with a workman (point 79) and two
-/// Wildcats minding him. Here the workman is the geek: arresting him once the trail has led
-/// there wins, and killing him, the only lead, loses. He has a beacon from then on.
+/// it were to meet "some geek" (point 76), and stops there, with a workman (point 79) at the
+/// gate of a yard his two friends (80 and 81, of his gang) hang about in. He talks to Darci
+/// (86), one of them calls to him from behind the gate (87), and nothing comes next. Here the
+/// workman is the geek: once that talk's over Darci says he's to be brought in, arresting
+/// him once the trail has led there wins, and killing him, the only lead, loses. He has a
+/// beacon from then on. Set on, he fights back and his friends come over the gate after her
+/// (`PCOM_attack_happened`, in uc-game's combat).
 ///
 /// police5 has someone bomb Darci's station, and five Wildcats out beating people up in the
 /// West District, each with a point that goes off when he's arrested (146 to 150), but
@@ -533,6 +537,13 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
             add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
         }
         let say = |text_from: &EventPoint, secs: i32| EventPoint { kind: waypoint::MESSAGE, data: [0, secs, 0, 0, 0, 0, 0, 0, 0, 0], ..at(text_from) };
+        if name == "crimescene" {
+            // Nothing says what's next once the geek's friend has called to him (87): that
+            // he's to be brought in.
+            let Some(talk) = point(mission, 87).filter(|e| e.kind == waypoint::CONVERSATION) else { return };
+            let next = EventPoint { trigger: trigger::CONVERSATION_OVER, ep_ref: talk.index as u16, ..say(&talk, 6) };
+            add_point(mission, next, Some("Nothin', huh? This geek knows somethin' about 24th Street...time to bring him in."));
+        }
         let mut got = Vec::new();
         for &(who, arrested) in &wanted {
             let Some(w) = point(mission, who) else { return };

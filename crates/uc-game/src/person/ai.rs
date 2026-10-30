@@ -140,12 +140,34 @@ impl Person {
     }
 
     /// A gang mate's fight: off after `victim` if they're free to (not down, frightened or
-    /// held to a truce).
+    /// held to a truce). A civilian of the gang takes it up too:
+    /// `PCOM_alert_my_gang_to_a_fight` (pcom.cpp:1781) asks nothing more of them than that
+    /// they're going about their business.
     pub(crate) fn join_fight(&mut self, victim: usize) {
-        if self.player || self.removed || self.is_down() || self.is_dead() || self.truce || self.scared.is_some() || !self.hostile() {
+        if self.player || self.removed || self.is_down() || self.is_dead() || self.truce || self.scared.is_some() {
             return;
         }
-        self.bully_after(victim);
+        if self.ai == AI_CIV && self.bent & BENT_ROBOT == 0 {
+            self.ai = AI_GANG;
+        }
+        if self.hostile() {
+            self.bully_after(victim);
+        }
+    }
+
+    /// Set on by `by`: one who fights back (`PCOM_BENT_FIGHT_BACK`) and wouldn't fight
+    /// anyway goes for them (`PCOM_attack_happened`'s `goto fight`, pcom.cpp:13636, to
+    /// `PCOM_set_person_ai_kill_person`), knocked down or not. Whether they did.
+    pub(crate) fn fight_back(&mut self, by: usize) -> bool {
+        if self.player || self.bent & (BENT_FIGHT_BACK | BENT_ROBOT) != BENT_FIGHT_BACK || self.fights() || self.removed || self.is_dead()
+            || matches!(self.state, State::Cuffed)
+        {
+            return false;
+        }
+        self.scared = None;
+        self.go_for();
+        self.victim = Some(by);
+        true
     }
 
     /// A bully off after `victim`: noticed, and out to get them.
