@@ -824,22 +824,25 @@ impl Level {
     /// The texture for a page: an override PNG if present ([`override_path`]), else the
     /// clump's.
     pub fn texture(&self, page: u32) -> Option<(Texture, bool)> {
-        if let Some(p) = self.overrides.as_deref().and_then(|d| override_path(d, &self.name, self.map.texture_set, page)) {
-            if let Some(t) = load_png(&p) {
-                return Some((t, true));
-            }
-        }
-        let mut t = self.clump.texture(page).ok().flatten()?;
+        let over = self.overrides.as_deref()
+            .and_then(|d| override_path(d, &self.name, self.map.texture_set, page))
+            .and_then(|p| load_png(&p));
+        let overridden = over.is_some();
+        let mut t = match over {
+            Some(t) => t,
+            None => self.clump.texture(page).ok().flatten()?,
+        };
         // A prim page `textype.txt` doesn't make see-through is drawn solid, as the original
-        // only alpha-tests pages it flags (polyrenderstate.cpp:1525). The mine's (#85) has an
-        // alpha channel that's mostly clear, which would otherwise hide most of it.
+        // only alpha-tests pages it flags (polyrenderstate.cpp:1525), an override's too. The
+        // mine's (#85) and the traffic cones' have an alpha channel that's mostly clear, which
+        // would otherwise hide most of them.
         if is_prim_page(page) && t.has_alpha && !self.see_through_prims.contains(&(page - PRIM_PAGES)) {
             t.has_alpha = false;
             for px in t.rgba.chunks_mut(4) {
                 px[3] = 255;
             }
         }
-        Some((t, false))
+        Some((t, overridden))
     }
 
     /// The floor squares on the sea, which [`Level::build`] leaves out for the game to draw
