@@ -109,6 +109,16 @@ These are the default keys. **Options → Controls** rebinds them (Enter on an a
 
 **Menu and missions:** Up/Down and Enter choose a mission; Esc in a mission pauses it, and abandoning it from there goes back to the menu (Esc on the menu quits). After a win, Enter goes on to the next mission.
 
+**Spoken briefings and voices:** picking a mission in the list plays its spoken briefing, as the original does. The unreleased missions never had briefings, nor recordings of many of their lines, so this project makes them with [Chatterbox](https://github.com/resemble-ai/chatterbox), each in the voice of a recording that shipped: the radio for the police briefings, Rasta's for Mako's, and Roper's for The Final Reckoning. Only the story is spoken, not the "-" objectives, as in the originals. The made files aren't in git. They live in your progress folder's `voices\talk2` (`%APPDATA%\urban-chaos-rs\voices`, `~/.config/urban-chaos-rs/voices` elsewhere), used wherever the install has no recording; `--voices DIR` points elsewhere and `--voices off` leaves them out. To make them:
+
+```
+cargo run --release -p uc-audio --example voice_lines -- EXPORT      # every line, and the recordings to copy voices from
+python tools/voices/make_voices.py EXPORT VOICES                      # the unrecorded lines
+python tools/voices/make_voices.py EXPORT VOICES --briefings          # the unreleased missions' briefings
+```
+
+They need `torch`, `torchaudio` and `chatterbox-tts` (Python 3.11; also `setuptools<81`, which Chatterbox's watermarker needs). Made files are skipped on a later run, so delete one to make it again. `tools/voices/voices.json` picks each voice's recording and how much feeling to put in, `overrides.json` rewords a line, and `briefings.json` holds each briefing's voice and words. Add `--device cpu` on a small GPU: a 4 GB card runs out of memory loading the model.
+
 **Progress:** each win is saved, with its time, to `%APPDATA%\urban-chaos-rs\progress.txt` (`~/.config/urban-chaos-rs/` elsewhere). The mission list puts a medal before each completed mission, its colour from the hardest difficulty it was won on (bronze Easy, silver Normal, gold Hard); the menu counts them, the panel shows each one's best time, and the win banner says whether you beat it.
 
 **100%:** besides winning, a mission has badges to find and side objectives: the jobs that earn badges, such as arresting the extra muggers in RTA or finding officer Miles' car in The Jump. Both are read from the mission's script. The menu panel shows a checklist under the mission's title: its objectives (the "-" points of the briefing, or its last sentence for training missions), each side objective (named after what's said when it's done) and the badges found. In a mission, hold Tab for the same checklist, ticked as you go, with the mission clock. The HUD also shows `BADGES x/y   SIDE x/y`, and the win banner sums them up. Like badges, they're saved when you win, and add up across your winning runs. A mission with everything done has a ring round its medal in the list.
@@ -137,7 +147,9 @@ These are the default keys. **Options → Controls** rebinds them (Enter on an a
 
 **Explosions:** a car bomb going off throws out a flash, a fireball, a ring of dust and burning debris, and leaves a fire behind. People within three squares are knocked down or killed, the player included. The `visual_effect` points a mission sets off elsewhere are the same effects without the blast: the original's shockwave for those never fires, thanks to a typo in the 1999 code (`if (ew->ed.subtype=!16)` assigns rather than compares), and this follows it.
 
-**Explosives:** walk over a pack to carry it (four at most). Switch to them with G and press action: a charge goes down at your feet with a five-second fuse, and the blast is five squares across and does 500 at the middle, so run. Blasts damage props as well as people, and a mission can watch for a prop being damaged (`prim_damaged`): Transmission Terminated's transmitter, the supplies in Arms Breaker, Media Trouble's props. Some props blow up when damaged and set off their neighbours. As in the 1999 code, a blast only ever looks at every other prop in each part of the map (its loop steps two at a time), so a prop right next to one that went up can survive. Cars ramming props don't damage them yet.
+**Explosives:** walk over a pack to carry it (four at most). Switch to them with G and press action: a charge goes down at your feet with a five-second fuse, and the blast is five squares across and does 500 at the middle, so run. Blasts damage props as well as people, and a mission can watch for a prop being damaged (`prim_damaged`): Transmission Terminated's transmitter, the supplies in Arms Breaker, Media Trouble's props. Some props blow up when damaged and set off their neighbours. As in the 1999 code, a blast only ever looks at every other prop in each part of the map (its loop steps two at a time), so a prop right next to one that went up can survive. Cars damage props too, ramming or brushing past them fast.
+
+**Damaged props:** a lamp post, sign or tree that's hit leans over, by 7 to 13 degrees, the way the original picks. Other props crumple a little more with each knock (the fourth knock turns the original's two-bit count back to almost nothing, as it did in 1999). A broken hydrant gushes water for fifteen seconds, hissing. A car scraping along a wall rattles the fences on the edges of its square for a moment.
 
 **Endless mode:** ENDLESS in the main menu, then a map, or `--mission NAME --endless [--seed N]`. Waves of Wildcats keep coming at Darci, each bigger and better armed than the last:
 - fists first, then bats and knives, a few pistols from wave 7, shotguns and AKs later, with only so many guns out at once;
@@ -394,9 +406,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for what to run before a pull request, an
 
 **Drawn:**
 - terrain heights, floor textures with rotation, kerbs;
-- walls, doors and fences with styles, painted storeys and the engine's per-wall random variants;
+- walls, doors and fences with styles, painted storeys and the engine's per-wall random variants; doors swing open, and fences rattle when a car scrapes them;
 - rooftops and roof faces (warehouse ceilings black as on PC);
-- props;
+- props, which lean or crumple when they're knocked;
 - overhead cables (with their sag) and ladders;
 - baked lighting (ambient, static lights, lamppost lights);
 - sky colour and distance fog;
