@@ -6,6 +6,9 @@ Extract Urban Chaos textures to plain image files, for upscaling.
   A Python port of uc_formats::txc (crates/uc-formats/src/txc.rs): Clump::parse and decode.
   Textures with an alpha channel (ARGB4444) become RGBA PNGs, the rest (RGB565) RGB PNGs.
   Crinkles (clump ids 1568..2079) are relief meshes, not pictures, and are skipped.
+  A prim page shared/prims/textype.txt doesn't make see-through loses its alpha channel, as
+  the game draws it solid (uc_world::level::Level::texture) but takes an override's alpha as
+  it is: the traffic cones' page, among others, has an alpha channel that's mostly clear.
   The layout is the one --overrides reads per mission (uc_world::level::override_path),
   so the upscaled clumps/ folder can be passed to the game as is.
 - Every *.tga in the install is copied unchanged to the same relative path under <out>.
@@ -15,6 +18,7 @@ The install is only read. Rerunning skips files that already exist.
   python3 extract_textures.py --game ~/Games/"Urban Chaos" --out ~/uc/textures
 """
 import argparse
+import re
 import shutil
 import struct
 import sys
@@ -25,6 +29,27 @@ from PIL import Image
 
 CRINKLE_BASE = 1568
 CRINKLE_PAGES = 512
+PRIM_PAGES, EXTRA_PAGES = 11 * 64, 22 * 64
+
+
+def see_through_prims(game: Path) -> set[int]:
+    """`see_through_pages`: the prim pages textype.txt flags T, M, A or D, and the page after
+    one flagged I."""
+    path = next((p for p in game.rglob("*") if p.as_posix().lower().endswith(
+        "server/textures/shared/prims/textype.txt")), None)
+    out = set()
+    if path is None:
+        return out
+    for line in path.read_text(errors="ignore").splitlines():
+        m = re.match(r"\s*Page\s+(\d+)\s*:(.*)", line)
+        if not m:
+            continue
+        n, flags = int(m.group(1)), m.group(2).upper()
+        if any(c in flags for c in "TMAD"):
+            out.add(n)
+        if "I" in flags:
+            out.add(n + 1)
+    return out
 
 
 def parse_clump(data: bytes) -> dict[int, bytes]:
@@ -107,6 +132,7 @@ def main():
     if out == game or game in out.parents:
         sys.exit("--out must not be inside the install")
 
+    see_through = see_through_prims(game)
     written = skipped = failed = 0
     clumps = sorted(p for p in (game / "clumps").iterdir() if p.suffix.lower() == ".txc")
     for c in clumps:
@@ -132,7 +158,10 @@ def main():
                 failed += 1
                 continue
             if t is not None:
-                save_png(f, *t)
+                has_alpha, rgba = t
+                if PRIM_PAGES <= i < EXTRA_PAGES and i - PRIM_PAGES not in see_through:
+                    has_alpha = False
+                save_png(f, has_alpha, rgba)
                 written += 1
         print(f"{c.name}: {len(entries)} entries", flush=True)
 
