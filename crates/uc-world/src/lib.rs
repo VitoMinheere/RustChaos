@@ -7,6 +7,8 @@ pub mod crinkle;
 pub mod geometry;
 pub mod ground;
 pub mod level;
+pub mod refloor;
+pub mod rewall;
 pub mod mav;
 
 pub use character::{Figure, Model, People, Play};

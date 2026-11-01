@@ -25,6 +25,6 @@ python merge_notes.py "$TEMP/ucall"
 PYTHONIOENCODING=utf-8 python story_gen.py "$TEMP/ucall" goals.json "$GAME" notes.json ../../docs/STORY.md
 ```
 
-Sixteen older-format missions don't export yet; they're listed in `STORY.md` as not included.
+Every mission in the install exports, the editor's older file versions (0, 1, 4 and 5) included.
 
 `--draft <dir>` writes every mission, with no notes, to `<dir>`: the starting point for writing notes for a mission.

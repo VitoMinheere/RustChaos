@@ -54,6 +54,30 @@
   "characters": ["**Darci Stern**", "**Roper**", "**'The Madman'** (mentioned): the broadcaster", "A cop under orders, a metal-works night worker, dealers"],
   "names": {"138": "Roper", "142": "Cop under orders", "162": "Night worker"}
 },
+"Assassin1": {
+  "title": "TV Station Rooftops *(unofficial title; `Assassin1`)*",
+  "synopsis": "Another early take on Transmitter, on the old-layout map `submiss1a.iam`: work over the rooftops to the downtown district and destroy the TV station's transmitting satellite dish, through a sector 'patrolled heavily by opposition gangs'. No ending is scripted. Despite the file's name it has nothing to do with the released Assassin (`Gangorder1`).",
+  "characters": ["**Darci Stern**", "Wildcats in red and in rasta colours, cops, civilians"],
+  "names": {}
+},
+"army1": {
+  "title": "Radar Tower *(unofficial title; `army1`)*",
+  "synopsis": "A prototype on an army base with a map of its own (`army1.iam`): sabotage the radar tower. Switches unlock lifts and open a gate, and workmen checking the air conditioning say the base is 'nuke proof'. Wildcats with pistols stand guard, among twenty guards the file gives the hostage type, with mines and barrels about. It's won once the system is sabotaged.",
+  "characters": ["**Darci Stern**", "Workmen on the base", "Wildcats and guards"],
+  "names": {}
+},
+"supply1": {
+  "title": "Supply Base *(unofficial title; `supply1`)*",
+  "synopsis": "A sketch on its own old-layout map (`supply1.iam`): tripwires sound a 'Security Alert!', eighteen guards (of the hostage type in the file) stand about, and there are mines, AK-47s and moving platforms. No ending is scripted.",
+  "characters": ["**Darci Stern**"],
+  "names": {}
+},
+"Rooftop1": {
+  "title": "Rooftop *(unofficial title; `Rooftop1`)*",
+  "synopsis": "A small test on a map missing from the install (`ROOFIN1.iam`): five cops with AK-47s and a Wildcat stand guard, and picking up the keycard opens a door.",
+  "characters": ["**Darci Stern**"],
+  "names": {}
+},
 "subdock1": {
   "title": "Dock Extraction *(unofficial title; `subdock1`)*",
   "synopsis": "A short prototype: terminate the dock operator and get to the chopper for extraction at the southern end of the sector, across moving platforms.",
@@ -133,5 +157,6 @@
 "gang2": {"title": "Rat Catch *(draft; `gang2`)*", "synopsis": "An earlier Rat Catch: fetch Bish and McLean, then 'Blood' and 'Kidnap'.", "characters": [], "names": {}},
 "gang3": {"title": "Trash the Place *(early Mako mission; `gang3`)*", "synopsis": "Mako rounds up Wildcats to 'trash that place'; one stays to guard the den and hands over supplies.", "characters": [], "names": {}},
 "Gang order1": {"title": "Assassin *(draft; `Gang order1`)*", "synopsis": "Assassin almost as shipped.", "characters": [], "names": {}},
-"Gang order3": {"title": "Getaway Van *(early Mako mission; `Gang order3`)*", "synopsis": "Like `gang3`, ending at a getaway van.", "characters": [], "names": {}}
+"Gang order3": {"title": "Getaway Van *(early Mako mission; `Gang order3`)*", "synopsis": "Like `gang3`, ending at a getaway van.", "characters": [], "names": {}},
+"upperclass1": {"title": "Grim Gardens *(earliest draft; `upperclass1`)*", "synopsis": "The earliest Grim Gardens, on the same map as `botanic1`: sabotage four supplies behind the walls of the closed Union Gardens, with a crowbar. The locals smell 'something funny' ('Is there a biscuit factory nearby?'), and plaques remember Simon Keating and J. Walker.", "characters": [], "names": {}}
 }

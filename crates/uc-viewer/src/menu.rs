@@ -1162,7 +1162,7 @@ const UNRELEASED: [(&str, &str, &str); 8] = [
 /// district whose map they share; the rest are in the list alone. None has a title in the
 /// game, so these are this project's, and the briefings are their opening messages where
 /// they have them, made up from their scripts where they don't.
-const DRAFTS: [(&str, &str, &str); 11] = [
+const DRAFTS: [(&str, &str, &str); 13] = [
     // Combat Gold with bigger waves, on the same course: it calls itself the gold grade.
     ("fight3", "Combat Platinum",
      "For the gold grade you need to use combat techniques against skilled and sometimes armed \
@@ -1201,6 +1201,18 @@ const DRAFTS: [(&str, &str, &str); 11] = [
      "Destroy the main transmitter at the top of the television building. Roper has the \
       sabotage equipment.\r\
       - Get the explosives from Roper.\r- Blow up the transmitter on the roof."),
+    // Two of the editor's oldest prototypes (file version 5): on an army base of its own
+    // map, and the earliest Grim Gardens on `botanic1`'s. The first's briefing is its one
+    // opening message, the second's made up from its script.
+    ("army1", "Radar Tower",
+     "Sabotage the radar tower on the army base, Stern. The workmen say the place is nuke \
+      proof; the guards say you're not getting in. Switches work the lifts and the gate.\r\
+      - Get up the radar tower.\r- Sabotage the system."),
+    ("upperclass1", "Union Gardens",
+     "Union Gardens has been closed for weeks, and the locals say something dodgy is going on \
+      behind those walls. Something smells funny round there, Stern. Find a crowbar and \
+      sabotage the gang's supplies.\r\
+      - Get the crowbar.\r- Sabotage all four supplies."),
     // An early Estate of Emergency on a map of its own.
     ("estate1", "Farraday's Files",
      "This building contains the main computer. To get in, you will need to disarm the \
