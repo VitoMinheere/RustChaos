@@ -383,9 +383,12 @@ mod tests {
     fn the_install_matches_what_was_found_by_hand() {
         let Some(game) = uc_formats::default_install() else { return };
         let r = report(&game).unwrap();
-        let unparsed: Vec<&MissionFile> = r.missions.iter().filter(|m| m.error.is_some()).collect();
-        assert_eq!(unparsed.len(), 16);
-        assert!(unparsed.iter().all(|m| !m.listed && m.version < 10));
+        // The editor's old file versions (5 and before): none listed. Whether they parse is
+        // #470's to say; every later one does.
+        let old: Vec<&MissionFile> = r.missions.iter().filter(|m| m.version <= 5).collect();
+        assert_eq!(old.len(), 16);
+        assert!(old.iter().all(|m| !m.listed));
+        assert!(r.missions.iter().filter(|m| m.version > 5).all(|m| m.error.is_none()));
         assert!(r.missions.iter().any(|m| m.name == "army1" && m.version == 5));
         assert_eq!(r.unplayed.values().map(Vec::len).sum::<usize>(), 66);
         assert_eq!(r.unplayed["mission2"].len(), 13);
