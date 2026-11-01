@@ -130,3 +130,29 @@ fn crinkles_cull_from_behind() {
     eprintln!("{total} relief faces: {front} drawn from in front, {back} from behind");
     assert!(front * 10 > total * 9 && back * 10 < total, "{front} and {back} of {total}");
 }
+
+/// Police 1's world (3) has lit windows (#469): its 'I' pages are on its walls, and the
+/// page each draws over itself is in the clump, clear but for the panes, and never drawn
+/// on its own. The prims' 'S' pages come with it.
+#[test]
+fn police1_has_lit_windows() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let level = Level::load(&game, "police1", &LoadOptions { fullbright: false, character: false, overrides: None }).unwrap();
+    let geo = level.build();
+    assert_eq!(geo.self_lit, level.self_lit);
+    let lit = &level.self_lit;
+    for page in [137, 139, 183, 185, 187, 189, 220, 250, 252, 254] {
+        assert!(lit.two_pass.contains(&page), "page {page} isn't two-pass");
+    }
+    assert!(lit.unlit.contains(&(uc_world::level::PRIM_PAGES + 74)));
+    let pages = geo.pages();
+    let drawn: Vec<u32> = lit.two_pass.iter().copied().filter(|p| pages.contains(p)).collect();
+    assert!(drawn.len() >= 8, "only {drawn:?} drawn");
+    for page in drawn {
+        let over = lit.overlay(page).unwrap();
+        assert!(!pages.contains(&over), "page {over} is drawn on its own");
+        let (t, _) = level.texture(over).unwrap_or_else(|| panic!("no page {over}"));
+        let clear = t.rgba.chunks(4).filter(|p| p[3] == 0).count();
+        assert!(t.has_alpha && clear * 2 > t.rgba.len() / 4 && clear < t.rgba.len() / 4, "page {over}: {clear} clear");
+    }
+}

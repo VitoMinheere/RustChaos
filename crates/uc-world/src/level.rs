@@ -2,7 +2,7 @@
 
 use uc_formats::units::radians;
 use crate::crinkle::ReliefQuad;
-use crate::geometry::{Builder, Layer, WorldGeometry, UNIT, UNTEXTURED};
+use crate::geometry::{Builder, Layer, SelfLit, WorldGeometry, UNIT, UNTEXTURED};
 use glam::{vec3, Vec3};
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -74,6 +74,9 @@ pub struct Level {
     /// The prim texture pages that see through (`textype.txt`'s T, M, A or D, or the page
     /// after an I), counted from [`PRIM_PAGES`].
     see_through_prims: BTreeSet<u32>,
+    /// The pages that light themselves, from the world's, the shared and the prims'
+    /// `textype.txt` (`TEXTURE_load_needed`, texture.cpp:709-712).
+    pub self_lit: SelfLit,
 }
 
 /// Where the prims' texture pages start (`POLY_load_texture_flags(..., 11 * 64)`,
@@ -755,6 +758,13 @@ impl Level {
             stand_in_pages = clump.ids().map(entry_page).filter(|&p| world_page(p)).collect();
         }
         let styles = world.and_then(style_table).and_then(|b| StyleTable::parse(&b).ok());
+        let textype = |rel: &str| resolve(game, rel).and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+        let mut self_lit = SelfLit::default();
+        if let Some(w) = world {
+            self_lit.read(&textype(&format!("server\\textures\\world{w}\\textype.txt")), 0);
+        }
+        self_lit.read(&textype("server\\textures\\shared\\textype.txt"), 0);
+        self_lit.read(&textype("server\\textures\\shared\\prims\\textype.txt"), PRIM_PAGES);
         let lighting = if opt.fullbright { None } else { read(game, &mission.lighting).ok().and_then(|b| Lighting::parse(&b).ok()) };
         let sky = lighting.as_ref().map_or([20, 22, 30], |l| l.sky);
 
@@ -807,7 +817,7 @@ impl Level {
         };
         Ok(Level {
             game: game.to_path_buf(), name: mission_name.to_string(), mission, map, clump, styles, lighting,
-            ground, spawn, sky, people, overrides: opt.overrides.clone(), platforms, barrel_props, stand_in_pages,
+            ground, spawn, sky, people, overrides: opt.overrides.clone(), platforms, barrel_props, stand_in_pages, self_lit,
             see_through_prims: resolve(game, "server\\textures\\shared\\prims\\textype.txt")
                 .and_then(|p| std::fs::read_to_string(p).ok())
                 .map_or_else(Default::default, |t| see_through_pages(&t)),
@@ -976,7 +986,7 @@ impl Level {
             .collect();
         build_props(&mut b, &self.map, &self.game, &sh, &moving);
         build_details(&mut b, &self.map, &sh);
-        WorldGeometry { crinkles, ..b.finish() }
+        WorldGeometry { crinkles, self_lit: self.self_lit.clone(), ..b.finish() }
     }
 }
 
@@ -1378,6 +1388,20 @@ mod see_through_tests {
         let t = "# comment\nPage 000: T\nPage 022: M\nPage 025: MS\nPage 030: W\nPage 040: I\nPage 050: S\n";
         let s = see_through_pages(t);
         assert_eq!(s.into_iter().collect::<Vec<_>>(), vec![0, 22, 25, 41]);
+    }
+
+    /// 'I' draws the next page over, 'S' draws the page unlit; either case, any order after
+    /// the colon, and the prims' counted on from [`PRIM_PAGES`].
+    #[test]
+    fn textype_flags_pick_the_pages_that_light_themselves() {
+        let mut lit = SelfLit::default();
+        lit.read("# I and S\nPage  50: I\nPage 137: wi\nPage 215: S#\nPage 65: T\n", 0);
+        lit.read("Page 025: MS\nPage 074: s\n", PRIM_PAGES);
+        assert_eq!(lit.two_pass.iter().copied().collect::<Vec<_>>(), vec![50, 137]);
+        assert_eq!(lit.unlit.iter().copied().collect::<Vec<_>>(), vec![215, PRIM_PAGES + 25, PRIM_PAGES + 74]);
+        assert_eq!(lit.overlay(137), Some(138));
+        assert_eq!(lit.overlay(138), None);
+        assert_eq!(lit.overlay(UNTEXTURED), None);
     }
 
     /// The leaves, the sky and the other extras aren't prim pages: their see-through edges
