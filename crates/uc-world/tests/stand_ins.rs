@@ -70,3 +70,21 @@ fn borrowed_pages_know_where_they_came_from() {
         }
     }
 }
+
+/// The maps older than the shipped texture sets have their floors and roofs on the released
+/// maps' pages: army1's yards are no longer paved with a door (page 194), and every page
+/// put in has a picture. A released map is left as it is.
+#[test]
+fn old_maps_are_refloored_with_released_pages() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let Some(level) = load("army1") else { return };
+    assert!(!level.map.squares.iter().any(|s| s.page() == 194), "a door on the floor");
+    let (_, pages) = uc_world::refloor::REFLOOR.iter().find(|(m, _)| m.eq_ignore_ascii_case(r"data\army1.iam")).unwrap();
+    for &(_, to) in *pages {
+        assert!(level.texture(to as u32).is_some(), "page {to} has no picture");
+    }
+    assert!(!uc_world::refloor::REFLOOR.iter().any(|(m, _)| m.eq_ignore_ascii_case(r"data\disturb1.iam")));
+    let raw = uc_formats::iam::Map::parse(&std::fs::read(uc_formats::resolve(&game, r"data\disturb1.iam").unwrap()).unwrap()).unwrap();
+    let police1 = load("police1").unwrap();
+    assert!(raw.squares.iter().zip(&police1.map.squares).all(|(a, b)| a.page() == b.page()));
+}

@@ -144,7 +144,7 @@ fn fence_page(map_file: &str) -> Option<u32> {
 /// and `training1.iam` are world 2): the city of RTA and the other downtown missions. It
 /// also stands in for world 6 (`subdock1.iam`'s), which the install has nothing of at all,
 /// not even the style table its walls are drawn from.
-const STAND_IN_WORLD: i32 = 3;
+pub const STAND_IN_WORLD: i32 = 3;
 
 /// Maps whose water is a page of their own world rather than [`WATER_PAGE`], and that page.
 /// `subdock1.iam`'s harbour is world 6's page 242, which no install has: it becomes the sea
@@ -331,6 +331,20 @@ fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> (Clu
     }
     let stand_ins = clump.ids().map(entry_page).filter(|&p| world_page(p) && !own.contains(&p)).collect();
     (clump, stand_ins, from)
+}
+
+/// The maps only missions with no clump of their own are on are older than the texture sets
+/// that shipped: page numbers had moved on, and army1's yards are paved with what's now a
+/// door, Rooftop1's roofs with Bane's rune circles. Their floor and roof squares on pages no
+/// released map has there take the released maps' page most like them instead
+/// ([`crate::refloor::REFLOOR`], made by `uc textures floors`), turned as they were.
+fn refloor(map_file: &str, map: &mut Map) {
+    let Some((_, pages)) = crate::refloor::REFLOOR.iter().find(|(m, _)| m.eq_ignore_ascii_case(map_file)) else { return };
+    for sq in map.squares.iter_mut() {
+        if let Some(&(_, to)) = pages.iter().find(|&&(from, _)| from == sq.page()) {
+            sq.texture = (sq.texture & !0x3FF) | to;
+        }
+    }
 }
 
 /// The override for `page`, if there is one: the most particular of
@@ -810,6 +824,7 @@ impl Level {
     /// [`finish_unfinished`] added when it was loaded, or doesn't if the editor took it out.
     pub fn load_with_mission(game: &Path, mission_name: &str, mut mission: Mission, opt: &LoadOptions) -> Result<Level, String> {
         let mut map = Map::parse(&read(game, &mission.map)?).map_err(|e| format!("{}: {e}", mission.map))?;
+        refloor(&mission.map, &mut map);
         to_sea(&mission.map, &mut map);
         open_the_store(mission_name, &mission.map, &mut map);
         climb_into_the_docks(&mission.map, &mut map);

@@ -1,6 +1,7 @@
 //! `uc textures missing`: the world pages the missions without a clump of their own draw
 //! with another world's pictures (or with none), by world, to be painted as `world<N>/page_NNNN.png`
-//! overrides (`uc_world::level::override_path`).
+//! overrides (`uc_world::level::override_path`). `uc textures floors`: the table of floor
+//! pages the maps older than the shipped texture sets take instead (`uc_world::refloor`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -9,15 +10,7 @@ use uc_world::level::{override_path, world_page};
 use uc_world::{Level, LoadOptions};
 
 pub fn missing(game: &Path, overrides: Option<&Path>) -> Result<(), String> {
-    let dir = game.join("levels");
-    let mut names: Vec<String> = std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?
-        .flatten()
-        .filter_map(|e| {
-            let f = e.file_name().to_string_lossy().into_owned();
-            Some(f.strip_suffix(".ucm").or_else(|| f.strip_suffix(".UCM"))?.to_string())
-        })
-        .collect();
-    names.sort_by_key(|n| n.to_ascii_lowercase());
+    let names = mission_names(game)?;
     let opt = LoadOptions { fullbright: true, character: false, overrides: None };
     // world -> page -> the missions that draw it.
     let mut worlds: BTreeMap<Option<i32>, BTreeMap<u32, Vec<String>>> = BTreeMap::new();
@@ -73,4 +66,210 @@ pub fn missing(game: &Path, overrides: Option<&Path>) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Where a world page is on a map's visible floor: how many squares, of each sort (roof,
+/// road, pavement, water), how many of their sides it shares with itself, and what's on the
+/// other side of the rest.
+#[derive(Default)]
+struct FloorUse {
+    sort: [f64; 4],
+    n: f64,
+    same: f64,
+    sides: f64,
+    next: BTreeMap<u32, f64>,
+}
+
+impl FloorUse {
+    /// Its sorts as fractions.
+    fn mix(&self) -> [f64; 4] {
+        self.sort.map(|v| v / self.n.max(1.0))
+    }
+
+    /// How much of it is one field of itself rather than a border or a spot.
+    fn field(&self) -> f64 {
+        self.same / self.sides.max(1.0)
+    }
+
+    fn add(&mut self, o: FloorUse) {
+        for (a, b) in self.sort.iter_mut().zip(o.sort) {
+            *a += b;
+        }
+        self.n += o.n;
+        self.same += o.same;
+        self.sides += o.sides;
+        for (k, v) in o.next {
+            *self.next.entry(k).or_default() += v;
+        }
+    }
+}
+
+/// The world pages on `map`'s squares that can be seen: rooftops (a fake roof, or a roof
+/// face over the square, which takes its page), and floor with nothing walkable over it.
+/// Page 0, every world's dark edge of the city, is left out, and so is the strip round the
+/// map's edge, out of play, where the released maps put down whatever (Grim Gardens a row
+/// of doorways). `level` is any mission on the map, for what's over the squares.
+fn floor_use(level: &Level, map: &uc_formats::iam::Map) -> BTreeMap<u32, FloorUse> {
+    use uc_formats::iam::flags;
+    let mut out: BTreeMap<u32, FloorUse> = BTreeMap::new();
+    let mut roofed = vec![false; 128 * 128];
+    for rf in map.roof_faces.iter().skip(1) {
+        roofed[(rf.rx as usize & 127) * 128 + (rf.rz as usize & 127)] = true;
+    }
+    const EDGE: usize = 12;
+    for x in EDGE..128 - EDGE {
+        for z in EDGE..128 - EDGE {
+            let s = map.square(x, z);
+            let p = s.page() as u32;
+            if !world_page(p) || p == 0 {
+                continue;
+            }
+            let sort = if s.has(flags::ROOF_EXISTS) || roofed[x * 128 + z] {
+                0
+            } else if s.has(flags::HIDDEN) {
+                continue;
+            } else {
+                let (cx, cz) = (x as f32 * 256.0 + 128.0, z as f32 * 256.0 + 128.0);
+                let floor = level.ground.surface(map, cx, cz, s.alt as f32 * 64.0 + 64.0);
+                if level.ground.surface(map, cx, cz, 30_000.0) > floor + 128.0 {
+                    continue;
+                }
+                if s.has(flags::WATER) { 3 } else if s.has(flags::SINK_SQUARE) { 1 } else { 2 }
+            };
+            let u = out.entry(p).or_default();
+            u.sort[sort] += 1.0;
+            u.n += 1.0;
+            for (dx, dz) in [(1i32, 0i32), (-1, 0), (0, 1), (0, -1)] {
+                let (nx, nz) = (x as i32 + dx, z as i32 + dz);
+                if !(0..128).contains(&nx) || !(0..128).contains(&nz) {
+                    continue;
+                }
+                let q = map.square(nx as usize, nz as usize).page() as u32;
+                u.sides += 1.0;
+                if q == p {
+                    u.same += 1.0;
+                } else {
+                    *u.next.entry(q).or_default() += 1.0;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `uc textures floors`: for each map no mission with a clump of its own is on, the world
+/// pages on its visible floor and roofs that no such map has there, each with the page of
+/// the released ones' (of its world, or the stand-in world's for a world they haven't got)
+/// to draw instead, as `uc_world::refloor`'s table. Those maps are older than the texture
+/// sets that shipped: army1's paves its yards with what is now a door.
+///
+/// The page put in is the one the released maps use most like it: on the same sort of
+/// square (roof, road, pavement, water), next to the same pages, as much one field of
+/// itself, and widely used; and the same page as seldom as may be twice on a map.
+pub fn floors(game: &Path) -> Result<String, String> {
+    let names = mission_names(game)?;
+    let opt = LoadOptions { fullbright: true, character: false, overrides: None };
+    // map file (lower case) -> its world, whether a mission with a clump is on it, a level of it.
+    let mut maps: BTreeMap<String, (i32, bool, Level)> = BTreeMap::new();
+    for name in &names {
+        let Ok(level) = Level::load(game, name, &opt) else { continue };
+        let Some(world) = level.map.texture_set else { continue };
+        let clumped = uc_formats::resolve(game, &format!("clumps\\{name}.txc")).is_some();
+        let key = level.mission.map.to_ascii_lowercase();
+        match maps.get(&key) {
+            Some(&(_, true, _)) => {}
+            Some(_) if !clumped => {}
+            _ => {
+                maps.insert(key, (world, clumped, level));
+            }
+        }
+    }
+    // The map as it is in the install, not as loaded (which has the table's pages already).
+    let raw = |file: &str| -> Result<uc_formats::iam::Map, String> {
+        let p = uc_formats::resolve(game, file).ok_or(format!("{file} not found"))?;
+        uc_formats::iam::Map::parse(&std::fs::read(p).map_err(|e| e.to_string())?).map_err(|e| format!("{file}: {e}"))
+    };
+    // Each world's pages its clumps have, and how the released maps use them.
+    let mut have: BTreeMap<i32, BTreeSet<u32>> = BTreeMap::new();
+    for (world, clumped, level) in maps.values() {
+        if *clumped {
+            have.entry(*world).or_default().extend(level.clump.ids().map(entry_page));
+        }
+    }
+    let mut released: BTreeMap<i32, BTreeMap<u32, FloorUse>> = BTreeMap::new();
+    for (file, (world, clumped, level)) in &maps {
+        if !clumped {
+            continue;
+        }
+        let into = released.entry(*world).or_default();
+        for (p, u) in floor_use(level, &raw(file)?).into_iter().filter(|(p, _)| have[world].contains(p)) {
+            into.entry(p).or_default().add(u);
+        }
+    }
+    let mut out = String::from(
+        "//! Generated by `uc textures floors` (crates/uc-tools/src/textures.rs): don't edit.\n\
+         //! For each map no mission with a clump of its own is on, its world pages that no released\n\
+         //! map has on its visible floor or roofs, and the released maps' page put in their place.\n\n\
+         pub const REFLOOR: &[(&str, &[(u16, u16)])] = &[\n",
+    );
+    for (file, (world, clumped, level)) in &maps {
+        if *clumped {
+            continue;
+        }
+        let from = if released.contains_key(world) { *world } else { uc_world::level::STAND_IN_WORLD };
+        let cand: Vec<(&u32, &FloorUse)> = released[&from].iter().filter(|(&q, u)| q != 0 && u.n >= 4.0).collect();
+        let fine = |p: u32| cand.iter().any(|(&q, _)| q == p);
+        let mut off: Vec<(u32, FloorUse)> = floor_use(level, &raw(file)?).into_iter().filter(|(p, _)| !fine(*p)).collect();
+        off.sort_by(|a, b| b.1.n.total_cmp(&a.1.n).then(a.0.cmp(&b.0)));
+        if off.is_empty() {
+            continue;
+        }
+        let mut taken: BTreeMap<u32, f64> = BTreeMap::new();
+        let mut pairs = Vec::new();
+        for (p, u) in off {
+            let mix = u.mix();
+            let known: f64 = u.next.iter().filter(|(k, _)| fine(**k)).map(|(_, v)| v).sum::<f64>().max(1.0);
+            let score = |q: u32, c: &FloorUse| {
+                let sort: f64 = mix.iter().zip(c.mix()).map(|(a, b)| a.min(b)).sum();
+                let total: f64 = c.next.values().sum::<f64>().max(1.0);
+                let next: f64 = u.next.iter().filter(|(k, _)| fine(**k))
+                    .filter_map(|(k, v)| c.next.get(k).map(|w| (v / known).min(w / total))).sum();
+                sort + 1.5 * next - (u.field() - c.field()).abs() + c.n.ln() * 0.03 - taken.get(&q).unwrap_or(&0.0) * 0.1
+            };
+            let best = cand.iter().map(|(&q, c)| (score(q, c), q)).max_by(|a, b| a.0.total_cmp(&b.0).then(b.1.cmp(&a.1)));
+            if let Some((_, q)) = best {
+                *taken.entry(q).or_default() += 1.0;
+                pairs.push(format!("({p}, {q})"));
+            }
+        }
+        out += &format!("    ({file:?}, &[{}]),\n", pairs.join(", "));
+    }
+    out += "];\n";
+    Ok(out)
+}
+
+/// The missions in the install's `levels`, by file name without `.ucm`, sorted.
+fn mission_names(game: &Path) -> Result<Vec<String>, String> {
+    let dir = game.join("levels");
+    let mut names: Vec<String> = std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?
+        .flatten()
+        .filter_map(|e| {
+            let f = e.file_name().to_string_lossy().into_owned();
+            Some(f.strip_suffix(".ucm").or_else(|| f.strip_suffix(".UCM"))?.to_string())
+        })
+        .collect();
+    names.sort_by_key(|n| n.to_ascii_lowercase());
+    Ok(names)
+}
+
+#[cfg(test)]
+mod tests {
+    /// The table the loader has is the one the install makes: rerun `uc textures floors -o
+    /// crates/uc-world/src/refloor.rs` after changing how it's made.
+    #[test]
+    fn the_refloor_table_is_current() {
+        let Some(game) = uc_formats::default_install() else { return };
+        let made = super::floors(&game).unwrap();
+        assert!(made == include_str!("../../uc-world/src/refloor.rs"), "refloor.rs is out of date:\n{made}");
+    }
 }

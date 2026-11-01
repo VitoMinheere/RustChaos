@@ -4,6 +4,7 @@
 //!   uc mission import <file.json> -o <out.ucm>
 //!   uc mission check <file.ucm|file.json>
 //!   uc textures missing [--game DIR] [--overrides DIR]
+//!   uc textures floors [--game DIR] [-o FILE]
 //!   uc unused [--game DIR]
 
 mod textures;
@@ -27,6 +28,10 @@ uc textures missing [--game DIR] [--overrides DIR]
     world's pictures, by world, as the world<N>/page_NNNN.png overrides that would fix
     them ([x] where --overrides already has one). The install is --game, else
     $UC_GAME_DIR, else the GOG location.
+uc textures floors [--game DIR] [-o FILE]
+    For the maps only clump-less missions are on: the world pages on their visible floor
+    and roofs that the released maps don't have there, and the released page to draw
+    instead, as the Rust table crates/uc-world/src/refloor.rs (stdout unless -o).
 uc unused [--game DIR]
     What's in the install that nothing uses: mission files urban.sty doesn't list (with
     their version, and whether they parse), mission recordings in talk2\\ that no message
@@ -98,6 +103,17 @@ fn run(args: &[String]) -> Result<(), String> {
         ["unused"] => {
             let game = game.or_else(uc_formats::default_install).ok_or("no install found: pass --game DIR")?;
             unused::run(&game)
+        }
+        ["textures", "floors"] => {
+            let game = game.or_else(uc_formats::default_install).ok_or("no install found: pass --game DIR")?;
+            let text = textures::floors(&game)?;
+            match out {
+                Some(p) => write(&p, text.as_bytes()),
+                None => {
+                    print!("{text}");
+                    Ok(())
+                }
+            }
         }
         _ => Err(USAGE.into()),
     }
