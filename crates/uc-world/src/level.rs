@@ -4,7 +4,7 @@ use uc_formats::units::radians;
 use crate::crinkle::ReliefQuad;
 use crate::geometry::{Builder, Layer, SelfLit, WorldGeometry, UNIT, UNTEXTURED};
 use glam::{vec3, Vec3};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use crate::character::{ep_angle, People};
 use crate::ground::Ground;
@@ -70,6 +70,10 @@ pub struct Level {
     /// borrows them from another world by number ([`borrowed_clump`]). Empty when the
     /// mission has a clump of its own.
     pub stand_in_pages: BTreeSet<u32>,
+    /// For a mission with no clump of its own, the mission each page's picture was taken from
+    /// ([`borrowed_clump`]): an override of that mission's page is this one's too, so the
+    /// upscaled clumps cover it. Empty when the mission has a clump of its own.
+    pub page_donors: BTreeMap<u32, String>,
     overrides: Option<PathBuf>,
     /// The prim texture pages that see through (`textype.txt`'s T, M, A or D, or the page
     /// after an I), counted from [`PRIM_PAGES`].
@@ -269,8 +273,9 @@ fn open_the_bank_sector(mission_name: &str, map_file: &str, map: &mut Map) {
 /// install no longer has. The pages come from the clumps of other missions: first those on
 /// the same map, then those in the same world; the shared pages from any. A world no
 /// clump covers borrows `STAND_IN_WORLD`'s pages, which fit its style table only roughly.
-/// Also returns the world pages it had to take from another world (`Level::stand_in_pages`).
-fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> (Clump, BTreeSet<u32>) {
+/// Also returns the world pages it had to take from another world (`Level::stand_in_pages`),
+/// and the mission each page was taken from (`Level::page_donors`).
+fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> (Clump, BTreeSet<u32>, BTreeMap<u32, String>) {
     // (rank, mission): 0 same map, 1 same world, 2 the stand-in world, 3 any other.
     let mut donors: Vec<(u8, String)> = Vec::new();
     let mut sets: HashMap<String, Option<i32>> = HashMap::new();
@@ -297,6 +302,12 @@ fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> (Clu
     let mut clump = Clump::empty();
     let mut others = Vec::new();
     let mut own = BTreeSet::new();
+    let mut from: BTreeMap<u32, String> = BTreeMap::new();
+    let note = |clump: &Clump, from: &mut BTreeMap<u32, String>, name: &str| {
+        for p in clump.ids().map(entry_page) {
+            from.entry(p).or_insert_with(|| name.to_string());
+        }
+    };
     for (rank, name) in donors {
         if let Some(c) = read(game, &format!("clumps\\{name}.txc")).ok().and_then(|b| Clump::parse(b).ok()) {
             if rank < 2 {
@@ -304,8 +315,9 @@ fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> (Clu
             }
             // A page's crinkle is taken along with the page.
             clump.fill_from(&c, |id| rank < 2 || (rank == 2 && !own_world) || !world_page(entry_page(id)));
+            note(&clump, &mut from, &name);
             if rank >= 2 {
-                others.push(c);
+                others.push((c, name));
             }
         }
     }
@@ -313,21 +325,31 @@ fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> (Clu
     // (Officer Training's world 2 lacks nine of them): rather than leave holes they take the
     // stand-in world's page of the same number, then any other's. Not the right picture, but
     // something of the right sort in the right place.
-    for c in &others {
+    for (c, name) in &others {
         clump.fill_from(c, |_| true);
+        note(&clump, &mut from, name);
     }
     let stand_ins = clump.ids().map(entry_page).filter(|&p| world_page(p) && !own.contains(&p)).collect();
-    (clump, stand_ins)
+    (clump, stand_ins, from)
 }
 
 /// The override for `page`, if there is one: the most particular of
 /// `<dir>/<mission>/page_NNNN.png`, `<dir>/world<N>/page_NNNN.png` (the map's own texture
 /// set, so a world that borrows another's pictures can be given its own) and
-/// `<dir>/page_NNNN.png`.
+/// `<dir>/page_NNNN.png`. The mission's folder is matched whatever its case: the folders are
+/// named as the clumps are (`awol1`), not always as their missions (`AWOL1`).
 pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -> Option<PathBuf> {
     let file = format!("page_{page:04}.png");
     let world = world.map(|w| dir.join(format!("world{w}")).join(&file));
-    [Some(dir.join(mission).join(&file)), world, Some(dir.join(&file))].into_iter().flatten().find(|p| p.is_file())
+    let own = dir.join(mission);
+    let own = if own.is_dir() || mission.is_empty() {
+        own
+    } else {
+        std::fs::read_dir(dir).ok().into_iter().flatten().flatten()
+            .find(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(mission))
+            .map_or(own, |e| e.path())
+    };
+    [Some(own.join(&file)), world, Some(dir.join(&file))].into_iter().flatten().find(|p| p.is_file())
 }
 
 /// What the unfinished missions never got (not in the original): an ending, and beacons for
@@ -705,22 +727,78 @@ fn add_point(mission: &mut Mission, ep: uc_formats::ucm::EventPoint, text: Optio
     index
 }
 
-/// The map a mission is played on when the install hasn't got its own: that of the mission
-/// it became. Finale1b's `Rooftest.iam` is missing, and Day Of Reckoning has its
-/// `Rooftest2.iam`.
+/// The maps missions are played on when the install hasn't got their own, and the lighting
+/// that goes with each (none for a map no mission lights): (mission, map, lighting).
+///
+/// Finale1b's `Rooftest.iam` is missing, and Day Of Reckoning, the mission it became, has its
+/// `Rooftest2.iam`. Rooftop1's `ROOFIN1.iam` ("roof, inside") is missing too, and
+/// `ROOFnoin.iam` ("roof, no inside"), oldsmoke1's, is the same rooftops without their
+/// insides: 26 of its 27 points are on its roofs.
+///
+/// The other maps of the editor's oldest missions are gone (`ECTS3c.iam`, `E7.iam`,
+/// `downtwn.iam`, `tm3.iam` and `canistst.iam`), nothing of them anywhere in the install or
+/// the source, and no map left has the roofs their raised points stand on. They're played on
+/// the map where most of their points have ground under them and nothing over them: ECTS3c's
+/// six (an ECTS show's, with a cinema, `timetest`'s race) on `supply1.iam`, the one built-up
+/// map where 28 of their 42 do; `e7` on Arms Breaker's `gpost3.iam`; `downight` on RTA's
+/// `disturb1.iam`, the city the other downtown missions are in; and the two tests with a
+/// handful of points on the ground (`tm3`, `wibble`) on `test.iam`. Their lighting was made
+/// for buildings that aren't there, so the stand-in's own is used. Those last are on maps
+/// they weren't made for: what has to be got to, or put down, at a height with nothing under
+/// it there is put on what is ([`settle_points`]). Finale1b's are fitted by hand
+/// ([`finish_unfinished`]).
+const STAND_INS: [(&str, &str, &str); 12] = [
+    ("Finale1b", r"Data\Rooftest2.iam", r"Data\Lighting\roof1.lgt"),
+    ("Rooftop1", r"Data\ROOFnoin.iam", ""),
+    ("bang", r"Data\supply1.iam", ""),
+    ("ECTS3C", r"Data\supply1.iam", ""),
+    ("four", r"Data\supply1.iam", ""),
+    ("three", r"Data\supply1.iam", ""),
+    ("three_n", r"Data\supply1.iam", ""),
+    ("timetest", r"Data\supply1.iam", ""),
+    ("e7", r"Data\gpost3.iam", r"Data\Lighting\gpost3.lgt"),
+    ("downight", r"Data\disturb1.iam", r"Data\Lighting\disturb1.lgt"),
+    ("tm3", r"Data\test.iam", ""),
+    ("wibble", r"Data\test.iam", ""),
+];
+
+/// The map `mission_name` is played on if the install hasn't got its own ([`STAND_INS`]).
 pub fn stand_in_map(mission_name: &str) -> Option<&'static str> {
-    const STAND_INS: [(&str, &str); 1] = [("Finale1b", r"Data\Rooftest2.iam")];
-    STAND_INS.iter().find(|(m, _)| m.eq_ignore_ascii_case(mission_name)).map(|&(_, map)| map)
+    STAND_INS.iter().find(|(m, ..)| m.eq_ignore_ascii_case(mission_name)).map(|&(_, map, _)| map)
+}
+
+/// On a stand-in map ([`STAND_INS`], but Finale1b), the points someone has to get to (the
+/// radius triggers) and the people and things put down, each moved down onto the floor under
+/// it if there's none where it is: timetest's cinema and Rooftop1's second panel are on
+/// roofs the stand-ins haven't got. Cameras, targets and platforms' paths are in the air
+/// anyway, and stay.
+fn settle_points(map: &Map, ground: &Ground, mission: &mut Mission) {
+    use uc_formats::ucm::trigger;
+    for e in mission.event_points.iter_mut().filter(|e| e.used != 0) {
+        let put_down = matches!(e.kind, waypoint::CREATE_PLAYER | waypoint::CREATE_ENEMIES | waypoint::CREATE_VEHICLE
+            | waypoint::CREATE_ITEM | waypoint::CREATE_BARREL | waypoint::CREATE_TREASURE | waypoint::NAV_BEACON);
+        let got_to = matches!(e.trigger, trigger::RADIUS | trigger::PLAYER_USES_RADIUS | trigger::ENEMY_RADIUS);
+        if !put_down && !got_to {
+            continue;
+        }
+        let (x, y, z) = (e.x as f32, e.y as f32, e.z as f32);
+        let floor = ground.surface(map, x, z, y + 64.0);
+        if y - floor > 64.0 {
+            e.y = floor as i32;
+        }
+    }
 }
 
 impl Level {
     pub fn load(game: &Path, mission_name: &str, opt: &LoadOptions) -> Result<Level, String> {
         let mut mission = Mission::parse(&read(game, &format!("levels\\{mission_name}.ucm"))?)
             .map_err(|e| format!("{mission_name}.ucm: {e}"))?;
+        mission.renumber_version0();
         finish_unfinished(mission_name, &mut mission);
         if read(game, &mission.map).is_err() {
-            if let Some(map) = stand_in_map(mission_name) {
+            if let Some(&(_, map, lighting)) = STAND_INS.iter().find(|(m, ..)| m.eq_ignore_ascii_case(mission_name)) {
                 mission.map = map.to_string();
+                mission.lighting = lighting.to_string();
             }
         }
         Level::load_with_mission(game, mission_name, mission, opt)
@@ -730,7 +808,7 @@ impl Level {
     /// edited one (#185). Its map and lighting are still read from the install, and its
     /// textures still looked up by `mission_name`. An edited mission keeps what
     /// [`finish_unfinished`] added when it was loaded, or doesn't if the editor took it out.
-    pub fn load_with_mission(game: &Path, mission_name: &str, mission: Mission, opt: &LoadOptions) -> Result<Level, String> {
+    pub fn load_with_mission(game: &Path, mission_name: &str, mut mission: Mission, opt: &LoadOptions) -> Result<Level, String> {
         let mut map = Map::parse(&read(game, &mission.map)?).map_err(|e| format!("{}: {e}", mission.map))?;
         to_sea(&mission.map, &mut map);
         open_the_store(mission_name, &mission.map, &mut map);
@@ -749,8 +827,8 @@ impl Level {
         let style_table = |w: i32| read(game, &format!("server\\textures\\world{w}\\style.tma")).ok();
         let world = map.texture_set.map(|w| if style_table(w).is_some() { w } else { STAND_IN_WORLD });
         // Textures are looked up by mission name, not by map (TEXTURE_initialise_clumping).
-        let (clump, mut stand_in_pages) = match read(game, &format!("clumps\\{mission_name}.txc")) {
-            Ok(b) => (Clump::parse(b).map_err(|e| e.to_string())?, BTreeSet::new()),
+        let (clump, mut stand_in_pages, page_donors) = match read(game, &format!("clumps\\{mission_name}.txc")) {
+            Ok(b) => (Clump::parse(b).map_err(|e| e.to_string())?, BTreeSet::new(), BTreeMap::new()),
             Err(_) => borrowed_clump(game, &mission.map, world),
         };
         // Borrowing the stand-in's world, none of its world pages are its own.
@@ -778,6 +856,9 @@ impl Level {
             // is fenced in, every way out unclimbable or angle-topped, so there every fence can
             // be climbed over.
             ground.fence_climb.fill(crate::ground::FenceClimb { climbable: true, over: true });
+        }
+        if !mission_name.eq_ignore_ascii_case("Finale1b") && stand_in_map(mission_name).is_some_and(|m| m.eq_ignore_ascii_case(&mission.map)) {
+            settle_points(&map, &ground, &mut mission);
         }
         let ep = mission.event_points.iter().find(|e| e.kind == waypoint::CREATE_PLAYER);
         let (sx, sy, sz) = ep.map_or((64.0 * UNIT, 0.0, 64.0 * UNIT), |e| (e.x as f32, e.y as f32, e.z as f32));
@@ -817,7 +898,7 @@ impl Level {
         };
         Ok(Level {
             game: game.to_path_buf(), name: mission_name.to_string(), mission, map, clump, styles, lighting,
-            ground, spawn, sky, people, overrides: opt.overrides.clone(), platforms, barrel_props, stand_in_pages, self_lit,
+            ground, spawn, sky, people, overrides: opt.overrides.clone(), platforms, barrel_props, stand_in_pages, self_lit, page_donors,
             see_through_prims: resolve(game, "server\\textures\\shared\\prims\\textype.txt")
                 .and_then(|p| std::fs::read_to_string(p).ok())
                 .map_or_else(Default::default, |t| see_through_pages(&t)),
@@ -835,7 +916,8 @@ impl Level {
     /// clump's.
     pub fn texture(&self, page: u32) -> Option<(Texture, bool)> {
         let over = self.overrides.as_deref()
-            .and_then(|d| override_path(d, &self.name, self.map.texture_set, page))
+            .and_then(|d| override_path(d, &self.name, self.map.texture_set, page)
+                .or_else(|| override_path(d, self.page_donors.get(&page)?, None, page)))
             .and_then(|p| load_png(&p));
         let overridden = over.is_some();
         let mut t = match over {

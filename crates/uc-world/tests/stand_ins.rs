@@ -40,3 +40,33 @@ fn only_warehouse_roofs_are_dark() {
     let Some(level) = load("police1") else { return };
     assert!(untextured(&level.build(), Layer::Roofs) > 0, "RTA's warehouse roofs aren't dark");
 }
+
+/// An override folder is found whatever its case: they're named as the clumps are
+/// (`awol1`), not always as the missions (`AWOL1`).
+#[test]
+fn override_folders_match_whatever_their_case() {
+    let dir = std::env::temp_dir().join(format!("uc-overrides-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("awol1")).unwrap();
+    std::fs::write(dir.join("awol1").join("page_0007.png"), b"").unwrap();
+    let found = uc_world::level::override_path(&dir, "AWOL1", None, 7);
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(found, Some(dir.join("awol1").join("page_0007.png")));
+}
+
+/// A mission with no clump of its own knows which mission each page it borrowed came from,
+/// so that mission's upscaled page is used for it too: every one a clump that has the page.
+#[test]
+fn borrowed_pages_know_where_they_came_from() {
+    let Some(game) = uc_formats::default_install() else { return };
+    for mission in ["army1", "e7", "Rooftop1", "upperclass1"] {
+        let Some(level) = load(mission) else { return };
+        assert!(uc_formats::resolve(&game, &format!("clumps\\{mission}.txc")).is_none(), "{mission} has a clump");
+        let pages = level.build().pages();
+        for p in pages.into_iter().filter(|&p| level.clump.texture(p).ok().flatten().is_some()) {
+            let donor = level.page_donors.get(&p).unwrap_or_else(|| panic!("{mission}: page {p} from nowhere"));
+            let clump = uc_formats::resolve(&game, &format!("clumps\\{donor}.txc")).unwrap();
+            let clump = uc_formats::txc::Clump::parse(std::fs::read(clump).unwrap()).unwrap();
+            assert!(clump.texture(p).ok().flatten().is_some(), "{mission}: page {p} isn't in {donor}'s clump");
+        }
+    }
+}

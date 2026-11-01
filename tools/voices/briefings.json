@@ -59,6 +59,14 @@
   "voice": "radio",
   "text": "Destroy the main transmitter at the top of the television building. Roper has the sabotage equipment."
  },
+ "army1.brief.wav": {
+  "voice": "radio",
+  "text": "Sabotage the radar tower on the army base, Stern. The workmen say the place is nuke proof; the guards say you're not getting in. Switches work the lifts and the gate."
+ },
+ "upperclass1.brief.wav": {
+  "voice": "radio",
+  "text": "Union Gardens has been closed for weeks, and the locals say something dodgy is going on behind those walls. Something smells funny round there, Stern. Find a crowbar and sabotage the gang's supplies."
+ },
  "estate1.brief.wav": {
   "voice": "radio",
   "text": "This building contains the main computer. To get in, you will need to disarm the security measures. They can be disarmed by throwing the override switch in the pool house."

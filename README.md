@@ -378,6 +378,8 @@ Prims, sounds, animations and text aren't covered yet (#471).
 2. Upscale them with any tool, keeping the file names. Wrap tiling textures around their edges, treat alpha separately, and check text by hand (`docs/RUST_ROADMAP.md` §4).
 3. Run with `--overrides pages_upscaled`. Any size works; textures get mipmaps automatically.
 
+A mission with no clump of its own borrows its pages from other missions' clumps, and takes their upscaled pages with them: `DIR/<mission it borrowed from>/` is tried after `DIR/<mission>/` and `DIR/world<N>/`, so the upscaled clumps cover the unreleased missions too. Folder names match whatever their case (`awol1` for `AWOL1`).
+
 Keep extracted and upscaled textures out of the repository; they are the game's copyrighted art.
 
 ## Tests and CI
@@ -436,6 +438,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for what to run before a pull request, an
 - hanging from ledges and traversing them;
 - stars, the skyline and moon;
 - animated prims (`LoadGameThing`).
+
+**The editor's oldest missions** (file versions 0 to 5, `uc unused` lists them) all load and run. Radar Tower (`army1`) and Union Gardens (`upperclass1`, the earliest Grim Gardens) play to a win and are in the mission list. Version 0's point types are one more than later versions', and are renumbered as they're loaded. Six maps are missing from the install. Rooftop1's is stood in for by the same rooftops without their insides (`ROOFnoin.iam`). The other five are gone altogether, so their missions are played on the map most of their points fit: the ECTS show's six on `supply1.iam`, `e7` on `gpost3.iam`, `downight` on `disturb1.iam`, and `tm3` and `wibble` on `test.iam`. A point on a stand-in with nothing under it is put down on the floor below, so timetest's cinema can still be reached.
 
 The shipped maps contain no fire-escape or interior-staircase facets, so those aren't needed. Warehouse roofs look black from outside: on PC the original takes their texture from a table only filled on PlayStation. Two-sided walls always use their front texture.
 

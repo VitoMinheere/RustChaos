@@ -391,6 +391,26 @@ impl Mission {
     }
 
     /// Checks the invariants the game's loader relies on.
+    /// A version 0 mission's points as later versions number them, for playing it (the file
+    /// itself is left as it was). Its point types are one more than later ones: the first
+    /// point of each file is a 3 with `Data[0]` 1, Darci, the way later files have a
+    /// `create_player` (2); its 4s have `create_enemies`' data (`e7`'s person type, count
+    /// and 50 is tm3's, version 1); and ECTS3C's 6s, on the rooftops, have item types (AK-47,
+    /// file, video, mine) no creature has, as `create_item` (5) does. Every point is
+    /// triggered by a 2, which later is a radius (never, with none): they're all things put
+    /// down at the start, as later files' `none` (0) are.
+    pub fn renumber_version0(&mut self) {
+        if self.version != 0 {
+            return;
+        }
+        for e in self.event_points.iter_mut().filter(|e| e.used != 0) {
+            e.kind = e.kind.saturating_sub(1);
+            if e.trigger == trigger::RADIUS {
+                e.trigger = trigger::NONE;
+            }
+        }
+    }
+
     pub fn validate(&self) -> std::result::Result<(), String> {
         let mut seen = [false; MAX_EVENT_POINTS];
         for e in &self.event_points {
