@@ -14,6 +14,11 @@ const SLIPPY: f32 = 50.0;
 /// How fast someone slides down it: `Velocity` 50, at walking's 16 to `WALK_SPEED`.
 const SLIP_SPEED: f32 = WALK_SPEED * 50.0 / 16.0;
 
+/// How much faster than a walk a player who's one of the Men in Black walks, and the walk
+/// played as much faster: not in the original, which never had one as the player, and whose
+/// walk alone is too slow to cross a district (a run is 520 to a walk's 190).
+const MIB_STRIDE: f32 = 1.7;
+
 impl Person {
     /// Standing on open ground too steep to stand on: the way down it.
     pub(super) fn slipping(&self, ground: &Ground, map: &Map) -> Option<Vec2> {
@@ -953,6 +958,8 @@ impl Person {
             let (speed, rate) = match (c.run, sprint) {
                 (true, true) => (SPRINT_SPEED, 1.35),
                 (true, false) => (RUN_SPEED, 1.0),
+                // A player who's one of the Men in Black never runs, so strides out instead.
+                _ if self.player && self.is_mib() => (WALK_SPEED * MIB_STRIDE, MIB_STRIDE),
                 _ => (WALK_SPEED, 1.0),
             };
             if c.jump {

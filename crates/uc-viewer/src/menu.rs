@@ -253,12 +253,13 @@ impl Menu {
         let ids = mission_ids(game);
         for (mission, title, briefing) in missions(game) {
             let playable = PLAYABLE.iter().any(|p| p.eq_ignore_ascii_case(&mission));
-            let goals = uc_formats::resolve(game, &format!("levels\\{mission}.ucm"))
+            let file = uc_world::level::mission_file(&mission);
+            let goals = uc_formats::resolve(game, &format!("levels\\{file}.ucm"))
                 .and_then(|p| std::fs::read(p).ok())
                 .and_then(|b| uc_formats::ucm::Mission::parse(&b).ok())
                 .map(|m| uc_game::goals::goals(&m))
                 .unwrap_or_default();
-            let map = uc_formats::resolve(game, &format!("levels\\{mission}.ucm"))
+            let map = uc_formats::resolve(game, &format!("levels\\{file}.ucm"))
                 .and_then(|p| std::fs::read(p).ok())
                 .and_then(|b| uc_formats::ucm::Mission::parse(&b).ok())
                 .map(|m| m.map.to_ascii_lowercase())
@@ -298,7 +299,7 @@ impl Menu {
         // drafts on maps of their own are in the list alone.
         let mut lost = None;
         for i in 0..entries.len() {
-            let draft = DRAFTS.iter().any(|u| u.0 == entries[i].mission);
+            let draft = DRAFTS.iter().chain(OWN.iter()).any(|u| u.0 == entries[i].mission);
             if entries[i].district.is_some() || !draft && !UNRELEASED.iter().any(|u| u.0 == entries[i].mission) {
                 continue;
             }
@@ -1227,6 +1228,19 @@ const DRAFTS: [(&str, &str, &str); 11] = [
       - Get the wounded survivors to safety.\r- Knock out the fuel pumps.\r- Get to the safe zone."),
 ];
 
+/// This project's own missions, made out of the game's (`uc_world::level::PORT_MISSIONS`),
+/// after [`DRAFTS`] and like them pinned only with a district whose map they share: (mission,
+/// title, briefing).
+const OWN: [(&str, &str, &str); 1] = [
+    // Mr Bates (gang1) the other way round: one of the Men in Black, the den theirs, and Bates
+    // a Wildcat.
+    ("mib_bates", "Men in Black: Mr Bates",
+     "The Wildcats have a new man in this district, Mr Bates, and he is to be removed. Ask in the \
+      den where he was last seen, and take Razor along. His Wildcats guard him and watch the way \
+      to the park, and if he sees you coming he'll make for his car.\r\
+      - Kill Mr Bates before he gets away.\r- Return to the den."),
+];
+
 /// `text` cut short with "..." to fit `width` at scale `s`.
 pub(crate) fn fit(text: &str, width: f32, s: f32) -> String {
     if Overlay::text_width(text, s) <= width {
@@ -1286,8 +1300,9 @@ pub fn missions(game: &Path) -> Vec<(String, String, String)> {
         }
         out.push((mission, f[8].to_string(), briefing));
     }
-    for (mission, title, briefing) in UNRELEASED.iter().chain(DRAFTS.iter()) {
-        if uc_formats::resolve(game, &format!("levels\\{mission}.ucm")).is_some() {
+    for (mission, title, briefing) in UNRELEASED.iter().chain(DRAFTS.iter()).chain(OWN.iter()) {
+        let file = uc_world::level::mission_file(mission);
+        if uc_formats::resolve(game, &format!("levels\\{file}.ucm")).is_some() {
             out.push((mission.to_string(), title.to_string(), briefing.to_string()));
         }
     }
@@ -1296,7 +1311,7 @@ pub fn missions(game: &Path) -> Vec<(String, String, String)> {
 
 /// One of the missions the game never released ([`UNRELEASED`] and [`DRAFTS`]).
 pub fn unreleased(mission: &str) -> bool {
-    UNRELEASED.iter().chain(DRAFTS.iter()).any(|u| u.0.eq_ignore_ascii_case(mission))
+    UNRELEASED.iter().chain(DRAFTS.iter()).chain(OWN.iter()).any(|u| u.0.eq_ignore_ascii_case(mission))
 }
 
 /// Where the unreleased missions without a district of their own are pinned, on the 640 by

@@ -274,8 +274,11 @@ impl Game {
             k
         };
         let guard_of = |q: &Person| q.ai == person::AI_BODYGUARD && (q.other == 0 || self.by_way.get(&q.other) == Some(&pi));
+        // Not in the original, which never had one as the player: one of the Men in Black
+        // doesn't aim at the others.
+        let own = |q: &Person| p.is_mib() && q.is_mib();
         let people = self.people.iter().enumerate()
-            .filter(|&(i, q)| i != pi && !q.removed && !q.is_dead() && !q.is_down() && !q.player && !guard_of(q)
+            .filter(|&(i, q)| i != pi && !q.removed && !q.is_dead() && !q.is_down() && !q.player && !guard_of(q) && !own(q)
                 && q.fig.anim() != uc_world::character::anim::HANDS_UP_LIE && !matches!(q.state, State::InCar { .. } | State::Carried { .. }))
             .filter_map(|(i, q)| seen(q.fig.pos, Aim::Person(i)).map(|(a, d, off)| (a, d / keen(q), off)));
         let creatures = self.creatures.iter().enumerate()

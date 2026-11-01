@@ -690,6 +690,165 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
     }
 }
 
+/// `ET_*` for the Men in Black (`ET_MIB1` to `_3`), and a Wildcat with a pistol
+/// (`ET_GANG_RASTA_PISTOL`).
+const ET_MIB: [i32; 3] = [19, 20, 21];
+const ET_WILDCAT_PISTOL: i32 = 9;
+
+/// `create_player`'s `Data[0]` for one of the Men in Black: not one the original has (it
+/// knows Darci 1, Roper 2, a cop 3 and a gang member 4).
+pub const PLAYER_MIB: i32 = 5;
+
+/// Makes one of [`PORT_MISSIONS`] out of the mission it's made from, already finished
+/// ([`finish_unfinished`]).
+///
+/// - `mib_bates`, from Mr Bates (`gang1`), the other way round: played as one of the Men in
+///   Black, with Men in Black in the den (points 10, 11 and Razor, 110), and Mr Bates (113) a
+///   Wildcat with a pistol, guarded by Wildcats (114, 185 and 193) instead of cops. The den's
+///   words are theirs, and the street's that called Mako a Wildcat call him something else.
+///   Lines said differently get speech numbers of their own, from 960, so the recordings of
+///   the old words aren't played over them.
+pub fn make_port_mission(mission_name: &str, mission: &mut Mission) {
+    use uc_formats::ucm::waypoint;
+    if !mission_name.eq_ignore_ascii_case("mib_bates") {
+        return;
+    }
+    let set_type = |m: &mut Mission, i: usize, et: i32| {
+        if let Some(e) = m.event_points.iter_mut().find(|e| e.index == i && e.used != 0) {
+            e.data[0] = (e.data[0] & !0xFFFF) | et;
+        }
+    };
+    if let Some(p) = mission.event_points.iter_mut().find(|e| e.used != 0 && e.kind == waypoint::CREATE_PLAYER) {
+        p.data[0] = PLAYER_MIB;
+    }
+    for (i, et) in [10, 11, 110].into_iter().zip(ET_MIB) {
+        set_type(mission, i, et);
+    }
+    for i in [113, 114, 185, 193] {
+        set_type(mission, i, ET_WILDCAT_PISTOL);
+    }
+    // A conversation's lines go to `Data[1]` and the player in turn, the den's first.
+    const SPEECH: i32 = 960;
+    let lines: [(usize, &str); 7] = [
+        (12, "Agent.|Report.|The Wildcats have a new man in this district. Bates.|Where?|Last seen by the park."),
+        (13, "The police are restless tonight.|They see what we let them see.|And the Wildcats?|They will learn the same."),
+        (111, "They call me Razor. Bates is my concern as much as yours.|Then walk with me.|As you command."),
+        (117, "It is done. The Wildcats will remember this night."),
+        (61, "Get outta here, creep!"),
+        (62, "Men in black suits...this city's gone crazy!"),
+        (126, "You don't scare me, suit!"),
+    ];
+    for (n, (i, text)) in lines.into_iter().enumerate() {
+        reword(mission, i, text, SPEECH + n as i32);
+    }
+    wildcats_fight_back(mission, SPEECH + 10);
+}
+
+/// `HAS_*` for `create_enemies`' `Data[2] >> 16`: a shotgun and an AK-47.
+const HAS_SHOTGUN: i32 = 2;
+const HAS_AK47: i32 = 4;
+
+/// The Wildcats of `mib_bates` fight, and Bates runs for it: the challenge of a mission whose
+/// player is hard to put down.
+///
+/// - Bates's guards (114, 185 and 193) carry AK-47s, and three pairs of Wildcats on the way
+///   from the den to the park keep watch (`PCOM_AI_GUARD`): one comes within four squares,
+///   or into sight within eight, and they go for him and call in the others near.
+/// - Coming within six squares of Bates, or killing one of his guards, raises the alarm: his
+///   guards hunt the player down (`PCOM_AI_ASSASIN` with the player their mark), three more
+///   come from across the park, and Bates walks to his getaway car, ten squares off on the
+///   road to the west, as its driver (`PCOM_AI_DRIVER`).
+/// - In it, he drives off west and round to the north, and the player has 25 seconds
+///   (a `visible_countdown`, on the HUD) before he's away and the mission is lost. Killing him
+///   stops the clock; so does blowing up his car, which throws him out.
+fn wildcats_fight_back(mission: &mut Mission, speech: i32) {
+    use uc_formats::ucm::{on_trigger, trigger, waypoint, EventPoint};
+    let point = |m: &Mission, i: usize| m.event_points.iter().find(|e| e.index == i && e.used != 0).cloned();
+    let (Some(bates), Some(guard), Some(dead)) = (point(mission, 113), point(mission, 114), point(mission, 115)) else { return };
+    let at = |e: &EventPoint, x: i32, y: i32, z: i32| EventPoint {
+        kind: 0, trigger: trigger::NONE, on_trigger: on_trigger::ACTIVE, ep_ref: 0, ep_ref_bool: 0, after_timer: 0,
+        data: [0; 10], radius: 0, next: 0, prev: 0, colour: 0, group: 0, flags: 0, x, y, z, ..e.clone()
+    };
+    let here = |e: &EventPoint| at(e, e.x, e.y, e.z);
+    let when = |e: EventPoint, t: u8, r1: usize, r2: usize| EventPoint { trigger: t, ep_ref: r1 as u16, ep_ref_bool: r2 as u16, ..e };
+    // One Wildcat: `ai` with skill 8, `mv` (1 standing, 2 a patrol), carrying `has`, with `other`.
+    let wildcat = |e: EventPoint, has: i32, ai: i32, other: i32| EventPoint {
+        kind: waypoint::CREATE_ENEMIES, colour: guard.colour,
+        data: [(1 << 16) | ET_WILDCAT_PISTOL, 0, 50 | (has << 16), 0, 0, ai | (8 << 16), 0, other, 0, 0], ..e
+    };
+    let say = |e: EventPoint, n: i32| EventPoint { kind: waypoint::MESSAGE, data: [1, 6, 0, 0, 0, 0, 0, 0, 0, speech + n], ..e };
+    const AI_GUARD: i32 = 2;
+    const AI_ASSASSIN: i32 = 3;
+    const AI_DRIVER: i32 = 9;
+
+    for i in [114, 185, 193] {
+        if let Some(e) = mission.event_points.iter_mut().find(|e| e.index == i && e.used != 0) {
+            e.data[2] |= HAS_AK47 << 16;
+        }
+    }
+    // On the way to the park: a pair at each of three corners.
+    for (x, z, has) in [(18907, 5732, 0), (18976, 10035, HAS_SHOTGUN), (19016, 11780, HAS_AK47)] {
+        for dx in [-160, 160] {
+            add_point(mission, wildcat(at(&guard, x + dx, 0, z), has, AI_GUARD, 0), None);
+        }
+    }
+
+    // The alarm: near him, or one of his guards down.
+    let near = add_point(mission, EventPoint { kind: waypoint::SIMPLE, trigger: trigger::RADIUS, radius: 6 * 256, ..here(&bates) }, None);
+    let mut alarm = near;
+    for g in [114, 185, 193] {
+        let down = add_point(mission, when(EventPoint { kind: waypoint::SIMPLE, ..here(&bates) }, trigger::KILLED, g, 0), None);
+        alarm = add_point(mission, when(EventPoint { kind: waypoint::SIMPLE, ..here(&bates) }, trigger::BOOLEAN_OR, alarm, down), None);
+    }
+    add_point(mission, when(say(here(&bates), 0), trigger::DEPENDENCY, alarm, 0), Some("He's seen you, agent. Bates is making for his car!"));
+    // His guards hunt the player (`Data[7]` the player's point, 1).
+    for g in [114, 185, 193] {
+        let hunt = EventPoint { kind: waypoint::ADJUST_ENEMY, colour: guard.colour, data: [0, 0, 50, 0, 0, AI_ASSASSIN, g, 1, 0, 0], ..here(&bates) };
+        add_point(mission, when(hunt, trigger::DEPENDENCY, alarm, 0), None);
+    }
+    for (x, z) in [(21894, 14615), (22436, 14502), (20266, 14629)] {
+        add_point(mission, when(wildcat(at(&guard, x, 0, z), HAS_AK47, AI_ASSASSIN, 1), trigger::DEPENDENCY, alarm, 0), None);
+    }
+
+    // His car, on the road west of the park, and his way out of the district: the stops of a
+    // patrol of colour 9, group 1 (none of gang1's), the first of them the point that makes
+    // him its driver.
+    let (colour, group) = (9, 1);
+    let Some(car_like) = point(mission, 84) else { return };
+    let car = add_point(mission, EventPoint { kind: waypoint::CREATE_VEHICLE, data: car_like.data, direction: car_like.direction, ..at(&car_like, 14900, -13, 15190) }, None);
+    let drive = EventPoint {
+        kind: waypoint::ADJUST_ENEMY, colour, group,
+        data: [0, 0, 50, 1, 0, AI_DRIVER, bates.index as i32, 0, 0, 0], ..at(&car_like, 14900, -13, 15190)
+    };
+    add_point(mission, when(drive, trigger::DEPENDENCY, alarm, 0), None);
+    for (x, z) in [(11616, 15190), (9343, 18496), (12921, 20917)] {
+        add_point(mission, EventPoint { kind: waypoint::SIMPLE, colour, group, ..at(&car_like, x, -13, z) }, None);
+    }
+
+    // In it: 25 seconds, then he's away.
+    let in_car = add_point(mission, when(EventPoint { kind: waypoint::SIMPLE, ..here(&bates) }, trigger::PERSON_IN_VEHICLE, bates.index, car), None);
+    add_point(mission, when(say(here(&bates), 1), trigger::DEPENDENCY, in_car, 0), Some("He's in his car! Stop him before he's out of the district!"));
+    let clock = add_point(mission, EventPoint { kind: waypoint::SIMPLE, trigger: trigger::VISIBLE_COUNTDOWN, ep_ref: in_car as u16, radius: 2500, ..here(&bates) }, None);
+    let away = add_point(mission, when(say(here(&bates), 2), trigger::DEPENDENCY, clock, 0), Some("Bates got away."));
+    add_point(mission, when(EventPoint { kind: waypoint::END_GAME_LOSE, ..here(&bates) }, trigger::DEPENDENCY, away, 0), None);
+    // Him dead, the clock's gone.
+    let stop = EventPoint { kind: waypoint::KILL_WAYPOINT, data: [clock as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..here(&bates) };
+    add_point(mission, when(stop, trigger::DEPENDENCY, dead.index, 0), None);
+}
+
+/// Puts `text` in point `index`'s place among the messages (`Mission::point_texts`), to be said
+/// as recording `speech` (`Data[9]`).
+fn reword(mission: &mut Mission, index: usize, text: &str, speech: i32) {
+    let mut points: Vec<usize> = mission.event_points.iter().filter(|e| uc_formats::ucm::has_text(e.kind)).map(|e| e.index).collect();
+    points.sort_unstable();
+    let Some(n) = points.iter().position(|&i| i == index) else { return };
+    let Some(slot) = mission.texts.iter_mut().filter(|t| matches!(t, uc_formats::ucm::TextEntry::Message { .. })).nth(n) else { return };
+    *slot = uc_formats::ucm::TextEntry::Message { text: text.to_string(), tail: Vec::new() };
+    if let Some(e) = mission.event_points.iter_mut().find(|e| e.index == index) {
+        e.data[9] = speech;
+    }
+}
+
 /// Adds `ep` to the mission as its last point, with its message if it has one, and returns
 /// its index. Messages go to the points that have them in index order (`Mission::point_texts`).
 fn add_point(mission: &mut Mission, ep: uc_formats::ucm::EventPoint, text: Option<&str>) -> usize {
@@ -710,17 +869,32 @@ pub fn stand_in_map(mission_name: &str) -> Option<&'static str> {
     STAND_INS.iter().find(|(m, _)| m.eq_ignore_ascii_case(mission_name)).map(|&(_, map)| map)
 }
 
+/// Missions this project makes out of one of the install's, by the name each is played as,
+/// with the one it's made from: whose file, map, textures and recordings it uses
+/// ([`make_port_mission`]).
+pub const PORT_MISSIONS: [(&str, &str); 1] = [("mib_bates", "gang1")];
+
+/// The install's mission file `mission_name` is played from (`levels\<file>.ucm`): its own, or
+/// for one of [`PORT_MISSIONS`] the one it's made from.
+pub fn mission_file(mission_name: &str) -> &str {
+    PORT_MISSIONS.iter().find(|(m, _)| m.eq_ignore_ascii_case(mission_name)).map_or(mission_name, |&(_, file)| file)
+}
+
 impl Level {
     pub fn load(game: &Path, mission_name: &str, opt: &LoadOptions) -> Result<Level, String> {
-        let mut mission = Mission::parse(&read(game, &format!("levels\\{mission_name}.ucm"))?)
-            .map_err(|e| format!("{mission_name}.ucm: {e}"))?;
-        finish_unfinished(mission_name, &mut mission);
+        let file = mission_file(mission_name);
+        let mut mission = Mission::parse(&read(game, &format!("levels\\{file}.ucm"))?)
+            .map_err(|e| format!("{file}.ucm: {e}"))?;
+        finish_unfinished(file, &mut mission);
+        make_port_mission(mission_name, &mut mission);
         if read(game, &mission.map).is_err() {
-            if let Some(map) = stand_in_map(mission_name) {
+            if let Some(map) = stand_in_map(file) {
                 mission.map = map.to_string();
             }
         }
-        Level::load_with_mission(game, mission_name, mission, opt)
+        let mut level = Level::load_with_mission(game, file, mission, opt)?;
+        level.name = mission_name.to_string();
+        Ok(level)
     }
 
     /// [`Level::load`] with `mission` in place of the install's `<mission_name>.ucm`: an

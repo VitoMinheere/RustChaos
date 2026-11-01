@@ -1599,6 +1599,14 @@ impl Person {
         if self.removed {
             return;
         }
+        // "MIB are too cool to run anywhere" (Person.cpp:19913): a player one neither.
+        let walk;
+        let c = if self.player && self.is_mib() {
+            walk = Controls { run: false, sprint: false, ..*c };
+            &walk
+        } else {
+            c
+        };
         self.sprinting = false;
         if self.player {
             self.breathe(c, dt);
