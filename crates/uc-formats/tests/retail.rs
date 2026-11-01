@@ -184,13 +184,16 @@ fn darci_animations_load() {
     }
 }
 
+/// Every mission in `levels\`, the editor's old versions too (#470): 0 (68-byte event
+/// points), 1, 4 and 5 (no boredom byte), parses and writes back unchanged.
 #[test]
-fn every_parsable_mission_round_trips_byte_for_byte() {
+fn every_mission_round_trips_byte_for_byte() {
     let Some(g) = game() else { return };
-    let (mut ok, mut skipped) = (0, 0);
+    let mut ok = 0;
     for p in files(&g.join("levels"), "ucm") {
         let bytes = fs::read(&p).unwrap();
-        let Ok(m) = Mission::parse(&bytes) else { skipped += 1; continue };
+        let m = Mission::parse(&bytes).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
+        m.validate().unwrap_or_else(|e| panic!("{}: {e}", p.display()));
         let out = m.write().unwrap_or_else(|e| panic!("{}: {e}", p.display()));
         if out != bytes {
             let at = out.iter().zip(&bytes).position(|(a, b)| a != b).unwrap_or(out.len().min(bytes.len()));
@@ -198,8 +201,7 @@ fn every_parsable_mission_round_trips_byte_for_byte() {
         }
         ok += 1;
     }
-    eprintln!("{ok} missions round-trip exactly ({skipped} dev files don't parse)");
-    assert_eq!(ok, 80);
+    assert_eq!(ok, 96);
 }
 
 #[cfg(feature = "json")]
@@ -210,7 +212,7 @@ fn missions_round_trip_through_json() {
     let mut n = 0;
     for p in files(&g.join("levels"), "ucm") {
         let bytes = fs::read(&p).unwrap();
-        let Ok(m) = Mission::parse(&bytes) else { continue };
+        let m = Mission::parse(&bytes).unwrap();
         // Lossless: JSON text -> mission -> bytes must equal the original file.
         let text = serde_json::to_string(&to_json(&m, true)).unwrap();
         let back: MissionJson = serde_json::from_str(&text).unwrap();
@@ -223,5 +225,5 @@ fn missions_round_trip_through_json() {
         assert!(reparsed.unused_slots.is_empty());
         n += 1;
     }
-    assert_eq!(n, 80);
+    assert_eq!(n, 96);
 }

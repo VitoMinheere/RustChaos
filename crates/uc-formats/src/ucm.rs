@@ -9,6 +9,29 @@ use crate::reader::{count, latin1, Reader, Result, Writer};
 
 pub const MAX_EVENT_POINTS: usize = 512;
 pub const NAME_SIZE: usize = 260;
+
+/// A version 0 event point is 68 bytes: six fewer than later (`EventPoint`,
+/// GEdit/Headers/Mission.h:18), and no source for it survives. The two files of it
+/// (`e7`, `ECTS3C`) put `Data[0]` 2 bytes early and `X` 6 bytes early, and hold nothing but
+/// zeros where the difference could be, so they're read as missing `AfterTimer` and
+/// `Data[9]`, the speech number, which came later (the editor makes it afresh for files
+/// older than version 7, `read_event_extra`).
+const OLD_EVENT_POINT: usize = 68;
+
+/// A version 0 event point as a later one: `AfterTimer` (bytes 12-13) and `Data[9]` (50-53)
+/// put in, as zeros.
+fn widen(old: &[u8]) -> [u8; 74] {
+    let mut out = [0u8; 74];
+    out[..12].copy_from_slice(&old[..12]);
+    out[14..50].copy_from_slice(&old[12..48]);
+    out[54..].copy_from_slice(&old[48..]);
+    out
+}
+
+/// The inverse of [`widen`].
+fn narrow(raw: &[u8; 74]) -> Vec<u8> {
+    [&raw[..12], &raw[14..50], &raw[54..]].concat()
+}
 pub const ZONE_SIZE: usize = 128 * 128;
 pub const SKILL_LEVELS: usize = 254;
 
@@ -216,6 +239,8 @@ pub struct Mission {
     pub unused_slots: Vec<(usize, [u8; 74])>,
     /// Per-AI-type skill levels (version > 5); ignored by the game.
     pub skill_levels: Vec<u8>,
+    /// Version > 5: older files end their header with the event points (the editor's
+    /// `OldMission`, GEdit/Headers/Mission.h:91), so it's 0 for them.
     pub boredom_rate: u8,
     pub fake_cars: u8,
     pub music_world: u8,
@@ -291,7 +316,13 @@ impl Mission {
         let mut unused_slots = Vec::new();
         let (mut n_msg, mut n_cut) = (0usize, 0usize);
         for index in 0..MAX_EVENT_POINTS {
-            let raw = r.take(74)?;
+            let wide;
+            let raw = if version == 0 {
+                wide = widen(r.take(OLD_EVENT_POINT)?);
+                &wide[..]
+            } else {
+                r.take(74)?
+            };
             let mut rr = Reader::new(raw);
             let h = rr.take(8)?;
             let (colour, group, kind, used, trigger, on_trigger, direction, ep_flags) =
@@ -319,7 +350,7 @@ impl Mission {
             });
         }
         let skill_levels = if version > 5 { r.take(SKILL_LEVELS)?.to_vec() } else { Vec::new() };
-        let boredom_rate = r.u8()?;
+        let boredom_rate = if version > 5 { r.u8()? } else { 0 };
         let (mut fake_cars, mut music_world) = (0, 0);
         if version > 8 {
             fake_cars = r.u8()?;
@@ -381,6 +412,11 @@ impl Mission {
                 "{n_msg} text event points and {n_cut} cut-scene points need {n_msg} messages and {n_cut} cutscenes, found {m} and {c}"
             ));
         }
+        if self.version == 0 {
+            if let Some(e) = self.event_points.iter().find(|e| e.after_timer != 0 || e.data[9] != 0) {
+                return Err(format!("event point {}: version 0 has no after-timer or Data[9]", e.index));
+            }
+        }
         if self.version < 8 && c > 0 {
             return Err("cutscenes need version >= 8".into());
         }
@@ -434,12 +470,17 @@ impl Mission {
             slots[e.index] = Some(a);
         }
         for s in slots {
-            w.raw(&s.unwrap_or([0u8; 74]));
+            let raw = s.unwrap_or([0u8; 74]);
+            if self.version == 0 {
+                w.raw(&narrow(&raw));
+            } else {
+                w.raw(&raw);
+            }
         }
         if self.version > 5 {
             w.raw(&self.skill_levels);
+            w.u8(self.boredom_rate);
         }
-        w.u8(self.boredom_rate);
         if self.version > 8 {
             w.u8(self.fake_cars);
             w.u8(self.music_world);
