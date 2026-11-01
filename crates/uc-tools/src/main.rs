@@ -5,6 +5,7 @@
 //!   uc mission check <file.ucm|file.json>
 //!   uc textures missing [--game DIR] [--overrides DIR]
 //!   uc textures floors [--game DIR] [-o FILE]
+//!   uc textures walls [--game DIR] [-o FILE]
 //!   uc unused [--game DIR]
 
 mod textures;
@@ -32,6 +33,8 @@ uc textures floors [--game DIR] [-o FILE]
     For the maps only clump-less missions are on: the world pages on their visible floor
     and roofs that the released maps don't have there, and the released page to draw
     instead, as the Rust table crates/uc-world/src/refloor.rs (stdout unless -o).
+uc textures walls [--game DIR] [-o FILE]
+    The same for their walls and fences: crates/uc-world/src/rewall.rs.
 uc unused [--game DIR]
     What's in the install that nothing uses: mission files urban.sty doesn't list (with
     their version, and whether they parse), mission recordings in talk2\\ that no message
@@ -104,9 +107,9 @@ fn run(args: &[String]) -> Result<(), String> {
             let game = game.or_else(uc_formats::default_install).ok_or("no install found: pass --game DIR")?;
             unused::run(&game)
         }
-        ["textures", "floors"] => {
+        ["textures", which @ ("floors" | "walls")] => {
             let game = game.or_else(uc_formats::default_install).ok_or("no install found: pass --game DIR")?;
-            let text = textures::floors(&game)?;
+            let text = if *which == "floors" { textures::floors(&game)? } else { textures::walls(&game)? };
             match out {
                 Some(p) => write(&p, text.as_bytes()),
                 None => {

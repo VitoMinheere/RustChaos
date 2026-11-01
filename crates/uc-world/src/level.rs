@@ -74,6 +74,9 @@ pub struct Level {
     /// ([`borrowed_clump`]): an override of that mission's page is this one's too, so the
     /// upscaled clumps cover it. Empty when the mission has a clump of its own.
     pub page_donors: BTreeMap<u32, String>,
+    /// Its walls' pages that are another's on a map older than the texture sets that shipped
+    /// ([`crate::rewall::REWALL`]): (as the map has it, as it's drawn).
+    pub wall_pages: &'static [(u16, u16)],
     overrides: Option<PathBuf>,
     /// The prim texture pages that see through (`textype.txt`'s T, M, A or D, or the page
     /// after an I), counted from [`PRIM_PAGES`].
@@ -911,9 +914,11 @@ impl Level {
         } else {
             None
         };
+        let wall_pages = crate::rewall::REWALL.iter().find(|(m, _)| m.eq_ignore_ascii_case(&mission.map)).map_or(&[][..], |&(_, p)| p);
         Ok(Level {
             game: game.to_path_buf(), name: mission_name.to_string(), mission, map, clump, styles, lighting,
             ground, spawn, sky, people, overrides: opt.overrides.clone(), platforms, barrel_props, stand_in_pages, self_lit, page_donors,
+            wall_pages,
             see_through_prims: resolve(game, "server\\textures\\shared\\prims\\textype.txt")
                 .and_then(|p| std::fs::read_to_string(p).ok())
                 .map_or_else(Default::default, |t| see_through_pages(&t)),
@@ -925,6 +930,18 @@ impl Level {
 
     pub fn lighter(&self) -> Option<Lighter<'_>> {
         self.lighting.as_ref().map(|l| Lighter::new(l, &self.map.objects))
+    }
+
+    /// Facet `i`'s wall quads ([`facet::wall_quads`]), on the pages they're drawn with: an old
+    /// map's ([`Level::wall_pages`]) as the released maps' walls have them.
+    pub fn wall_quads(&self, styles: &StyleTable, i: usize) -> Vec<facet::WallQuad> {
+        let mut quads = facet::wall_quads(&self.map, styles, i);
+        for q in &mut quads {
+            if let Some(&(_, to)) = self.wall_pages.iter().find(|&&(from, _)| from as u32 == q.page) {
+                q.page = to as u32;
+            }
+        }
+        quads
     }
 
     /// The texture for a page: an override PNG if present ([`override_path`]), else the
@@ -992,7 +1009,7 @@ impl Level {
         let sh = Shader { lighter: lighter.as_ref() };
         let Some(styles) = &self.styles else { return vec![Vec::new(); self.ground.doors.len()] };
         self.ground.doors.iter().map(|d| {
-            facet::wall_quads(&self.map, styles, d.facet).into_iter().map(|q| {
+            self.wall_quads(styles, d.facet).into_iter().map(|q| {
                 let corners = q.corners.map(|c| vec3(c[0], c[1], c[2]) / UNIT);
                 FacetQuad { page: q.page, uv: q.uv, corners, colour: sh.quad(&corners) }
             }).collect()
@@ -1009,7 +1026,7 @@ impl Level {
         let refence = fence_page(&self.mission.map);
         (1..self.map.facets.len()).filter(|&i| shakes(self.map.facets[i].kind)).map(|i| {
             let chain_link = self.map.facets[i].kind != facet_type::FENCE_BRICK;
-            let quads = facet::wall_quads(&self.map, styles, i).into_iter().map(|q| {
+            let quads = self.wall_quads(styles, i).into_iter().map(|q| {
                 let corners = q.corners.map(|c| vec3(c[0], c[1], c[2]) / UNIT);
                 let page = refence.filter(|_| chain_link).unwrap_or(q.page);
                 FacetQuad { page, uv: q.uv, corners, colour: sh.quad(&corners) }
@@ -1058,7 +1075,7 @@ impl Level {
                 if kind == facet_type::OUTSIDE_DOOR || shakes(kind) {
                     continue;
                 }
-                for q in facet::wall_quads(&self.map, styles, i) {
+                for q in self.wall_quads(styles, i) {
                     let p = q.corners.map(|c| vec3(c[0], c[1], c[2]) / UNIT);
                     let page = q.page;
                     let crinkle = *crinkle_of.entry(page).or_insert_with(|| {

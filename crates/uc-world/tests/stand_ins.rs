@@ -88,3 +88,17 @@ fn old_maps_are_refloored_with_released_pages() {
     let police1 = load("police1").unwrap();
     assert!(raw.squares.iter().zip(&police1.map.squares).all(|(a, b)| a.page() == b.page()));
 }
+
+/// Rooftop1's walls, on a map older than world 12 as it shipped, are drawn with pages the
+/// world's own clump (Day Of Reckoning's) has, not other worlds' of the same number.
+#[test]
+fn old_maps_walls_are_on_their_worlds_pages() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let Some(level) = load("Rooftop1") else { return };
+    let finale = uc_formats::txc::Clump::parse(std::fs::read(uc_formats::resolve(&game, r"clumps\finale1.txc").unwrap()).unwrap()).unwrap();
+    let styles = level.styles.as_ref().unwrap();
+    let pages: std::collections::BTreeSet<u32> = (1..level.map.facets.len()).flat_map(|i| level.wall_quads(styles, i))
+        .map(|q| q.page).filter(|&p| uc_world::level::world_page(p) && p != 0).collect();
+    let foreign: Vec<u32> = pages.iter().copied().filter(|&p| finale.texture(p).ok().flatten().is_none()).collect();
+    assert!(foreign.is_empty(), "wall pages world 12 hasn't got: {foreign:?}");
+}
