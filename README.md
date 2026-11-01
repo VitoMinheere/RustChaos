@@ -31,7 +31,7 @@ No game data is included; everything is read from your install.
 | `uc-viewer` | The app (winit): plays a mission with a HUD, sound and gamepad support, or explores a level; free camera; headless screenshots. | all of the above |
 | `uc-net` | Co-op's lockstep session: the messages over TCP, the server's logic (each turn's inputs gathered and sent out, state hashes compared), the client, and the turn pacing with the input delay. Replays: a game saved as how it started and every turn's inputs, and played back. | `uc-game` |
 | `uc-server` | The headless co-op server; `--bot` plays a mission with made-up inputs, for testing. | `uc-net` |
-| `uc-tools` | `uc` command-line tool: missions to and from JSON. | `uc-formats` |
+| `uc-tools` | `uc` command-line tool: missions to and from JSON, the pages missing from the unfinished missions' worlds, and what in the install nothing uses. | `uc-formats`, `uc-world` |
 
 ## Build
 
@@ -358,6 +358,19 @@ E on a mission in the mission list (or `--edit police1`) opens it in the editor 
 - **Saving:** Ctrl+S writes the mission's clean JSON to `missions\<name>.json` next to the progress file, never into the install. It's checked as it's saved, and the problems are listed bottom left: what keeps it from loading, a point that depends on one that isn't there, a message with no text, a point off the map. P goes to each.
 - **Playing:** F5 plays the edit from the start; Shift+F5 plays it with Darci where the camera looks. Esc comes back to the editor where you were. Nothing an edit does goes into the progress, best times or replays.
 - **Next time:** the editor opens the saved edit, and `uc mission import` makes a `.ucm` of it for the original game.
+
+## What nothing uses
+
+```
+cargo run --release -p uc-tools -- unused [--game DIR]
+```
+
+Lists what's in the install that nothing uses, to find cut content:
+- **Missions** in `levels\` that `urban.sty` doesn't list, with their file version and whether they parse (16 older versions don't, #470).
+- **Voice lines**: mission recordings in `talk2\` that no message or conversation in the mission plays (66, #467).
+- **Loose textures and meshes** (`.tga`, `.imp`, `.sex`) that neither `fallen.exe` nor a mesh it loads refers to. The file names are read from `fallen.exe` itself, whole or as `sprintf` patterns, so the outro's textures count as used through its meshes. Found this way: six pictures in `data\` (three of them the E3 demo's) and the two 3D fonts besides `all`.
+
+Prims, sounds, animations and text aren't covered yet (#471).
 
 ## Upscaled textures
 

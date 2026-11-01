@@ -4,8 +4,10 @@
 //!   uc mission import <file.json> -o <out.ucm>
 //!   uc mission check <file.ucm|file.json>
 //!   uc textures missing [--game DIR] [--overrides DIR]
+//!   uc unused [--game DIR]
 
 mod textures;
+mod unused;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -24,7 +26,12 @@ uc textures missing [--game DIR] [--overrides DIR]
     For the missions with no clump of their own: the world pages drawn with another
     world's pictures, by world, as the world<N>/page_NNNN.png overrides that would fix
     them ([x] where --overrides already has one). The install is --game, else
-    $UC_GAME_DIR, else the GOG location.";
+    $UC_GAME_DIR, else the GOG location.
+uc unused [--game DIR]
+    What's in the install that nothing uses: mission files urban.sty doesn't list (with
+    their version, and whether they parse), mission recordings in talk2\\ that no message
+    or conversation plays, and loose textures and meshes that neither fallen.exe nor a
+    mesh it loads refers to.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -87,6 +94,10 @@ fn run(args: &[String]) -> Result<(), String> {
         ["textures", "missing"] => {
             let game = game.or_else(uc_formats::default_install).ok_or("no install found: pass --game DIR")?;
             textures::missing(&game, overrides.as_deref())
+        }
+        ["unused"] => {
+            let game = game.or_else(uc_formats::default_install).ok_or("no install found: pass --game DIR")?;
+            unused::run(&game)
         }
         _ => Err(USAGE.into()),
     }
