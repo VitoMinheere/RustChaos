@@ -12,9 +12,9 @@ mod overlay;
 
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use uc_formats::txc::Texture;
-use uc_world::{ghost_page, reflect_page, smap_slot, Batch, Layer, Vertex, WorldGeometry, ADDITIVE_PAGES, DECAL_PAGES, EXPLODE_PAGE, GLOW, MIST, MOON_PAGE, SHADOW, SKY_PAGE, UNTEXTURED};
+use uc_world::{ghost_page, reflect_page, smap_slot, Batch, Layer, SelfLit, Vertex, WorldGeometry, ADDITIVE_PAGES, DECAL_PAGES, EXPLODE_PAGE, GLOW, MIST, MOON_PAGE, SHADOW, SKY_PAGE, UNTEXTURED};
 use uc_world::geometry::PUDDLE_PAGE;
 use wgpu::util::DeviceExt;
 
@@ -146,6 +146,10 @@ pub struct Renderer {
     sprite_pipeline: wgpu::RenderPipeline,
     ghost_depth_pipeline: wgpu::RenderPipeline,
     ghost_pipeline: wgpu::RenderPipeline,
+    unlit_pipeline: wgpu::RenderPipeline,
+    windows_pipeline: wgpu::RenderPipeline,
+    /// The level's pages that light themselves, from the last [`Renderer::upload_world`].
+    self_lit: SelfLit,
     sky_pipeline: wgpu::RenderPipeline,
     moon_pipeline: wgpu::RenderPipeline,
     puddle_mask_pipeline: wgpu::RenderPipeline,
@@ -545,6 +549,11 @@ impl Renderer {
         });
         let ghost_depth_pipeline = ghost("ghost depth pipeline", "fs_ghost_depth", true, None, wgpu::ColorWrites::empty());
         let ghost_pipeline = ghost("ghost pipeline", "fs_ghost", false, Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::ColorWrites::ALL);
+        // Pages that light themselves (`uc_world::SelfLit`): an 'S' page drawn unlit in its
+        // place, and an 'I' page's lit windows over it, on the same triangles (so at the same
+        // depth, which the less-or-equal test lets through).
+        let unlit_pipeline = ghost("unlit pipeline", "fs_unlit", true, None, wgpu::ColorWrites::ALL);
+        let windows_pipeline = ghost("lit windows pipeline", "fs_unlit", false, None, wgpu::ColorWrites::ALL);
         // The sky: drawn first, opaque, with no depth test and no fog (`POLY_PAGE_SKY`).
         let sky_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("sky pipeline"),
@@ -731,7 +740,7 @@ impl Renderer {
         let font = make_texture_levels(&device, &queue, &tex_layout, &font_sampler, &font_tex, 1);
         Renderer {
             device, queue, format, pipeline, globals_buf, globals_bg, tex_layout, sampler,
-            textures: HashMap::new(), white, shadow_pipeline, decal_pipeline, glow_pipeline, additive_pipeline, sprite_pipeline, ghost_depth_pipeline, ghost_pipeline, sky_pipeline, moon_pipeline, puddle_mask_pipeline, reflect_pipeline, moon_reflect_pipeline, smap_pipeline, shadow_tex, mist_tex,
+            textures: HashMap::new(), white, shadow_pipeline, decal_pipeline, glow_pipeline, additive_pipeline, sprite_pipeline, ghost_depth_pipeline, ghost_pipeline, unlit_pipeline, windows_pipeline, self_lit: SelfLit::default(), sky_pipeline, moon_pipeline, puddle_mask_pipeline, reflect_pipeline, moon_reflect_pipeline, smap_pipeline, shadow_tex, mist_tex,
             statics: None, chunks: Vec::new(), dynamic: None, targets: None,
             overlay_pipeline, screen_buf, screen_bg, font, overlay_buf: None, backdrop: None, minimap: None, faces: [None, None], stats: Stats::default(),
         }
@@ -785,8 +794,12 @@ impl Renderer {
             usage: wgpu::BufferUsages::INDEX,
         });
         self.statics = Some((vb, ib));
+        self.self_lit = geo.self_lit.clone();
         let (mut loaded, mut overridden) = (0, 0);
-        for page in geo.pages().into_iter().chain(extra_pages.iter().copied()) {
+        // And the lit windows drawn over those pages that have them.
+        let pages: BTreeSet<u32> = geo.pages().into_iter().chain(extra_pages.iter().copied()).collect();
+        let windows: Vec<u32> = pages.iter().filter_map(|&p| self.self_lit.overlay(p)).collect();
+        for page in pages.into_iter().chain(windows) {
             if self.textures.contains_key(&page) {
                 continue;
             }
@@ -798,6 +811,31 @@ impl Renderer {
             }
         }
         (loaded, overridden)
+    }
+
+    /// Draws `range` with `page`'s texture `bg`, in the main pipeline but for the pages that
+    /// light themselves ([`SelfLit`]): an 'S' page unlit, and an 'I' page with its lit
+    /// windows over it, if the next page is loaded. Leaves the main pipeline set.
+    fn draw_page(&self, pass: &mut wgpu::RenderPass<'_>, stats: &mut Stats, page: u32, bg: &wgpu::BindGroup,
+                 range: std::ops::Range<u32>) {
+        let unlit = self.self_lit.unlit.contains(&page);
+        if unlit {
+            pass.set_pipeline(&self.unlit_pipeline);
+        }
+        let windows = self.self_lit.overlay(page).and_then(|p| self.textures.get(&p));
+        for (pipeline, bg) in [(None, Some(bg)), (Some(&self.windows_pipeline), windows)] {
+            let Some(bg) = bg else { continue };
+            if let Some(p) = pipeline {
+                pass.set_pipeline(p);
+            }
+            pass.set_bind_group(1, bg, &[]);
+            pass.draw_indexed(range.clone(), 0, 0..1);
+            stats.draw_calls += 1;
+            stats.triangles += range.len() / 3;
+        }
+        if unlit || windows.is_some() {
+            pass.set_pipeline(&self.pipeline);
+        }
     }
 
     fn ensure_targets(&mut self, size: (u32, u32)) {
@@ -1052,10 +1090,7 @@ impl Renderer {
                             continue;
                         }
                         let bg = if r.page == UNTEXTURED { &self.white } else { self.textures.get(&r.page).unwrap_or(&self.white) };
-                        pass.set_bind_group(1, bg, &[]);
-                        pass.draw_indexed(r.first..r.first + r.count, 0, 0..1);
-                        stats.draw_calls += 1;
-                        stats.triangles += r.count as usize / 3;
+                        self.draw_page(&mut pass, &mut stats, r.page, bg, r.first..r.first + r.count);
                     }
                 }
             }
@@ -1063,10 +1098,7 @@ impl Renderer {
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
                 for &(page, first, count) in dyn_ranges.iter().filter(|r| !matches!(r.0, SHADOW | GLOW | MIST | SKY_PAGE | MOON_PAGE | EXPLODE_PAGE) && !DECAL_PAGES.contains(&r.0) && !ADDITIVE_PAGES.contains(&r.0) && ghost_page(r.0).is_none() && reflect_page(r.0).is_none() && smap_slot(r.0).is_none()) {
-                    pass.set_bind_group(1, self.textures.get(&page).unwrap_or(&self.white), &[]);
-                    pass.draw_indexed(first..first + count, 0, 0..1);
-                    stats.draw_calls += 1;
-                    stats.triangles += count as usize / 3;
+                    self.draw_page(&mut pass, &mut stats, page, self.textures.get(&page).unwrap_or(&self.white), first..first + count);
                 }
                 // Where the puddles show, then what they reflect there, under the puddles'
                 // own sheen (drawn with the marks next, as `POLY_PAGE_PUDDLE` over the

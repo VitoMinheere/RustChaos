@@ -411,6 +411,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for what to run before a pull request, an
 - props, which lean or crumple when they're knocked;
 - overhead cables (with their sag) and ladders;
 - baked lighting (ambient, static lights, lamppost lights);
+- lit windows: the pages each world's `textype.txt` flags 'I' draw their next page over them, its panes at full brightness whatever the light, so windows glow at night; and pages flagged 'S' are drawn unlit;
 - sky colour and distance fog;
 - Darci, with idle, walk and run animations, ground following and wall collision, and whoever else a mission makes the player: Mako out of the thugs' file, Roper out of his own;
 - explosions and the fires they leave.
