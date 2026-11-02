@@ -89,6 +89,12 @@ CHATTER_SAY = {
     "sram you bums! Oh...(ahem) excuse me, Officer.": "Scram, you bums! Oh... ahem. Excuse me, Officer.",
     "SPK Thursday 17/3/99": "S P K, Thursday, seventeen, three, ninety-nine.",
 }
+# Chatter lines left unvoiced in one voice, having come out wrong however they were made
+# (heard on 2026-11-02): by voice, matched by their letters and digits.
+CHATTER_DROP = {
+    "fcit": ["Help!", "Arse!", "Aaaaargh!!", "Shucks!", "Arrrrrrrr...choooo!", "urrrrgghhh...??"],
+    "mcit": ["Aaaaargh!!"],
+}
 # citsez.txt's lines the citizens recorded (talk2/misc/fcit-sez*, mcit-sez*), by voice.
 RECORDED = {"fcit": [1, 6, 13, 20], "mcit": [1, 3, 6, 10]}
 
@@ -185,6 +191,7 @@ def main():
         recorded = {v: {line_key(t) for n, t in numbered(os.path.join(args.game, "text", "citsez.txt")) if n in ns}
                     for v, ns in RECORDED.items()}
         respelt = {line_key(k): v for k, v in CHATTER_SAY.items()}
+        dropped = {v: {line_key(t) for t in ts} for v, ts in CHATTER_DROP.items()}
         seen = set()
         for file in CHATTER:
             for _, line in numbered(os.path.join(args.game, "text", file)):
@@ -193,7 +200,7 @@ def main():
                     continue
                 seen.add(key)
                 for voice in ("fcit", "mcit"):
-                    if (args.only and voice not in args.only.split(",")) or line_key(line) in recorded[voice]:
+                    if (args.only and voice not in args.only.split(",")) or line_key(line) in recorded[voice] | dropped.get(voice, set()):
                         continue
                     name = f"misc/{voice}-chat{key}"
                     say = respelt.get(line_key(line), spoken(line))
