@@ -21,6 +21,10 @@ number), and dead code in the original turns up too.
   vehicles, keys, barrels, creatures, effects, point flags and zone flags. Each value comes
   with the number of points and the missions that use it, and the unnamed ones are listed
   most-used first.
+- `anim_sets.py`: the people's animations the PC game plays, set by set (everyone's
+  `darci1.all`, Roper's with the cops, Roper2's, the civilians'), printed as the Rust tables
+  `uc unused` checks the install against (crates/uc-tools/src/unused.rs). Paste its output
+  over those tables when it changes.
 
 ```sh
 python tools/parity/constants.py --files -o constants.md
