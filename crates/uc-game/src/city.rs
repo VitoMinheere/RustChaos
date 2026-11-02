@@ -53,25 +53,42 @@ pub struct Chatter {
 }
 
 /// The lines of `text\citsez.txt` that were recorded (`talk2\misc\fcit-sez*`, `mcit-sez*`),
-/// by number, matched by Whisper and checked by ear (#486). The original never plays them.
-const VOICED: [(u8, &str); 6] = [
-    (1, "Sorry Officer, I'm in a hurry."),
-    (3, "Sorry I can't help ya, man."),
-    (6, "Sorry, I'm from outta town."),
-    (10, "Nice badge. You know where I can get me one?"),
-    (13, "No idea, Officer."),
-    (20, "I gotta get outta this place - Union City is killin' me!"),
+/// by number, matched by Whisper and checked by ear (#486), and whether a woman and a man
+/// recorded them. The original never plays them.
+const VOICED: [(u8, &str, bool, bool); 6] = [
+    (1, "Sorry Officer, I'm in a hurry.", true, true),
+    (3, "Sorry I can't help ya, man.", false, true),
+    (6, "Sorry, I'm from outta town.", true, true),
+    (10, "Nice badge. You know where I can get me one?", false, true),
+    (13, "No idea, Officer.", true, false),
+    (20, "I gotta get outta this place - Union City is killin' me!", true, false),
 ];
 
 /// Which recorded line `text` is (its number in `citsez.txt`), whichever chatter file it came
 /// from: compared by its letters and digits only, in any case.
 pub fn voiced_line(text: &str) -> Option<u8> {
-    VOICED.iter().find(|(_, t)| same_line(t, text)).map(|&(n, _)| n)
+    VOICED.iter().find(|v| same_line(v.1, text)).map(|v| v.0)
+}
+
+/// Whether recorded line `line` ([`voiced_line`]) was recorded by a woman, or by a man.
+pub fn recorded_by(line: u8, female: bool) -> bool {
+    VOICED.iter().any(|v| v.0 == line && if female { v.2 } else { v.3 })
+}
+
+/// The name a chatter line's made voice goes by (`talk2\misc\fcit-chat<key>.wav`, as
+/// `tools/voices/make_voices.py --chatter` makes them): FNV-1a of its letters and digits in
+/// lower case, so the same line in two files, or cased or punctuated otherwise, is one voice.
+pub fn chatter_key(text: &str) -> u32 {
+    key(text).bytes().fold(0x811c_9dc5, |h: u32, b| (h ^ b as u32).wrapping_mul(0x0100_0193))
+}
+
+/// A line's letters and digits, in lower case.
+fn key(s: &str) -> String {
+    s.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_lowercase()).collect()
 }
 
 /// Whether two lines say the same, compared by their letters and digits only, in any case.
 fn same_line(a: &str, b: &str) -> bool {
-    let key = |s: &str| s.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_lowercase()).collect::<String>();
     key(a) == key(b)
 }
 
@@ -468,9 +485,11 @@ impl Game {
         let female = matches!(o.kind, ptype::SLAG_TART | ptype::SLAG_FATUGLY) || (o.kind == ptype::CIV && o.fig.model.body == 9);
         if annoyed && i < self.streets.chatter.annoyed_file {
             self.people[j].cues.push(crate::Sfx::AnnoyedLine { line: i as u8 + 1, female });
-        } else if let Some(line) = voiced_line(&text).filter(|_| !annoyed) {
+        } else if let Some(line) = voiced_line(&text).filter(|&l| !annoyed && recorded_by(l, female)) {
             let stressed = self.people[pi].weapon.is_gun();
             self.people[j].cues.push(crate::Sfx::CitizenLine { line, female, stressed });
+        } else {
+            self.people[j].cues.push(crate::Sfx::ChatterLine { key: chatter_key(&text), female });
         }
         self.people[j].face_towards(pos);
         let roll = self.city_rand();
