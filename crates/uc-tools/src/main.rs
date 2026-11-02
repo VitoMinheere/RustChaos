@@ -41,7 +41,8 @@ uc unused [--game DIR]
     or conversation plays, loose textures and meshes that neither fallen.exe nor a mesh it
     loads refers to, prims the released game never draws, and sounds in data\\sfx\\ and
     talk2\\misc\\ that the sound table in fallen.exe doesn't name, text files nothing names,
-    and mission messages that can never be shown.";
+    mission messages that can never be shown, .all files the PC game never loads, and the
+    people's animations nothing plays.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();

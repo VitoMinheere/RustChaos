@@ -29,6 +29,12 @@
 //!   nor a released mission (its chatter file, `citsez`) names, and the ones named that
 //!   aren't there. Which of `lang_english.txt`'s lines are shown isn't checked: the release's
 //!   front end, which shows most of them, isn't in the source.
+//! - **Animations:** the `.all` files the PC game never loads (`setup_people_anims`,
+//!   Anim.cpp:926, names them; `anim%03d.all` is an anim prim a released map places or a
+//!   released mission's creature), and the animations in `darci1.all`, the people's, that
+//!   neither the code ([`PLAYED_ANIMS`]) nor a released mission's cutscene plays. The other
+//!   files number their animations their own way (`NROPER_*`, `CIV_*`), and aren't checked
+//!   one by one.
 //! - **Mission messages never shown:** messages no point owns, and those of points waiting
 //!   for one that isn't in the mission ([`dead_points`]), in every mission that parses.
 
@@ -90,6 +96,15 @@ pub struct Report {
     /// (none for a message no point owns) and the text. Unreleased missions too, as the port
     /// plays them.
     pub unshown: Vec<(String, bool, Option<usize>, String)>,
+    /// Animation files (`.all`): how many, the ones the PC game never loads (with why), and
+    /// the ones it names that aren't there.
+    pub anim_files: usize,
+    pub unused_anim_files: Vec<(String, String)>,
+    pub missing_anim_files: Vec<String>,
+    /// `darci1.all`, the people's animations: how many it has, and the ones nothing plays,
+    /// with their `ANIM_*` names where they have one.
+    pub people_anims: usize,
+    pub unplayed_anims: Vec<(usize, &'static str)>,
 }
 
 /// A prim file in `server\prims\` the released game never draws.
@@ -220,6 +235,7 @@ pub fn report(game: &Path) -> Result<Report, String> {
     prims(game, &parsed, &released, &mut r);
     sounds(game, &exe_strings, &parsed, &released, &mut r);
     texts(game, &exe_strings, &parsed, &released, &mut r);
+    anims(game, &exe_strings, &parsed, &released, &mut r);
     Ok(r)
 }
 
@@ -476,6 +492,164 @@ fn dead_points(m: &Mission) -> BTreeSet<usize> {
     }
 }
 
+/// The people's animations (`darci1.all`, `ANIM_*` in fallen/Headers/animate.h) the PC game
+/// code starts: every id it names in fallen/Source and fallen/DDEngine, comments left out,
+/// less the four it names only in code that never runs (`HIT_WALL` under `if(0)`,
+/// `STOP_RUN` in the `else` of an `if(1)`, interfac.cpp:2483, `NECK_SNAP` and `WARM_HANDS`
+/// never started; #342). No animation is started by a bare number.
+const PLAYED_ANIMS: &[usize] = &[
+    1, 2, 3, 7, 8, 13, 14, 15, 16, 19, 20, 25, 33, 34, 37, 38, 39, 40, 41, 42,
+    43, 45, 53, 54, 57, 58, 59, 60, 62, 64, 65, 68, 77, 78, 81, 86, 88, 89, 91, 92,
+    96, 104, 105, 109, 110, 117, 121, 122, 124, 128, 129, 130, 131, 134, 137, 138, 140, 141, 143, 144,
+    146, 147, 148, 150, 151, 154, 155, 156, 157, 158, 159, 161, 162, 164, 165, 166, 167, 168, 169, 170,
+    171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 184, 188, 189, 193, 194, 198, 199, 200, 201,
+    202, 206, 208, 209, 210, 212, 213, 216, 217, 218, 219, 222, 223, 225, 226, 227, 228, 229, 230, 231,
+    232, 233, 234, 235, 236, 238, 240, 245, 246, 247, 248, 250, 252, 254, 258, 259, 260, 261, 262, 263,
+    264, 266, 267, 268, 269, 270, 271, 272, 273, 274, 275, 276, 277, 278, 279, 280, 281, 282, 283, 284,
+    285, 286, 287, 288, 290, 292, 293, 294, 295, 296, 297, 298, 304, 305, 306, 307, 309, 310, 311, 312,
+    313, 314, 315, 321, 322, 323, 324, 325, 326, 327, 328, 329, 330, 332, 333, 334, 335, 336, 337, 338,
+    339, 341, 342, 343, 344, 345, 346, 347, 348, 349, 350, 351, 353, 355, 358, 360, 368, 370, 371, 375,
+    376, 377, 378, 380, 382, 383, 384, 386, 387, 388, 389, 390, 391, 392, 394, 395, 396, 397, 398, 399,
+    400,
+];
+
+/// The `ANIM_*` names of the ids [`PLAYED_ANIMS`] leaves out (animate.h).
+const ANIM_NAMES: &[(usize, &str)] = &[
+    (10, "DRAW_GUN"),
+    (12, "JUMP_UP_GRAB"),
+    (18, "SIDLE"),
+    (22, "HEAD_HIT_BIG"),
+    (24, "GUT_HIT_BIG"),
+    (26, "HEAD_HIT_SMALL"),
+    (27, "GUT_HIT_SMALL"),
+    (28, "HEAD_HIT_BEHIND"),
+    (32, "JUMP2"),
+    (36, "PULL_UP"),
+    (46, "RUN_JUMP_RIGHT"),
+    (47, "FALL_LONG"),
+    (69, "BSTEP"),
+    (80, "FATAL_FALL"),
+    (82, "SHOTGUN_IDLE_OLD"),
+    (83, "SHOTGUN_SHOOT"),
+    (85, "SHOTGUN_WALK"),
+    (87, "LOB2"),
+    (90, "EXIT_CAR"),
+    (93, "FLIP_RIGHT_CONT"),
+    (94, "FLIP_LEFT_CONT"),
+    (99, "HOSTAGE_STAND"),
+    (100, "HOSTAGE_SIT"),
+    (101, "HOSTAGE_DESPAIR"),
+    (102, "HOSTAGE_READY"),
+    (103, "HOSTAGE_RELEASE"),
+    (112, "BLOCK_LOW"),
+    (118, "RUN_JUMP_MLEFT"),
+    (132, "TURN90_LEFT"),
+    (133, "TURN90_RIGHT"),
+    (135, "LEVER"),
+    (139, "BATMAN"),
+    (142, "GET_DOWN"),
+    (149, "PUNCH_COMBO3B"),
+    (163, "PUNCH_BEHIND"),
+    (185, "PUNCH_COMBO2b"),
+    (186, "PUNCH_COMBO3b"),
+    (187, "KICK_COMBO3b"),
+    (211, "SHOTGUN_WHIP3"),
+    (221, "FIGHT_SHUFFLE"),
+    (237, "BIKE_RIDE"),
+    (242, "LEG_SWEEP_LOW"),
+    (253, "AK_AIM"),
+    (255, "SNIPE_AIM"),
+    (256, "SNIPE_FIRE"),
+    (257, "SNIPE_NORM"),
+    (308, "SHOT_DEAD_UZI"),
+    (316, "HIT_WALL"),
+    (317, "DIVE_LEFT"),
+    (318, "DIVE_RIGHT"),
+    (340, "STOP_RUN"),
+    (352, "PRESS_WALL_FREEZE_R_PISTOL"),
+    (354, "PRESS_WALL_FREEZE_R_AK"),
+    (356, "PRESS_WALL_FREEZE_R"),
+    (361, "BIKE_FALL_OVER_BARS"),
+    (379, "FIGHT_SHUFFLE_BAT"),
+    (381, "LAND_VERT_AK"),
+];
+
+/// The files `fallen.exe` names that only the PlayStation build loads (`save_psx`,
+/// `setup_people_anims`, fallen/Source/Anim.cpp:937).
+const PSX_ANIMS: &[&str] = &["psxroper.all", "roper_up.all"];
+
+/// `MAP_THING_TYPE_ANIM_PRIM` (Editor/Headers/Thing.h): a map thing that's an animated prim,
+/// `anim<index>.all`.
+const MAP_ANIM_PRIM: u16 = 8;
+
+/// `released`: the missions `urban.sty` lists or `fallen.exe` names, lowercased.
+fn anims(game: &Path, exe_strings: &[String], parsed: &[(String, Mission)], released: &BTreeSet<String>, r: &mut Report) {
+    let Some(data) = uc_formats::resolve(game, "data") else { return };
+    let mut on_disk: Vec<PathBuf> = files(&data).into_iter().filter(|p| ext(p) == "all").collect();
+    on_disk.sort_by_key(|p| file_name(p).to_ascii_lowercase());
+    r.anim_files = on_disk.len();
+    let named: BTreeSet<String> = exe_strings.iter().map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| s.ends_with(".all") && !s.contains('%')).collect();
+
+    // The anim prims a released mission loads (`load_needed_anim_prims`,
+    // `load_level_anim_prims`, io.cpp:525): the ones on its map, and its creatures', but not
+    // the bat's, which is never made (`BAT_create` is compiled out).
+    let rel: Vec<&Mission> = parsed.iter().filter(|(n, _)| released.contains(&n.to_ascii_lowercase())).map(|(_, m)| m).collect();
+    let maps: BTreeSet<String> = rel.iter().map(|m| base(&m.map).to_ascii_lowercase()).collect();
+    let mut prims: BTreeSet<u16> = BTreeSet::new();
+    // Every map's, for saying where the others are.
+    let mut placed: BTreeMap<u16, BTreeSet<String>> = BTreeMap::new();
+    for path in walk(game).into_iter().filter(|p| ext(p) == "iam") {
+        let file = file_name(&path).to_ascii_lowercase();
+        if let Ok(map) = std::fs::read(&path).map_err(|e| e.to_string()).and_then(|b| uc_formats::iam::Map::parse(&b).map_err(|e| e.to_string())) {
+            for t in map.things.iter().filter(|t| t.kind == MAP_ANIM_PRIM) {
+                placed.entry(t.index_other).or_default().insert(file.clone());
+                if maps.contains(&file) {
+                    prims.insert(t.index_other);
+                }
+            }
+        }
+    }
+    for m in &rel {
+        prims.extend(m.event_points.iter().filter(|e| e.kind == waypoint::CREATE_CREATURE && (2..=4).contains(&e.data[0])).map(|e| e.data[0] as u16));
+    }
+    for p in &on_disk {
+        let lower = file_name(p).to_ascii_lowercase();
+        let why = if let Some(n) = lower.strip_prefix("anim").and_then(|s| s.strip_suffix(".all")).filter(|n| n.len() == 3 && n.bytes().all(|c| c.is_ascii_digit())) {
+            let n: u16 = n.parse().unwrap_or(0);
+            (!prims.contains(&n)).then(|| match placed.get(&n) {
+                Some(on) => format!("an anim prim only on maps no released mission uses ({})", on.iter().cloned().collect::<Vec<_>>().join(", ")),
+                None => "an anim prim on no map, and no released mission's creature".to_string(),
+            })
+        } else if PSX_ANIMS.contains(&lower.as_str()) {
+            Some("the PlayStation's".to_string())
+        } else {
+            (!named.contains(&lower) && !named.contains(&format!("data\\{lower}"))).then(|| "not named".to_string())
+        };
+        if let Some(why) = why {
+            r.unused_anim_files.push((file_name(p), why));
+        }
+    }
+    let have: BTreeSet<String> = on_disk.iter().map(|p| file_name(p).to_ascii_lowercase()).collect();
+    r.missing_anim_files = named.iter().map(|n| base(n).to_string()).filter(|n| !have.contains(n)).collect();
+
+    // The people's animations nothing plays: not by the code, nor by a released mission's
+    // cutscene (an animation packet's index, less 1024 for Roper's, `PT_ANIM`, cutscene.cpp:1390).
+    let Some(chunk) = uc_formats::resolve(game, "data\\darci1.all").and_then(|p| std::fs::read(p).ok())
+        .and_then(|b| uc_formats::all::AnimChunk::parse(&b).ok()) else { return };
+    let mut played: BTreeSet<usize> = PLAYED_ANIMS.iter().copied().collect();
+    for m in &rel {
+        for c in m.cutscenes() {
+            played.extend(c.channels.iter().flat_map(|ch| &ch.packets).filter(|p| p.kind == 1 && p.index < 1024).map(|p| p.index as usize));
+        }
+    }
+    let present: Vec<usize> = chunk.anims.iter().enumerate().filter(|(_, a)| a.is_some()).map(|(i, _)| i).collect();
+    r.people_anims = present.len();
+    r.unplayed_anims = present.into_iter().filter(|i| !played.contains(i))
+        .map(|i| (i, ANIM_NAMES.iter().find(|(n, _)| *n == i).map_or("", |(_, s)| s)))
+        .collect();
+}
+
 fn print(r: &Report) {
     let unlisted: Vec<&MissionFile> = r.missions.iter().filter(|m| !m.listed).collect();
     println!("Missions: {} files in levels\\, {} of them not in urban.sty's list:", r.missions.len(), unlisted.len());
@@ -577,6 +751,24 @@ fn print(r: &Report) {
         println!("  named, but not there: {}", list.join(", "));
     }
     println!("  (which of lang_english.txt's lines are shown isn't checked: the release's front end isn't in the source)");
+    println!();
+    println!();
+    println!("Animation files: {} .all files in data\\, {} the PC game never loads:", r.anim_files, r.unused_anim_files.len());
+    let mut by: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (f, why) in &r.unused_anim_files {
+        by.entry(why.as_str()).or_default().push(f.as_str());
+    }
+    for (why, files) in by {
+        println!("  {why} ({}): {}", files.len(), files.join(", "));
+    }
+    if !r.missing_anim_files.is_empty() {
+        println!("  named, but not there: {}", r.missing_anim_files.join(", "));
+    }
+    println!();
+    println!("People's animations: {} in darci1.all, {} that neither the code nor a released mission's cutscene plays:", r.people_anims, r.unplayed_anims.len());
+    let list: Vec<String> = r.unplayed_anims.iter().map(|(i, n)| if n.is_empty() { i.to_string() } else { format!("{i} {n}") }).collect();
+    println!("  {}", list.join(", "));
+    println!("  (the other files' own animations aren't checked one by one: they're numbered their own way, NROPER_*, CIV_*)");
     println!();
     println!("Mission messages never shown ({}): no point owns them, or their point waits for one that isn't in the mission:", r.unshown.len());
     for (m, rel, point, t) in &r.unshown {
@@ -780,7 +972,7 @@ mod tests {
     }
 
     /// Against the install: what #467 and #470 found by hand, the outro's textures counted
-    /// as used through its meshes (#468), the prims, the sounds and the text.
+    /// as used through its meshes (#468), the prims, the sounds, the text and the animations.
     #[test]
     fn the_install_matches_what_was_found_by_hand() {
         let Some(game) = uc_formats::default_install() else { return };
@@ -836,6 +1028,28 @@ mod tests {
         let dead: Vec<Option<usize>> = r.unshown.iter().filter(|u| u.0 == "carbomb2").map(|u| u.2).collect();
         assert_eq!(dead, [Some(172), Some(182)]);
         assert!(r.unshown.iter().all(|u| !u.1), "a released mission's message is never shown: {:?}", r.unshown);
+        assert_eq!(r.anim_files, 60);
+        let why = |f: &str| r.unused_anim_files.iter().find(|(n, _)| n == f).map(|(_, w)| w.as_str());
+        assert_eq!(why("psxroper.all"), Some("the PlayStation's"));
+        assert_eq!(why("DOG2.all"), Some("not named"));
+        assert!(why("anim010.all").is_some_and(|w| w.contains("botanic.iam")));
+        // The people's, Roper's, the civilians', and the creatures'.
+        for used in ["darci1.all", "roper.all", "rthug.all", "newciv.all", "anim002.all", "anim003.all", "anim004.all"] {
+            assert_eq!(why(used), None, "{used} counted as unused");
+        }
+        assert_eq!(r.missing_anim_files, ["roper_up.all"]);
+        assert_eq!(r.people_anims, 274);
+        let unplayed: Vec<usize> = r.unplayed_anims.iter().map(|(i, _)| *i).collect();
+        // Dead code (#342), the hostage's, and the dives.
+        for id in [316, 340, 99, 100, 317, 318] {
+            assert!(unplayed.contains(&id), "{id} counted as played");
+        }
+        // In the file and played: the run, getting on a ladder, drawing a pistol.
+        let chunk = uc_formats::all::AnimChunk::parse(&std::fs::read(uc_formats::resolve(&game, "data\\darci1.all").unwrap()).unwrap()).unwrap();
+        for id in [198, 13, 296] {
+            assert!(chunk.anims[id].is_some(), "{id} isn't in darci1.all");
+            assert!(!unplayed.contains(&id), "{id} counted as unplayed");
+        }
         // A map object, a car body and a special.
         for used in ["nprim141.prm", "nprim108.prm", "nprim232.prm"] {
             assert_eq!(why(used), None, "{used} counted as unused");
