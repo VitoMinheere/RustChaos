@@ -25,9 +25,15 @@ fn to_the_search() -> Option<Run> {
 }
 
 impl Run {
-    /// Back at base until it's over: whether it was won.
+    /// Where the Sarge's beacon shows, if it's up.
+    fn sarge(&self) -> Option<glam::Vec3> {
+        self.g.beacons().into_iter().find(|(label, _)| label.contains("Sarge")).map(|(_, at)| at)
+    }
+
+    /// Back to the Sarge, where his beacon shows, until it's over: whether it was won.
     fn back_to_base(&mut self) -> bool {
-        self.stand(self.point(169));
+        let at = self.sarge().expect("no beacon on the Sarge");
+        self.stand(at + vec3(100.0, 0.0, 0.0));
         for _ in 0..90 {
             if self.g.outcome.is_some() {
                 break;
