@@ -422,6 +422,18 @@ impl Audio {
         }
     }
 
+    /// A made voice line (`talk2\<file>`, from [`Audio::set_voices`]'s folder or the install),
+    /// said, or stood behind one already being said. Whether it's there to play.
+    pub fn say_line(&mut self, file: &str) -> bool {
+        match self.line(file) {
+            Some(c) => {
+                self.say(c);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Says a line, or stands it behind one already being said.
     fn say(&mut self, clip: Arc<Clip>) {
         if self.speaking.is_some() {

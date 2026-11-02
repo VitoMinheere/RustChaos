@@ -1,6 +1,6 @@
 """Voices for the unreleased missions' lines that were never recorded, made with Chatterbox.
 
-    make_voices.py EXPORT OUT [--only VOICE,...] [--missions M,...] [--briefings] [--annoyed] [--chatter]
+    make_voices.py EXPORT OUT [--only VOICE,...] [--missions M,...] [--briefings] [--annoyed] [--chatter] [--beat TSV]
 
 EXPORT is what `cargo run --example voice_lines -- EXPORT` wrote (lines.tsv, and the
 recorded lines under clips/). OUT gets talk2/<mission>.ucm<speech><letter>.wav, named as
@@ -26,6 +26,10 @@ of the chatter files the missions read (CHATTER), in both citizens' voices, as
 talk2/misc/fcit-chat<key>.wav and mcit-chat<key>.wav, where <key> is chatter_key() of the
 line (the port's `uc_game::city::chatter_key`), so a line in several files is made once. The
 lines the citizens recorded themselves (RECORDED) are left out for the voice that has them.
+
+--beat TSV makes Beat Cop's dispatch lines, which the game never had: TSV is what
+`cargo run -p uc-game --example beat_lines` prints (file and words), and each goes to
+talk2/<file> in voices.json's "despatch" voice (the missions' radio, from the install).
 """
 import argparse, csv, json, os, re, shutil, time
 
@@ -102,6 +106,7 @@ def main():
     a.add_argument("--briefings", action="store_true", help="the unreleased missions' briefings")
     a.add_argument("--annoyed", action="store_true", help="the frightened citizens' lines (annoyed.txt)")
     a.add_argument("--chatter", action="store_true", help="what the crowds say (the chatter files)")
+    a.add_argument("--beat", help="Beat Cop's dispatch lines: beat_lines' TSV")
     a.add_argument("--game", default=os.environ.get("UC_GAME_DIR"), help="the install, for --annoyed and --chatter")
     args = a.parse_args()
     voices = json.load(open(os.path.join(here, "voices.json")))
@@ -145,6 +150,15 @@ def main():
                 name = f"misc/{voice}-annoyed{n:02}"
                 if not os.path.exists(os.path.join(talk2, name + ".wav")):
                     make(name, voice, spoken(line))
+        return
+
+    if args.beat:
+        if not args.game:
+            raise SystemExit("--beat needs the install: --game DIR or UC_GAME_DIR")
+        for row in open(args.beat, encoding="utf-8"):
+            file, _, text = row.rstrip("\n").partition("\t")
+            if file and text and not os.path.exists(os.path.join(talk2, file)):
+                make(file.removesuffix(".wav"), "despatch", spoken(text))
         return
 
     if args.chatter:

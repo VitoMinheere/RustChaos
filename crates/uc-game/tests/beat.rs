@@ -189,6 +189,81 @@ fn a_drunk_driver_is_stopped() {
     assert_eq!((b.handled, b.missed), (1, 0));
 }
 
+/// A drunk driver pulls over for a siren close by, gets out with his hands up, and with
+/// her beside him that's handled.
+#[test]
+fn a_drunk_driver_pulls_over_for_a_siren() {
+    let Some((level, mut g)) = call(11, Kind::DrunkDriver) else { return };
+    let d = culprit(&g);
+    let uc_game::State::InCar { vehicle } = g.people[d].state else { panic!("not in a car") };
+    run(&mut g, &level, 3.0);
+    assert!(g.vehicles[vehicle].speed.abs() > 60.0, "not driving");
+    // A police car with its siren going, just behind him.
+    let at = g.vehicles[vehicle].pos;
+    let mut cop = uc_game::Vehicle::new(0, 3, at - glam::vec3(0.0, 0.0, 600.0), 0.0, uc_game::vehicle::Key::None);
+    cop.siren = true;
+    g.vehicles.push(cop);
+    let mut out = false;
+    for _ in 0..40 {
+        run(&mut g, &level, 0.25);
+        if matches!(g.people[d].state, uc_game::State::HandsUp { .. }) {
+            out = true;
+            break;
+        }
+    }
+    assert!(out, "never pulled over: {:?} at {}", g.people[d].state, g.vehicles[vehicle].speed);
+    let me = g.player.unwrap();
+    g.people[me].fig.pos = g.people[d].fig.pos + glam::vec3(200.0, 0.0, 0.0);
+    run(&mut g, &level, 0.5);
+    let b = g.beat().unwrap();
+    assert_eq!((b.handled, b.missed), (1, 0));
+}
+
+/// A drunk driver stops for her standing in the road, late, and gets out with her at the
+/// door.
+#[test]
+fn a_drunk_driver_stops_for_her_in_the_road() {
+    let Some((level, mut g)) = call(11, Kind::DrunkDriver) else { return };
+    let d = culprit(&g);
+    let uc_game::State::InCar { vehicle } = g.people[d].state else { panic!("not in a car") };
+    run(&mut g, &level, 3.0);
+    let me = g.player.unwrap();
+    let mut out = false;
+    for _ in 0..80 {
+        // A little ahead of the car, whichever way it's pointing now.
+        let v = &g.vehicles[vehicle];
+        let ahead = glam::vec3(v.yaw.sin(), 0.0, v.yaw.cos()) * 180.0;
+        let to = v.pos + ahead;
+        g.people[me].fig.pos = glam::vec3(to.x, level.ground.surface(&level.map, to.x, to.z, v.pos.y + 64.0), to.z);
+        run(&mut g, &level, 0.1);
+        if !matches!(g.people[d].state, uc_game::State::InCar { .. }) {
+            out = true;
+            break;
+        }
+    }
+    assert!(out, "never stopped for her: {}", g.vehicles[vehicle].speed);
+    assert_eq!(g.people[me].health, g.people[me].max_health, "ran her down");
+}
+
+/// The getaway car boxed in or smashed up: he bails out to fight.
+#[test]
+fn a_getaway_driver_bails_out_of_a_smashed_car() {
+    let Some((level, mut g)) = call(11, Kind::Getaway) else { return };
+    let d = culprit(&g);
+    let uc_game::State::InCar { vehicle } = g.people[d].state else { panic!("not in a car") };
+    run(&mut g, &level, 6.0);
+    g.vehicles[vehicle].health = 100;
+    let mut out = false;
+    for _ in 0..40 {
+        run(&mut g, &level, 0.25);
+        if !matches!(g.people[d].state, uc_game::State::InCar { .. }) {
+            out = true;
+            break;
+        }
+    }
+    assert!(out, "still driving the wreck");
+}
+
 /// A getaway driver frightened out of his car turns gang member, and fights, gun and all.
 #[test]
 fn a_getaway_driver_fights_once_out() {

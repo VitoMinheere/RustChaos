@@ -297,6 +297,9 @@ pub enum Sfx {
     CopArrest,
     /// A gang member set to guard heard something (`SOUND_Curious`): "Huh?", "Who's there?".
     Curious { kind: u8 },
+    /// Beat Cop's dispatch says a line aloud (#130): a made voice, as the game never had
+    /// Beat Cop.
+    Despatch(crate::game::beat::Despatch),
     /// Someone plunging to their death screams (`ScreamFallSound`, Sound.cpp:600).
     ScreamFall { kind: u8 },
     /// Someone catching fire screams, a woman's scream or a man's. Not the original's, which

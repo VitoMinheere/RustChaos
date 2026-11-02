@@ -212,9 +212,10 @@ struct Driving {
     next: usize,
     /// Seconds left of backing off something the car ran into (`PCOM_MOVE_SUBSTATE_3PTURN`).
     reversing: f32,
-    /// Beat Cop's drunk driver (#130): weaving across the road, and stopping for nobody.
+    /// Beat Cop's drunk driver (#130): weaving across the road at three quarters of the
+    /// limit, and late to stop for anyone in the way.
     drunk: bool,
-    /// Beat Cop's getaway driver: twice the limit, and stopping for nobody.
+    /// Beat Cop's getaway driver: half as fast again as the limit, and stopping for nobody.
     reckless: bool,
     /// On patrol: the point being driven to (`PCOM_MOVE_STATE_DRIVETO`'s `pcom_move_arg`).
     patrol: Option<usize>,

@@ -271,8 +271,12 @@ impl Game {
         // Slow for a bend, down to a third of the limit; diligent drivers go twice as fast.
         let dangle = diff.abs() * 2048.0 / std::f32::consts::TAU;
         let mut want = if dangle > 100.0 { (1.0 - (dangle - 100.0) / 2.0 / 750.0).max(250.0 / 750.0) } else { 1.0 } * CRUISE;
-        if bent & 2 != 0 || st.reckless {
+        if bent & 2 != 0 {
             want *= 2.0;
+        } else if st.reckless {
+            want *= 1.5;
+        } else if st.drunk {
+            want *= 0.75;
         }
         // (The car turns away from its steering: steer left for a larger yaw.)
         let mut steer = (-diff * 2.0).clamp(-1.0, 1.0);
@@ -289,10 +293,12 @@ impl Game {
         // Stop for anyone in the road ahead (`PCOM_find_runover_thing`).
         let fwd = Vec2::new(yaw.sin(), yaw.cos());
         let side = Vec2::new(fwd.y, -fwd.x);
+        // A drunk sees them late: half as far ahead.
+        let ahead = if st.drunk { 0.5 } else { 1.0 };
         let blocker = self.people.iter().enumerate().find(|&(j, o)| {
             let r = Vec2::new(o.fig.pos.x - at.x, o.fig.pos.z - at.y);
             j != pi && !o.removed && !matches!(o.state, State::InCar { .. }) && (o.fig.pos.y - y).abs() < 150.0
-                && r.dot(fwd) > 0.0 && r.dot(fwd) < 250.0 + speed.max(0.0) * 0.5 && r.dot(side).abs() < 170.0
+                && r.dot(fwd) > 0.0 && r.dot(fwd) < (250.0 + speed.max(0.0) * 0.5) * ahead && r.dot(side).abs() < 170.0
         }).map(|(_, o)| o.fig.pos)
             // And for a car in the way (`VEH_find_runover_things` takes `CLASS_VEHICLE` too,
             // vehicle.cpp:449).
@@ -301,7 +307,7 @@ impl Game {
                 k != vi && (o.pos.y - y).abs() < 150.0 && r.dot(fwd) > 0.0 && r.dot(fwd) < 450.0 + speed.max(0.0) * 0.5 && r.dot(side).abs() < 170.0
             }).map(|(_, o)| o.pos));
         self.streets.drivers.insert(pi, st);
-        if let (Some(them), true) = (blocker, want > 0.0 && !st.drunk && !st.reckless) {
+        if let (Some(them), true) = (blocker, want > 0.0 && !st.reckless) {
             // Off a zebra crossing, now and then a blast of the horn: on two turns in 128,
             // counted from the car's own number (pcom.cpp:12116, played at :14637).
             let zebra = crate::wand::is_zebra(&level.map, (them.x / 256.0) as i32, (them.z / 256.0) as i32);
