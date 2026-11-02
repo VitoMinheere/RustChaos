@@ -201,12 +201,16 @@ impl App {
         }
         let mut controls = Controls::default();
         if w.third_person {
-            if inp.rmb || inp.mouse_look {
+            // Flying, the mouse and the right stick aim the searchlight instead (#466).
+            let flying = w.game.player_chopper().is_some();
+            if (inp.rmb || inp.mouse_look) && !flying {
                 w.orbit.yaw -= delta.x * 0.005;
                 w.orbit.pitch = (w.orbit.pitch - delta.y * 0.005).clamp(-1.3, 0.4);
             }
-            w.orbit.yaw -= pad.look.x * 2.5 * dt;
-            w.orbit.pitch = (w.orbit.pitch + pad.look.y * 1.5 * dt).clamp(-1.3, 0.4);
+            if !flying {
+                w.orbit.yaw -= pad.look.x * 2.5 * dt;
+                w.orbit.pitch = (w.orbit.pitch + pad.look.y * 1.5 * dt).clamp(-1.3, 0.4);
+            }
             w.orbit.dist = (w.orbit.dist * (1.0 - inp.wheel * 0.1)).clamp(0.8, 8.0);
             w.classic_camera(inp, delta, dt);
             // The original's layout turns with Left and Right (the camera swinging round
@@ -295,7 +299,9 @@ impl App {
             // Flying the helicopter (#465): forward and back, left and right to turn (or to
             // the side with strafe held), jump to climb and crouch to sink; on the pad the
             // left stick, the shoulder buttons to the side and the triggers up and down.
-            // Action gets out once it's low enough. The camera swings round behind it.
+            // Action gets out once it's low enough. The camera swings round behind it. The
+            // mouse (with the right button, or in mouse-look) or the right stick swing the
+            // searchlight about under it (#466).
             if let Some(c) = w.game.player_chopper() {
                 let key = |a| if inp.on(a) { 1.0 } else { 0.0 };
                 let pad_key = |b| if pad.held(b) { 1.0 } else { 0.0 };
@@ -307,10 +313,14 @@ impl App {
                         turn: (if sideways { 0.0 } else { turn } + pad.mv.x).clamp(-1.0, 1.0),
                         side: (if sideways { turn } else { 0.0 } + pad_key(Button::RightTrigger) - pad_key(Button::LeftTrigger)).clamp(-1.0, 1.0),
                         climb: (key(Act::Jump) - key(Act::Crouch) + pad_key(Button::RightTrigger2) - pad_key(Button::LeftTrigger2)).clamp(-1.0, 1.0),
+                        aim: {
+                            let mouse = if inp.rmb || inp.mouse_look { vec2(delta.x, -delta.y) * 0.08 } else { Vec2::ZERO };
+                            (mouse + pad.look).clamp(Vec2::splat(-1.0), Vec2::ONE)
+                        },
                     },
                     ..Default::default()
                 };
-                if delta.length_squared() < 1.0 && pad.look.length_squared() < 0.01 {
+                {
                     let yaw = uc_formats::units::radians(c.angle as f32);
                     let d = (yaw - w.orbit.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
                     w.orbit.yaw += d * (1.5 * dt).min(1.0);

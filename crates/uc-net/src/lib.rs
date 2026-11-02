@@ -165,8 +165,9 @@ pub struct Input {
     pub strafe: Option<[f32; 2]>,
     /// [`Controls::look`].
     pub look: Option<[f32; 2]>,
-    /// [`Controls::fly`] (ahead, side, turn, climb), when any of it's pushed.
-    pub fly: Option<[f32; 4]>,
+    /// [`Controls::fly`] (ahead, side, turn, climb, and the searchlight's aim right and
+    /// ahead), when any of it's pushed.
+    pub fly: Option<[f32; 6]>,
 }
 
 /// [`Input::buttons`].
@@ -204,7 +205,7 @@ impl Input {
         ];
         let buttons = bits.iter().filter(|b| b.0).fold(0, |a, b| a | b.1);
         Input { wish: c.wish.to_array(), drive: [c.drive.throttle, c.drive.steer], buttons, strafe: c.strafe.map(|v| v.to_array()), look: c.look.map(|(a, p)| [a, p]),
-            fly: (c.fly != Default::default()).then_some([c.fly.ahead, c.fly.side, c.fly.turn, c.fly.climb]) }
+            fly: (c.fly != Default::default()).then_some([c.fly.ahead, c.fly.side, c.fly.turn, c.fly.climb, c.fly.aim.x, c.fly.aim.y]) }
     }
 
     pub fn controls(&self) -> Controls {
@@ -230,7 +231,7 @@ impl Input {
             aim: None,
             strafe: self.strafe.map(glam::Vec2::from_array),
             look: self.look.map(|[a, p]| (a, p)),
-            fly: self.fly.map_or_default(|[ahead, side, turn, climb]| uc_game::chopper::Stick { ahead, side, turn, climb }),
+            fly: self.fly.map_or_default(|[ahead, side, turn, climb, x, y]| uc_game::chopper::Stick { ahead, side, turn, climb, aim: glam::Vec2::new(x, y) }),
         }
     }
 

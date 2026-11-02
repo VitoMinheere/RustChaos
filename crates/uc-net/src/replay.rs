@@ -467,7 +467,7 @@ mod tests {
 
     #[test]
     fn a_replay_round_trips() {
-        let i = |x: f32, b: u16| Input { wish: [x, -x], drive: [0.5, x], buttons: b, strafe: (b & 1 != 0).then_some([x, 1.0]), look: (b & 2 != 0).then_some([x, 0.25]), fly: (b & 4 != 0).then_some([x, 0.5, -x, 1.0]) };
+        let i = |x: f32, b: u16| Input { wish: [x, -x], drive: [0.5, x], buttons: b, strafe: (b & 1 != 0).then_some([x, 1.0]), look: (b & 2 != 0).then_some([x, 0.25]), fly: (b & 4 != 0).then_some([x, 0.5, -x, 1.0, 0.25, -x]) };
         let r = Replay {
             start: Start {
                 mission: "Assault1".into(), mode: Mode::Beat { seed: 7, centre: Some([256.0, -512.0]), shift: None },

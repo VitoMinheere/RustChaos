@@ -108,3 +108,33 @@ fn a_mission_s_chopper_stays_the_ai_s() {
     r.play(common::DT, Controls { action: true, ..Default::default() });
     assert!(!matches!(r.g.people[r.player()].state, State::Flying { .. }));
 }
+
+/// The searchlight (#466): flown over a Beat Cop gang fight, the thugs caught in it show on
+/// the radar, and each either gives up, lying down, or runs.
+#[test]
+fn the_searchlight_picks_out_the_gang() {
+    let Some(level) = common::load("police1") else { return };
+    let g = Game::new_beat(&level, 3, None, None);
+    let mut r = common::Run { level, g, seen: Vec::new(), heal: true, stop_at_outcome: true, each_turn: None };
+    r.play(1.0, Controls::default());
+    assert!(r.g.call_in_now(uc_game::game::beat::Kind::GangFight, &r.level));
+    get_in(&mut r);
+    r.play(5.0, fly(Stick { climb: 1.0, ..Default::default() }));
+    let at = r.g.beat().unwrap().incidents[0].at;
+    let gang: Vec<usize> = (0..r.g.people.len()).filter(|&i| r.g.people[i].is_guilty() && (r.g.people[i].fig.pos - at).length() < 512.0).collect();
+    assert!(!gang.is_empty(), "no gang fight");
+    let t = gang[0];
+    let before = r.g.radar().len();
+    // Over him, the light straight down.
+    let k = r.g.choppers.iter().position(|c| c.parked).unwrap();
+    for _ in 0..(1.0 / common::DT) as usize {
+        let p = r.g.people[t].fig.pos;
+        let c = &mut r.g.choppers[k];
+        (c.x, c.z) = ((p.x * 256.0) as i32, (p.z * 256.0) as i32);
+        r.play(common::DT, fly(Stick::default()));
+    }
+    let p = &r.g.people[t];
+    assert!(p.lit > 0.0, "never lit; the beam {} from {}", r.g.choppers[k].beam, r.g.choppers[k].pos());
+    assert!(p.is_down() || p.scared.is_some(), "neither gave up nor ran: {:?}", p.state);
+    assert!(r.g.radar().iter().any(|d| (d.pos - r.g.people[t].fig.pos).length() < 1.0), "not on the radar ({before} dots before)");
+}

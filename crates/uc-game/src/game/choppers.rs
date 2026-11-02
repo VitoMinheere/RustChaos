@@ -83,6 +83,9 @@ fn parking(level: &Level, start: Vec3) -> Option<Vec3> {
     None
 }
 
+/// How long someone caught in the searchlight stays on the radar after (seconds).
+pub const LIT: f32 = 5.0;
+
 impl Game {
     /// `CHOPPER_fn_normal` for each helicopter, at 20 ticks a second.
     pub(crate) fn fly_choppers(&mut self, dt: f32, level: &Level) {
@@ -93,12 +96,14 @@ impl Game {
         while self.clocks.chopper >= chopper::TICK {
             self.clocks.chopper -= chopper::TICK;
             let mut choppers = std::mem::take(&mut self.choppers);
+            let mut lit = Vec::new();
             {
                 let world = World { game: self, level };
                 for c in &mut choppers {
                     if c.parked {
                         let stick = if c.pilot.is_some() && c.pilot == self.player { self.stick } else { chopper::Stick::default() };
                         c.pilot_tick(stick, &world);
+                        lit.extend(c.pilot.filter(|_| c.light > 100).map(|pi| (pi, c.pos() + c.beam, c.height(&world))));
                         continue;
                     }
                     c.tick(self.player, &world);
@@ -119,6 +124,12 @@ impl Game {
                 }
             }
             self.choppers = choppers;
+            for p in &mut self.people {
+                p.lit = (p.lit - chopper::TICK).max(0.0);
+            }
+            for (pilot, spot, height) in lit {
+                self.searchlight(pilot, spot, height);
+            }
         }
         // The pilot goes where it goes, sat in it.
         for (k, c) in self.choppers.iter().enumerate() {
@@ -126,6 +137,34 @@ impl Game {
                 if matches!(self.people[pi].state, State::Flying { chopper } if chopper == k) {
                     self.people[pi].fig.pos = c.pos() - Vec3::new(0.0, 200.0, 0.0);
                     self.people[pi].fig.angle = radians(c.angle as f32) + std::f32::consts::PI;
+                }
+            }
+        }
+    }
+
+    /// The player's searchlight on the spot `spot` from `height` up (#466; not the
+    /// original's, whose beam is only drawn): anyone wanted in it shows on the radar while
+    /// they're lit and for [`LIT`] seconds after; a thug caught in it gives up one time in
+    /// three, lying down to be cuffed, and otherwise runs from it.
+    fn searchlight(&mut self, pilot: usize, spot: Vec3, height: f32) {
+        let reach = 160.0 + height * 0.15;
+        for i in 0..self.people.len() {
+            let p = &self.people[i];
+            let off = p.fig.pos - spot;
+            if i == pilot || p.removed || p.is_dead() || p.is_down() || p.aboard() || Vec2::new(off.x, off.z).length() > reach || off.y.abs() > 200.0 {
+                continue;
+            }
+            if !p.is_guilty() {
+                continue;
+            }
+            let caught = p.lit == 0.0;
+            let thug = matches!(p.kind, ptype::THUG_RASTA | ptype::THUG_GREY | ptype::THUG_RED) || p.ai == person::AI_GANG;
+            self.people[i].lit = LIT;
+            if caught && thug && !self.people[i].player {
+                if self.rand().is_multiple_of(3) {
+                    self.people[i].get_down();
+                } else if self.people[i].scared.is_none() {
+                    self.people[i].scared = Some(person::Scare { by: Some(pilot), at: spot, time: 0.0, goal: None });
                 }
             }
         }
@@ -237,9 +276,16 @@ impl Game {
                 continue;
             }
             let dir = c.beam.normalize_or(Vec3::NEG_Y);
-            let end = at + dir * 256.0 * 5.0;
-            let side = dir.cross(Vec3::Y).normalize_or(Vec3::X) * 256.0;
-            let up = side.cross(dir).normalize_or(Vec3::Z) * 256.0;
+            // The player's reaches the ground, as wide as the spot that picks people out
+            // (#466); the AI's is five squares long, as the original's.
+            let (len, wide) = if c.parked {
+                (c.beam.length(), 160.0 + 0.15 * (-c.beam.y - 250.0).max(0.0))
+            } else {
+                (256.0 * 5.0, 256.0)
+            };
+            let end = at + dir * len;
+            let side = dir.cross(Vec3::Y).normalize_or(Vec3::X) * wide;
+            let up = side.cross(dir).normalize_or(Vec3::Z) * wide;
             let bright = (0x66 * c.light / 255) as u8;
             let lamp = [bright, bright, 0, 255];
             const STEPS: usize = 12;
