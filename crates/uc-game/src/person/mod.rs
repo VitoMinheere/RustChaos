@@ -299,6 +299,10 @@ pub enum Sfx {
     Curious { kind: u8 },
     /// Someone plunging to their death screams (`ScreamFallSound`, Sound.cpp:600).
     ScreamFall { kind: u8 },
+    /// Someone catching fire screams, a woman's scream or a man's. Not the original's, which
+    /// burns them in silence: its screams (`S_SCREAM_FEMALE_START`, `S_SCREAM_MALE`) were
+    /// never played.
+    OnFire { kind: u8, female: bool },
     Stab,
     BatHit,
     Shot(Weapon),
@@ -1136,6 +1140,9 @@ pub struct Person {
     pub scared: Option<Scare>,
     /// Somebody has given them a fright (`pcom_ai_memory`): they don't forget it, and say so.
     pub annoyed: bool,
+    /// On fire (`BurnIndex`: a `PYRO_IMMOLATE` on them, pyro.cpp:749), and the seconds since
+    /// they died of it, the flames dying down on the body.
+    pub alight: Option<f32>,
     /// Who last hurt them (a blow, a shot, a blast they're blamed for, a car they drove), to
     /// know whose doing a death was.
     pub hurt_by: Option<usize>,
@@ -1203,7 +1210,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, knife: false, bat: false, drop: None, ai_fired: 0, searched: false, guns: 0, ammo: [0; 4], spent: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, struggle: 0.0, idle_for: 0.0, breathed: false, screamed: false, fly_kick: None, gun_fight: false, topple: None, bonus_rolled: false, run_shot: 0.0, fetch: None, splattered: false, sized_up: false, felon: false, slot: None, ganged: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
-            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
+            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, alight: None, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }
 
@@ -1573,6 +1580,13 @@ impl Person {
     /// Knocked out for good and bleeding: how far the blood has spread (0..1).
     pub fn blood(&self) -> Option<f32> {
         (self.knocked_out && !self.arrested && !self.player).then(|| (self.down_timer / 3.0).min(1.0))
+    }
+
+    /// One of the women of the crowd: the two `SLAG` types, and a civilian drawn as one (mesh 9,
+    /// `set_anim_idle`, Person.cpp:8817).
+    pub fn is_woman(&self) -> bool {
+        use uc_world::character::person as ptype;
+        matches!(self.kind, ptype::SLAG_TART | ptype::SLAG_FATUGLY) || (self.kind == ptype::CIV && self.fig.model.body == 9)
     }
 
     /// Out of the fight for good: knocked out, arrested or gone.
