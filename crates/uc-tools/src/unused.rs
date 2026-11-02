@@ -25,6 +25,12 @@
 //!   track from the folder of a released mission's music world ([`sound_paths`]). Which ids
 //!   nothing plays isn't checked: the code picks most of them from ranges (`S_WIND_START +
 //!   n`), and the table in the exe isn't the one in the source.
+//! - **Text:** the files in `text\` that neither `fallen.exe`, `config.ini` (the language)
+//!   nor a released mission (its chatter file, `citsez`) names, and the ones named that
+//!   aren't there. Which of `lang_english.txt`'s lines are shown isn't checked: the release's
+//!   front end, which shows most of them, isn't in the source.
+//! - **Mission messages never shown:** messages no point owns, and those of points waiting
+//!   for one that isn't in the mission ([`dead_points`]), in every mission that parses.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -75,6 +81,15 @@ pub struct Report {
     pub missing_sounds: Vec<String>,
     /// The music worlds the released missions play in.
     pub music_worlds: BTreeSet<u32>,
+    /// Text files in `text\`: how many, the ones nothing names (with the unreleased
+    /// missions that name them as their chatter), and the ones named that aren't there.
+    pub texts: usize,
+    pub unused_texts: Vec<(String, Vec<String>)>,
+    pub missing_texts: Vec<(String, Vec<String>)>,
+    /// Mission messages that are never shown: the mission, whether it's released, the point
+    /// (none for a message no point owns) and the text. Unreleased missions too, as the port
+    /// plays them.
+    pub unshown: Vec<(String, bool, Option<usize>, String)>,
 }
 
 /// A prim file in `server\prims\` the released game never draws.
@@ -204,6 +219,7 @@ pub fn report(game: &Path) -> Result<Report, String> {
     let released: BTreeSet<String> = r.missions.iter().filter(|m| m.listed || m.in_exe).map(|m| m.name.to_ascii_lowercase()).collect();
     prims(game, &parsed, &released, &mut r);
     sounds(game, &exe_strings, &parsed, &released, &mut r);
+    texts(game, &exe_strings, &parsed, &released, &mut r);
     Ok(r)
 }
 
@@ -366,6 +382,100 @@ fn sounds(game: &Path, exe_strings: &[String], parsed: &[(String, Mission)], rel
     r.unused_sounds = on_disk.into_iter().filter(|p| !played.contains(&p.to_ascii_lowercase())).collect();
 }
 
+/// `released`: the missions `urban.sty` lists or `fallen.exe` names, lowercased.
+fn texts(game: &Path, exe_strings: &[String], parsed: &[(String, Mission)], released: &BTreeSet<String>, r: &mut Report) {
+    // What names a text file: the exe, `config.ini`'s language, and each mission's chatter
+    // file (`EWAY_load_fake_wander_text`, its `citsez` field).
+    let config: String = std::fs::read(game.join("config.ini")).map(|b| b.iter().map(|&c| c as char).collect()).unwrap_or_default();
+    let mut named: BTreeMap<String, (bool, Vec<String>)> = BTreeMap::new();
+    let key = |s: &str| s.trim().to_ascii_lowercase().replace('/', "\\");
+    for s in exe_strings.iter().map(String::as_str).chain(config.lines().filter_map(|l| l.split_once('=').map(|(_, v)| v))) {
+        let k = key(s);
+        if k.starts_with("text\\") && k.ends_with(".txt") {
+            named.entry(k).or_default().0 = true;
+        }
+    }
+    for (name, m) in parsed {
+        let k = key(&m.citsez);
+        if k.starts_with("text\\") && k.ends_with(".txt") {
+            let e = named.entry(k).or_default();
+            if released.contains(&name.to_ascii_lowercase()) {
+                e.0 = true;
+            } else {
+                e.1.push(name.clone());
+            }
+        }
+    }
+    let Some(dir) = uc_formats::resolve(game, "text") else { return };
+    let mut on_disk: Vec<String> = walk(&dir).into_iter().filter(|p| ext(p) == "txt")
+        .filter_map(|p| Some(p.strip_prefix(game).ok()?.to_string_lossy().replace('/', "\\")))
+        .collect();
+    on_disk.sort_by_key(|p| p.to_ascii_lowercase());
+    r.texts = on_disk.len();
+    for p in &on_disk {
+        // `config.ini` chooses the language: any `lang_*.txt` it could name counts.
+        let k = key(p);
+        let language = k.strip_prefix("text\\lang_").is_some_and(|l| !l.contains('\\'));
+        match named.get(&k) {
+            Some((true, _)) => {}
+            _ if language => {}
+            Some((false, by)) => r.unused_texts.push((p.clone(), by.clone())),
+            None => r.unused_texts.push((p.clone(), Vec::new())),
+        }
+    }
+    let have: BTreeSet<String> = on_disk.iter().map(|p| key(p)).collect();
+    r.missing_texts = named.into_iter().filter(|(k, (used, _))| *used && !have.contains(k))
+        .map(|(k, _)| {
+            let by: Vec<String> = parsed.iter().filter(|(n, m)| released.contains(&n.to_ascii_lowercase()) && key(&m.citsez) == k).map(|(n, _)| n.clone()).collect();
+            (k, by)
+        })
+        .collect();
+
+    // The messages that are never shown.
+    for (name, m) in parsed {
+        let rel = released.contains(&name.to_ascii_lowercase());
+        let owners = m.event_points.iter().filter(|e| uc_formats::ucm::has_text(e.kind)).count();
+        for t in m.messages().skip(owners) {
+            r.unshown.push((name.clone(), rel, None, t.to_string()));
+        }
+        let dead = dead_points(m);
+        for (i, t) in m.point_texts() {
+            if dead.contains(&i) {
+                r.unshown.push((name.clone(), rel, Some(i), t));
+            }
+        }
+    }
+}
+
+/// The points of `m` that can never go off because what they wait for isn't in the mission:
+/// a `dependency` (or a `countdown`'s or `random`'s) on a point that isn't there, a
+/// `boolean_and` with either point missing, a `boolean_or` with both, or any of those on a
+/// point that can never go off itself. Not when the condition is inverted (`INVERSE`),
+/// when a missing point makes it always true. A point is "there" if it's used.
+fn dead_points(m: &Mission) -> BTreeSet<usize> {
+    use uc_formats::ucm::{point_flags::INVERSE, trigger};
+    let there: BTreeSet<usize> = m.event_points.iter().map(|e| e.index).collect();
+    let mut dead: BTreeSet<usize> = BTreeSet::new();
+    loop {
+        let ok = |i: u16| there.contains(&(i as usize)) && !dead.contains(&(i as usize));
+        let more: Vec<usize> = m.event_points.iter()
+            .filter(|e| !dead.contains(&e.index) && e.flags & INVERSE == 0)
+            .filter(|e| match e.trigger {
+                trigger::DEPENDENCY | trigger::RANDOM => !ok(e.ep_ref),
+                // A countdown with no point to wait for starts at once (`r1 != 0`).
+                trigger::COUNTDOWN | trigger::VISIBLE_COUNTDOWN => e.ep_ref != 0 && !ok(e.ep_ref),
+                trigger::BOOLEAN_AND => !ok(e.ep_ref) || !ok(e.ep_ref_bool),
+                trigger::BOOLEAN_OR => !ok(e.ep_ref) && !ok(e.ep_ref_bool),
+                _ => false,
+            })
+            .map(|e| e.index).collect();
+        if more.is_empty() {
+            return dead;
+        }
+        dead.extend(more);
+    }
+}
+
 fn print(r: &Report) {
     let unlisted: Vec<&MissionFile> = r.missions.iter().filter(|m| !m.listed).collect();
     println!("Missions: {} files in levels\\, {} of them not in urban.sty's list:", r.missions.len(), unlisted.len());
@@ -447,6 +557,32 @@ fn print(r: &Report) {
     }
     if !r.missing_sounds.is_empty() {
         println!("  named in the table, but not there ({}): {}", r.missing_sounds.len(), r.missing_sounds.join(", "));
+    }
+    println!();
+    println!("Text: {} files in text\\, {} that neither fallen.exe, config.ini nor a released mission names:", r.texts, r.unused_texts.len());
+    // A folder of nothing but unused files on one line (`text\backup\`).
+    let parent = |p: &str| p.rsplit_once('\\').map_or(String::new(), |(d, _)| d.to_string());
+    let whole: BTreeSet<String> = r.unused_texts.iter().map(|(p, _)| parent(p)).filter(|d| d != "text").collect();
+    for d in &whole {
+        let files: Vec<&str> = r.unused_texts.iter().filter(|(p, _)| parent(p) == *d).map(|(p, _)| base(p)).collect();
+        println!("  {d}\\ ({}): {}", files.len(), files.join(", "));
+    }
+    for (p, by) in r.unused_texts.iter().filter(|(p, _)| !whole.contains(&parent(p))) {
+        let by = if by.is_empty() { String::new() } else { format!(": the chatter of {}", by.join(", ")) };
+        println!("  {p}{by}");
+    }
+    if !r.missing_texts.is_empty() {
+        let list: Vec<String> = r.missing_texts.iter()
+            .map(|(p, by)| if by.is_empty() { p.clone() } else { format!("{p} ({})", by.join(", ")) }).collect();
+        println!("  named, but not there: {}", list.join(", "));
+    }
+    println!("  (which of lang_english.txt's lines are shown isn't checked: the release's front end isn't in the source)");
+    println!();
+    println!("Mission messages never shown ({}): no point owns them, or their point waits for one that isn't in the mission:", r.unshown.len());
+    for (m, rel, point, t) in &r.unshown {
+        let at = point.map_or("no point".to_string(), |p| format!("point {p}"));
+        let rel = if *rel { "" } else { ", unreleased" };
+        println!("  {m} ({at}{rel}): {t}");
     }
 }
 
@@ -644,7 +780,7 @@ mod tests {
     }
 
     /// Against the install: what #467 and #470 found by hand, the outro's textures counted
-    /// as used through its meshes (#468), the prims and the sounds.
+    /// as used through its meshes (#468), the prims, the sounds and the text.
     #[test]
     fn the_install_matches_what_was_found_by_hand() {
         let Some(game) = uc_formats::default_install() else { return };
@@ -687,6 +823,19 @@ mod tests {
         }
         assert_eq!(r.unused_sounds.iter().filter(|p| p.starts_with("talk2\\misc\\")).count(), 337);
         assert!(r.missing_sounds.iter().any(|p| p == "data\\sfx\\1622\\musicNN\\Sneak.wav"));
+        assert_eq!(r.texts, 56);
+        assert!(r.unused_texts.iter().any(|(p, by)| p == "text\\silly.txt" && by.is_empty()));
+        assert!(r.unused_texts.iter().any(|(p, _)| p == "text\\backup\\police11.txt"));
+        // Chatter a released mission names, and the language.
+        for used in ["text\\police11.txt", "text\\citsez.txt", "text\\annoyed.txt", "text\\lang_french.txt"] {
+            assert!(!r.unused_texts.iter().any(|(p, _)| p == used), "{used} counted as unused");
+        }
+        // Factory1 names a newer chatter file than the one there.
+        assert!(r.missing_texts.iter().any(|(p, by)| p == "text\\factory13.txt" && by == &["factory1"]));
+        // Carbomb2's debrief waits on points 187 and 188, which aren't in it.
+        let dead: Vec<Option<usize>> = r.unshown.iter().filter(|u| u.0 == "carbomb2").map(|u| u.2).collect();
+        assert_eq!(dead, [Some(172), Some(182)]);
+        assert!(r.unshown.iter().all(|u| !u.1), "a released mission's message is never shown: {:?}", r.unshown);
         // A map object, a car body and a special.
         for used in ["nprim141.prm", "nprim108.prm", "nprim232.prm"] {
             assert_eq!(why(used), None, "{used} counted as unused");
