@@ -226,7 +226,10 @@ impl Game {
             let lean = Quat::from_rotation_x(angle(tilt)) * Quat::from_rotation_z(angle(roll));
             for (prim, spin) in [(chopper::BODY_PRIM, 0), (chopper::ROTOR_PRIM, c.rotors)] {
                 if let Some(prim) = level.item_prims.get(&prim) {
-                    let rot = Quat::from_rotation_y(angle(c.angle + spin)) * lean;
+                    // Half a turn round: the model's nose is along -z, and the original's
+                    // `Arctan` (which the angle is, `-Arctan(dx, dz)` drawn at `-Angle`) is half
+                    // a turn off `atan2`, as the people's facing is.
+                    let rot = Quat::from_rotation_y(angle(c.angle + 1024 + spin)) * lean;
                     uc_world::level::prim_batches(prim, |v| at + rot * v, lighter.as_ref(), out);
                 }
             }
