@@ -334,6 +334,10 @@ pub enum Sfx {
     /// The player, of `PERSON_*` type `kind`, took an item and says so. Not the original's:
     /// it recorded the lines (`DARCI-PICKUP01`..., `talk2\misc\`) but never plays them.
     PickupLine { kind: u8 },
+    /// A civilian says chatter line `line` of `citsez.txt` that was recorded ([`crate::city::
+    /// voiced_line`]): a woman's take or a man's, and the stressed one if the player has a
+    /// gun in hand. Not the original's: it shows the lines as text only.
+    CitizenLine { line: u8, female: bool, stressed: bool },
     /// Something hidden turned up in a search (`S_HIDDENITEM`).
     Found,
     /// A bomb or a car going up.

@@ -47,6 +47,25 @@ pub struct Chatter {
     pub annoyed: Vec<String>,
 }
 
+/// The lines of `text\citsez.txt` that were recorded (`talk2\misc\fcit-sez*`, `mcit-sez*`),
+/// by number, matched by Whisper and checked by ear (#486). The original never plays them.
+const VOICED: [(u8, &str); 6] = [
+    (1, "Sorry Officer, I'm in a hurry."),
+    (3, "Sorry I can't help ya, man."),
+    (6, "Sorry, I'm from outta town."),
+    (10, "Nice badge. You know where I can get me one?"),
+    (13, "No idea, Officer."),
+    (20, "I gotta get outta this place - Union City is killin' me!"),
+];
+
+/// Which recorded line `text` is (its number in `citsez.txt`), whichever chatter file it came
+/// from: compared by its letters and digits only, in any case.
+pub fn voiced_line(text: &str) -> Option<u8> {
+    let key = |s: &str| s.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_lowercase()).collect::<String>();
+    let k = key(text);
+    VOICED.iter().find(|(_, t)| key(t) == k).map(|&(n, _)| n)
+}
+
 /// The numbered lines of a message file (`EWAY_load_message_file`): `n. text`. Section
 /// headings and anything else are skipped, so `citsez.txt`'s annoyed lines are ordinary
 /// chatter too, as they are in the original.
@@ -383,6 +402,14 @@ impl Game {
         let r = self.city_rand() as usize;
         let lines = if self.people[j].annoyed && !self.streets.chatter.annoyed.is_empty() { &self.streets.chatter.annoyed } else { &self.streets.chatter.normal };
         let text = lines[r % lines.len()].clone();
+        if let Some(line) = voiced_line(&text) {
+            // The women: the two `SLAG` types, and a civilian drawn as one (mesh 9,
+            // `set_anim_idle`, Person.cpp:8817).
+            let o = &self.people[j];
+            let female = matches!(o.kind, ptype::SLAG_TART | ptype::SLAG_FATUGLY) || (o.kind == ptype::CIV && o.fig.model.body == 9);
+            let stressed = self.people[pi].weapon.is_gun();
+            self.people[j].cues.push(crate::Sfx::CitizenLine { line, female, stressed });
+        }
         self.people[j].face_towards(pos);
         let face = Some(self.face(j));
         self.messages.push(Message { text, left: 4.0, face, filmed: false });
