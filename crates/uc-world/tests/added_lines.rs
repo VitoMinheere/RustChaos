@@ -44,3 +44,31 @@ fn mr_mcintyres_lines() {
     assert_eq!(lines, [("Okay okay! I SURRENDER!!".to_string(), 901, 122),
                        ("You got him! Mr Mcintyre's gonna be our guest for a while.".to_string(), 902, 0)]);
 }
+
+#[test]
+fn carbomb2s_debrief_is_put_back() {
+    let Some(lines) = added("carbomb2") else { return };
+    assert_eq!(lines, [("Whooa, what's this? \"UCNN video\"?".to_string(), 901, 0),
+                       ("Stern, what the hell you up to? We ain't got all day to wait for you to get back here - ain't ya found anythin' yet?".to_string(), 902, 19)]);
+    let game = uc_formats::default_install().unwrap();
+    let mut m = Mission::parse(&std::fs::read(uc_formats::resolve(&game, "levels/carbomb2.ucm").unwrap()).unwrap()).unwrap();
+    uc_world::level::finish_unfinished("carbomb2", &mut m);
+    // Nothing waits for a point that isn't there any more: the debriefs, the Sarge, the win.
+    let there: std::collections::BTreeSet<usize> = m.event_points.iter().filter(|e| e.used != 0).map(|e| e.index).collect();
+    use uc_formats::ucm::trigger;
+    for e in m.event_points.iter().filter(|e| matches!(e.trigger, trigger::DEPENDENCY | trigger::BOOLEAN_AND | trigger::BOOLEAN_OR | trigger::ITEM_HELD | trigger::COUNTDOWN)) {
+        for r in [e.ep_ref as usize, if matches!(e.trigger, trigger::BOOLEAN_AND | trigger::BOOLEAN_OR) { e.ep_ref_bool as usize } else { e.ep_ref as usize }] {
+            assert!(r == 0 && e.trigger == trigger::COUNTDOWN || there.contains(&r), "point {} waits for {r}, which isn't there", e.index);
+        }
+    }
+    // The tape is stashed at the hideout, and the debriefs keep their own lines.
+    let tape = m.event_points.iter().find(|e| e.index == 181).unwrap();
+    assert_eq!((tape.kind, tape.data[0], tape.data[2]), (waypoint::CREATE_ITEM, 19, 2));
+    let texts = m.point_texts();
+    assert!(texts[&172].starts_with("Well? Come up with anything?"), "{}", texts[&172]);
+    assert!(texts[&182].starts_with("You find anything?"), "{}", texts[&182]);
+    // Twice changes nothing.
+    let n = m.event_points.len();
+    uc_world::level::finish_unfinished("carbomb2", &mut m);
+    assert_eq!(m.event_points.len(), n);
+}
