@@ -53,5 +53,15 @@
   "sample": "clips/rasta/Bankbomb1.ucm6.wav",
   "exaggeration": 0.75,
   "cfg_weight": 0.05
+ },
+ "fcit": {
+  "sample": "install:talk2/misc/fcit-sez02.wav",
+  "exaggeration": 0.8,
+  "cfg_weight": 0.35
+ },
+ "mcit": {
+  "sample": "install:talk2/misc/mcit-sez02.wav",
+  "exaggeration": 0.8,
+  "cfg_weight": 0.35
  }
 }

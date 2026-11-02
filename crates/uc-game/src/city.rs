@@ -39,12 +39,17 @@ const DRAW_GUN: f32 = 0x600 as f32;
 /// and sedans.
 pub(crate) const VEHICLE_RANDOM: [u8; 16] = [0, 1, 2, 5, 7, 0, 1, 2, 5, 7, 0, 1, 2, 0, 1, 2];
 
-/// What the extra people say when spoken to: any line of the mission's chatter file, or
-/// `annoyed.txt`'s once someone has frightened them.
+/// What the extra people say when spoken to: a line of the mission's chatter file, or once
+/// someone has frightened them, of `annoyed.txt` and the chatter file's own annoyed section.
 #[derive(Debug, Clone, Default)]
 pub struct Chatter {
     pub normal: Vec<String>,
+    /// `annoyed.txt`'s lines first, in order, then the chatter file's annoyed lines it hasn't
+    /// got.
     pub annoyed: Vec<String>,
+    /// How many of [`Chatter::annoyed`] are `annoyed.txt`'s: line `i` of those is its `i + 1`,
+    /// the number its made voice goes by.
+    pub annoyed_file: usize,
 }
 
 /// The lines of `text\citsez.txt` that were recorded (`talk2\misc\fcit-sez*`, `mcit-sez*`),
@@ -61,9 +66,30 @@ const VOICED: [(u8, &str); 6] = [
 /// Which recorded line `text` is (its number in `citsez.txt`), whichever chatter file it came
 /// from: compared by its letters and digits only, in any case.
 pub fn voiced_line(text: &str) -> Option<u8> {
+    VOICED.iter().find(|(_, t)| same_line(t, text)).map(|&(n, _)| n)
+}
+
+/// Whether two lines say the same, compared by their letters and digits only, in any case.
+fn same_line(a: &str, b: &str) -> bool {
     let key = |s: &str| s.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_lowercase()).collect::<String>();
-    let k = key(text);
-    VOICED.iter().find(|(_, t)| key(t) == k).map(|&(n, _)| n)
+    key(a) == key(b)
+}
+
+/// A chatter file's lines, the ones under an annoyed heading apart from the rest:
+/// `citsez.txt` heads its sections "NORMAL (Innocent Citizens)", "NORMAL (annoyed)" and
+/// "GUILTY (...)". The original reads them all as one list ([`message_lines`]), so its
+/// innocent passers-by say the annoyed lines too; here only the annoyed ones do.
+pub fn chatter_sections(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
+    let text: String = bytes.iter().map(|&b| b as char).collect();
+    let (mut normal, mut annoyed, mut in_annoyed) = (Vec::new(), Vec::new(), false);
+    for line in text.lines() {
+        match message_lines(line.as_bytes()).pop() {
+            Some(msg) => if in_annoyed { annoyed.push(msg) } else { normal.push(msg) },
+            None if !line.trim().is_empty() => in_annoyed = line.to_ascii_lowercase().contains("annoyed"),
+            None => {}
+        }
+    }
+    (normal, annoyed)
 }
 
 /// The numbered lines of a message file (`EWAY_load_message_file`): `n. text`. Section
@@ -93,10 +119,22 @@ impl Chatter {
                 .and_then(|p| std::fs::read(p).ok())
                 .map(|b| message_lines(&b))
         };
-        Chatter {
-            normal: read(&level.mission.citsez).or_else(|| read("text\\citsez.txt")).unwrap_or_default(),
-            annoyed: read("text\\annoyed.txt").unwrap_or_default(),
+        let sections = |name: &str| {
+            (!name.is_empty())
+                .then(|| uc_formats::resolve(&level.game, name))
+                .flatten()
+                .and_then(|p| std::fs::read(p).ok())
+                .map(|b| chatter_sections(&b))
+        };
+        let (normal, own) = sections(&level.mission.citsez).or_else(|| sections("text\\citsez.txt")).unwrap_or_default();
+        let mut annoyed = read("text\\annoyed.txt").unwrap_or_default();
+        let annoyed_file = annoyed.len();
+        for l in own {
+            if !annoyed.iter().any(|a| same_line(a, &l)) {
+                annoyed.push(l);
+            }
         }
+        Chatter { normal, annoyed, annoyed_file }
     }
 }
 
@@ -400,13 +438,17 @@ impl Game {
             return false;
         };
         let r = self.city_rand() as usize;
-        let lines = if self.people[j].annoyed && !self.streets.chatter.annoyed.is_empty() { &self.streets.chatter.annoyed } else { &self.streets.chatter.normal };
-        let text = lines[r % lines.len()].clone();
-        if let Some(line) = voiced_line(&text) {
-            // The women: the two `SLAG` types, and a civilian drawn as one (mesh 9,
-            // `set_anim_idle`, Person.cpp:8817).
-            let o = &self.people[j];
-            let female = matches!(o.kind, ptype::SLAG_TART | ptype::SLAG_FATUGLY) || (o.kind == ptype::CIV && o.fig.model.body == 9);
+        let annoyed = self.people[j].annoyed && !self.streets.chatter.annoyed.is_empty();
+        let lines = if annoyed { &self.streets.chatter.annoyed } else { &self.streets.chatter.normal };
+        let i = r % lines.len();
+        let text = lines[i].clone();
+        // The women: the two `SLAG` types, and a civilian drawn as one (mesh 9,
+        // `set_anim_idle`, Person.cpp:8817).
+        let o = &self.people[j];
+        let female = matches!(o.kind, ptype::SLAG_TART | ptype::SLAG_FATUGLY) || (o.kind == ptype::CIV && o.fig.model.body == 9);
+        if annoyed && i < self.streets.chatter.annoyed_file {
+            self.people[j].cues.push(crate::Sfx::AnnoyedLine { line: i as u8 + 1, female });
+        } else if let Some(line) = voiced_line(&text).filter(|_| !annoyed) {
             let stressed = self.people[pi].weapon.is_gun();
             self.people[j].cues.push(crate::Sfx::CitizenLine { line, female, stressed });
         }
