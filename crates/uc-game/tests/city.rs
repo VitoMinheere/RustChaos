@@ -148,3 +148,49 @@ fn civilians_have_something_to_say() {
     println!("{said:?}");
     assert!(g.messages.iter().any(|m| m.face.is_some() && chatter.contains(&m.text)), "nothing said");
 }
+
+/// The recorded chatter lines are found by their text, and only they: in `citsez.txt` they're
+/// lines 1, 3, 6, 10, 13 and 20 (#486). Skipped without an install.
+#[test]
+fn the_recorded_chatter_lines_are_known() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let bytes = std::fs::read(uc_formats::resolve(&game, r"text\citsez.txt").unwrap()).unwrap();
+    let lines = uc_game::city::message_lines(&bytes);
+    let voiced: Vec<(usize, u8)> = lines.iter().enumerate().filter_map(|(i, l)| Some((i + 1, uc_game::city::voiced_line(l)?))).collect();
+    assert_eq!(voiced, [(1, 1), (3, 3), (6, 6), (10, 10), (13, 13), (20, 20)]);
+    assert_eq!(uc_game::city::voiced_line("sorry, officer, i'm in a HURRY"), Some(1));
+}
+
+/// Talking to the crowd until one says a recorded line: it comes with its cue, a woman's
+/// take or a man's as they're drawn, stressed with Darci's gun out. Semtex's crowd has
+/// `citsez.txt`'s chatter. Skipped without an install.
+#[test]
+fn a_recorded_line_is_heard() {
+    let Some((level, mut g)) = load("semtex") else { return };
+    let pi = g.player.unwrap();
+    let at = Vec3::new(30.0 * 256.0, 0.0, 30.0 * 256.0);
+    let at = Vec3::new(at.x, level.ground.surface(&level.map, at.x, at.z, 1.0e4), at.z);
+    let Some(&ci) = civs(&g).first() else { panic!("semtex has no crowd") };
+    run(&level, &mut g, 1.0, Controls::default());
+    for _ in 0..200 {
+        g.people[pi].fig.pos = at;
+        g.people[ci].fig.pos = at + Vec3::new(100.0, 0.0, 0.0);
+        g.people[ci].scared = None;
+        g.people[ci].annoyed = false;
+        g.messages.clear();
+        g.take_sounds();
+        run(&level, &mut g, DT, Controls { action: true, ..Default::default() });
+        let said: Vec<String> = g.messages.iter().map(|m| m.text.clone()).collect();
+        let cues: Vec<uc_game::Sfx> = g.take_sounds().into_iter().map(|(s, _)| s).collect();
+        run(&level, &mut g, DT, Controls::default());
+        let Some(line) = said.iter().find_map(|t| uc_game::city::voiced_line(t)) else { continue };
+        let o = &g.people[ci];
+        let female = matches!(o.kind, uc_world::character::person::SLAG_TART | uc_world::character::person::SLAG_FATUGLY)
+            || (o.kind == uc_world::character::person::CIV && o.fig.model.body == 9);
+        let stressed = g.people[pi].weapon.is_gun();
+        println!("line {line}, female {female}, stressed {stressed}: {cues:?}");
+        assert!(cues.contains(&uc_game::Sfx::CitizenLine { line, female, stressed }), "said line {line} without its cue: {cues:?}");
+        return;
+    }
+    panic!("no recorded line in 200 tries");
+}

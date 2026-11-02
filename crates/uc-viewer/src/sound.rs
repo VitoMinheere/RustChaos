@@ -151,6 +151,12 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
                 at(audio, sometimes(names, 3), 0.9);
             }
         }
+        // The citizens' recorded chatter (#486), a take for their sex, if it was recorded for
+        // it: the women's #20 stressed with a gun on them, calm otherwise.
+        Sfx::CitizenLine { line, female, stressed } => {
+            let names = citizen_takes(line, female, stressed).iter().map(|t| t.to_string()).collect();
+            at(audio, names, 1.0);
+        }
         Sfx::Voice(point) => {
             audio.voice(mission, point);
         }
@@ -204,6 +210,22 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
     }
 }
 
+/// The recordings of `citsez.txt`'s line `line` (`talk2\misc\`), for a woman or a man.
+fn citizen_takes(line: u8, female: bool, stressed: bool) -> &'static [&'static str] {
+    match (line, female) {
+        (1, true) => &["fcit-sez04.wav", "fcit-sez04b.wav"],
+        (1, false) => &["mcit-sez01.wav"],
+        (3, false) => &["mcit-sez02.wav"],
+        (6, true) => &["fcit-sez03.wav", "fcit-sez03b.wav"],
+        (6, false) => &["mcit-sez03.wav"],
+        (10, false) => &["mcit-sez04.wav"],
+        (13, true) => &["fcit-sez01.wav", "fcit-sez01b.wav"],
+        (20, true) if stressed => &["fcit-sez02.wav", "fcit-sez02b.wav"],
+        (20, true) => &["fcit-sez02c.wav"],
+        _ => &[],
+    }
+}
+
 /// The title screen's and the menus' loop (`MUSIC_MODE_FRONTEND`, `S_TUNE_FRONTEND`).
 pub const FRONTEND: &str = "GeneralMusic/FrontLoop.wav";
 
@@ -239,6 +261,20 @@ pub fn music(mood: Mood, world: u8, fights: u32) -> Option<String> {
 mod tests {
     /// The voices added for #298 are in the release: the cops' pain and death, and Darci's
     /// heart giving out. Skipped without an install.
+    /// Every take of the citizens' recorded chatter is in the install. Skipped without one.
+    #[test]
+    fn the_citizens_takes_are_shipped() {
+        let Some(game) = uc_formats::default_install() else { return };
+        for line in [1, 3, 6, 10, 13, 20] {
+            for (female, stressed) in [(true, true), (true, false), (false, false)] {
+                for t in super::citizen_takes(line, female, stressed) {
+                    assert!(uc_formats::resolve(&game, &format!(r"talk2\misc\{t}")).is_some(), "{t} isn't in the install");
+                }
+            }
+        }
+        assert!(super::citizen_takes(3, true, false).is_empty(), "no woman says line 3");
+    }
+
     #[test]
     fn the_cops_voices_and_the_heart_are_shipped() {
         let Some(game) = uc_formats::default_install() else { return };
