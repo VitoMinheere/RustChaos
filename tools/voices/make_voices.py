@@ -87,7 +87,7 @@ CHATTER_SAY = {
     "urrrrgghhh...??": "Urgh?",
     "Dunno nothin' Man.": "Dunno nothin', man.",
     "sram you bums! Oh...(ahem) excuse me, Officer.": "Scram, you bums! Oh... ahem. Excuse me, Officer.",
-    "spk Thursday seventeen/three/99": "S P K, Thursday, seventeen, three, ninety-nine.",
+    "SPK Thursday 17/3/99": "S P K, Thursday, seventeen, three, ninety-nine.",
 }
 # citsez.txt's lines the citizens recorded (talk2/misc/fcit-sez*, mcit-sez*), by voice.
 RECORDED = {"fcit": [1, 6, 13, 20], "mcit": [1, 3, 6, 10]}
