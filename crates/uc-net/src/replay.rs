@@ -19,10 +19,11 @@ use uc_game::{Difficulty, Game, Outcome, Weapon, TURN};
 use uc_world::Level;
 
 /// The file's first bytes, with the format's version in the last.
-pub const MAGIC: &[u8; 4] = b"UCR4";
+pub const MAGIC: &[u8; 4] = b"UCR5";
 
-/// The versions before inputs held looking round, and before that the strafe key (#309),
-/// still read.
+/// The versions before inputs held the helicopter's stick (#465), before that looking
+/// round, and before that the strafe key (#309), still read.
+const MAGIC_4: &[u8; 4] = b"UCR4";
 const MAGIC_3: &[u8; 4] = b"UCR3";
 const MAGIC_2: &[u8; 4] = b"UCR2";
 
@@ -237,11 +238,9 @@ impl Replay {
 
     pub fn from_bytes(b: &[u8]) -> io::Result<Replay> {
         let bad = |why: &str| io::Error::new(io::ErrorKind::InvalidData, why.to_string());
-        let (b, version) = match (b.strip_prefix(MAGIC), b.strip_prefix(MAGIC_3), b.strip_prefix(MAGIC_2)) {
-            (Some(b), ..) => (b, 4),
-            (_, Some(b), _) => (b, 3),
-            (.., Some(b)) => (b, 2),
-            _ => return Err(bad("not a replay, or another version")),
+        let (b, version) = match [MAGIC, MAGIC_4, MAGIC_3, MAGIC_2].iter().enumerate().find_map(|(k, m)| b.strip_prefix(&m[..]).map(|b| (b, k))) {
+            Some((b, k)) => (b, 5 - k as u8),
+            None => return Err(bad("not a replay, or another version")),
         };
         let mut i = In(b);
         let build = i.str()?;
@@ -468,7 +467,7 @@ mod tests {
 
     #[test]
     fn a_replay_round_trips() {
-        let i = |x: f32, b: u16| Input { wish: [x, -x], drive: [0.5, x], buttons: b, strafe: (b & 1 != 0).then_some([x, 1.0]), look: (b & 2 != 0).then_some([x, 0.25]) };
+        let i = |x: f32, b: u16| Input { wish: [x, -x], drive: [0.5, x], buttons: b, strafe: (b & 1 != 0).then_some([x, 1.0]), look: (b & 2 != 0).then_some([x, 0.25]), fly: (b & 4 != 0).then_some([x, 0.5, -x, 1.0]) };
         let r = Replay {
             start: Start {
                 mission: "Assault1".into(), mode: Mode::Beat { seed: 7, centre: Some([256.0, -512.0]), shift: None },

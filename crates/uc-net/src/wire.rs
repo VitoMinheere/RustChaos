@@ -61,6 +61,13 @@ impl Out {
                 None => self.u8(0),
             }
         }
+        match i.fly {
+            Some(f) => {
+                self.u8(1);
+                f.iter().for_each(|&v| self.f32(v));
+            }
+            None => self.u8(0),
+        }
     }
     pub(crate) fn setup(&mut self, s: &Setup) {
         self.str(&s.mission);
@@ -104,17 +111,20 @@ impl In<'_> {
         String::from_utf8(self.bytes(n)?.to_vec()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
     pub(crate) fn input(&mut self) -> io::Result<Input> {
-        self.input_of(4)
+        self.input_of(5)
     }
     /// An input as replay version `version` had it: from 3 with the strafe key (#309), from 4
-    /// with looking round.
+    /// with looking round, from 5 with the helicopter's stick (#465).
     pub(crate) fn input_of(&mut self, version: u8) -> io::Result<Input> {
-        let mut i = Input { wish: [self.f32()?, self.f32()?], drive: [self.f32()?, self.f32()?], buttons: self.u16()?, strafe: None, look: None };
+        let mut i = Input { wish: [self.f32()?, self.f32()?], drive: [self.f32()?, self.f32()?], buttons: self.u16()?, strafe: None, look: None, fly: None };
         if version >= 3 && self.u8()? != 0 {
             i.strafe = Some([self.f32()?, self.f32()?]);
         }
         if version >= 4 && self.u8()? != 0 {
             i.look = Some([self.f32()?, self.f32()?]);
+        }
+        if version >= 5 && self.u8()? != 0 {
+            i.fly = Some([self.f32()?, self.f32()?, self.f32()?, self.f32()?]);
         }
         Ok(i)
     }
@@ -253,7 +263,7 @@ mod tests {
         }
         o.u16(7);
         let i = In(&o.0).input_of(2).unwrap();
-        assert_eq!(i, Input { wish: [0.5, -1.0], drive: [1.0, 0.0], buttons: 7, strafe: None, look: None });
+        assert_eq!(i, Input { wish: [0.5, -1.0], drive: [1.0, 0.0], buttons: 7, strafe: None, look: None, fly: None });
     }
 
     /// Replays from before looking round went with the input have the strafe key and no more.
@@ -268,12 +278,12 @@ mod tests {
         o.f32(0.6);
         o.f32(-0.8);
         let i = In(&o.0).input_of(3).unwrap();
-        assert_eq!(i, Input { wish: [0.5, -1.0], drive: [1.0, 0.0], buttons: 7, strafe: Some([0.6, -0.8]), look: None });
+        assert_eq!(i, Input { wish: [0.5, -1.0], drive: [1.0, 0.0], buttons: 7, strafe: Some([0.6, -0.8]), look: None, fly: None });
     }
 
     #[test]
     fn every_message_round_trips() {
-        let input = Input { wish: [0.5, -1.0], drive: [1.0, 0.0], buttons: 0x1234, strafe: Some([0.6, -0.8]), look: Some([1.5, -0.2]) };
+        let input = Input { wish: [0.5, -1.0], drive: [1.0, 0.0], buttons: 0x1234, strafe: Some([0.6, -0.8]), look: Some([1.5, -0.2]), fly: Some([1.0, -0.5, 0.25, -1.0]) };
         let setup = Setup { mission: "police1".into(), difficulty: 2, stats: [1, 2, 3, 4] };
         let all = [
             Msg::Hello { protocol: 7, build: "abc-dirty".into(), name: "Vito".into() },

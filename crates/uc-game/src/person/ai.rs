@@ -122,7 +122,7 @@ impl Person {
             // Civilians on foot run from the place (`PCOM_set_person_ai_flee_place`); the
             // game leaves out those on a zebra crossing.
             Noise::Van => {
-                if self.ai == AI_CIV && !matches!(self.state, State::InCar { .. }) {
+                if self.ai == AI_CIV && !self.aboard() {
                     self.scare(None, at);
                 }
             }

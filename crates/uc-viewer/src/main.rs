@@ -292,6 +292,30 @@ impl App {
                     w.orbit.yaw += d * (2.5 * dt).min(1.0);
                 }
             }
+            // Flying the helicopter (#465): forward and back, left and right to turn (or to
+            // the side with strafe held), jump to climb and crouch to sink; on the pad the
+            // left stick, the shoulder buttons to the side and the triggers up and down.
+            // Action gets out once it's low enough. The camera swings round behind it.
+            if let Some(c) = w.game.player_chopper() {
+                let key = |a| if inp.on(a) { 1.0 } else { 0.0 };
+                let pad_key = |b| if pad.held(b) { 1.0 } else { 0.0 };
+                let sideways = inp.on(Act::Strafe);
+                controls = Controls {
+                    action: controls.action,
+                    fly: uc_game::chopper::Stick {
+                        ahead: (ahead + pad.mv.y).clamp(-1.0, 1.0),
+                        turn: (if sideways { 0.0 } else { turn } + pad.mv.x).clamp(-1.0, 1.0),
+                        side: (if sideways { turn } else { 0.0 } + pad_key(Button::RightTrigger) - pad_key(Button::LeftTrigger)).clamp(-1.0, 1.0),
+                        climb: (key(Act::Jump) - key(Act::Crouch) + pad_key(Button::RightTrigger2) - pad_key(Button::LeftTrigger2)).clamp(-1.0, 1.0),
+                    },
+                    ..Default::default()
+                };
+                if delta.length_squared() < 1.0 && pad.look.length_squared() < 0.01 {
+                    let yaw = uc_formats::units::radians(c.angle as f32);
+                    let d = (yaw - w.orbit.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+                    w.orbit.yaw += d * (1.5 * dt).min(1.0);
+                }
+            }
         } else {
             if inp.rmb || inp.mouse_look {
                 w.fly.yaw -= delta.x * 0.004;

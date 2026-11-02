@@ -341,6 +341,9 @@ impl World {
         if let Some(v) = self.game.player_vehicle() {
             return Some(v.pos / uc_world::UNIT + vec3(0.0, 0.9, 0.0));
         }
+        if let Some(c) = self.game.player_chopper() {
+            return Some(c.pos() / uc_world::UNIT);
+        }
         // Against a wall looking round its end, the camera leads round the corner.
         self.game.player().map(|p| {
             let peek = p.peek().unwrap_or_default();
@@ -378,6 +381,10 @@ impl World {
                 let mut orbit = Orbit { ..self.orbit };
                 if self.game.player_vehicle().is_some() {
                     orbit.dist = orbit.dist.max(4.0);
+                } else if let Some(h) = self.game.chopper_height(&self.level) {
+                    // Behind and above the helicopter, pulling back as it climbs (#465).
+                    orbit.dist = orbit.dist.max(6.0) + h / uc_world::UNIT * 0.004;
+                    orbit.pitch = orbit.pitch.min(-0.45);
                 } else if self.game.player().is_some_and(|p| p.gun_out()) {
                     orbit.dist *= 200.0 / 256.0;
                 }

@@ -22,7 +22,7 @@ impl Game {
                 let before = self.platforms[k].pos;
                 // Who is standing on it (or holding its edge), before it goes.
                 let riders: Vec<usize> = self.people.iter().enumerate()
-                    .filter(|(_, p)| !p.removed && !matches!(p.state, State::InCar { .. }))
+                    .filter(|(_, p)| !p.removed && !p.aboard())
                     .filter(|(_, p)| {
                         let at = p.holding().unwrap_or(p.fig.pos);
                         (at.y - (before.y + top)).abs() < 16.0 && level.ground.over_moving(k, at.x, at.z, 0.0)
@@ -80,7 +80,7 @@ impl Game {
     pub(crate) fn riders(&self, faces: &[Wmove]) -> Vec<(usize, usize, Vec2, f32)> {
         let mut out = Vec::new();
         for (i, p) in self.people.iter().enumerate() {
-            if p.removed || matches!(p.state, State::InCar { .. } | State::Enter { .. }) {
+            if p.removed || matches!(p.state, State::InCar { .. } | State::Flying { .. } | State::Enter { .. }) {
                 continue;
             }
             let at = p.holding().unwrap_or(p.fig.pos);
@@ -172,7 +172,7 @@ impl Game {
             return;
         }
         for p in &mut self.people {
-            if p.removed || p.knocked_out || p.invulnerable || p.bent & 0x80 != 0 || matches!(p.state, State::InCar { .. }) {
+            if p.removed || p.knocked_out || p.invulnerable || p.bent & 0x80 != 0 || p.aboard() {
                 continue;
             }
             // From the feet to the top of the head.

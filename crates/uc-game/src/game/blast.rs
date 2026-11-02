@@ -234,7 +234,7 @@ impl Game {
                 }
                 continue;
             }
-            if p.removed || p.is_dead() || p.invulnerable || p.bent & person::BENT_PLAYERKILL != 0 || matches!(p.state, State::InCar { .. }) {
+            if p.removed || p.is_dead() || p.invulnerable || p.bent & person::BENT_PLAYERKILL != 0 || p.aboard() {
                 continue;
             }
             let wanderer = p.ai == person::AI_CIV || p.mv == person::MOVE_WANDER;

@@ -64,7 +64,7 @@ impl Game {
         let show = self.show;
         // Looking through the scope from her head, she isn't drawn.
         let scoped = self.snipe.is_some();
-        for p in self.people.iter().filter(|p| !p.removed && !matches!(p.state, State::InCar { .. }) && !(scoped && p.player)) {
+        for p in self.people.iter().filter(|p| !p.removed && !p.aboard() && !(scoped && p.player)) {
             p.fig.append_batches(&mut out, lighter.as_ref());
             // People cast their own shapes (below); the knocked out still bleed a pool.
             if show.shadows && p.blood().is_some() {
@@ -784,7 +784,7 @@ impl Game {
         let Some(focus) = self.player_vehicle().map(|v| v.pos).or(self.player().map(|p| p.fig.pos)) else { return Vec::new() };
         let scoped = self.snipe.is_some();
         let mut near: Vec<(usize, f32)> = self.people.iter().enumerate()
-            .filter(|(_, p)| !p.removed && !matches!(p.state, State::InCar { .. }) && !(scoped && p.player))
+            .filter(|(_, p)| !p.removed && !p.aboard() && !(scoped && p.player))
             .map(|(i, p)| (i, (p.fig.pos.x - focus.x).abs() + (p.fig.pos.z - focus.z).abs()))
             .filter(|&(_, d)| d < smap::RANGE)
             .collect();
@@ -885,7 +885,7 @@ impl Game {
     fn reflections(&self, out: &mut BTreeMap<u32, Batch>, level: &Level, eye: Vec3) {
         let lighter = level.lighter();
         let scoped = self.snipe.is_some();
-        for p in self.people.iter().filter(|p| !p.removed && !matches!(p.state, State::InCar { .. }) && !(scoped && p.player)) {
+        for p in self.people.iter().filter(|p| !p.removed && !p.aboard() && !(scoped && p.player)) {
             let at = p.fig.pos;
             if (at.x - eye.x).abs() + (at.z - eye.z).abs() >= 0x600 as f32 {
                 continue;
