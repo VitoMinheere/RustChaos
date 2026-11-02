@@ -331,6 +331,9 @@ pub enum Sfx {
     /// Getting into or out of a car.
     CarDoor,
     Pickup,
+    /// The player, of `PERSON_*` type `kind`, took an item and says so. Not the original's:
+    /// it recorded the lines (`DARCI-PICKUP01`..., `talk2\misc\`) but never plays them.
+    PickupLine { kind: u8 },
     /// Something hidden turned up in a search (`S_HIDDENITEM`).
     Found,
     /// A bomb or a car going up.

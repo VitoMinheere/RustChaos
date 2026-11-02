@@ -643,6 +643,8 @@ impl Game {
         if took {
             p.cues.push(Sfx::Pickup);
             if player {
+                let who = p.kind;
+                p.cues.push(Sfx::PickupLine { kind: who });
                 self.info = info_text(kind, had).map(|t| (t.to_string(), 0.0));
             }
             self.items.remove(i);
