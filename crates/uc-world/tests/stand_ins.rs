@@ -42,15 +42,19 @@ fn only_warehouse_roofs_are_dark() {
 }
 
 /// An override folder is found whatever its case: they're named as the clumps are
-/// (`awol1`), not always as the missions (`AWOL1`).
+/// (`awol1`), not always as the missions (`AWOL1`). On a file system that ignores case
+/// (Windows) the path comes back spelled as asked, so it's compared without case.
 #[test]
 fn override_folders_match_whatever_their_case() {
     let dir = std::env::temp_dir().join(format!("uc-overrides-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("awol1")).unwrap();
     std::fs::write(dir.join("awol1").join("page_0007.png"), b"").unwrap();
     let found = uc_world::level::override_path(&dir, "AWOL1", None, 7);
+    let is_file = found.as_ref().is_some_and(|p| p.is_file());
     std::fs::remove_dir_all(&dir).unwrap();
-    assert_eq!(found, Some(dir.join("awol1").join("page_0007.png")));
+    let want = dir.join("awol1").join("page_0007.png");
+    assert!(is_file, "found {found:?}");
+    assert!(found.is_some_and(|p| p.to_string_lossy().eq_ignore_ascii_case(&want.to_string_lossy())), "not {}", want.display());
 }
 
 /// A mission with no clump of its own knows which mission each page it borrowed came from,
