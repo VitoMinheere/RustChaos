@@ -269,8 +269,9 @@ impl Audio {
     }
 
     fn sfx(&mut self, name: &str) -> Option<Arc<Clip>> {
+        // A character's line: the install's, else a made one (the annoyed citizens').
         if let Some(rel) = misc_path(name) {
-            if let Some(c) = self.load(&rel) {
+            if let Some(c) = rel.strip_prefix("talk2\\").and_then(|n| self.line(n)) {
                 return Some(c);
             }
         }

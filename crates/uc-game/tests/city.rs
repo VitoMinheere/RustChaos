@@ -194,3 +194,42 @@ fn a_recorded_line_is_heard() {
     }
     panic!("no recorded line in 200 tries");
 }
+
+/// `citsez.txt`'s annoyed section is kept for the annoyed: 21 innocent lines (the last is
+/// ":)") and 20 guilty ones for anyone, 19 annoyed ones, all of them `annoyed.txt`'s too.
+/// Skipped without an install.
+#[test]
+fn the_annoyed_lines_are_kept_apart() {
+    let (normal, annoyed) = uc_game::city::chatter_sections(b"NORMAL (Innocent)\r\n1. Hi.\r\n\r\nNORMAL (annoyed)\r\n1. Go away.\r\nGUILTY\r\n1. Back off.\r\n");
+    assert_eq!((normal, annoyed), (vec!["Hi.".to_string(), "Back off.".to_string()], vec!["Go away.".to_string()]));
+    let Some((level, _)) = load("semtex") else { return };
+    let bytes = std::fs::read(uc_formats::resolve(&level.game, r"text\citsez.txt").unwrap()).unwrap();
+    let (normal, annoyed) = uc_game::city::chatter_sections(&bytes);
+    assert_eq!((normal.len(), annoyed.len()), (41, 19));
+    assert!(!normal.iter().any(|l| l.contains("SERPICO")), "an annoyed line is ordinary chatter");
+    let chatter = uc_game::city::Chatter::load(&level);
+    assert_eq!((chatter.annoyed.len(), chatter.annoyed_file), (20, 20), "the section's lines are all annoyed.txt's");
+}
+
+/// A frightened citizen answers with an annoyed line and its cue, numbered as in
+/// `annoyed.txt`. Skipped without an install.
+#[test]
+fn a_frightened_citizen_says_an_annoyed_line() {
+    let Some((level, mut g)) = load("semtex") else { return };
+    let pi = g.player.unwrap();
+    let at = Vec3::new(30.0 * 256.0, 0.0, 30.0 * 256.0);
+    let at = Vec3::new(at.x, level.ground.surface(&level.map, at.x, at.z, 1.0e4), at.z);
+    let ci = civs(&g)[0];
+    run(&level, &mut g, 1.0, Controls::default());
+    g.people[pi].fig.pos = at;
+    g.people[ci].fig.pos = at + Vec3::new(100.0, 0.0, 0.0);
+    g.people[ci].scared = None;
+    g.people[ci].annoyed = true;
+    g.messages.clear();
+    g.take_sounds();
+    run(&level, &mut g, DT, Controls { action: true, ..Default::default() });
+    let chatter = uc_game::city::Chatter::load(&level);
+    let said = g.messages.iter().find_map(|m| chatter.annoyed.iter().position(|l| *l == m.text)).expect("no annoyed line said");
+    let cues: Vec<uc_game::Sfx> = g.take_sounds().into_iter().map(|(s, _)| s).collect();
+    assert!(cues.iter().any(|c| matches!(c, uc_game::Sfx::AnnoyedLine { line, .. } if *line as usize == said + 1)), "{cues:?}");
+}

@@ -1,6 +1,6 @@
 """Voices for the unreleased missions' lines that were never recorded, made with Chatterbox.
 
-    make_voices.py EXPORT OUT [--only VOICE,...] [--missions M,...] [--briefings]
+    make_voices.py EXPORT OUT [--only VOICE,...] [--missions M,...] [--briefings] [--annoyed]
 
 EXPORT is what `cargo run --example voice_lines -- EXPORT` wrote (lines.tsv, and the
 recorded lines under clips/). OUT gets talk2/<mission>.ucm<speech><letter>.wav, named as
@@ -15,6 +15,11 @@ from and how much feeling to put in; overrides.json gives a line other words to 
 --briefings makes the unreleased missions' spoken briefings instead, which the game never
 had: briefings.json gives each file (talk2/<mission>.brief.wav, as the menu looks for it)
 its voice and words.
+
+--annoyed makes the frightened citizens' lines, which were never recorded: each of the
+install's text/annoyed.txt (talk2/misc/fcit-annoyed01.wav for a woman, mcit-annoyed01.wav for
+a man, and so on), in the voices of the citizens' own recordings (voices.json's "fcit" and
+"mcit", whose "install:" samples are read from the install: --game, else UC_GAME_DIR).
 """
 import argparse, csv, json, os, re, shutil, time
 
@@ -63,6 +68,8 @@ def main():
     a.add_argument("--missions", help="missions to make, comma separated")
     a.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     a.add_argument("--briefings", action="store_true", help="the unreleased missions' briefings")
+    a.add_argument("--annoyed", action="store_true", help="the frightened citizens' lines (annoyed.txt)")
+    a.add_argument("--game", default=os.environ.get("UC_GAME_DIR"), help="the install, for --annoyed")
     args = a.parse_args()
     voices = json.load(open(os.path.join(here, "voices.json")))
     talk2 = os.path.join(args.out, "talk2")
@@ -77,7 +84,8 @@ def main():
             from chatterbox.tts import ChatterboxTTS
             model = ChatterboxTTS.from_pretrained(device=args.device)
         v = voices[voice]
-        sample = os.path.join(args.export, v["sample"])
+        sample = v["sample"]
+        sample = os.path.join(args.game, sample[len("install:"):]) if sample.startswith("install:") else os.path.join(args.export, sample)
         if voice not in loudness:
             s, _ = torchaudio.load(sample)
             loudness[voice] = rms(s)
@@ -86,10 +94,25 @@ def main():
         wav = torchaudio.functional.resample(wav.mean(0, keepdim=True), model.sr, RATE)
         # As loud as the recording it copies.
         wav = (wav * loudness[voice] / max(rms(wav), 1e-6)).clamp(-1, 1)
+        os.makedirs(os.path.dirname(os.path.join(talk2, name + ".wav")), exist_ok=True)
         torchaudio.save(os.path.join(talk2, name + ".wav"), wav, RATE, encoding="PCM_S", bits_per_sample=16)
         log.write(f"{name}\t{voice}\tmade\t{time.time() - t:.1f}s\t{text}\n")
         log.flush()
         print(f"{name} ({voice}): {text}", flush=True)
+
+    if args.annoyed:
+        if not args.game:
+            raise SystemExit("--annoyed needs the install: --game DIR or UC_GAME_DIR")
+        text = open(os.path.join(args.game, "text", "annoyed.txt"), encoding="latin-1").read()
+        lines = [(int(m.group(1)), m.group(2).strip()) for m in re.finditer(r"^\s*(\d+)\.\s*(.+)$", text, flags=re.M)]
+        for voice in ("fcit", "mcit"):
+            if args.only and voice not in args.only.split(","):
+                continue
+            for n, line in lines:
+                name = f"misc/{voice}-annoyed{n:02}"
+                if not os.path.exists(os.path.join(talk2, name + ".wav")):
+                    make(name, voice, spoken(line))
+        return
 
     if args.briefings:
         briefings = json.load(open(os.path.join(here, "briefings.json"), encoding="utf-8"))

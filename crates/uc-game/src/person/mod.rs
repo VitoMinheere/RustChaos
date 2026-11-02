@@ -338,6 +338,10 @@ pub enum Sfx {
     /// voiced_line`]): a woman's take or a man's, and the stressed one if the player has a
     /// gun in hand. Not the original's: it shows the lines as text only.
     CitizenLine { line: u8, female: bool, stressed: bool },
+    /// A frightened civilian says `annoyed.txt`'s line `line` (from 1). Not the original's:
+    /// the lines were never recorded, so the voices are made ones, a woman's or a man's,
+    /// played where the made voices are found.
+    AnnoyedLine { line: u8, female: bool },
     /// Something hidden turned up in a search (`S_HIDDENITEM`).
     Found,
     /// A bomb or a car going up.

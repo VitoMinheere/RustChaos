@@ -157,6 +157,12 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
             let names = citizen_takes(line, female, stressed).iter().map(|t| t.to_string()).collect();
             at(audio, names, 1.0);
         }
+        // A frightened citizen's line, in a made voice for their sex (`talk2\misc\fcit-annoyed01.wav`
+        // or `mcit-...`, from the made voices' folder): silent without them.
+        Sfx::AnnoyedLine { line, female } => {
+            let who = if female { "fcit" } else { "mcit" };
+            at(audio, vec![format!("{who}-annoyed{line:02}.wav")], 1.0);
+        }
         Sfx::Voice(point) => {
             audio.voice(mission, point);
         }
