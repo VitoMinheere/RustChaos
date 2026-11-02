@@ -18,6 +18,13 @@
 //!   `load_prim_object` (io.cpp) only takes numbers 1 to 265, `nprimNNN.prm` before the old
 //!   `primNNN.prm`, and skips 238. A map is a released one if a mission `urban.sty` lists or
 //!   `fallen.exe` names is on it.
+//! - **Sounds:** the `.wav` files in `data\sfx\` and `talk2\misc\` that the sound table in
+//!   `fallen.exe` (`sound_list`, sound_id.cpp) doesn't name. Every sound the code or a mission
+//!   plays is one of its ids. A name with a `-` in it is read from `talk2\misc\`, so the
+//!   copies of the taunts in `data\sfx\1622\darci\` and the like aren't played, and a music
+//!   track from the folder of a released mission's music world ([`sound_paths`]). Which ids
+//!   nothing plays isn't checked: the code picks most of them from ranges (`S_WIND_START +
+//!   n`), and the table in the exe isn't the one in the source.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -60,6 +67,14 @@ pub struct Report {
     pub prims: usize,
     pub unused_prims: Vec<PrimFile>,
     pub missing_prims: Vec<(u16, String)>,
+    /// Sounds: how many in `data\sfx\` and `talk2\misc\`, the ones nothing plays, and the
+    /// ones the sound table names that aren't there (paths relative to the install; a music
+    /// track as `musicNN\`, when no world has it).
+    pub sounds: usize,
+    pub unused_sounds: Vec<String>,
+    pub missing_sounds: Vec<String>,
+    /// The music worlds the released missions play in.
+    pub music_worlds: BTreeSet<u32>,
 }
 
 /// A prim file in `server\prims\` the released game never draws.
@@ -188,6 +203,7 @@ pub fn report(game: &Path) -> Result<Report, String> {
 
     let released: BTreeSet<String> = r.missions.iter().filter(|m| m.listed || m.in_exe).map(|m| m.name.to_ascii_lowercase()).collect();
     prims(game, &parsed, &released, &mut r);
+    sounds(game, &exe_strings, &parsed, &released, &mut r);
     Ok(r)
 }
 
@@ -291,6 +307,65 @@ fn prims(game: &Path, parsed: &[(String, Mission)], released: &BTreeSet<String>,
     r.unused_prims.sort_by_key(|p| (p.id, p.file.to_ascii_lowercase()));
 }
 
+/// The sound a name in the sound table plays, relative to the install (`GetFullName`,
+/// DDLibrary/Source/MFX_Miles.cpp:442): a name with a `-` in it (the taunts and grunts) is
+/// read from `talk2\misc\`, and a `musicNN\` name from the folder of the mission's music
+/// world, in the place of `NN`. The others are in `data\sfx\1622\`. Lowercased.
+fn sound_paths(name: &str, worlds: &BTreeSet<u32>) -> Vec<String> {
+    let name = name.to_ascii_lowercase().replace('/', "\\");
+    if name.contains('-') {
+        vec![format!("talk2\\misc\\{}", base(&name))]
+    } else if let Some(rest) = name.strip_prefix("music").filter(|r| r.len() > 2 && r.as_bytes()[..2].iter().all(u8::is_ascii_digit)) {
+        worlds.iter().map(|w| format!("data\\sfx\\1622\\music{w:02}{}", &rest[2..])).collect()
+    } else {
+        vec![format!("data\\sfx\\1622\\{name}")]
+    }
+}
+
+/// `released`: the missions `urban.sty` lists or `fallen.exe` names, lowercased.
+fn sounds(game: &Path, exe_strings: &[String], parsed: &[(String, Mission)], released: &BTreeSet<String>, r: &mut Report) {
+    // The music world: the mission's, unless `levels\mworlds.txt` has one for it (elev.cpp:1843);
+    // none is world 1 (MFX_Miles.cpp:455).
+    let mworlds: BTreeMap<String, u32> = uc_formats::resolve(game, "levels\\mworlds.txt").and_then(|p| std::fs::read(p).ok())
+        .map(|b| b.iter().map(|&c| c as char).collect::<String>()).unwrap_or_default()
+        .lines().filter_map(|l| {
+            let (name, w) = l.split_once(':')?;
+            Some((name.trim().to_ascii_lowercase(), w.trim().parse().ok()?))
+        }).collect();
+    r.music_worlds = parsed.iter().filter(|(n, _)| released.contains(&n.to_ascii_lowercase()))
+        .map(|(n, m)| mworlds.get(&n.to_ascii_lowercase()).copied().unwrap_or(m.music_world as u32).max(1))
+        .collect();
+    // The sound table (`sound_list`, sound_id.cpp), as the exe has it: its `.wav` names, less
+    // the mission recordings in `talk2\`, which are the voice lines'.
+    let table: Vec<String> = exe_strings.iter()
+        .map(|s| s.trim().trim_start_matches("*DL*").trim().to_string())
+        .filter(|s| s.to_ascii_lowercase().ends_with(".wav") && !s.contains('%') && !s.to_ascii_lowercase().starts_with("talk2\\"))
+        .collect();
+    let mut played: BTreeSet<String> = BTreeSet::new();
+    let exists = |p: &str| uc_formats::resolve(game, p).is_some();
+    for name in &table {
+        let paths = sound_paths(name, &r.music_worlds);
+        // A music track counts as there if any world has it.
+        if !paths.iter().any(|p| exists(p)) {
+            // With no worlds, a music track is in no folder.
+            let music = sound_paths(name, &BTreeSet::new()).is_empty();
+            r.missing_sounds.push(if music { format!("data\\sfx\\1622\\musicNN{}", &name[7..]) } else { paths[0].clone() });
+        }
+        played.extend(paths);
+    }
+    r.missing_sounds.sort();
+    r.missing_sounds.dedup();
+    let mut on_disk: Vec<String> = ["data\\sfx", "talk2\\misc"].iter()
+        .filter_map(|d| uc_formats::resolve(game, d))
+        .flat_map(|d| walk(&d))
+        .filter(|p| ext(p) == "wav")
+        .filter_map(|p| Some(p.strip_prefix(game).ok()?.to_string_lossy().replace('/', "\\")))
+        .collect();
+    on_disk.sort_by_key(|p| p.to_ascii_lowercase());
+    r.sounds = on_disk.len();
+    r.unused_sounds = on_disk.into_iter().filter(|p| !played.contains(&p.to_ascii_lowercase())).collect();
+}
+
 fn print(r: &Report) {
     let unlisted: Vec<&MissionFile> = r.missions.iter().filter(|m| !m.listed).collect();
     println!("Missions: {} files in levels\\, {} of them not in urban.sty's list:", r.missions.len(), unlisted.len());
@@ -357,6 +432,21 @@ fn print(r: &Report) {
     if !r.missing_prims.is_empty() {
         let list: Vec<String> = r.missing_prims.iter().map(|(id, w)| format!("{id} ({w})")).collect();
         println!("  placed or loaded, but no file: {}", list.join("; "));
+    }
+    println!();
+    let worlds: Vec<String> = r.music_worlds.iter().map(u32::to_string).collect();
+    println!("Sounds: {} in data\\sfx\\ and talk2\\misc\\, {} that the sound table in fallen.exe doesn't name (the released missions' music worlds are {}):",
+        r.sounds, r.unused_sounds.len(), worlds.join(", "));
+    let mut by: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+    for p in &r.unused_sounds {
+        let (dir, file) = p.rsplit_once('\\').unwrap_or(("", p));
+        by.entry(dir.to_string()).or_default().push(file);
+    }
+    for (dir, files) in by {
+        println!("  {dir}\\ ({}): {}", files.len(), files.join(", "));
+    }
+    if !r.missing_sounds.is_empty() {
+        println!("  named in the table, but not there ({}): {}", r.missing_sounds.len(), r.missing_sounds.join(", "));
     }
 }
 
@@ -554,7 +644,7 @@ mod tests {
     }
 
     /// Against the install: what #467 and #470 found by hand, the outro's textures counted
-    /// as used through its meshes (#468), and the prims.
+    /// as used through its meshes (#468), the prims and the sounds.
     #[test]
     fn the_install_matches_what_was_found_by_hand() {
         let Some(game) = uc_formats::default_install() else { return };
@@ -585,6 +675,18 @@ mod tests {
         assert_eq!(why("prim151.prm"), Some(&PrimWhy::Nowhere));
         assert_eq!(why("prim140.prm"), Some(&PrimWhy::Nowhere));
         assert!(matches!(why("nprim243.prm"), Some(PrimWhy::Unreleased(m)) if m.iter().any(|m| m.starts_with("botanic1"))));
+        assert_eq!(r.sounds, 1077);
+        // The taunts are read from talk2\misc\, not their folders in data\sfx\1622\; the
+        // barks nothing names; a footstep's copy at the top.
+        for unused in ["data\\sfx\\1622\\darci\\DARCI-TAUNT01.wav", "talk2\\misc\\COP-ALERT01.wav", "data\\sfx\\1622\\SoftStep1.wav"] {
+            assert!(r.unused_sounds.iter().any(|p| p == unused), "{unused} counted as played");
+        }
+        for played in ["talk2\\misc\\DARCI-TAUNT01.wav", "talk2\\misc\\GRED-PAIN01.wav", "data\\sfx\\1622\\Music04\\darci\\Fight1.wav",
+                       "data\\sfx\\1622\\Footsteps\\SoftStep1.wav"] {
+            assert!(!r.unused_sounds.iter().any(|p| p == played), "{played} counted as unused");
+        }
+        assert_eq!(r.unused_sounds.iter().filter(|p| p.starts_with("talk2\\misc\\")).count(), 337);
+        assert!(r.missing_sounds.iter().any(|p| p == "data\\sfx\\1622\\musicNN\\Sneak.wav"));
         // A map object, a car body and a special.
         for used in ["nprim141.prm", "nprim108.prm", "nprim232.prm"] {
             assert_eq!(why(used), None, "{used} counted as unused");
