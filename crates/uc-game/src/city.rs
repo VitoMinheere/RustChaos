@@ -109,6 +109,25 @@ pub fn message_lines(bytes: &[u8]) -> Vec<String> {
         .collect()
 }
 
+/// The chatter file a mission names (its `citsez` field), or, if the install hasn't got it,
+/// an older version of it that's there: the last digit is the version (`police11.txt`,
+/// `factory13.txt`), and factory1, Gangorder1 and e3 name a version newer than the one that
+/// shipped (`factory13.txt` for `factory12.txt`, `Gangorder12.txt` for `Gangorder11.txt`,
+/// `E32.txt` for `E31.txt`). The original falls back to `citsez.txt`'s lines instead; here
+/// those missions get their own crowd. `exists` says whether the install has a file.
+pub fn chatter_file(name: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
+    if name.is_empty() {
+        return None;
+    }
+    if exists(name) {
+        return Some(name.to_string());
+    }
+    let (stem, ext) = name.rsplit_once('.')?;
+    let version = stem.chars().last()?.to_digit(10)?;
+    let base = &stem[..stem.len() - 1];
+    (1..version).rev().map(|v| format!("{base}{v}.{ext}")).find(|n| exists(n))
+}
+
 impl Chatter {
     /// `EWAY_load_fake_wander_text`: the mission's file, else `citsez.txt`.
     pub fn load(level: &Level) -> Chatter {
@@ -126,7 +145,8 @@ impl Chatter {
                 .and_then(|p| std::fs::read(p).ok())
                 .map(|b| chatter_sections(&b))
         };
-        let (normal, own) = sections(&level.mission.citsez).or_else(|| sections("text\\citsez.txt")).unwrap_or_default();
+        let own_file = chatter_file(&level.mission.citsez, |p| uc_formats::resolve(&level.game, p).is_some());
+        let (normal, own) = own_file.and_then(|f| sections(&f)).or_else(|| sections("text\\citsez.txt")).unwrap_or_default();
         let mut annoyed = read("text\\annoyed.txt").unwrap_or_default();
         let annoyed_file = annoyed.len();
         for l in own {

@@ -234,6 +234,28 @@ fn a_frightened_citizen_says_an_annoyed_line() {
     assert!(cues.iter().any(|c| matches!(c, uc_game::Sfx::AnnoyedLine { line, .. } if *line as usize == said + 1)), "{cues:?}");
 }
 
+/// A mission naming a chatter file that didn't ship gets the older version that did: the
+/// last digit is the version. Factory1 asks for `factory13.txt`; `factory12.txt` is there.
+#[test]
+fn an_older_chatter_file_stands_in() {
+    let have = ["text\\factory12.txt", "text\\police11.txt"];
+    let exists = |n: &str| have.iter().any(|h| h.eq_ignore_ascii_case(n));
+    assert_eq!(uc_game::city::chatter_file("text\\factory13.txt", exists).as_deref(), Some("text\\factory12.txt"));
+    assert_eq!(uc_game::city::chatter_file("Text\\police11.txt", exists).as_deref(), Some("Text\\police11.txt"));
+    assert_eq!(uc_game::city::chatter_file("text\\Gordout11.txt", exists), None);
+    assert_eq!(uc_game::city::chatter_file("", exists), None);
+    let Some(game) = uc_formats::default_install() else { return };
+    let on_disk = |n: &str| uc_formats::resolve(&game, n).is_some();
+    for (asked, got) in [("text\\factory13.txt", "text\\factory12.txt"), ("text\\Gangorder12.txt", "text\\Gangorder11.txt"), ("text\\E32.txt", "text\\E31.txt")] {
+        assert_eq!(uc_game::city::chatter_file(asked, on_disk).as_deref(), Some(got));
+    }
+    // Factory1's crowd says factory12.txt's lines, not citsez.txt's.
+    let Some((level, _)) = load("factory1") else { return };
+    let chatter = uc_game::city::Chatter::load(&level);
+    let own = uc_game::city::chatter_sections(&std::fs::read(uc_formats::resolve(&game, "text\\factory12.txt").unwrap()).unwrap()).0;
+    assert_eq!(chatter.normal, own);
+}
+
 /// Someone in the crowd spoken to stops and gestures as they answer: a man with one of the
 /// men's talking animations, a woman as in a conversation. Skipped without an install.
 #[test]
