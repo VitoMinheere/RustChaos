@@ -127,6 +127,14 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         Sfx::ScreamFall { kind: ptype::DARCI } => at(audio, vec!["darci/scream fall.WAV".into(), "darci/scream fall 2.WAV".into()], 1.0),
         Sfx::ScreamFall { kind: ptype::ROPER | ptype::CIV } => at(audio, numbered("roper/roper fall", 1..=3, ".WAV"), 1.0),
         Sfx::ScreamFall { .. } => {}
+        // Catching fire: the screams nothing played (`ScreamF1`, `ScreamF2`, `ScreamM1`), and
+        // the screams recorded for the character, if any (`DARCI-SCREAM01`, `MCIV-SCREAM`...).
+        Sfx::OnFire { kind, female } => {
+            let own = if female { vec!["ScreamF1.wav".into(), "ScreamF2.wav".into()] } else { vec!["ScreamM1.wav".into()] };
+            // Not a man's scream from a woman of the crowd.
+            let names = if female && kind == ptype::CIV { own } else { lines(audio, kind, "SCREAM", own) };
+            at(audio, names, 1.0);
+        }
         Sfx::Land => at(audio, vec!["Footsteps/StreetLand1.wav".into()], 0.6),
         Sfx::Grab => at(audio, vec!["JudoChop1.wav".into()], 0.8),
         Sfx::Arrest => {

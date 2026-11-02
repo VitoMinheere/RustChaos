@@ -187,7 +187,7 @@ impl Person {
         use uc_world::character::person as ptype;
         if matches!(self.weapon, Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper) && self.kind != ptype::ROPER {
             anim::SHOTGUN_IDLE
-        } else if matches!(self.kind, ptype::SLAG_TART | ptype::SLAG_FATUGLY) || (self.kind == ptype::CIV && self.fig.model.body == 9) {
+        } else if self.is_woman() {
             anim::STAND_HIP
         } else {
             anim::BREATHE

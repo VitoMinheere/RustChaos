@@ -462,10 +462,7 @@ impl Game {
         let lines = if annoyed { &self.streets.chatter.annoyed } else { &self.streets.chatter.normal };
         let i = r % lines.len();
         let text = lines[i].clone();
-        // The women: the two `SLAG` types, and a civilian drawn as one (mesh 9,
-        // `set_anim_idle`, Person.cpp:8817).
-        let o = &self.people[j];
-        let female = matches!(o.kind, ptype::SLAG_TART | ptype::SLAG_FATUGLY) || (o.kind == ptype::CIV && o.fig.model.body == 9);
+        let female = self.people[j].is_woman();
         if annoyed && i < self.streets.chatter.annoyed_file {
             self.people[j].cues.push(crate::Sfx::AnnoyedLine { line: i as u8 + 1, female });
         } else if let Some(line) = voiced_line(&text).filter(|_| !annoyed) {

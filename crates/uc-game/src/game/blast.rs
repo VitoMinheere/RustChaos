@@ -2,6 +2,10 @@
 
 use crate::*;
 
+/// How long the flames take to die down on someone burned to death (seconds): the original's
+/// shrink over about 150 ticks (`IMMOLATE` once the victim is dead, pyro.cpp:870).
+const EMBERS: f32 = 7.5;
+
 impl Game {
     /// Puts down a barrel (`BARREL_alloc`, barrel.cpp:1299): on top of the highest other
     /// barrel within `BARREL_STACK_RADIUS` (45) of it, `BARREL_HEIGHT` (93) up, if that's
@@ -206,49 +210,73 @@ impl Game {
     /// Fires burn (#297, collide.cpp:6237; Person.cpp:4342), a tick at a time, 20 a second.
     /// Anyone within 100 of one (the longer side and half the shorter) with their left foot
     /// within 0x50 of its height catches alight and loses 30 health a tick while they stay
-    /// in it, flames licking up them; at none, they die as a blast kills
-    /// (`PERSON_DEATH_TYPE_OTHER`). A wandering civilian within 200 runs from it instead.
-    /// Nobody invulnerable, and nobody only the player may hurt, catches.
+    /// in it. A wandering civilian within 200 runs from it instead. Nobody invulnerable, and
+    /// nobody only the player may hurt, catches.
+    ///
+    /// Once alight they stay so, wherever they go (`PYRO_IMMOLATE` on them, pyro.cpp:749),
+    /// flames licking up them and 11 health a tick going (10 from the flames and 1 from
+    /// `BurnIndex`, Person.cpp:4419), until they die of it, as a blast kills
+    /// (`PERSON_DEATH_TYPE_OTHER`), or reach water, which puts them out. On the body the
+    /// flames die down over [`EMBERS`] seconds. Catching fire, they scream
+    /// ([`crate::Sfx::OnFire`]), which the original doesn't.
     pub(crate) fn burn(&mut self, level: &Level) {
         if (self.time * 20.0) as u64 == ((self.time - TURN) * 20.0) as u64 {
             return;
         }
         let fires: Vec<Vec3> = self.pyro.fires().map(|(f, _)| f).collect();
-        if fires.is_empty() {
-            return;
-        }
         for i in 0..self.people.len() {
             let p = &self.people[i];
+            if let Some(t) = p.alight.filter(|_| p.is_dead() || p.removed) {
+                let t = t + 0.05;
+                self.people[i].alight = (t < EMBERS && !self.people[i].removed).then_some(t);
+                if let Some((_, at)) = self.people[i].fig.part_world(0) {
+                    self.pyro.lick(at, 30.0 * (1.0 - t / EMBERS));
+                }
+                continue;
+            }
             if p.removed || p.is_dead() || p.invulnerable || p.bent & person::BENT_PLAYERKILL != 0 || matches!(p.state, State::InCar { .. }) {
                 continue;
             }
             let wanderer = p.ai == person::AI_CIV || p.mv == person::MOVE_WANDER;
             let foot = p.fig.part_world(3).map_or(p.fig.pos.y, |(_, at)| at.y);
-            let mut burning = None;
+            let mut in_fire = None;
             for &f in &fires {
                 let (dx, dz) = ((p.fig.pos.x - f.x).abs(), (p.fig.pos.z - f.z).abs());
                 let dist = dx.max(dz) + dx.min(dz) / 2.0;
-                if wanderer && dist < 200.0 {
+                if wanderer && dist < 200.0 && p.alight.is_none() {
                     self.people[i].scare(None, f);
-                    burning = None;
+                    in_fire = None;
                     break;
                 }
                 if dist < 100.0 && (foot - f.y).abs() < 0x50 as f32 {
-                    burning = Some(f);
+                    in_fire = Some(f);
                 }
             }
-            let Some(fire) = burning else { continue };
+            let p = &mut self.people[i];
+            if in_fire.is_none() && p.alight.is_none() {
+                continue;
+            }
+            if p.alight.is_some() && crate::tracks::on_water(&level.map, p.fig.pos.x, p.fig.pos.z) {
+                p.alight = None;
+                continue;
+            }
+            if p.alight.is_none() {
+                p.alight = Some(0.0);
+                let (kind, female) = (p.kind, p.kind == uc_world::character::person::DARCI || p.is_woman());
+                p.cues.push(crate::Sfx::OnFire { kind, female });
+            }
             for part in [0, 4, 11] {
                 if let Some((_, at)) = self.people[i].fig.part_world(part) {
                     self.pyro.lick(at, 40.0);
                 }
             }
-            let hit = self.hurt(i, 30);
+            let hit = in_fire.map_or(0, |_| self.hurt(i, 30)) + self.hurt(i, 11);
+            let from = in_fire.unwrap_or(self.people[i].fig.pos + Vec3::X);
             if self.people[i].health > hit {
                 self.people[i].health -= hit;
             } else {
-                let (behind, was) = (self.people[i].hit_from_behind(fire), self.people[i].is_dead());
-                self.people[i].take_hit(fire, hit, person::ko::KNOCKDOWN, false, false, Weapon::None);
+                let (behind, was) = (self.people[i].hit_from_behind(from), self.people[i].is_dead());
+                self.people[i].take_hit(from, hit, person::ko::KNOCKDOWN, false, false, Weapon::None);
                 self.knocked_dead(i, behind, was, level);
             }
         }
