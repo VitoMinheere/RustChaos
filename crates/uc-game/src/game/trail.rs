@@ -19,7 +19,7 @@ impl Game {
         }
         for i in 0..self.people.len() {
             let p = &self.people[i];
-            if p.removed || p.is_dead() || p.health <= 0 || p.health >= p.max_health / 4 || matches!(p.state, State::InCar { .. }) {
+            if p.removed || p.is_dead() || p.health <= 0 || p.health >= p.max_health / 4 || p.aboard() {
                 continue;
             }
             let health = p.health;

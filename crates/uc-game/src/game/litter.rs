@@ -38,7 +38,7 @@ impl Game {
                 self.dirt.set_focus(at.x as i32, at.z as i32, dirt::FOCUS_RADIUS, at.y as i32, &level.map);
             }
             let movers: Vec<Vec3> = self.people.iter()
-                .map(|p| if p.removed || matches!(p.state, State::InCar { .. }) { Vec3::NAN } else { p.fig.pos })
+                .map(|p| if p.removed || p.aboard() { Vec3::NAN } else { p.fig.pos })
                 .chain(self.vehicles.iter().map(|v| v.pos))
                 .collect();
             // A can someone kicks is heard by the guards about (`DIRT_gust`, dirt.cpp:2194).

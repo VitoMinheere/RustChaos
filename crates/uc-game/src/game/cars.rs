@@ -297,7 +297,7 @@ impl Game {
         let ahead = if st.drunk { 0.5 } else { 1.0 };
         let blocker = self.people.iter().enumerate().find(|&(j, o)| {
             let r = Vec2::new(o.fig.pos.x - at.x, o.fig.pos.z - at.y);
-            j != pi && !o.removed && !matches!(o.state, State::InCar { .. }) && (o.fig.pos.y - y).abs() < 150.0
+            j != pi && !o.removed && !o.aboard() && (o.fig.pos.y - y).abs() < 150.0
                 && r.dot(fwd) > 0.0 && r.dot(fwd) < (250.0 + speed.max(0.0) * 0.5) * ahead && r.dot(side).abs() < 170.0
         }).map(|(_, o)| o.fig.pos)
             // And for a car in the way (`VEH_find_runover_things` takes `CLASS_VEHICLE` too,
@@ -459,7 +459,7 @@ impl Game {
             self.carry(&riders, &tops, &after);
             let v = self.vehicles[vi].clone();
             // (Not someone still getting in: they're at the door.)
-            if let Some(d) = v.driver.filter(|&d| matches!(self.people[d].state, State::InCar { .. })) {
+            if let Some(d) = v.driver.filter(|&d| self.people[d].aboard()) {
                 let p = &mut self.people[d];
                 p.fig.pos = v.pos;
                 p.fig.angle = v.driver_angle();
@@ -494,7 +494,7 @@ impl Game {
             }
             // People in the way.
             for (i, p) in self.people.iter_mut().enumerate() {
-                if Some(i) == v.driver || p.removed || matches!(p.state, State::InCar { .. }) || (p.fig.pos.y - v.pos.y).abs() > 150.0 || aboard.contains(&i) {
+                if Some(i) == v.driver || p.removed || p.aboard() || (p.fig.pos.y - v.pos.y).abs() > 150.0 || aboard.contains(&i) {
                     continue;
                 }
                 let at = Vec2::new(p.fig.pos.x, p.fig.pos.z);

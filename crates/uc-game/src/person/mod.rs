@@ -433,6 +433,8 @@ pub struct Controls {
     pub aim: Option<Vec3>,
     /// Driving, when in a car.
     pub drive: crate::vehicle::Drive,
+    /// Flying, when in a helicopter (#465).
+    pub fly: crate::chopper::Stick,
     /// Pressed: the sniper rifle's scope, in or out.
     pub scope: bool,
     /// Taunt `target` (`ANIM_WANKER`), standing.
@@ -707,6 +709,8 @@ pub enum State {
     Fence { phase: u8, at: Vec2, over: Vec2, base: f32, top: f32, from: Vec3, cross: bool },
     /// Driving (or sitting in) vehicle `vehicle`: not drawn, moved with the car.
     InCar { vehicle: usize },
+    /// Flying helicopter `chopper` (#465): not drawn, moved with it.
+    Flying { chopper: usize },
     /// Getting into vehicle `vehicle` (`SUB_STATE_ENTERING_VEHICLE`): lined up at its door,
     /// in once the animation's done.
     Enter { vehicle: usize },
@@ -1143,6 +1147,8 @@ pub struct Person {
     pub scared: Option<Scare>,
     /// Somebody has given them a fright (`pcom_ai_memory`): they don't forget it, and say so.
     pub annoyed: bool,
+    /// Seconds left on the radar after the chopper's searchlight picked them out (#466).
+    pub lit: f32,
     /// On fire (`BurnIndex`: a `PYRO_IMMOLATE` on them, pyro.cpp:749), and the seconds since
     /// they died of it, the flames dying down on the body.
     pub alight: Option<f32>,
@@ -1213,7 +1219,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, knife: false, bat: false, drop: None, ai_fired: 0, searched: false, guns: 0, ammo: [0; 4], spent: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, struggle: 0.0, idle_for: 0.0, breathed: false, screamed: false, fly_kick: None, gun_fight: false, topple: None, bonus_rolled: false, run_shot: 0.0, fetch: None, splattered: false, sized_up: false, felon: false, slot: None, ganged: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
-            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, alight: None, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
+            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, lit: 0.0, alight: None, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }
 
@@ -1592,6 +1598,11 @@ impl Person {
         matches!(self.kind, ptype::SLAG_TART | ptype::SLAG_FATUGLY) || (self.kind == ptype::CIV && self.fig.model.body == 9)
     }
 
+    /// Inside something: driving a car or flying a helicopter, out of sight and out of reach.
+    pub fn aboard(&self) -> bool {
+        matches!(self.state, State::InCar { .. } | State::Flying { .. })
+    }
+
     /// Out of the fight for good: knocked out, arrested or gone.
     pub fn is_dead(&self) -> bool {
         self.knocked_out || self.arrested || self.removed || matches!(self.state, State::Cuffed)
@@ -1637,7 +1648,7 @@ impl Person {
             dummy: self.is_dummy(),
             attacking: matches!(self.state, State::Attack { .. }),
             blocking: matches!(self.state, State::Block { .. }),
-            in_car: matches!(self.state, State::InCar { .. }),
+            in_car: self.aboard(),
             injured: matches!(self.state, State::Injured),
             crouching: self.crouching(),
             doubled: self.doubled(),
@@ -1858,7 +1869,7 @@ impl Person {
             }
             State::Down => self.step_down(ground, map, dt),
             State::Cuffed => self.step_cuffed(dt),
-            State::Held { .. } | State::InCar { .. } => {}
+            State::Held { .. } | State::InCar { .. } | State::Flying { .. } => {}
             State::Fall { vy, vel } => self.step_fall(vy, vel, me, c, snaps, ground, map, dt, events),
             State::Vault { from, to } => {
                 self.fig.pos = from.lerp(to, self.fig.progress());

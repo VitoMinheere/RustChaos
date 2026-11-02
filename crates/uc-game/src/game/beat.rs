@@ -376,7 +376,7 @@ impl Game {
         let down = |p: &Person| p.arrested || p.knocked_out || p.is_dead() || p.removed;
         inc.arrests = inc.culprits.iter().filter(|&&i| self.people[i].arrested).count() as u32;
         let got = !inc.culprits.is_empty() && inc.culprits.iter().all(|&i| down(&self.people[i]));
-        let me = self.player.filter(|&p| !matches!(self.people[p].state, State::InCar { .. })).map(|p| self.people[p].fig.pos);
+        let me = self.player.filter(|&p| !self.people[p].aboard()).map(|p| self.people[p].fig.pos);
         let beside = |at: Vec3| me.is_some_and(|m| Vec2::new(m.x - at.x, m.z - at.z).length() < BESIDE && (m.y - at.y).abs() < 128.0);
         if let Some(j) = inc.jumper {
             let p = &self.people[j];
@@ -487,7 +487,7 @@ impl Game {
         if inc.kind == Kind::Getaway {
             for &i in &inc.culprits {
                 let p = &mut self.people[i];
-                if !down(p) && !matches!(p.state, State::InCar { .. }) && p.ai == person::AI_DRIVER {
+                if !down(p) && !p.aboard() && p.ai == person::AI_DRIVER {
                     (p.ai, p.mv, p.scared) = (person::AI_GANG, person::MOVE_WANDER, None);
                     p.go_for();
                 }

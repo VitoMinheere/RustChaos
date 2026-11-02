@@ -300,7 +300,7 @@ impl Game {
         }
         // The player drawing a gun, where people can see it.
         if let Some(pi) = self.player {
-            let drawn = self.people[pi].weapon.is_gun() && !matches!(self.people[pi].state, State::InCar { .. });
+            let drawn = self.people[pi].weapon.is_gun() && !self.people[pi].aboard();
             if drawn && !self.gun_drawn {
                 let at = self.people[pi].fig.pos;
                 let eye = Vec3::new(0.0, 140.0, 0.0);

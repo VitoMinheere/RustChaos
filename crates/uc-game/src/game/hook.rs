@@ -116,7 +116,7 @@ impl Game {
         let p = &self.people[pi];
         let (hand, feet) = (hand(p), p.fig.pos);
         // Not hers any more (dropped, or she's driving off): it's gone.
-        if !p.has(Weapon::Hook) || matches!(p.state, State::InCar { .. } | State::Bike { .. }) {
+        if !p.has(Weapon::Hook) || matches!(p.state, State::InCar { .. } | State::Flying { .. } | State::Bike { .. }) {
             return;
         }
         match h.hold {

@@ -518,7 +518,7 @@ impl Game {
                     // In a car, they climb in with them (`PCOM_set_person_ai_hitch`, pcom.cpp:4758):
                     // off to its passenger door at a run (a walk for the lazy).
                     if let Some(State::InCar { vehicle: v }) = j.map(|j| self.people[j].state.clone()) {
-                        if !matches!(p.state, State::InCar { .. }) && !self.vehicles[v].wrecked() {
+                        if !p.aboard() && !self.vehicles[v].wrecked() {
                             let door = self.vehicles[v].to_world(-200.0, 20.0);
                             let pace = if p.bent & person::BENT_LAZY != 0 { person::Pace::Walk } else { person::Pace::Run };
                             goals[i] = (Some(Vec3::new(door.x, at[i].y, door.y)), pace);
@@ -673,7 +673,7 @@ impl Game {
             let cops: Vec<usize> = (0..self.people.len())
                 .filter(|&j| {
                     let c = &self.people[j];
-                    j != v && c.ai == person::AI_COP && !matches!(c.state, State::InCar { .. }) && c.doing_nothing_important()
+                    j != v && c.ai == person::AI_COP && !c.aboard() && c.doing_nothing_important()
                         && c.victim.is_none() && (c.fig.pos - at).length() < 0x800 as f32
                 })
                 .filter(|&j| self.can_a_see_b(v, j, level))
