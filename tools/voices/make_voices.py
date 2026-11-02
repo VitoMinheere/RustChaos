@@ -1,6 +1,6 @@
 """Voices for the unreleased missions' lines that were never recorded, made with Chatterbox.
 
-    make_voices.py EXPORT OUT [--only VOICE,...] [--missions M,...] [--briefings] [--annoyed] [--chatter]
+    make_voices.py EXPORT OUT [--only VOICE,...] [--missions M,...] [--briefings] [--annoyed] [--chatter] [--beat TSV]
 
 EXPORT is what `cargo run --example voice_lines -- EXPORT` wrote (lines.tsv, and the
 recorded lines under clips/). OUT gets talk2/<mission>.ucm<speech><letter>.wav, named as
@@ -26,6 +26,10 @@ of the chatter files the missions read (CHATTER), in both citizens' voices, as
 talk2/misc/fcit-chat<key>.wav and mcit-chat<key>.wav, where <key> is chatter_key() of the
 line (the port's `uc_game::city::chatter_key`), so a line in several files is made once. The
 lines the citizens recorded themselves (RECORDED) are left out for the voice that has them.
+
+--beat TSV makes Beat Cop's dispatch lines, which the game never had: TSV is what
+`cargo run -p uc-game --example beat_lines` prints (file and words), and each goes to
+talk2/<file> in voices.json's "despatch" voice (the missions' radio, from the install).
 """
 import argparse, csv, json, os, re, shutil, time
 
@@ -67,6 +71,24 @@ NUMBERS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight
 CHATTER = ["citsez.txt", "police11.txt", "police21.txt", "police31.txt", "police41.txt", "mission21.txt", "E31.txt",
            "Gangorder11.txt", "Westcrime11.txt", "bball24.txt", "estate21.txt", "factory12.txt", "skymiss21.txt",
            "wstores11.txt"]
+# Chatter lines said otherwise than they're spelt, so the voices don't garble them (checked
+# with Whisper), or not at all (None): matched by their letters and digits.
+CHATTER_SAY = {
+    ":)": None,
+    "Arrrruugghh...ahhhem!": "Argh... ahem!",
+    "Feck,feck,feck!": "Feck, feck, feck!",
+    "Whatya doin wijit?": "Whatcha doin' with it?",
+    "Wotcha.": "Watcha.",
+    "Hiya!": "Hi ya!",
+    "Howdie!": "Howdy!",
+    "Phuk ov!": "Fuck off!",
+    "Arrrrrrrr...choooo!": "Ah... ah... choo!",
+    "Aaaaargh!!": "Aaargh!",
+    "urrrrgghhh...??": "Urgh?",
+    "Dunno nothin' Man.": "Dunno nothin', man.",
+    "sram you bums! Oh...(ahem) excuse me, Officer.": "Scram, you bums! Oh... ahem. Excuse me, Officer.",
+    "spk Thursday seventeen/three/99": "S P K, Thursday, seventeen, three, ninety-nine.",
+}
 # citsez.txt's lines the citizens recorded (talk2/misc/fcit-sez*, mcit-sez*), by voice.
 RECORDED = {"fcit": [1, 6, 13, 20], "mcit": [1, 3, 6, 10]}
 
@@ -102,6 +124,7 @@ def main():
     a.add_argument("--briefings", action="store_true", help="the unreleased missions' briefings")
     a.add_argument("--annoyed", action="store_true", help="the frightened citizens' lines (annoyed.txt)")
     a.add_argument("--chatter", action="store_true", help="what the crowds say (the chatter files)")
+    a.add_argument("--beat", help="Beat Cop's dispatch lines: beat_lines' TSV")
     a.add_argument("--game", default=os.environ.get("UC_GAME_DIR"), help="the install, for --annoyed and --chatter")
     args = a.parse_args()
     voices = json.load(open(os.path.join(here, "voices.json")))
@@ -147,11 +170,21 @@ def main():
                     make(name, voice, spoken(line))
         return
 
+    if args.beat:
+        if not args.game:
+            raise SystemExit("--beat needs the install: --game DIR or UC_GAME_DIR")
+        for row in open(args.beat, encoding="utf-8"):
+            file, _, text = row.rstrip("\n").partition("\t")
+            if file and text and not os.path.exists(os.path.join(talk2, file)):
+                make(file.removesuffix(".wav"), "despatch", spoken(text))
+        return
+
     if args.chatter:
         if not args.game:
             raise SystemExit("--chatter needs the install: --game DIR or UC_GAME_DIR")
         recorded = {v: {line_key(t) for n, t in numbered(os.path.join(args.game, "text", "citsez.txt")) if n in ns}
                     for v, ns in RECORDED.items()}
+        respelt = {line_key(k): v for k, v in CHATTER_SAY.items()}
         seen = set()
         for file in CHATTER:
             for _, line in numbered(os.path.join(args.game, "text", file)):
@@ -163,8 +196,9 @@ def main():
                     if (args.only and voice not in args.only.split(",")) or line_key(line) in recorded[voice]:
                         continue
                     name = f"misc/{voice}-chat{key}"
-                    if not os.path.exists(os.path.join(talk2, name + ".wav")):
-                        make(name, voice, spoken(line))
+                    say = respelt.get(line_key(line), spoken(line))
+                    if say and not os.path.exists(os.path.join(talk2, name + ".wav")):
+                        make(name, voice, say)
         return
 
     if args.briefings:

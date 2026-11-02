@@ -63,5 +63,10 @@
   "sample": "install:talk2/misc/mcit-sez02.wav",
   "exaggeration": 0.8,
   "cfg_weight": 0.35
+ },
+ "despatch": {
+  "sample": "install:talk2/factory1.ucm10.wav",
+  "exaggeration": 0.5,
+  "cfg_weight": 0.5
  }
 }

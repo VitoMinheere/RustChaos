@@ -29,8 +29,60 @@ const AT_ONCE: usize = 2;
 const FIRST_WAY: usize = 50_000;
 /// Talking a jumper down, defusing a bomb: this near (and on the same level) for this long.
 const BESIDE: f32 = 1.5 * 256.0;
+/// A siren this near a drunk driver (world units) has him pull over.
+const PULL_OVER: f32 = 8.0 * 256.0;
+/// A getaway car stuck this long (seconds), or down to this much of its health, and the
+/// driver gets out to fight.
+const STUCK: f32 = 1.5;
+const BAIL_HEALTH: i32 = 150;
 const TALK_DOWN: f32 = 2.0;
 const DEFUSE: f32 = 3.0;
+
+/// What dispatch says aloud (the lines are made voices, `talk2\beat\`, [`lines`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Despatch {
+    /// The call for an incident.
+    Call(Kind),
+    /// It's handled.
+    Done(Kind),
+    /// It's missed.
+    TooLate(Kind),
+    /// The shift's over.
+    ShiftOver,
+    /// The crime rate's hit 100.
+    OutOfControl,
+}
+
+impl Despatch {
+    /// The made voice's file, under `talk2\`.
+    pub fn file(self) -> String {
+        let slug = |k: Kind| k.label().to_ascii_lowercase().replace(' ', "_");
+        match self {
+            Despatch::Call(k) => format!("beat/call_{}.wav", slug(k)),
+            Despatch::Done(k) => format!("beat/done_{}.wav", slug(k)),
+            Despatch::TooLate(k) => format!("beat/late_{}.wav", slug(k)),
+            Despatch::ShiftOver => "beat/shift_over.wav".into(),
+            Despatch::OutOfControl => "beat/out_of_control.wav".into(),
+        }
+    }
+
+    /// What's said: what's shown, without "Despatch: ".
+    pub fn text(self) -> String {
+        match self {
+            Despatch::Call(k) => k.call().into(),
+            Despatch::Done(k) => format!("{} dealt with. Good work.", k.label()),
+            Despatch::TooLate(k) => format!("Too late for the {}.", k.label().to_ascii_lowercase()),
+            Despatch::ShiftOver => "Shift over. Good work out there.".into(),
+            Despatch::OutOfControl => "The city's out of control.".into(),
+        }
+    }
+}
+
+/// Every line dispatch says, for making their voices: (file, words).
+pub fn lines() -> Vec<(String, String)> {
+    let each = Kind::ALL.iter().flat_map(|&k| [Despatch::Call(k), Despatch::Done(k), Despatch::TooLate(k)]);
+    each.chain([Despatch::ShiftOver, Despatch::OutOfControl]).map(|d| (d.file(), d.text())).collect()
+}
 
 /// What's going on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,10 +97,12 @@ pub enum Kind {
     GangFight,
     /// A wanted man, who runs on seeing a cop: catch him.
     WantedMan,
-    /// A car weaving through the traffic: get the driver out of it (a gun out frightens him
-    /// out, or wreck it), then take him.
+    /// A car weaving through the traffic: get the driver out of it. He pulls over for a
+    /// siren, stops (late) for someone in the road and gets out to her at his door; a shot
+    /// frightens him out, and a wreck throws him out, to be taken in.
     DrunkDriver,
-    /// A robber driving off fast: stop the car, then take him, gun and all.
+    /// A robber driving off fast: stop the car (box it in or smash it up and he bails out),
+    /// then take him, gun and all.
     Getaway,
     /// Somebody up on a roof by a ladder, about to jump: get up there and talk them down
     /// (stay with them a moment).
@@ -106,8 +160,8 @@ impl Kind {
             Kind::DumpedWeapon => 150.0,
             Kind::GangFight => 120.0,
             Kind::WantedMan => 150.0,
-            Kind::DrunkDriver => 120.0,
-            Kind::Getaway => 120.0,
+            Kind::DrunkDriver => 150.0,
+            Kind::Getaway => 150.0,
             Kind::Jumper => 120.0,
             Kind::Bomb => 90.0,
         }
@@ -224,7 +278,7 @@ impl Game {
         let inc = self.call_in(&mut b, kind, level);
         let called = inc.is_some();
         if let Some(inc) = inc {
-            self.say(kind.call());
+            self.say(Despatch::Call(kind));
             b.incidents.push(inc);
         }
         self.beat = Some(b);
@@ -255,6 +309,7 @@ impl Game {
         }
         if b.shift.is_some_and(|left| left <= 0.0) {
             self.messages.push(Message { text: summary(b), left: 10.0, face: Some(talk::face::RADIO), filmed: false });
+            self.voice(Despatch::ShiftOver);
             self.finish(Outcome::Won);
             return;
         }
@@ -270,7 +325,7 @@ impl Game {
                     b.score += inc.kind.points() + bonus;
                     b.handled += 1;
                     self.crime_rate = self.crime_rate.saturating_sub(5);
-                    self.say(&format!("{} dealt with. Good work.", inc.kind.label()));
+                    self.say(Despatch::Done(inc.kind));
                     self.sounds.push((Sfx::Found, inc.at));
                     self.clear_up(&inc);
                 }
@@ -279,13 +334,14 @@ impl Game {
                     b.score -= 50;
                     b.missed += 1;
                     self.crime_rate = (self.crime_rate + 8).min(100);
-                    self.say(&format!("Too late for the {}.", inc.kind.label().to_ascii_lowercase()));
+                    self.say(Despatch::TooLate(inc.kind));
                     self.clear_up(&inc);
                 }
                 None => k += 1,
             }
         }
         if self.crime_rate >= 100 {
+            self.voice(Despatch::OutOfControl);
             self.finish(Outcome::Lost("The city's out of control".into()));
             return;
         }
@@ -294,18 +350,25 @@ impl Game {
         if b.next <= 0.0 && b.incidents.len() < AT_ONCE {
             let kind = Kind::ALL[(b.rand() as usize) % Kind::ALL.len()];
             if let Some(inc) = self.call_in(b, kind, level) {
-                self.say(kind.call());
+                self.say(Despatch::Call(kind));
                 b.incidents.push(inc);
             }
             b.next = 25.0 + (b.rand() % 25) as f32;
         }
     }
 
-    /// A message from dispatch.
-    fn say(&mut self, text: &str) {
-        self.messages.push(Message { text: format!("Despatch: {text}"), left: 6.0, face: Some(talk::face::RADIO), filmed: false });
+    /// A message from dispatch, shown and said.
+    fn say(&mut self, line: Despatch) {
+        self.messages.push(Message { text: format!("Despatch: {}", line.text()), left: 6.0, face: Some(talk::face::RADIO), filmed: false });
         let at = self.player().map_or(Vec3::ZERO, |p| p.fig.pos);
         self.sounds.push((Sfx::Radio, at));
+        self.voice(line);
+    }
+
+    /// Dispatch says `line` aloud.
+    fn voice(&mut self, line: Despatch) {
+        let at = self.player().map_or(Vec3::ZERO, |p| p.fig.pos);
+        self.sounds.push((Sfx::Despatch(line), at));
     }
 
     /// Whether incident `inc` is handled (true), missed (false) or still going (None).
@@ -369,6 +432,53 @@ impl Game {
                     let p = &mut self.people[i];
                     if !down(p) && p.scared.is_none() && (p.fig.pos - me).length() < 8.0 * 256.0 {
                         p.scare(self.player, me);
+                    }
+                }
+            }
+        }
+        // A drunk driver pulls over for a siren close by, or stops for someone in the road,
+        // and once stopped and out of his car with her beside him, that's him off the road.
+        if inc.kind == Kind::DrunkDriver {
+            let siren = self.vehicles.iter().filter(|v| v.siren).map(|v| v.pos).collect::<Vec<_>>();
+            for &i in &inc.culprits {
+                match self.people[i].state {
+                    State::InCar { vehicle } => {
+                        let v = &mut self.vehicles[vehicle];
+                        if siren.iter().any(|&s| (s - v.pos).length() < PULL_OVER) {
+                            v.stalled = true;
+                        }
+                        let stopped = v.speed.abs() < 60.0;
+                        let near = me.is_some_and(|m| Vec2::new(m.x - v.pos.x, m.z - v.pos.z).length() < 3.0 * 256.0);
+                        // Out of the car: pulled over for her, or stopped with her at the door.
+                        if stopped && (v.stalled || near) {
+                            v.stalled = true;
+                            v.driver = None;
+                            let door = v.door();
+                            let p = &mut self.people[i];
+                            p.state = State::Move;
+                            p.fig.pos = Vec3::new(door.x, v.pos.y, door.y);
+                            p.cues.push(Sfx::CarDoor);
+                            if let (Some(pi), Some(m)) = (self.player, me) {
+                                self.people[i].hands_up(pi, m);
+                            }
+                        }
+                    }
+                    _ if !down(&self.people[i]) && beside(self.people[i].fig.pos) => return Some(true),
+                    _ => {}
+                }
+            }
+        }
+        // A getaway driver bails out to fight once his car's boxed in or smashed up.
+        if inc.kind == Kind::Getaway {
+            for &i in &inc.culprits {
+                if let State::InCar { vehicle } = self.people[i].state {
+                    let v = &self.vehicles[vehicle];
+                    // (Not while he's still pulling away.)
+                    let going = inc.left < inc.kind.time() - 5.0;
+                    inc.with = if going && v.speed.abs() < 60.0 { inc.with + dt } else { 0.0 };
+                    if (inc.with > STUCK || v.health < BAIL_HEALTH) && self.people[i].scared.is_none() {
+                        let at = v.pos;
+                        self.people[i].scare(self.player, at);
                     }
                 }
             }
