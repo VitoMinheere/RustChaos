@@ -467,8 +467,9 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 /// debriefs from the Sarge (points 172 and 182), but both wait for points that are gone, as
 /// does the Sarge himself (174): the video tape stashed at the Wildcats' hideout once the
 /// bombers are in (181), picking it up (187), and not having it when despatch's patience runs
-/// out (188). Here they're put back as Car Bomb has them, with the two lines and the half
-/// minute's countdown that went with them (the lines' recordings numbered from 901, as the
+/// out (188). Here they're put back as Car Bomb has them, with the two lines, the half
+/// minute's countdown and the Sarge's beacon that went with them (the beacon up once the tape
+/// is in hand as well, not only once despatch calls) (the lines' recordings numbered from 901, as the
 /// other added lines', `carbomb1.ucm28.wav` and `29` being Car Bomb's).
 ///
 /// army1, Radar Tower, is won by sabotaging the system at the top of the radar tower (point
@@ -797,6 +798,11 @@ fn carbomb2_debrief(mission: &mut Mission) {
     let without = add_point(mission, EventPoint { trigger: trigger::ITEM_HELD, ep_ref: 181, flags: REFERENCED | INVERSE, ..at(27143, 0, 4478) }, None);
     let late = add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: called as u16, ..at(27187, 0, 4615) }, None);
     put(mission, 188, EventPoint { trigger: trigger::BOOLEAN_AND, ep_ref: without as u16, ep_ref_bool: late as u16, ..at(27242, 0, 4514) });
+    // The beacon on the Sarge, which Car Bomb puts up once despatch has called (its 319).
+    // Here once the tape's in hand too: nothing else says where to take it.
+    let either = add_point(mission, EventPoint { trigger: trigger::BOOLEAN_OR, ep_ref: 187, ep_ref_bool: called as u16, ..at(12866, 0, 25596) }, None);
+    add_point(mission, EventPoint { kind: waypoint::NAV_BEACON, trigger: trigger::DEPENDENCY, ep_ref: either as u16, data: [1, 174, 0, 0, 0, 0, 0, 0, 0, 0], ..at(12866, 0, 25596) },
+              Some("Sarge"));
 }
 
 /// Puts a point that has a text at number `index`, its text among the mission's messages

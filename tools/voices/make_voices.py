@@ -31,7 +31,7 @@ here = os.path.dirname(os.path.abspath(__file__))
 # The missions the game never released (the viewer's UNRELEASED and DRAFTS).
 UNRELEASED = {"FreeCD1", "jung3", "train11", "snow1", "Takeover1", "subdock1", "bball1", "Gang order3", "fight3",
               "BAALROG1", "gang1", "gang3", "Getaway1", "Transmit1", "army1", "upperclass1", "estate1", "Crimescene",
-              "police5", "Finale1b", "carbomb2"}
+              "police5", "Finale1b", "carbomb2", "gang2"}
 # The game's voice lines are 22 kHz mono.
 RATE = 22050
 
