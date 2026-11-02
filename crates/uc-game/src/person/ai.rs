@@ -684,6 +684,10 @@ impl Person {
             return;
         }
         self.annoyed = true;
+        // A man in the crowd cries out as he runs (#486); the women weren't recorded.
+        if self.scared.is_none() && self.kind == uc_world::character::person::CIV && self.fig.model.body != 9 {
+            self.cues.push(Sfx::Bark { kind: self.kind, bark: super::Bark::Panic });
+        }
         match self.scared.as_mut() {
             Some(s) => (s.by, s.at) = (by, at),
             None => self.scared = Some(Scare { by, at, time: 0.0, goal: None }),

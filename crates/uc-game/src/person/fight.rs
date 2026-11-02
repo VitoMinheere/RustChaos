@@ -420,6 +420,7 @@ impl Person {
         let Some(s) = self.weapon.slot().filter(|_| self.player) else { return true };
         if self.ammo[s] == 0 {
             self.cues.push(Sfx::Click);
+            self.cues.push(Sfx::Bark { kind: self.kind, bark: super::Bark::Complain });
             let was = self.weapon;
             self.weapon = self.best_with_ammo().unwrap_or(Weapon::None);
             if self.weapon != was {

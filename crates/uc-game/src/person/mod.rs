@@ -342,6 +342,11 @@ pub enum Sfx {
     /// the lines were never recorded, so the voices are made ones, a woman's or a man's,
     /// played where the made voices are found.
     AnnoyedLine { line: u8, female: bool },
+    /// One of the lines recorded for a character and never played (#486), said by someone of
+    /// `PERSON_*` type `kind`: see [`Bark`]. No more than one every [`BARK_GAP`] seconds each.
+    Bark { kind: u8, bark: Bark },
+    /// The radio's lines recorded and never played (`talk2\misc\police-*`, #486).
+    RadioSays(RadioLine),
     /// Something hidden turned up in a search (`S_HIDDENITEM`).
     Found,
     /// A bomb or a car going up.
@@ -607,6 +612,54 @@ impl Grab {
         self != Grab::PistolWhip
     }
 }
+
+/// The moments the characters' unplayed lines (#486) are said at. Not the original's: it
+/// recorded them (`talk2\misc\<WHO>-<LINE>NN.wav`) but has no sound ids for them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bark {
+    /// Something blew up close by (`-STARTLE`).
+    Startle,
+    /// Starting to search a prop or someone out cold (`-SEARCH`).
+    Search,
+    /// Going through a dead body's pockets (`-GROSS`).
+    Gross,
+    /// Hurt by a fall (`-CURSE`).
+    Curse,
+    /// The trigger pulled on an empty clip (`DARCI-complain`).
+    Complain,
+    /// Pulling up onto a ledge (`-GRUNT`).
+    Grunt,
+    /// The mission lost with the player still standing (`-FAIL`).
+    Fail,
+    /// Standing about a while with nothing going on (`-RELAX`).
+    Relax,
+    /// Roper picking someone up (`ROPER-CARRY`).
+    Carry,
+    /// Roper drawing on a suspect, who has no "Freeze!" of his own (`ROPER-SHOUT`).
+    Shout,
+    /// Someone starting to follow the player, who tells them to (`-COMMAND`).
+    Command,
+    /// A hostage starting to follow (`HOSTAGE-INQUIRE`).
+    Inquire,
+    /// A cop the player walks up to (`COP-GREET`).
+    Greet,
+    /// A civilian running from gunfire (`MCIV-PANIC`, `-SCREAM`).
+    Panic,
+    /// An innocent civilian drawn on (`MCIV-INNOCENT`).
+    Innocent,
+}
+
+/// The radio's unplayed lines (#486).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RadioLine {
+    /// The mission won (`police-CHEER`, `-CONGRATS`).
+    Won,
+    /// The mission lost (`police-FAIL`).
+    Lost,
+}
+
+/// Seconds between one person's [`Bark`]s.
+pub const BARK_GAP: f32 = 8.0;
 
 /// A gang member taunting the player (`PCOM_AI_STATE_TAUNT`).
 #[derive(Debug, Clone, Copy, PartialEq)]
