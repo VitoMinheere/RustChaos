@@ -124,7 +124,7 @@ impl In<'_> {
             i.look = Some([self.f32()?, self.f32()?]);
         }
         if version >= 5 && self.u8()? != 0 {
-            i.fly = Some([self.f32()?, self.f32()?, self.f32()?, self.f32()?]);
+            i.fly = Some([self.f32()?, self.f32()?, self.f32()?, self.f32()?, self.f32()?, self.f32()?]);
         }
         Ok(i)
     }
@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn every_message_round_trips() {
-        let input = Input { wish: [0.5, -1.0], drive: [1.0, 0.0], buttons: 0x1234, strafe: Some([0.6, -0.8]), look: Some([1.5, -0.2]), fly: Some([1.0, -0.5, 0.25, -1.0]) };
+        let input = Input { wish: [0.5, -1.0], drive: [1.0, 0.0], buttons: 0x1234, strafe: Some([0.6, -0.8]), look: Some([1.5, -0.2]), fly: Some([1.0, -0.5, 0.25, -1.0, 0.5, -0.25]) };
         let setup = Setup { mission: "police1".into(), difficulty: 2, stats: [1, 2, 3, 4] };
         let all = [
             Msg::Hello { protocol: 7, build: "abc-dirty".into(), name: "Vito".into() },

@@ -27,7 +27,8 @@ impl Game {
             .filter_map(|(_, q)| {
                 let gang = matches!(q.kind, ptype::THUG_RASTA | ptype::THUG_GREY | ptype::THUG_RED);
                 let after_her = q.aggro() && q.foe == Some(pi);
-                (gang || q.is_mib() || after_her).then_some(RadarDot { pos: q.fig.pos, mib: q.is_mib(), after_her })
+                // Anyone wanted the chopper's searchlight has picked out (#466).
+                (gang || q.is_mib() || after_her || q.lit > 0.0).then_some(RadarDot { pos: q.fig.pos, mib: q.is_mib(), after_her })
             })
             .collect()
     }
