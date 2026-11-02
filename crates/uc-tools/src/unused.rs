@@ -11,7 +11,13 @@
 //!   names in it (whole, or as `sprintf` patterns such as `tex%03d.tga`), and the meshes it
 //!   loads, which name their own textures. A folder it names counts for the files directly in
 //!   it only if it names none of them one by one: `data\font3d\all\` is read whole (a letter
-//!   a file, `Font3D::Font3D`), where `data\` is only the start of the names it builds. A `.sex` is the text version of the `.imp` beside it, and is counted with it.
+//!   a file, `Font3D::Font3D`), where `data\` is only the start of the names it builds. A
+//!   `.sex` is the text version of the `.imp` beside it, and is counted with it.
+//! - **Prims:** the files in `server\prims\` the released game never draws. It draws the
+//!   objects on the map and the ones the code loads (`OB_load_needed_prims`, ob.cpp), and
+//!   `load_prim_object` (io.cpp) only takes numbers 1 to 265, `nprimNNN.prm` before the old
+//!   `primNNN.prm`, and skips 238. A map is a released one if a mission `urban.sty` lists or
+//!   `fallen.exe` names is on it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -49,6 +55,39 @@ pub struct Report {
     /// the install).
     pub loose: usize,
     pub unreferenced: Vec<String>,
+    /// Prims: how many files in `server\prims\`, the ones the released game never draws, and
+    /// the numbers something places that have no file.
+    pub prims: usize,
+    pub unused_prims: Vec<PrimFile>,
+    pub missing_prims: Vec<(u16, String)>,
+}
+
+/// A prim file in `server\prims\` the released game never draws.
+pub struct PrimFile {
+    pub file: String,
+    pub id: u16,
+    /// The name it was saved under in the editor.
+    pub name: String,
+    pub why: PrimWhy,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum PrimWhy {
+    /// A `primNNN.prm` with an `nprimNNN.prm` of the same number, which is loaded instead.
+    Shadowed,
+    /// A number `load_prim_object` doesn't load: 0, or above 265.
+    OutOfRange,
+    /// A name it never builds (`nprim088bak.prm`).
+    OddName,
+    /// 238 (the gloves): `load_prim_object` returns before loading it.
+    Skipped,
+    /// Only on the maps of missions `urban.sty` doesn't list, nor `fallen.exe` names (those
+    /// missions, by map).
+    Unreleased(Vec<String>),
+    /// Only on maps no mission uses.
+    UnusedMap(Vec<String>),
+    /// On no map, and the code doesn't load it.
+    Nowhere,
 }
 
 pub fn run(game: &Path) -> Result<(), String> {
@@ -146,7 +185,110 @@ pub fn report(game: &Path) -> Result<Report, String> {
         .filter(|p| !refs.names(p) && !refs.in_folder(p, &loose) && !named.contains(&base(p).to_ascii_lowercase()) && !twin(p))
         .cloned().collect();
     r.unreferenced.sort_by_key(|p| p.to_ascii_lowercase());
+
+    let released: BTreeSet<String> = r.missions.iter().filter(|m| m.listed || m.in_exe).map(|m| m.name.to_ascii_lowercase()).collect();
+    prims(game, &parsed, &released, &mut r);
     Ok(r)
+}
+
+/// The prims the code loads whatever the map (`OB_load_needed_prims`, fallen/Source/ob.cpp),
+/// besides the map's own objects.
+const CODE_PRIMS: &[u16] = &[
+    // `load_general_prims`: the stat ups, the chopper, the cars and vans, a can, a barrel, a
+    // cone, 145, the mine and the thermodroid, and the weapons in hand with their flashes. The
+    // hook, the balloon and the bike (`#ifdef BIKE`, not defined) aren't loaded.
+    71, 94, 81, 39, 74, 75, 87, 88, 220, 108, 155, 150, 159, 90, 91, 131, 27, 76, 141, 67, 145, 188, 201,
+    256, 257, 258, 259, 260, 261, 262, 263,
+    // The specials (`SPECIAL_info`, Special.cpp), then the key, 117 and the bin.
+    36, 143, 142, 127, 166, 167, 168, 120, 205, 255, 253, 254, 144, 232, 233, 234, 237, 238, 239, 84, 236,
+    117, 33,
+];
+/// `PRIM_OBJ_SWITCH_OFF` and `_ON`: a map with the one also loads the other.
+const SWITCH: (u16, u16) = (216, 157);
+
+/// `released`: the missions `urban.sty` lists or `fallen.exe` names, lowercased.
+fn prims(game: &Path, parsed: &[(String, Mission)], released: &BTreeSet<String>, r: &mut Report) {
+    let Some(dir) = uc_formats::resolve(game, "server\\prims") else { return };
+    // The maps, by file name, and the missions on each, released or not.
+    let mut on_map: BTreeMap<String, (Vec<String>, Vec<String>)> = BTreeMap::new();
+    for (name, m) in parsed {
+        let entry = on_map.entry(base(&m.map).to_ascii_lowercase()).or_default();
+        if released.contains(&name.to_ascii_lowercase()) { &mut entry.0 } else { &mut entry.1 }.push(name.clone());
+    }
+    // Every placed prim: on which maps.
+    let mut placed: BTreeMap<u16, BTreeSet<String>> = BTreeMap::new();
+    for path in walk(game).into_iter().filter(|p| ext(p) == "iam") {
+        let Ok(map) = std::fs::read(&path).map_err(|e| e.to_string()).and_then(|b| uc_formats::iam::Map::parse(&b).map_err(|e| e.to_string())) else { continue };
+        let file = file_name(&path).to_ascii_lowercase();
+        for o in map.objects.iter().filter(|o| o.prim != 0) {
+            placed.entry(o.prim as u16).or_default().insert(file.clone());
+            if o.prim as u16 == SWITCH.0 {
+                placed.entry(SWITCH.1).or_default().insert(file.clone());
+            }
+        }
+    }
+    let on_released = |m: &String| on_map.get(m).is_some_and(|(l, _)| !l.is_empty());
+    let unreleased = |m: &String| on_map.get(m).is_some_and(|(l, u)| l.is_empty() && !u.is_empty());
+
+    let name_of = |path: &Path| std::fs::read(path).ok().and_then(|b| uc_formats::prm::Prim::parse(&b).ok())
+        .map_or(String::new(), |p| p.name.split(|c: char| c.is_control()).next().unwrap_or("").trim().to_string());
+    let all: Vec<PathBuf> = files(&dir).into_iter().filter(|p| ext(p) == "prm").collect();
+    r.prims = all.len();
+    // `nprimNNN` or `primNNN`: the number, and whether it's the new layout.
+    let number = |p: &Path| -> Option<(u16, bool)> {
+        let s = stem(p).to_ascii_lowercase();
+        let (new, digits) = match s.strip_prefix("nprim") { Some(d) => (true, d), None => (false, s.strip_prefix("prim")?) };
+        (digits.len() == 3).then_some(())?;
+        Some((digits.parse().ok()?, new))
+    };
+    let mut files: Vec<(u16, bool, PathBuf)> = Vec::new();
+    for p in all {
+        match number(&p) {
+            Some((id, new)) => files.push((id, new, p)),
+            None => r.unused_prims.push(PrimFile { file: file_name(&p), id: 0, name: name_of(&p), why: PrimWhy::OddName }),
+        }
+    }
+    files.sort_by_key(|(id, new, _)| (*id, !*new));
+    let has_new: BTreeSet<u16> = files.iter().filter(|f| f.1).map(|f| f.0).collect();
+    for (id, new, path) in &files {
+        let why = if !new && has_new.contains(id) {
+            PrimWhy::Shadowed
+        } else if *id == 0 || *id > 265 {
+            PrimWhy::OutOfRange
+        } else if *id == 238 {
+            PrimWhy::Skipped
+        } else if CODE_PRIMS.contains(id) {
+            continue;
+        } else {
+            let maps = placed.get(id).cloned().unwrap_or_default();
+            if maps.iter().any(on_released) {
+                continue;
+            }
+            let un: Vec<String> = maps.iter().filter(|m| unreleased(m))
+                .flat_map(|m| on_map[m].1.iter().map(move |n| format!("{n} ({m})"))).collect();
+            if !un.is_empty() {
+                PrimWhy::Unreleased(un)
+            } else if !maps.is_empty() {
+                PrimWhy::UnusedMap(maps.into_iter().collect())
+            } else {
+                PrimWhy::Nowhere
+            }
+        };
+        r.unused_prims.push(PrimFile { file: file_name(path), id: *id, name: name_of(path), why });
+    }
+    // Placed on a released map, or loaded by the code, but there's no file.
+    let have: BTreeSet<u16> = files.iter().map(|f| f.0).collect();
+    for id in CODE_PRIMS.iter().copied().filter(|id| !have.contains(id) && *id != 238) {
+        r.missing_prims.push((id, "loaded by the code".into()));
+    }
+    for (id, maps) in &placed {
+        let rel: Vec<&String> = maps.iter().filter(|m| on_released(m)).collect();
+        if !have.contains(id) && !CODE_PRIMS.contains(id) && !rel.is_empty() {
+            r.missing_prims.push((*id, format!("on {}", rel.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "))));
+        }
+    }
+    r.missing_prims.sort();
+    r.unused_prims.sort_by_key(|p| (p.id, p.file.to_ascii_lowercase()));
 }
 
 fn print(r: &Report) {
@@ -181,6 +323,40 @@ fn print(r: &Report) {
     println!("Loose textures and meshes: {} files, {} that neither fallen.exe nor a mesh it loads refers to:", r.loose, r.unreferenced.len());
     for p in &r.unreferenced {
         println!("  {p}");
+    }
+    println!();
+    println!("Prims: {} files in server\\prims\\, {} the released game never draws:", r.prims, r.unused_prims.len());
+    let shadowed: Vec<String> = r.unused_prims.iter().filter(|p| p.why == PrimWhy::Shadowed).map(|p| p.id.to_string()).collect();
+    if !shadowed.is_empty() {
+        println!("  old primNNN.prm files with an nprimNNN.prm of the same number, which is loaded instead ({}): {}",
+            shadowed.len(), shadowed.join(" "));
+    }
+    type Pick = fn(&PrimWhy) -> bool;
+    let groups: [(&str, Pick); 6] = [
+        ("a name load_prim_object never builds", |w| *w == PrimWhy::OddName),
+        ("a number load_prim_object doesn't load (0, or above 265)", |w| *w == PrimWhy::OutOfRange),
+        ("skipped by load_prim_object", |w| *w == PrimWhy::Skipped),
+        ("only on the maps of missions neither urban.sty nor fallen.exe names", |w| matches!(w, PrimWhy::Unreleased(_))),
+        ("only on maps no mission uses", |w| matches!(w, PrimWhy::UnusedMap(_))),
+        ("on no map, and the code doesn't load it", |w| *w == PrimWhy::Nowhere),
+    ];
+    for (title, pick) in groups {
+        let list: Vec<&PrimFile> = r.unused_prims.iter().filter(|p| pick(&p.why)).collect();
+        if list.is_empty() {
+            continue;
+        }
+        println!("  {title} ({}):", list.len());
+        for p in list {
+            let at = match &p.why {
+                PrimWhy::Unreleased(m) | PrimWhy::UnusedMap(m) => format!(": {}", m.join(", ")),
+                _ => String::new(),
+            };
+            println!("    {:<14} {:<24}{at}", p.file, p.name);
+        }
+    }
+    if !r.missing_prims.is_empty() {
+        let list: Vec<String> = r.missing_prims.iter().map(|(id, w)| format!("{id} ({w})")).collect();
+        println!("  placed or loaded, but no file: {}", list.join("; "));
     }
 }
 
@@ -377,8 +553,8 @@ mod tests {
         assert!(!refs.names("Meshes\\heart.SEX"));
     }
 
-    /// Against the install: what #467 and #470 found by hand, and the outro's textures
-    /// counted as used through its meshes (#468).
+    /// Against the install: what #467 and #470 found by hand, the outro's textures counted
+    /// as used through its meshes (#468), and the prims.
     #[test]
     fn the_install_matches_what_was_found_by_hand() {
         let Some(game) = uc_formats::default_install() else { return };
@@ -398,6 +574,20 @@ mod tests {
         // out), and the two 3D fonts besides `all`.
         for unused in ["data\\gamelogo.tga", "data\\e3title.tga", "data\\font3d\\Chaos\\A.SEX"] {
             assert!(r.unreferenced.iter().any(|p| p == unused), "{unused} counted as used");
+        }
+        assert_eq!(r.prims, 433);
+        assert!(r.missing_prims.is_empty(), "{:?}", r.missing_prims);
+        let why = |f: &str| r.unused_prims.iter().find(|p| p.file == f).map(|p| &p.why);
+        assert_eq!(r.unused_prims.iter().filter(|p| p.why == PrimWhy::Shadowed).count(), 168);
+        assert_eq!(why("nprim088bak.prm"), Some(&PrimWhy::OddName));
+        assert_eq!(why("nprim238.prm"), Some(&PrimWhy::Skipped));
+        // The chopper's searchlight (#466), and the bike's frame (`#ifdef BIKE` is off).
+        assert_eq!(why("prim151.prm"), Some(&PrimWhy::Nowhere));
+        assert_eq!(why("prim140.prm"), Some(&PrimWhy::Nowhere));
+        assert!(matches!(why("nprim243.prm"), Some(PrimWhy::Unreleased(m)) if m.iter().any(|m| m.starts_with("botanic1"))));
+        // A map object, a car body and a special.
+        for used in ["nprim141.prm", "nprim108.prm", "nprim232.prm"] {
+            assert_eq!(why(used), None, "{used} counted as unused");
         }
         for used in ["Textures\\photo1.TGA", "Textures\\shot9.TGA", "Meshes\\heart.SEX", "data\\font3d\\All\\0.SEX",
                      "server\\textures\\extras\\olyfont2.tga", "data\\e3load.tga"] {
