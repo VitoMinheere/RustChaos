@@ -411,6 +411,29 @@ impl Mission {
         }
     }
 
+    /// The enemy types of the editor's version 5 files and before, as later versions number
+    /// them, for playing them (the file itself is left as it was). The editor once numbered
+    /// them differently (GEdit/Headers/Mission.h, the table commented out under `ET_*`): 16
+    /// was an army soldier, not `ET_HOSTAGE`, 17 an army captain, not `ET_WORKMAN_GRENADE`,
+    /// and 4 an office worker, not `ET_UGLY_FAT_SLAG`. No later file uses 16 or 17; army1,
+    /// an army base, is full of them. The release has no soldiers, so they're the nearest:
+    /// grey thugs, unarmed as the points have them, the captain with an AK-47; the office
+    /// worker (tm3's) a civilian. The other numbers meant much the same then as later.
+    pub fn renumber_old_enemies(&mut self) {
+        if self.version > 5 {
+            return;
+        }
+        for e in self.event_points.iter_mut().filter(|e| e.used != 0 && e.kind == waypoint::CREATE_ENEMIES) {
+            let now = match e.data[0] & 0xFFFF {
+                16 => 8,
+                17 => 11,
+                4 => 1,
+                et => et,
+            };
+            e.data[0] = (e.data[0] & !0xFFFF) | now;
+        }
+    }
+
     pub fn validate(&self) -> std::result::Result<(), String> {
         let mut seen = [false; MAX_EVENT_POINTS];
         for e in &self.event_points {
