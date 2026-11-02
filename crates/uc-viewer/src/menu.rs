@@ -1162,7 +1162,7 @@ const UNRELEASED: [(&str, &str, &str); 8] = [
 /// district whose map they share; the rest are in the list alone. None has a title in the
 /// game, so these are this project's, and the briefings are their opening messages where
 /// they have them, made up from their scripts where they don't.
-const DRAFTS: [(&str, &str, &str); 13] = [
+const DRAFTS: [(&str, &str, &str); 14] = [
     // Combat Gold with bigger waves, on the same course: it calls itself the gold grade.
     ("fight3", "Combat Platinum",
      "For the gold grade you need to use combat techniques against skilled and sometimes armed \
@@ -1230,6 +1230,15 @@ const DRAFTS: [(&str, &str, &str); 13] = [
      "Someone's bombed the station, Stern, and there's Wildcats out all over the West District \
       beating on whoever they please. Ask around, and bring 'em in.\r\
       - Arrest all five Wildcats. We need them alive."),
+    // A copy of Auto-Destruct whose debrief lost its points, put back from Auto-Destruct
+    // (`uc_world::level::finish_unfinished`). Its beacons call it "Car Bomb"; the briefing is
+    // Auto-Destruct's, with the bombers and the hideout that follow the bombs.
+    ("carbomb2", "Car Bomb",
+     "Jeez D'arci, TERRORISTS have planted a CAR BOMB in Union City! The gangs have covered the \
+      area, and we can't get our bomb disposal teams in there. Get the bomb cars back to the \
+      engineers, then go after the bombers.\r\
+      - Get both car bombs to the bomb squad.\r- Arrest the two bombers. We need them alive.\r\
+      - Search their hideout, and report back."),
     // An earlier Day Of Reckoning, whose own map is missing: it's played on Day Of
     // Reckoning's (`uc_world::level::stand_in_map`).
     ("Finale1b", "The Final Reckoning",
@@ -1445,6 +1454,9 @@ mod tests {
         // Finale1b on Day Of Reckoning's pin, as it's played on its map.
         assert!(pin("Finale1").is_some());
         assert_eq!(pin("Finale1b"), pin("Finale1"));
+        // carbomb2 on Auto-Destruct's, whose map it shares.
+        assert!(pin("carbomb1").is_some());
+        assert_eq!(pin("carbomb2"), pin("carbomb1"));
     }
 
     #[test]
