@@ -255,3 +255,31 @@ fn an_older_chatter_file_stands_in() {
     let own = uc_game::city::chatter_sections(&std::fs::read(uc_formats::resolve(&game, "text\\factory12.txt").unwrap()).unwrap()).0;
     assert_eq!(chatter.normal, own);
 }
+
+/// Someone in the crowd spoken to stops and gestures as they answer: a man with one of the
+/// men's talking animations, a woman as in a conversation. Skipped without an install.
+#[test]
+fn a_citizen_stops_to_answer() {
+    use uc_world::character::anim;
+    let Some((level, mut g)) = load("semtex") else { return };
+    let pi = g.player.unwrap();
+    let at = Vec3::new(30.0 * 256.0, 0.0, 30.0 * 256.0);
+    let at = Vec3::new(at.x, level.ground.surface(&level.map, at.x, at.z, 1.0e4), at.z);
+    let ci = civs(&g)[0];
+    run(&level, &mut g, 1.0, Controls::default());
+    g.people[pi].fig.pos = at;
+    g.people[ci].fig.pos = at + Vec3::new(100.0, 0.0, 0.0);
+    g.people[ci].scared = None;
+    g.messages.clear();
+    run(&level, &mut g, DT, Controls { action: true, ..Default::default() });
+    assert!(!g.messages.is_empty(), "nothing said");
+    let a = g.people[ci].fig.anim();
+    assert!(matches!(a, anim::CIV_TALK1 | anim::CIV_TALK2 | anim::CIV_TALK3 | anim::TALK_TELL), "answering with animation {a}");
+    // Still gesturing a moment later, and still there a second and a half on.
+    let was = g.people[ci].fig.pos;
+    run(&level, &mut g, 0.3, Controls::default());
+    assert_eq!(g.people[ci].fig.anim(), a, "the gesture was cut short");
+    run(&level, &mut g, 1.2, Controls::default());
+    let moved = (g.people[ci].fig.pos - was).length();
+    assert!(moved < 30.0, "walked {moved} while answering");
+}

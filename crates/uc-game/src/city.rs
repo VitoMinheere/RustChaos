@@ -473,6 +473,8 @@ impl Game {
             self.people[j].cues.push(crate::Sfx::CitizenLine { line, female, stressed });
         }
         self.people[j].face_towards(pos);
+        let roll = self.city_rand();
+        self.people[j].answer(female, roll);
         let face = Some(self.face(j));
         self.messages.push(Message { text, left: 4.0, face, filmed: false });
         true

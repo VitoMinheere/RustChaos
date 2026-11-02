@@ -463,6 +463,14 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 /// (38, 92) to drop off into the alley beyond; the draft's hasn't. Here she starts in that
 /// alley, level with where she was, across the yard's east wall.
 ///
+/// carbomb2, a copy of Car Bomb (`carbomb1`) with points deleted, ends with one of two
+/// debriefs from the Sarge (points 172 and 182), but both wait for points that are gone, as
+/// does the Sarge himself (174): the video tape stashed at the Wildcats' hideout once the
+/// bombers are in (181), picking it up (187), and not having it when despatch's patience runs
+/// out (188). Here they're put back as Car Bomb has them, with the two lines and the half
+/// minute's countdown that went with them (the lines' recordings numbered from 901, as the
+/// other added lines', `carbomb1.ucm28.wav` and `29` being Car Bomb's).
+///
 /// `mission_name` is the mission's file name: gang3's own name is "Gang order3", whose
 /// mission it was made from.
 pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
@@ -499,6 +507,10 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         for e in mission.event_points.iter_mut().filter(|e| (e.index == 78 && e.trigger == trigger::CUBOID) || (e.index == 80 && e.kind == waypoint::NAV_BEACON)) {
             e.x += 1024;
         }
+        return;
+    }
+    if name == "carbomb2" {
+        carbomb2_debrief(mission);
         return;
     }
     if name == "estate1" {
@@ -734,6 +746,58 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
 
 /// Adds `ep` to the mission as its last point, with its message if it has one, and returns
 /// its index. Messages go to the points that have them in index order (`Mission::point_texts`).
+/// carbomb2's lost points, as Car Bomb (`carbomb1`) has them ([`finish_unfinished`]). The
+/// ones others refer to go back at their numbers, the rest after the last.
+fn carbomb2_debrief(mission: &mut Mission) {
+    use uc_formats::ucm::{on_trigger, point_flags::{INVERSE, REFERENCED}, trigger, waypoint, EventPoint};
+    let point = |m: &Mission, i: usize| m.event_points.iter().find(|e| e.index == i && e.used != 0).cloned();
+    // Not twice, and only the mission this is for.
+    let (Some(got_them), Some(search)) = (point(mission, 173), point(mission, 180)) else { return };
+    if [181, 187, 188, 191].iter().any(|&i| point(mission, i).is_some()) {
+        return;
+    }
+    let base = EventPoint {
+        kind: waypoint::SIMPLE, trigger: trigger::NONE, on_trigger: on_trigger::ACTIVE, flags: REFERENCED, ep_ref: 0, ep_ref_bool: 0,
+        after_timer: 0, data: [0; 10], radius: 0, next: 0, prev: 0, colour: 0, group: 0, ..got_them.clone()
+    };
+    let put = |m: &mut Mission, index: usize, ep: EventPoint| m.event_points.push(EventPoint { index, ..ep });
+    let at = |x: i32, y: i32, z: i32| EventPoint { x, y, z, ..base.clone() };
+    // The tape (`IT_VIDEO`, 19), stashed in a prop at the hideout once the bombers are in;
+    // the Sarge turns up with it.
+    put(mission, 181, EventPoint { kind: waypoint::CREATE_ITEM, trigger: trigger::DEPENDENCY, ep_ref: got_them.index as u16,
+                                   data: [19, 1, 2, 0, 0, 0, 0, 0, 0, 0], ..at(27311, 64, 3642) });
+    // Picked up, and said so (despatch's line is said by the cop by the bomb squad, 19).
+    put(mission, 187, EventPoint { trigger: trigger::ITEM_HELD, ep_ref: 181, ..at(27460, 0, 3786) });
+    add_point(mission, EventPoint { kind: waypoint::MESSAGE, trigger: trigger::DEPENDENCY, ep_ref: 187, data: [1, 4, 0, 0, 0, 0, 0, 0, 0, 901], ..at(27460, 0, 3786) },
+              Some("Whooa, what's this? \"UCNN video\"?"));
+    // Half a minute after being sent to search the hideout, despatch wants her back.
+    let wait = add_point(mission, EventPoint { trigger: trigger::COUNTDOWN, ep_ref: search.index as u16, radius: 3000, ..at(27459, 0, 4014) }, None);
+    // At its number: the hideout's area (190) is killed once it's said (149).
+    let mut called = EventPoint { kind: waypoint::MESSAGE, trigger: trigger::DEPENDENCY, ep_ref: wait as u16, data: [1, 7, 19, 0, 0, 0, 0, 0, 0, 902], ..at(25279, 0, 5564) };
+    if point(mission, 19).is_none() {
+        called.data[2] = 0;
+    }
+    put_with_text(mission, 191, called, "Stern, what the hell you up to? We ain't got all day to wait for you to get back here - ain't ya found anythin' yet?");
+    let called = 191;
+    // Without the tape by then: the other debrief.
+    let without = add_point(mission, EventPoint { trigger: trigger::ITEM_HELD, ep_ref: 181, flags: REFERENCED | INVERSE, ..at(27143, 0, 4478) }, None);
+    let late = add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: called as u16, ..at(27187, 0, 4615) }, None);
+    put(mission, 188, EventPoint { trigger: trigger::BOOLEAN_AND, ep_ref: without as u16, ep_ref_bool: late as u16, ..at(27242, 0, 4514) });
+}
+
+/// Puts a point that has a text at number `index`, its text among the mission's messages
+/// where it belongs: the n-th message is the n-th text-carrying point's, in number order
+/// ([`Mission::point_texts`]).
+fn put_with_text(mission: &mut Mission, index: usize, ep: uc_formats::ucm::EventPoint, text: &str) {
+    use uc_formats::ucm::{has_text, TextEntry};
+    debug_assert!(has_text(ep.kind));
+    let before = mission.event_points.iter().filter(|e| has_text(e.kind) && e.index < index).count();
+    let at = mission.texts.iter().enumerate().filter(|(_, t)| matches!(t, TextEntry::Message { .. })).nth(before)
+        .map_or(mission.texts.len(), |(i, _)| i);
+    mission.texts.insert(at, TextEntry::Message { text: text.to_string(), tail: Vec::new() });
+    mission.event_points.push(uc_formats::ucm::EventPoint { index, ..ep });
+}
+
 fn add_point(mission: &mut Mission, ep: uc_formats::ucm::EventPoint, text: Option<&str>) -> usize {
     debug_assert_eq!(uc_formats::ucm::has_text(ep.kind), text.is_some());
     let index = mission.event_points.iter().map(|e| e.index).max().unwrap_or(0) + 1;
@@ -905,7 +969,8 @@ impl Level {
             // And the civilians' and Roper's others (Anim.cpp:1373).
             let mut files: HashMap<&str, Option<Arc<AnimChunk>>> = HashMap::new();
             files.insert("rthug.all", Some(thug.clone()));
-            for &(file, from, to) in &crate::character::EXTRA_ANIMS {
+            // And, the port's own, the men's talking (not the original's).
+            for &(file, from, to) in crate::character::EXTRA_ANIMS.iter().chain(&crate::character::TALK_ANIMS) {
                 if let Some(f) = files.entry(file).or_insert_with(|| chunk(file).ok()) {
                     darci.graft(f, from, to);
                 }
