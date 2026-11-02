@@ -637,12 +637,13 @@ impl Person {
                 c.wish = (s - here).normalize_or_zero();
                 self.wander = (Some(s), left);
             }
+            // Pausing: the city's people too, when one stops to answer Darci ([`Person::answer`]).
+            None if left > 0.0 => self.wander = (None, left),
             // The city's extra people go straight on to the next place, which the game
             // picks from the pavements ([`Person::wander_to`]).
             _ if self.fake => self.wander = (None, 0.0),
             // There (or stuck): pause for a few seconds.
             Some(_) => self.wander = (None, 1.0 + (rand() % 400) as f32 / 100.0),
-            None if left > 0.0 => self.wander = (None, left),
             None => {
                 let angle = (rand() % 628) as f32 / 100.0;
                 let dist = 2.0 * 256.0 + (rand() % 1024) as f32;
