@@ -40,7 +40,7 @@ impl Game {
             let flat = |p: Vec3| Vec2::new(p.x - at.x, p.z - at.z).length();
             let player = self.player;
             let stepped = self.people.iter().any(|p| {
-                if p.removed || matches!(p.state, State::InCar { .. } | State::Carried { .. }) || flat(p.fig.pos) >= 0x30 as f32 {
+                if p.removed || matches!(p.state, State::InCar { .. } | State::Flying { .. } | State::Carried { .. }) || flat(p.fig.pos) >= 0x30 as f32 {
                     return false;
                 }
                 let foot = p.fig.part_world(3).map_or(p.fig.pos.y, |(_, f)| f.y);

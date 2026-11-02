@@ -722,8 +722,10 @@ pub struct Game {
     routes: game::Routes,
     /// Each target's four places round them to be fought from (`gang_attacks`).
     gang_attacks: std::collections::HashMap<usize, [Option<usize>; 4]>,
-    /// The mission's helicopters.
+    /// The mission's helicopters, and one parked for the player in Explore and Beat Cop.
     pub choppers: Vec<chopper::Chopper>,
+    /// The player's helicopter controls this turn (#465).
+    stick: chopper::Stick,
     /// Where everyone was at the barrels' last turn, to knock barrels with as they walk.
     barrel_marks: Vec<Vec3>,
     /// People getting into cars: (who, which car).
@@ -954,6 +956,7 @@ impl Game {
             routes: game::Routes::new(level),
             gang_attacks: Default::default(),
             choppers: Vec::new(),
+            stick: chopper::Stick::default(),
             barrel_marks: Vec::new(),
             entering: Vec::new(),
             creature_by_way: HashMap::new(),
@@ -1027,6 +1030,10 @@ impl Game {
             g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
         }
         g.populate(level);
+        // Explore and Beat Cop: a police chopper parked near the start, to fly (#465).
+        if !scripted {
+            g.park_chopper(level);
+        }
         // Every map's barrel props become barrels (`OB_convert_dustbins_to_barrels`).
         for &ob in &level.barrel_props {
             let o = &level.map.objects[ob];
@@ -1514,6 +1521,7 @@ impl Game {
             }
         }
         let drives: Vec<(usize, Drive)> = playing.iter().map(|&(pi, c, _)| (pi, c.drive)).collect();
+        self.stick = playing.first().filter(|_| !held && self.outcome.is_none()).map(|&(_, c, _)| c.fly).unwrap_or_default();
         self.drive(dt, &drives, level);
         self.ride(&drives, level);
 

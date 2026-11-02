@@ -31,7 +31,7 @@ use uc_game::{Controls, Difficulty, Drive, Game};
 use uc_world::Level;
 
 /// Bumped whenever a message changes.
-pub const PROTOCOL: u16 = 3;
+pub const PROTOCOL: u16 = 4;
 
 /// The build: its git commit. Players on different builds are turned away at hello, since
 /// their games may not play out the same.
@@ -165,6 +165,8 @@ pub struct Input {
     pub strafe: Option<[f32; 2]>,
     /// [`Controls::look`].
     pub look: Option<[f32; 2]>,
+    /// [`Controls::fly`] (ahead, side, turn, climb), when any of it's pushed.
+    pub fly: Option<[f32; 4]>,
 }
 
 /// [`Input::buttons`].
@@ -201,7 +203,8 @@ impl Input {
             (c.drive.handbrake, HANDBRAKE), (c.drive.siren, SIREN), (skip, SKIP),
         ];
         let buttons = bits.iter().filter(|b| b.0).fold(0, |a, b| a | b.1);
-        Input { wish: c.wish.to_array(), drive: [c.drive.throttle, c.drive.steer], buttons, strafe: c.strafe.map(|v| v.to_array()), look: c.look.map(|(a, p)| [a, p]) }
+        Input { wish: c.wish.to_array(), drive: [c.drive.throttle, c.drive.steer], buttons, strafe: c.strafe.map(|v| v.to_array()), look: c.look.map(|(a, p)| [a, p]),
+            fly: (c.fly != Default::default()).then_some([c.fly.ahead, c.fly.side, c.fly.turn, c.fly.climb]) }
     }
 
     pub fn controls(&self) -> Controls {
@@ -227,6 +230,7 @@ impl Input {
             aim: None,
             strafe: self.strafe.map(glam::Vec2::from_array),
             look: self.look.map(|[a, p]| (a, p)),
+            fly: self.fly.map_or_default(|[ahead, side, turn, climb]| uc_game::chopper::Stick { ahead, side, turn, climb }),
         }
     }
 

@@ -140,11 +140,15 @@ impl Sound {
         // The engine of the car Darci drives.
         let revs = world.game.player_vehicle().map(|v| (v.speed.abs() / 3000.0).min(1.0));
         self.audio.engine(revs);
-        // The nearest helicopter's rotors, fading out 24 squares off.
-        let rotor = world.game.chopper_noise(listener.pos).map(|at| {
-            let fade = (1.0 - at.distance(listener.pos) / (24.0 * 256.0)).clamp(0.0, 1.0);
-            0.6 * fade * fade
-        });
+        // The nearest helicopter's rotors, fading out 24 squares off; from inside the one
+        // the player flies, loud and pitched with the rotors' speed (#465).
+        let rotor = match world.game.player_chopper() {
+            Some(c) => (c.rotor_speed() > 0.0).then(|| (0.8 * c.rotor_speed().sqrt(), 0.5 + 0.5 * c.rotor_speed())),
+            None => world.game.chopper_noise(listener.pos).map(|at| {
+                let fade = (1.0 - at.distance(listener.pos) / (24.0 * 256.0)).clamp(0.0, 1.0);
+                (0.6 * fade * fade, 1.0)
+            }),
+        };
         self.audio.rotor(rotor);
         // The nearest siren going, fading out 32 squares off.
         let siren = world.game.siren_noise(listener.pos).map(|at| {

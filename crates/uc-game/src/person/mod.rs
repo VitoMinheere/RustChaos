@@ -430,6 +430,8 @@ pub struct Controls {
     pub aim: Option<Vec3>,
     /// Driving, when in a car.
     pub drive: crate::vehicle::Drive,
+    /// Flying, when in a helicopter (#465).
+    pub fly: crate::chopper::Stick,
     /// Pressed: the sniper rifle's scope, in or out.
     pub scope: bool,
     /// Taunt `target` (`ANIM_WANKER`), standing.
@@ -704,6 +706,8 @@ pub enum State {
     Fence { phase: u8, at: Vec2, over: Vec2, base: f32, top: f32, from: Vec3, cross: bool },
     /// Driving (or sitting in) vehicle `vehicle`: not drawn, moved with the car.
     InCar { vehicle: usize },
+    /// Flying helicopter `chopper` (#465): not drawn, moved with it.
+    Flying { chopper: usize },
     /// Getting into vehicle `vehicle` (`SUB_STATE_ENTERING_VEHICLE`): lined up at its door,
     /// in once the animation's done.
     Enter { vehicle: usize },
@@ -1589,6 +1593,11 @@ impl Person {
         matches!(self.kind, ptype::SLAG_TART | ptype::SLAG_FATUGLY) || (self.kind == ptype::CIV && self.fig.model.body == 9)
     }
 
+    /// Inside something: driving a car or flying a helicopter, out of sight and out of reach.
+    pub fn aboard(&self) -> bool {
+        matches!(self.state, State::InCar { .. } | State::Flying { .. })
+    }
+
     /// Out of the fight for good: knocked out, arrested or gone.
     pub fn is_dead(&self) -> bool {
         self.knocked_out || self.arrested || self.removed || matches!(self.state, State::Cuffed)
@@ -1634,7 +1643,7 @@ impl Person {
             dummy: self.is_dummy(),
             attacking: matches!(self.state, State::Attack { .. }),
             blocking: matches!(self.state, State::Block { .. }),
-            in_car: matches!(self.state, State::InCar { .. }),
+            in_car: self.aboard(),
             injured: matches!(self.state, State::Injured),
             crouching: self.crouching(),
             doubled: self.doubled(),
@@ -1855,7 +1864,7 @@ impl Person {
             }
             State::Down => self.step_down(ground, map, dt),
             State::Cuffed => self.step_cuffed(dt),
-            State::Held { .. } | State::InCar { .. } => {}
+            State::Held { .. } | State::InCar { .. } | State::Flying { .. } => {}
             State::Fall { vy, vel } => self.step_fall(vy, vel, me, c, snaps, ground, map, dt, events),
             State::Vault { from, to } => {
                 self.fig.pos = from.lerp(to, self.fig.progress());

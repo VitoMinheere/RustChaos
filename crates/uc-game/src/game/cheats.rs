@@ -145,7 +145,7 @@ impl Game {
     pub fn teleport_refusal(&self, at: Vec3) -> Option<&'static str> {
         let Some(p) = self.player() else { return Some("No player to teleport") };
         let edge = (uc_formats::iam::MAP_SIZE - 1) as f32 * uc_formats::iam::SQUARE as f32;
-        if matches!(p.state, State::InCar { .. } | State::Bike { .. } | State::Enter { .. }) {
+        if matches!(p.state, State::InCar { .. } | State::Flying { .. } | State::Bike { .. } | State::Enter { .. }) {
             Some("Not while driving")
         } else if p.health <= 0 || p.is_dead() {
             Some("Not now she's out of it")

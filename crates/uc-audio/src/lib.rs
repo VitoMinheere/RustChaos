@@ -484,10 +484,13 @@ impl Audio {
         }
     }
 
-    /// A helicopter's rotors at `volume` (`Some`), or none in the air (`None`).
-    pub fn rotor(&mut self, volume: Option<f32>) {
+    /// A helicopter's rotors at (volume, rate) (`Some`), or none to hear (`None`).
+    pub fn rotor(&mut self, sound: Option<(f32, f32)>) {
         let held = self.rotor.take();
-        self.rotor = self.hum(held, "heli.wav", volume);
+        self.rotor = self.hum(held, "heli.wav", sound.map(|(v, _)| v));
+        if let (Some(r), Some((_, rate))) = (&self.rotor, sound) {
+            r.set_rate(rate);
+        }
     }
 
     /// A car's siren at `volume` (`Some`), or none going (`None`).
