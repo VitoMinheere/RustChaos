@@ -72,7 +72,7 @@ CHATTER = ["citsez.txt", "police11.txt", "police21.txt", "police31.txt", "police
            "Gangorder11.txt", "Westcrime11.txt", "bball24.txt", "estate21.txt", "factory12.txt", "skymiss21.txt",
            "wstores11.txt"]
 # Chatter lines said otherwise than they're spelt, so the voices don't garble them (checked
-# with Whisper), or not at all (None).
+# with Whisper), or not at all (None): matched by their letters and digits.
 CHATTER_SAY = {
     ":)": None,
     "Arrrruugghh...ahhhem!": "Argh... ahem!",
@@ -184,6 +184,7 @@ def main():
             raise SystemExit("--chatter needs the install: --game DIR or UC_GAME_DIR")
         recorded = {v: {line_key(t) for n, t in numbered(os.path.join(args.game, "text", "citsez.txt")) if n in ns}
                     for v, ns in RECORDED.items()}
+        respelt = {line_key(k): v for k, v in CHATTER_SAY.items()}
         seen = set()
         for file in CHATTER:
             for _, line in numbered(os.path.join(args.game, "text", file)):
@@ -195,7 +196,7 @@ def main():
                     if (args.only and voice not in args.only.split(",")) or line_key(line) in recorded[voice]:
                         continue
                     name = f"misc/{voice}-chat{key}"
-                    say = CHATTER_SAY.get(line, spoken(line))
+                    say = respelt.get(line_key(line), spoken(line))
                     if say and not os.path.exists(os.path.join(talk2, name + ".wav")):
                         make(name, voice, say)
         return
