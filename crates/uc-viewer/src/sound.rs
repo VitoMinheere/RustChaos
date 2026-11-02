@@ -212,11 +212,13 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
                 audio.play(&n, 0.9);
             }
         }
+        // A mission made out of another says its lines with that one's recordings
+        // (`uc_world::level::PORT_MISSIONS`); those it says differently have numbers of their own.
         Sfx::Voice(point) => {
-            audio.voice(mission, point);
+            audio.voice(uc_world::level::mission_file(mission), point);
         }
         Sfx::ConversationLine(point, line) => {
-            audio.conversation_line(mission, point, line);
+            audio.conversation_line(uc_world::level::mission_file(mission), point, line);
         }
         Sfx::Block => at(audio, vec!["ImpactSml.wav".into()], 0.7),
         Sfx::Stab => at(audio, numbered("Stab", 1..=3, ".wav"), 0.9),

@@ -322,13 +322,15 @@ const COPS_KILLED: usize = 7;
 
 /// `PT_*` (an event point's player type) to `PERSON_*`, through `PLAYER_*`
 /// (`ELEV_load_level` in elev.cpp and `PLAYER_create` in Player.cpp): Nitro Car's Mako is a
-/// rasta thug.
+/// rasta thug. One of the Men in Black is this project's own
+/// ([`uc_world::level::PLAYER_MIB`]).
 fn player_person(pt: i32) -> u8 {
     use uc_world::character::person::*;
     match pt {
         2 => ROPER,
         3 => COP,
         4 => THUG_RASTA,
+        uc_world::level::PLAYER_MIB => MIB1,
         _ => DARCI,
     }
 }

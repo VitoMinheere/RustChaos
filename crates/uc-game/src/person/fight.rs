@@ -52,8 +52,9 @@ impl Person {
         let w = self.weapon;
         if w == Weapon::Ak47 {
             // Automatic: a round each time round the firing loop, while the trigger is
-            // held (the AI fires bursts of three).
-            let more = if self.player { c.fire } else { shots < 3 };
+            // held. The AI fires bursts of three, and so does a player who's one of the Men
+            // in Black.
+            let more = if self.player && !self.is_mib() { c.fire } else { shots < 3 };
             if self.fig.loops() >= shots as f32 {
                 if more && self.fire_round(me, target, events) {
                     shots += 1;
@@ -428,7 +429,9 @@ impl Person {
             }
             return false;
         }
-        if self.spent[s] >= self.weapon.clip() {
+        // A clip spent, the next pull changes it. The Men in Black's rounds never run out
+        // (Person.cpp:6034), so a player who's one of them never changes clips either.
+        if self.spent[s] >= self.weapon.clip() && !self.is_mib() {
             self.spent[s] = 0;
             self.cues.push(Sfx::Click);
             return false;
