@@ -71,6 +71,24 @@ NUMBERS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight
 CHATTER = ["citsez.txt", "police11.txt", "police21.txt", "police31.txt", "police41.txt", "mission21.txt", "E31.txt",
            "Gangorder11.txt", "Westcrime11.txt", "bball24.txt", "estate21.txt", "factory12.txt", "skymiss21.txt",
            "wstores11.txt"]
+# Chatter lines said otherwise than they're spelt, so the voices don't garble them (checked
+# with Whisper), or not at all (None).
+CHATTER_SAY = {
+    ":)": None,
+    "Arrrruugghh...ahhhem!": "Argh... ahem!",
+    "Feck,feck,feck!": "Feck, feck, feck!",
+    "Whatya doin wijit?": "Whatcha doin' with it?",
+    "Wotcha.": "Watcha.",
+    "Hiya!": "Hi ya!",
+    "Howdie!": "Howdy!",
+    "Phuk ov!": "Fuck off!",
+    "Arrrrrrrr...choooo!": "Ah... ah... choo!",
+    "Aaaaargh!!": "Aaargh!",
+    "urrrrgghhh...??": "Urgh?",
+    "Dunno nothin' Man.": "Dunno nothin', man.",
+    "sram you bums! Oh...(ahem) excuse me, Officer.": "Scram, you bums! Oh... ahem. Excuse me, Officer.",
+    "spk Thursday seventeen/three/99": "S P K, Thursday, seventeen, three, ninety-nine.",
+}
 # citsez.txt's lines the citizens recorded (talk2/misc/fcit-sez*, mcit-sez*), by voice.
 RECORDED = {"fcit": [1, 6, 13, 20], "mcit": [1, 3, 6, 10]}
 
@@ -177,8 +195,9 @@ def main():
                     if (args.only and voice not in args.only.split(",")) or line_key(line) in recorded[voice]:
                         continue
                     name = f"misc/{voice}-chat{key}"
-                    if not os.path.exists(os.path.join(talk2, name + ".wav")):
-                        make(name, voice, spoken(line))
+                    say = CHATTER_SAY.get(line, spoken(line))
+                    if say and not os.path.exists(os.path.join(talk2, name + ".wav")):
+                        make(name, voice, say)
         return
 
     if args.briefings:
