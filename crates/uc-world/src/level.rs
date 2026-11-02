@@ -905,7 +905,8 @@ impl Level {
             // And the civilians' and Roper's others (Anim.cpp:1373).
             let mut files: HashMap<&str, Option<Arc<AnimChunk>>> = HashMap::new();
             files.insert("rthug.all", Some(thug.clone()));
-            for &(file, from, to) in &crate::character::EXTRA_ANIMS {
+            // And, the port's own, the men's talking (not the original's).
+            for &(file, from, to) in crate::character::EXTRA_ANIMS.iter().chain(&crate::character::TALK_ANIMS) {
                 if let Some(f) = files.entry(file).or_insert_with(|| chunk(file).ok()) {
                     darci.graft(f, from, to);
                 }

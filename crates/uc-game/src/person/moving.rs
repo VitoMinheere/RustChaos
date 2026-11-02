@@ -261,7 +261,8 @@ impl Person {
     /// loaded, so they just breathe.
     pub(super) fn stand_about(&mut self, dt: f32) {
         use uc_world::character::person as ptype;
-        let fidgeting = matches!(self.fig.anim(), anim::IDLE_SCRATCH1 | anim::IDLE_SCRATCH2 | anim::TALK_ASK | anim::TALK_TELL | anim::TALK_LISTEN | anim::UNFIGHT);
+        let fidgeting = matches!(self.fig.anim(), anim::IDLE_SCRATCH1 | anim::IDLE_SCRATCH2 | anim::TALK_ASK | anim::TALK_TELL | anim::TALK_LISTEN | anim::UNFIGHT
+            | anim::CIV_TALK1 | anim::CIV_TALK2 | anim::CIV_TALK3);
         if fidgeting && !self.fig.finished() {
             return;
         }
@@ -310,6 +311,22 @@ impl Person {
             (true, true) => anim::TALK_ASK,
             (true, false) => anim::TALK_TELL,
         };
+        self.fig.restart(a, Play::Once);
+    }
+
+    /// One of the city's people answering Darci: they stop where they are for a few seconds
+    /// and gesture as they say it, a man with one of the three talking animations nothing in
+    /// the original plays ([`uc_world::character::TALK_ANIMS`], chosen by `roll`), a woman, or
+    /// anyone without them, as in a conversation (`ANIM_TALK_TELL`). Not the original's: its
+    /// passers-by answer without stopping.
+    pub(crate) fn answer(&mut self, female: bool, roll: u32) {
+        if !matches!(self.state, State::Move) || self.is_down() {
+            return;
+        }
+        // Stood still while the line's up (it shows for four seconds).
+        self.wander = (None, 3.0);
+        let man = [anim::CIV_TALK1, anim::CIV_TALK2, anim::CIV_TALK3][(roll % 3) as usize];
+        let a = if !female && self.fig.first_keyframe(man).is_some() { man } else { anim::TALK_TELL };
         self.fig.restart(a, Play::Once);
     }
 
