@@ -471,6 +471,11 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 /// minute's countdown that went with them (the lines' recordings numbered from 901, as the
 /// other added lines', `carbomb1.ucm28.wav` and `29` being Car Bomb's).
 ///
+/// army1, Radar Tower, is won by sabotaging the system at the top of the radar tower (point
+/// 67), out past the army base's gate, which a switch opens (42), and nothing says where
+/// either is. Here the switch has a beacon until it's worked, and the tower's console one from
+/// then on.
+///
 /// `mission_name` is the mission's file name: gang3's own name is "Gang order3", whose
 /// mission it was made from.
 pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
@@ -534,7 +539,7 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         "gang2" => has(waypoint::END_GAME_WIN),
         _ => beacons > 0,
     };
-    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5" | "getaway1" | "snow1" | "jung3" | "train11" | "gang1" | "gang2") || done {
+    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5" | "getaway1" | "snow1" | "jung3" | "train11" | "gang1" | "gang2" | "army1") || done {
         return;
     }
     let point = |m: &Mission, i: usize| m.event_points.iter().find(|e| e.index == i && e.used != 0).cloned();
@@ -545,7 +550,16 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         data: [0; 10], radius: 0, next: 0, prev: 0, colour: 0, group: 0, ..e.clone()
     };
     let beacon = |e: &EventPoint, track: usize| EventPoint { kind: waypoint::NAV_BEACON, data: [0, track as i32, 0, 0, 0, 0, 0, 0, 0, 0], ..at(e) };
-    if name == "takeover1" {
+    if name == "army1" {
+        // The gate's switch (42, "Gate open", which opens the gate 3) until it's worked, and
+        // the console at the top of the radar tower (67, "System Sabataged", which wins it)
+        // from then on: up its two ladders, from the ground to its walkway and on up.
+        let (Some(gate), Some(console)) = (point(mission, 42), point(mission, 67)) else { return };
+        let b = add_point(mission, beacon(&gate, 0), Some("Gate switch"));
+        let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: gate.index as u16, ..at(&gate) };
+        add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
+        add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: gate.index as u16, ..beacon(&console, 0) }, Some("Radar tower"));
+    } else if name == "takeover1" {
         let (Some(two), Some(one)) = (point(mission, 64), point(mission, 65)) else { return };
         if !mission.event_points.iter().any(|e| e.used != 0 && e.kind == waypoint::END_GAME_WIN) {
             add_point(mission, EventPoint { kind: waypoint::END_GAME_WIN, trigger: trigger::BOOLEAN_AND, ep_ref: 64, ep_ref_bool: 65, ..at(&two) }, None);
@@ -875,6 +889,7 @@ impl Level {
         let mut mission = Mission::parse(&read(game, &format!("levels\\{mission_name}.ucm"))?)
             .map_err(|e| format!("{mission_name}.ucm: {e}"))?;
         mission.renumber_version0();
+        mission.renumber_old_enemies();
         finish_unfinished(mission_name, &mut mission);
         if read(game, &mission.map).is_err() {
             if let Some(&(_, map, lighting)) = STAND_INS.iter().find(|(m, ..)| m.eq_ignore_ascii_case(mission_name)) {

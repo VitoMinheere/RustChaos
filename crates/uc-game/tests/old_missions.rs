@@ -85,12 +85,28 @@ fn rooftop1_is_on_the_rooftops() {
     assert!(me.y > 500.0, "Darci isn't up on the roof: {me}");
 }
 
-/// Radar Tower (`army1`): the system sabotaged (point 67, action up on the tower's
-/// platform) wins it.
+/// Radar Tower (`army1`): a beacon on the gate's switch, then one on the tower's console;
+/// the system sabotaged (point 67, action up on the tower's platform) wins it. Its soldiers
+/// (the old `ET_ARMY_SOLDIER`, 16) are grey thugs, not hostages.
 #[test]
 fn radar_tower_is_won_by_sabotaging_the_system() {
+    use uc_world::character::person as ptype;
     let Some(mut r) = start("army1") else { return };
     assert!(r.said("Sabatage the rader tower."), "{:?}", r.seen);
+    let soldier = r.who(4);
+    assert_eq!(r.g.people[soldier].kind, ptype::THUG_GREY, "a soldier isn't a grey thug");
+    assert!(!r.g.people.iter().any(|p| p.kind == ptype::HOSTAGE), "a soldier in a hostage's clothes");
+    let labels = |r: &Run| r.g.beacons().into_iter().map(|(l, _)| l).collect::<Vec<_>>();
+    assert!(labels(&r).iter().any(|l| l.contains("Gate switch")), "{:?}", labels(&r));
+    assert!(!labels(&r).iter().any(|l| l.contains("Radar tower")), "{:?}", labels(&r));
+    // Worked from where the switch is worked.
+    assert!(r.stand_at_switch(42), "the gate's point isn't a switch");
+    r.play(DT, Controls { action: true, ..Default::default() });
+    r.play(1.0, Controls::default());
+    assert!(r.said("Gate open"), "{:?}", r.seen);
+    assert!(!labels(&r).iter().any(|l| l.contains("Gate switch")), "{:?}", labels(&r));
+    let tower = r.g.beacons().into_iter().find(|(l, _)| l.contains("Radar tower")).expect("no beacon on the tower").1;
+    assert!((tower - r.point(67)).length() < 64.0, "the beacon isn't on the console: {tower}");
     r.use_at(67);
     assert!(r.said("System Sabataged"), "{:?}", r.seen);
     r.play(3.0, Controls::default());
