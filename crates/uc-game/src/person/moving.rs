@@ -593,6 +593,10 @@ impl Person {
                 self.fig.lift = 0.0;
                 let ko = if damage >= self.health { ko::KNOCKDOWN } else { 0 };
                 self.take_hit(self.fig.pos + vec3(0.0, 0.0, 1.0), damage, ko, false, true, Weapon::None);
+                // It hurt, and she says so (#486).
+                if self.player && !self.knocked_out {
+                    self.cues.push(Sfx::Bark { kind: self.kind, bark: super::Bark::Curse });
+                }
                 // A fall that kills (`PERSON_DEATH_TYPE_LAND`, Person.cpp:2559): face down
                 // in a splash of blood from a plunge (`ANIM_PLUNGE_FRONT_SLAM`,
                 // `PYRO_SPLATTERY`), else `ANIM_BIGLAND_DIE`.
@@ -637,6 +641,7 @@ impl Person {
                 if s.injured && d < 128.0 {
                     self.fig.restart(anim::PICKUP_CARRY, Play::Once);
                     self.state = State::Carry { victim: j, phase: 0 };
+                    self.cues.push(Sfx::Bark { kind: self.kind, bark: super::Bark::Carry });
                     events.push(Event::Carry { carrier: me, victim: j });
                     return;
                 }

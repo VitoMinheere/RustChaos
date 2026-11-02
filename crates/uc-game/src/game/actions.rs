@@ -110,6 +110,8 @@ impl Game {
                             p.face_towards(at);
                         }
                         self.search = Some(Search { what: Searched::Prop(ob), time: 0.0 });
+                        let kind = p.kind;
+                        p.cues.push(Sfx::Bark { kind, bark: crate::Bark::Search });
                         return true;
                     }
                 }
@@ -124,6 +126,10 @@ impl Game {
                     .min_by(|a, b| flat(a.1).total_cmp(&flat(b.1)));
                 if let Some((j, _)) = body {
                     self.search = Some(Search { what: Searched::Body(j), time: 0.0 });
+                    // A dead one's not nice to go through (#486).
+                    let bark = if self.people[j].is_dead() { crate::Bark::Gross } else { crate::Bark::Search };
+                    let kind = self.people[pi].kind;
+                    self.people[pi].cues.push(Sfx::Bark { kind, bark });
                     return true;
                 }
                 // Talk to someone friendly close by, on their feet (not lying injured: those
@@ -193,6 +199,14 @@ impl Game {
         if self.people[cop].kind == ptype::DARCI {
             let line = (self.rand() & 3).min(2) as u8;
             self.people[cop].cues.push(Sfx::Freeze(line));
+        } else if self.people[cop].kind == ptype::ROPER {
+            // Roper has no "Freeze!": he shouts (#486).
+            self.people[cop].cues.push(Sfx::Bark { kind: ptype::ROPER, bark: crate::Bark::Shout });
+        }
+        // An innocent passer-by drawn on protests it (#486).
+        let q = &self.people[t];
+        if q.kind == ptype::CIV && q.ai == person::AI_CIV && !q.felon {
+            self.people[t].cues.push(Sfx::Bark { kind: ptype::CIV, bark: crate::Bark::Innocent });
         }
         let q = &self.people[t];
         if q.bent & person::BENT_ROBOT != 0 {

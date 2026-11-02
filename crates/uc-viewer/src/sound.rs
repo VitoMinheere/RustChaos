@@ -82,6 +82,9 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
                 ptype::DARCI => numbered("darci/die ", 1..=3, ".WAV"),
                 // `DieSound`: the cops' own (`S_COP_DIE_START` to `_END`), and the others'
                 // deaths recorded beside them.
+                // With the one-off last words recorded beside them (#486).
+                ptype::COP => lines(audio, kind, "DIE", vec!["COP-TAUNTDIE02.wav".into()]),
+                ptype::THUG_RED => lines(audio, kind, "DIE", vec!["GRED-PAINDIE02.wav".into()]),
                 _ => lines(audio, kind, "DIE", Vec::new()),
             };
             if names.is_empty() {
@@ -163,6 +166,38 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
             let who = if female { "fcit" } else { "mcit" };
             at(audio, vec![format!("{who}-annoyed{line:02}.wav")], 1.0);
         }
+        // The characters' lines that were recorded and never played (#486), every take.
+        Sfx::Bark { kind, bark } => {
+            use uc_game::Bark;
+            let mut names = lines(audio, kind, bark_line(bark), Vec::new());
+            // A panicking man screams as often as he cries out.
+            if bark == Bark::Panic {
+                names = lines(audio, kind, "SCREAM", names);
+            }
+            // Not every time for the small things: a grunt one pull-up in three, a moan one
+            // empty clip in two, a cry one fright in two.
+            let names = match bark {
+                Bark::Grunt => sometimes(names, 3),
+                Bark::Complain | Bark::Panic => sometimes(names, 2),
+                _ => names,
+            };
+            if !names.is_empty() {
+                at(audio, names, 1.0);
+            }
+        }
+        // Over the radio, but not over a line being said.
+        Sfx::RadioSays(said) => {
+            if audio.speaking().0 {
+                return;
+            }
+            let names: Vec<String> = match said {
+                uc_game::RadioLine::Won => audio.takes("police-CONGRATS").into_iter().chain(audio.takes("police-CHEER")).collect(),
+                uc_game::RadioLine::Lost => audio.takes("police-FAIL"),
+            };
+            if let Some(n) = audio.fresh(&names).filter(|n| !n.is_empty()) {
+                audio.play(&n, 0.9);
+            }
+        }
         Sfx::Voice(point) => {
             audio.voice(mission, point);
         }
@@ -213,6 +248,28 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         Sfx::Won => audio.sting("GeneralMusic/Complete.wav"),
         Sfx::Lost => audio.sting("GeneralMusic/Dead2.wav"),
         Sfx::Chaos => audio.sting(CHAOS),
+    }
+}
+
+/// The line a [`uc_game::Bark`] is said with: `<WHO>-<LINE>NN.wav` in `talk2\misc\`.
+fn bark_line(bark: uc_game::Bark) -> &'static str {
+    use uc_game::Bark;
+    match bark {
+        Bark::Startle => "STARTLE",
+        Bark::Search => "SEARCH",
+        Bark::Gross => "GROSS",
+        Bark::Curse => "CURSE",
+        Bark::Complain => "complain",
+        Bark::Grunt => "GRUNT",
+        Bark::Fail => "FAIL",
+        Bark::Relax => "RELAX",
+        Bark::Carry => "CARRY",
+        Bark::Shout => "SHOUT",
+        Bark::Command => "COMMAND",
+        Bark::Inquire => "INQUIRE",
+        Bark::Greet => "GREET",
+        Bark::Panic => "PANIC",
+        Bark::Innocent => "INNOCENT",
     }
 }
 
@@ -267,6 +324,34 @@ pub fn music(mood: Mood, world: u8, fights: u32) -> Option<String> {
 mod tests {
     /// The voices added for #298 are in the release: the cops' pain and death, and Darci's
     /// heart giving out. Skipped without an install.
+    /// Every unplayed line (#486) has takes in the install for whoever says it, and the
+    /// radio's too. Skipped without one.
+    #[test]
+    fn every_bark_has_takes() {
+        use uc_game::Bark::*;
+        use uc_world::character::person as ptype;
+        let Some(game) = uc_formats::default_install() else { return };
+        let said = [
+            (ptype::DARCI, vec![Startle, Search, Gross, Curse, Complain, Grunt, Fail, Relax, Command]),
+            (ptype::ROPER, vec![Startle, Search, Gross, Curse, Grunt, Fail, Relax, Carry, Shout, Command]),
+            (ptype::COP, vec![Greet]),
+            (ptype::CIV, vec![Panic, Innocent]),
+            (ptype::HOSTAGE, vec![Startle, Inquire]),
+        ];
+        for (kind, barks) in said {
+            for b in barks {
+                let prefix = format!("{}-{}", super::voice(kind).unwrap(), super::bark_line(b));
+                assert!(!uc_audio::takes(&game, &prefix).is_empty(), "no takes of {prefix}");
+            }
+        }
+        for line in ["police-CONGRATS", "police-CHEER", "police-FAIL"] {
+            assert!(!uc_audio::takes(&game, line).is_empty(), "no takes of {line}");
+        }
+        for last in ["COP-TAUNTDIE02.wav", "GRED-PAINDIE02.wav"] {
+            assert!(uc_formats::resolve(&game, &format!(r"talk2\misc\{last}")).is_some(), "{last} isn't in the install");
+        }
+    }
+
     /// Every take of the citizens' recorded chatter is in the install. Skipped without one.
     #[test]
     fn the_citizens_takes_are_shipped() {

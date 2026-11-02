@@ -400,6 +400,54 @@ impl Game {
         Some(if clear { dest } else { middle(first.unwrap_or(sq(dest))) })
     }
 
+    /// The unplayed lines (#486) that want watching for, not one moment: the player startled by
+    /// something blowing up within four squares (and a hostage following her), relaxing after
+    /// twenty seconds stood about with nobody after her, and a cop greeting her as she walks
+    /// up to him, once each.
+    pub(crate) fn barks(&mut self, dt: f32) {
+        use crate::{Bark, Sfx};
+        use uc_world::character::person as ptype;
+        let Some(pi) = self.player else { return };
+        let me = self.people[pi].fig.pos;
+        let from = self.sounds_seen.min(self.sounds.len());
+        let bangs: Vec<Vec3> = self.sounds[from..].iter().filter(|(s, _)| *s == Sfx::Explosion).map(|&(_, at)| at).collect();
+        self.sounds_seen = self.sounds.len();
+        for at in bangs {
+            for i in 0..self.people.len() {
+                let p = &self.people[i];
+                let mine = i == pi || (p.kind == ptype::HOSTAGE && p.mv == person::MOVE_FOLLOW);
+                if mine && !p.is_dead() && !p.is_down() && (p.fig.pos - at).length() < 4.0 * 256.0 && (p.fig.pos - me).length() < 8.0 * 256.0 {
+                    let kind = p.kind;
+                    self.people[i].cues.push(Sfx::Bark { kind, bark: Bark::Startle });
+                }
+            }
+        }
+        // Stood about: in her own time, with nobody after her.
+        let p = &self.people[pi];
+        let hunted = self.people.iter().any(|o| o.aggro() && !o.is_dead() && (o.fig.pos - me).length() < 12.0 * 256.0);
+        if matches!(p.state, State::Move) && !person::walking_anim(p.fig.anim()) && !person::running_anim(p.fig.anim()) && !hunted {
+            let was = self.calm_for;
+            self.calm_for += dt;
+            if was < 20.0 && self.calm_for >= 20.0 {
+                let kind = p.kind;
+                self.people[pi].cues.push(Sfx::Bark { kind, bark: Bark::Relax });
+            }
+        } else {
+            self.calm_for = 0.0;
+        }
+        // A cop she walks up to who isn't busy.
+        for i in 0..self.people.len() {
+            let o = &self.people[i];
+            if o.kind != ptype::COP || o.player || o.aggro() || o.is_dead() || o.is_down() || !matches!(o.state, State::Move) || self.greeted.contains(&i) {
+                continue;
+            }
+            if (o.fig.pos - me).length() < 200.0 {
+                self.greeted.insert(i);
+                self.people[i].cues.push(Sfx::Bark { kind: ptype::COP, bark: Bark::Greet });
+            }
+        }
+    }
+
     /// `PCOM_MOVE_FOLLOW_ON_SEE` (pcom.cpp:10479): someone within 0x200 of the person their
     /// `follow` point made (the player by default) who can see them starts following them
     /// (`PCOM_MOVE_FOLLOW`). Takeover1's hostages wait for Darci this way.
@@ -413,6 +461,14 @@ impl Game {
             let Some(j) = j.filter(|&j| j != i) else { continue };
             if (self.people[j].fig.pos - p.fig.pos).length() < 0x200 as f32 && self.can_a_see_b(i, j, level) {
                 self.people[i].mv = person::MOVE_FOLLOW;
+                // The player tells them to come along, and a hostage asks what now (#486).
+                if self.people[j].player {
+                    let kind = self.people[j].kind;
+                    self.people[j].cues.push(crate::Sfx::Bark { kind, bark: crate::Bark::Command });
+                }
+                if self.people[i].kind == uc_world::character::person::HOSTAGE {
+                    self.people[i].cues.push(crate::Sfx::Bark { kind: uc_world::character::person::HOSTAGE, bark: crate::Bark::Inquire });
+                }
             }
         }
     }
