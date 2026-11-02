@@ -2,7 +2,8 @@
 //! that crossfades between tracks, and mission voice lines (`talk2\<mission>.ucm<point>.wav`).
 //!
 //! Sounds are named by their path under `data\sfx\1622` (e.g. `"f_PUNCH1.wav"`,
-//! `"Footsteps/HardStep1.wav"`), decoded once and cached. Everything degrades quietly: with
+//! `"Footsteps/HardStep1.wav"`), or for the characters' lines (a `-` in the name) under
+//! `talk2\misc` ([`misc_path`]), decoded once and cached. Everything degrades quietly: with
 //! no audio device, [`Audio::new`] fails and the game runs silent; a missing file is skipped.
 
 pub mod sounds;
@@ -125,6 +126,33 @@ struct Track {
 /// The music world (1-9, the `data\sfx\1622\musicNN` folder) for a mission: from
 /// `levels\mworlds.txt` like the original (`ELEV_load_level`), else the mission file's own
 /// value, at least 1.
+/// Where the original reads a sound with a `-` in its name: `talk2\misc\` and the name
+/// without its folder, whichever folder the sound table puts it in (`GetFullName`,
+/// DDLibrary/Source/MFX_Miles.cpp:442: "all the taunts etc have a - in them").
+pub fn misc_path(name: &str) -> Option<String> {
+    name.contains('-').then(|| format!("talk2\\misc\\{}", name.rsplit(['\\', '/']).next().unwrap_or(name)))
+}
+
+/// Whether `file` is a take of the line `prefix`: the prefix, a number if any, then up to
+/// two letters for the other takes (`GRED-PAIN01`, `GRED-PAIN01B`, `DARCI-TAUNT06GB`, and
+/// the civilians' `MCIV-PAIN`, `MCIV-PAIN2`, `MCIV-PAINb`), but not another line that
+/// starts the same (`GRED-PAINDIE02`, `COP-TAUNTDIE02`). Any case.
+pub fn is_take(file: &str, prefix: &str) -> bool {
+    let lower = file.to_ascii_lowercase();
+    let Some(rest) = lower.strip_prefix(&prefix.to_ascii_lowercase()).and_then(|r| r.strip_suffix(".wav")) else { return false };
+    let letters = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+    letters.len() <= 2 && letters.chars().all(|c| c.is_ascii_alphabetic())
+}
+
+/// Every take of the line `prefix` in the install's `talk2\misc\`, sorted.
+pub fn takes(game: &Path, prefix: &str) -> Vec<String> {
+    let mut out: Vec<String> = uc_formats::resolve(game, "talk2\\misc").and_then(|d| std::fs::read_dir(d).ok())
+        .map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|f| is_take(f, prefix)).collect())
+        .unwrap_or_default();
+    out.sort_by_key(|f| f.to_ascii_lowercase());
+    out
+}
+
 pub fn music_world(game: &Path, mission: &str, from_mission: u8) -> u8 {
     let table = uc_formats::resolve(game, "levels\\mworlds.txt").and_then(|p| std::fs::read_to_string(p).ok());
     table
@@ -162,6 +190,11 @@ pub struct Audio {
     /// Going through someone's pockets (`S_SEARCH_END`), looped while it lasts.
     search: Option<Arc<Control>>,
     rng: u32,
+    /// The voices' takes in `talk2\misc\`, by prefix ([`Audio::takes`]).
+    takes: HashMap<String, Vec<String>>,
+    /// The sounds [`Audio::fresh`] picked last, newest at the back, so a voice doesn't say
+    /// the same line twice running.
+    recent: VecDeque<String>,
     /// The line being said, and the ones waiting behind it. A mission's voices are said one
     /// at a time: skipping a fly-by or a message brings the next one up before this one has
     /// finished, and two voices at once are just noise.
@@ -191,6 +224,7 @@ impl Audio {
         sink.log_on_drop(false);
         Ok(Audio {
             sink, game: game.to_path_buf(), voices: None, cache: HashMap::new(), music: Vec::new(), ambience: None, bed: None, engine: None, rotor: None, siren: None, crackle: None, gush: None, slide: None, search: None, rng: 12345,
+            takes: HashMap::new(), recent: VecDeque::new(),
             speaking: None, waiting: VecDeque::new(), effect: None,
             sfx_volume: 0.8, music_volume: 0.55,
         })
@@ -235,6 +269,12 @@ impl Audio {
     }
 
     fn sfx(&mut self, name: &str) -> Option<Arc<Clip>> {
+        // A character's line: the install's, else a made one (the annoyed citizens').
+        if let Some(rel) = misc_path(name) {
+            if let Some(c) = rel.strip_prefix("talk2\\").and_then(|n| self.line(n)) {
+                return Some(c);
+            }
+        }
         self.load(&format!("data\\sfx\\1622\\{name}"))
             .or_else(|| sounds::shipped_as(name).and_then(|n| self.load(&format!("data\\sfx\\1622\\{n}"))))
     }
@@ -250,6 +290,45 @@ impl Audio {
     pub fn pick<'a>(&mut self, names: &[&'a str]) -> &'a str {
         self.rng = self.rng.wrapping_mul(69069).wrapping_add(1);
         names[(self.rng >> 16) as usize % names.len()]
+    }
+
+    /// Every take of a voice's line in `talk2\misc\` ([`takes`]): `"GRED-PAIN"` gives
+    /// `GRED-PAIN01.wav`, `GRED-PAIN01B.wav`... as names [`Audio::play_at`] reads from there.
+    pub fn takes(&mut self, prefix: &str) -> Vec<String> {
+        if let Some(t) = self.takes.get(prefix) {
+            return t.clone();
+        }
+        let t = takes(&self.game, prefix);
+        self.takes.insert(prefix.to_string(), t.clone());
+        t
+    }
+
+    /// Picks one of `names` that's in the install, at random, but not one of the last few
+    /// it picked while there are others: a voice with a dozen takes goes through them
+    /// instead of repeating one. An empty name is silence, and always there. `None` if none
+    /// of them is.
+    pub fn fresh(&mut self, names: &[String]) -> Option<String> {
+        const REMEMBER: usize = 16;
+        let there: Vec<&String> = names.iter().filter(|n| n.is_empty() || self.sfx(n).is_some()).collect();
+        if there.is_empty() {
+            return None;
+        }
+        let new: Vec<&String> = there.iter().copied().filter(|n| n.is_empty() || !self.recent.contains(n)).collect();
+        // All of them said lately: the one said longest ago.
+        let pick = if new.is_empty() {
+            (*there.iter().min_by_key(|n| self.recent.iter().position(|r| r == **n)).unwrap()).clone()
+        } else {
+            self.rng = self.rng.wrapping_mul(69069).wrapping_add(1);
+            new[(self.rng >> 16) as usize % new.len()].clone()
+        };
+        if !pick.is_empty() {
+            self.recent.retain(|r| *r != pick);
+            self.recent.push_back(pick.clone());
+            if self.recent.len() > REMEMBER {
+                self.recent.pop_front();
+            }
+        }
+        Some(pick)
     }
 
     /// Plays a sound effect without position.
@@ -405,10 +484,13 @@ impl Audio {
         }
     }
 
-    /// A helicopter's rotors at `volume` (`Some`), or none in the air (`None`).
-    pub fn rotor(&mut self, volume: Option<f32>) {
+    /// A helicopter's rotors at (volume, rate) (`Some`), or none to hear (`None`).
+    pub fn rotor(&mut self, sound: Option<(f32, f32)>) {
         let held = self.rotor.take();
-        self.rotor = self.hum(held, "heli.wav", volume);
+        self.rotor = self.hum(held, "heli.wav", sound.map(|(v, _)| v));
+        if let (Some(r), Some((_, rate))) = (&self.rotor, sound) {
+            r.set_rate(rate);
+        }
     }
 
     /// A car's siren at `volume` (`Some`), or none going (`None`).

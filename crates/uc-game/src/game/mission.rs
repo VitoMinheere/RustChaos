@@ -454,6 +454,14 @@ impl Game {
                 Outcome::Lost(_) => Sfx::Lost,
             };
             self.sounds.push((sting, at));
+            // The radio's say, and the player's, who's still standing (#486).
+            self.sounds.push((Sfx::RadioSays(if o == Outcome::Won { crate::RadioLine::Won } else { crate::RadioLine::Lost }), at));
+            if standing && o != Outcome::Won {
+                if let Some(pi) = self.player {
+                    let kind = self.people[pi].kind;
+                    self.people[pi].cues.push(Sfx::Bark { kind, bark: crate::Bark::Fail });
+                }
+            }
             self.outcome = Some(o);
         }
     }

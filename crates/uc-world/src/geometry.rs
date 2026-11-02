@@ -162,6 +162,47 @@ pub struct WorldGeometry {
     pub chunks: Vec<Chunk>,
     /// The crinkles [`ReliefQuad::crinkle`] refers to.
     pub crinkles: Vec<Crinkle>,
+    /// The pages that light themselves, for the renderer: the level's, so it holds for what
+    /// the game draws on them too.
+    pub self_lit: SelfLit,
+}
+
+/// The pages `textype.txt` lights up whatever the light where they are
+/// (`POLY_load_texture_flags`, polyrenderstate.cpp:118-135), by page number.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SelfLit {
+    /// 'I': drawn in two passes (`POLY_PAGE_FLAG_2PASS`), the next page over this one: lit
+    /// windows on a wall, the next page clear but for the panes, which are drawn at the
+    /// texture's own colour (`D3DTBLEND_DECAL`) and stay bright at night.
+    pub two_pass: BTreeSet<u32>,
+    /// 'S': the whole page drawn at its texture's own colour, unlit
+    /// (`POLY_PAGE_FLAG_SELF_ILLUM`). Fog still falls on it.
+    pub unlit: BTreeSet<u32>,
+}
+
+impl SelfLit {
+    /// Adds a `textype.txt`'s flags, its page numbers counted from `offset` (the prims' are
+    /// from [`crate::level::PRIM_PAGES`]). As the original, every letter after the colon
+    /// counts, in either case.
+    pub fn read(&mut self, text: &str, offset: u32) {
+        for line in text.lines() {
+            let Some(rest) = line.trim().strip_prefix("Page ") else { continue };
+            let Some((n, flags)) = rest.split_once(':') else { continue };
+            let Ok(n) = n.trim().parse::<u32>() else { continue };
+            let flags = flags.to_ascii_uppercase();
+            if flags.contains('I') {
+                self.two_pass.insert(offset + n);
+            }
+            if flags.contains('S') {
+                self.unlit.insert(offset + n);
+            }
+        }
+    }
+
+    /// The page drawn over `page`, if it's drawn in two passes.
+    pub fn overlay(&self, page: u32) -> Option<u32> {
+        self.two_pass.contains(&page).then(|| page + 1)
+    }
 }
 
 impl WorldGeometry {
@@ -244,6 +285,6 @@ impl Builder {
                 Chunk { min, max, batches, crinkled, reliefs }
             })
             .collect();
-        WorldGeometry { chunks, crinkles: Vec::new() }
+        WorldGeometry { chunks, crinkles: Vec::new(), self_lit: SelfLit::default() }
     }
 }

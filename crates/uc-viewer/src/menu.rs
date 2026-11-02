@@ -294,9 +294,8 @@ impl Menu {
             }
         }
         let maps = arenas;
-        // The unreleased missions aren't in `urban.sty`: each goes on the district of a
-        // mission on the same map, and those on maps of their own on a pin of their own. The
-        // drafts on maps of their own are in the list alone.
+        // The unreleased missions and drafts aren't in `urban.sty`: each goes on the district
+        // of a mission on the same map, and those on maps of their own on a pin of their own.
         let mut lost = None;
         for i in 0..entries.len() {
             let draft = DRAFTS.iter().chain(OWN.iter()).any(|u| u.0 == entries[i].mission);
@@ -304,10 +303,6 @@ impl Menu {
                 continue;
             }
             let near = (0..entries.len()).find(|&j| j != i && map_of[j].is_some() && map_of[j] == map_of[i] && entries[j].district.is_some());
-            if draft {
-                entries[i].district = near.and_then(|j| entries[j].district);
-                continue;
-            }
             entries[i].district = near.and_then(|j| entries[j].district).or_else(|| {
                 Some(*lost.get_or_insert_with(|| {
                     named.push(Some(("Unreleased Missions".to_string(), LOST_PIN)));
@@ -1159,11 +1154,11 @@ const UNRELEASED: [(&str, &str, &str); 8] = [
 ];
 
 /// Earlier drafts and prototypes the game never listed that play to an end, after
-/// [`UNRELEASED`]: (mission, title, briefing). Unlike those, they're pinned only with a
-/// district whose map they share; the rest are in the list alone. None has a title in the
+/// [`UNRELEASED`]: (mission, title, briefing). Like those, they're pinned with a district
+/// whose map they share, and the rest on the unreleased missions' pin. None has a title in the
 /// game, so these are this project's, and the briefings are their opening messages where
 /// they have them, made up from their scripts where they don't.
-const DRAFTS: [(&str, &str, &str); 11] = [
+const DRAFTS: [(&str, &str, &str); 14] = [
     // Combat Gold with bigger waves, on the same course: it calls itself the gold grade.
     ("fight3", "Combat Platinum",
      "For the gold grade you need to use combat techniques against skilled and sometimes armed \
@@ -1202,6 +1197,18 @@ const DRAFTS: [(&str, &str, &str); 11] = [
      "Destroy the main transmitter at the top of the television building. Roper has the \
       sabotage equipment.\r\
       - Get the explosives from Roper.\r- Blow up the transmitter on the roof."),
+    // Two of the editor's oldest prototypes (file version 5): on an army base of its own
+    // map, and the earliest Grim Gardens on `botanic1`'s. The first's briefing is its one
+    // opening message, the second's made up from its script.
+    ("army1", "Radar Tower",
+     "Sabotage the radar tower on the army base, Stern. The workmen say the place is nuke \
+      proof; the guards say you're not getting in. Switches work the lifts and the gate.\r\
+      - Get up the radar tower.\r- Sabotage the system."),
+    ("upperclass1", "Union Gardens",
+     "Union Gardens has been closed for weeks, and the locals say something dodgy is going on \
+      behind those walls. Something smells funny round there, Stern. Find a crowbar and \
+      sabotage the gang's supplies.\r\
+      - Get the crowbar.\r- Sabotage all four supplies."),
     // An early Estate of Emergency on a map of its own.
     ("estate1", "Farraday's Files",
      "This building contains the main computer. To get in, you will need to disarm the \
@@ -1219,6 +1226,15 @@ const DRAFTS: [(&str, &str, &str); 11] = [
      "Someone's bombed the station, Stern, and there's Wildcats out all over the West District \
       beating on whoever they please. Ask around, and bring 'em in.\r\
       - Arrest all five Wildcats. We need them alive."),
+    // A copy of Auto-Destruct whose debrief lost its points, put back from Auto-Destruct
+    // (`uc_world::level::finish_unfinished`). Its beacons call it "Car Bomb"; the briefing is
+    // Auto-Destruct's, with the bombers and the hideout that follow the bombs.
+    ("carbomb2", "Car Bomb",
+     "Jeez D'arci, TERRORISTS have planted a CAR BOMB in Union City! The gangs have covered the \
+      area, and we can't get our bomb disposal teams in there. Get the bomb cars back to the \
+      engineers, then go after the bombers.\r\
+      - Get both car bombs to the bomb squad.\r- Arrest the two bombers. We need them alive.\r\
+      - Search their hideout, and report back."),
     // An earlier Day Of Reckoning, whose own map is missing: it's played on Day Of
     // Reckoning's (`uc_world::level::stand_in_map`).
     ("Finale1b", "The Final Reckoning",
@@ -1433,8 +1449,8 @@ mod tests {
         assert!(m.pins.windows(2).all(|w| w[0].at.0 <= w[1].at.0));
         // The unreleased missions are pinned too.
         assert!(m.entries.iter().filter(|e| UNRELEASED.iter().any(|u| u.0 == e.mission)).all(|e| e.district.is_some()));
-        // The drafts with a district's map are on its pin; estate1, on a map of its own, is in
-        // the list alone.
+        // The drafts with a district's map are on its pin; those on maps of their own (army1,
+        // upperclass1, estate1) on the unreleased missions' pin.
         let pin = |mission: &str| {
             let i = m.entries.iter().position(|e| e.mission == mission).unwrap_or_else(|| panic!("{mission} isn't listed"));
             m.pins.iter().find(|p| p.missions.contains(&i)).map(|p| p.name.as_str())
@@ -1444,10 +1460,15 @@ mod tests {
                                     ("Crimescene", "Southside Beach"), ("police5", "West District")] {
             assert_eq!(pin(mission), Some(district), "{mission}");
         }
-        assert_eq!(pin("estate1"), None);
+        for own in ["estate1", "army1", "upperclass1"] {
+            assert_eq!(pin(own), Some("Unreleased Missions"), "{own}");
+        }
         // Finale1b on Day Of Reckoning's pin, as it's played on its map.
         assert!(pin("Finale1").is_some());
         assert_eq!(pin("Finale1b"), pin("Finale1"));
+        // carbomb2 on Auto-Destruct's, whose map it shares.
+        assert!(pin("carbomb1").is_some());
+        assert_eq!(pin("carbomb2"), pin("carbomb1"));
     }
 
     #[test]

@@ -7,8 +7,9 @@
 //!
 //! About one name in eight isn't in the retail release: the music moved under the music world
 //! that uses it, the ambience lost its working names (`BirdSong2Shortenough` ships as
-//! `BirdSong2`), and the `misc\` folder of pain grunts isn't there at all. Asking for one of
-//! those is quietly ignored, as any missing file is.
+//! `BirdSong2`). Asking for one of those is quietly ignored, as any missing file is. A name
+//! with a `-` in it, the characters' lines (`misc\GRED-PAIN01.wav`, `darci\DARCI-TAUNT01.wav`),
+//! is read from `talk2\misc\` instead, as the original does ([`crate::misc_path`]).
 
 /// Every sound the game knows, by id. Some carry a `" *DL* "` marker, which the original skips
 /// over by starting six characters in (`music.cpp`); [`name`] does that for you.

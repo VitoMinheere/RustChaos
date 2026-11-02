@@ -9,54 +9,90 @@ fn numbered(prefix: &str, n: std::ops::RangeInclusive<u32>, suffix: &str) -> Vec
     n.map(|i| format!("{prefix}{i}{suffix}")).collect()
 }
 
-fn pick(audio: &mut Audio, names: &[String]) -> String {
-    let refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
-    audio.pick(&refs).to_string()
+/// The prefix of a character's lines in `talk2\misc\` (`GRED-PAIN01.wav`...), if they have
+/// any. The original plays a few of them; the rest were recorded but nothing plays them, so
+/// here every take goes into the pool for its line ([`Audio::takes`]).
+fn voice(kind: u8) -> Option<&'static str> {
+    Some(match kind {
+        ptype::DARCI => "DARCI",
+        ptype::ROPER => "ROPER",
+        ptype::COP => "COP",
+        ptype::CIV => "MCIV",
+        ptype::THUG_RASTA => "GRASTA",
+        ptype::THUG_GREY => "GGREY",
+        ptype::THUG_RED => "GRED",
+        ptype::HOSTAGE => "HOSTAGE",
+        ptype::MECHANIC => "GWORK",
+        ptype::TRAMP => "GTRAMP",
+        _ => return None,
+    })
 }
 
-/// The recordings for a gang member's voice: their folder, the prefix their lines use and
-/// how many taunts they have.
-fn gang_voice(kind: u8) -> Option<(&'static str, &'static str, u32)> {
+/// Every take of `kind`'s `line` (`"PAIN"`, `"TAUNT"`...), besides `also`.
+fn lines(audio: &mut Audio, kind: u8, line: &str, mut also: Vec<String>) -> Vec<String> {
+    if let Some(v) = voice(kind) {
+        also.extend(audio.takes(&format!("{v}-{line}")));
+    }
+    also
+}
+
+/// The folder of a gang's own sounds (`hey you.wav`).
+fn gang_dir(kind: u8) -> Option<&'static str> {
     match kind {
-        ptype::THUG_RASTA => Some(("bthug1", "GRASTA", 7)),
-        ptype::THUG_RED => Some(("wthug2", "GRED", 5)),
-        ptype::THUG_GREY => Some(("wthug1", "GGREY", 5)),
+        ptype::THUG_RASTA => Some("bthug1"),
+        ptype::THUG_RED => Some("wthug2"),
+        ptype::THUG_GREY => Some("wthug1"),
         _ => None,
     }
 }
 
-/// Plays the sound for one game event at `pos` (world units).
+/// `names`, padded with silence so that one of them is said about one time in `every`.
+fn sometimes(mut names: Vec<String>, every: usize) -> Vec<String> {
+    names.extend(std::iter::repeat_n(String::new(), names.len() * (every - 1)));
+    names
+}
+
+/// Plays the sound for one game event at `pos` (world units). A sound with several
+/// recordings goes through them rather than repeating one ([`Audio::fresh`]).
 pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str) {
     let at = |audio: &mut Audio, names: Vec<String>, vol: f32| {
-        let n = pick(audio, &names);
-        audio.play_at(&n, vol, pos, l);
+        if let Some(n) = audio.fresh(&names).filter(|n| !n.is_empty()) {
+            audio.play_at(&n, vol, pos, l);
+        }
     };
     match sfx {
         Sfx::Swing => at(audio, numbered("f_knSWP", 1..=4, ".wav"), 0.3),
         Sfx::Hit { heavy } => at(audio, numbered("f_PUNCH", 1..=5, ".wav"), if heavy { 1.0 } else { 0.75 }),
-        Sfx::Hurt { kind: ptype::DARCI } => at(audio, numbered("darci/hit ", 1..=5, ".WAV"), 0.8),
-        // A cop's pain (`PainSound`, Sound.cpp:520): three times in four one of the first
-        // two, else any of the five. The gangs', the hostage's, the workman's and the
-        // tramp's are in the `misc` folder, and Roper's beside his taunts, neither of which
-        // the release ships.
-        Sfx::Hurt { kind: ptype::COP } => {
-            let all = ["COP-PAIN01", "COP-PAIN02", "COP-PAIN03", "COP-PAIN03B", "COP-PAIN04"];
-            let first = audio.pick(&["a", "b", "c", "d"]) != "d";
-            let names = if first { &all[..2] } else { &all[..] };
-            at(audio, names.iter().map(|n| format!("cop/{n}.wav")).collect(), 0.8);
+        // `PainSound` (Sound.cpp:521): Darci's and Roper's hits, and everyone else's pain
+        // from `talk2\misc\`, with all their takes. The civilians' are the port's own.
+        Sfx::Hurt { kind } => {
+            let own = match kind {
+                ptype::DARCI => numbered("darci/hit ", 1..=5, ".WAV"),
+                ptype::ROPER => numbered("roper/hit", 1..=7, ".WAV"),
+                _ => Vec::new(),
+            };
+            let names = lines(audio, kind, "PAIN", own);
+            at(audio, names, 0.8);
         }
-        Sfx::Hurt { .. } => {}
         Sfx::MibExplode => at(audio, vec!["MIBexplo1.wav".into()], 1.0),
         // The Men in Black levitate as they die (`S_MIB_LEVITATE`, Person.cpp:1140).
         Sfx::KnockedOut { kind: ptype::MIB1 | ptype::MIB2 | ptype::MIB3 } => at(audio, vec!["MIBlevitate1.wav".into()], 1.0),
         Sfx::KnockedOut { kind } => {
-            let names = match kind {
+            let mut names = match kind {
                 ptype::DARCI => numbered("darci/die ", 1..=3, ".WAV"),
-                // `DieSound`: the cops' own (`S_COP_DIE_START` to `_END`).
-                ptype::COP => ["COP-DIE01", "COP-DIE02B", "COP-DIE03", "COP-DIE04", "COP-DIE04B"].iter().map(|n| format!("cop/{n}.wav")).collect(),
-                ptype::SLAG_TART | ptype::SLAG_FATUGLY | ptype::HOSTAGE => numbered("f_fDIE", 1..=2, ".wav"),
-                _ => numbered("f_mDIE", 1..=2, ".wav"),
+                // `DieSound`: the cops' own (`S_COP_DIE_START` to `_END`), and the others'
+                // deaths recorded beside them.
+                // With the one-off last words recorded beside them (#486).
+                ptype::COP => lines(audio, kind, "DIE", vec!["COP-TAUNTDIE02.wav".into()]),
+                ptype::THUG_RED => lines(audio, kind, "DIE", vec!["GRED-PAINDIE02.wav".into()]),
+                _ => lines(audio, kind, "DIE", Vec::new()),
             };
+            if names.is_empty() {
+                names = match kind {
+                    ptype::SLAG_TART | ptype::SLAG_FATUGLY | ptype::HOSTAGE => numbered("f_fDIE", 1..=2, ".wav"),
+                    _ => numbered("f_mDIE", 1..=2, ".wav"),
+                };
+            }
             at(audio, names, 0.9);
         }
         Sfx::Footstep { player, sound } => {
@@ -70,55 +106,111 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         // Only Darci grunts with the effort: the gangs have no such recordings.
         Sfx::Jump { kind: ptype::DARCI } => at(audio, numbered("darci/effort ", 1..=3, ".WAV"), 0.6),
         Sfx::Jump { .. } => {}
-        Sfx::CopArrest => at(audio, numbered("cop/COP-ARREST0", 1..=4, ".wav"), 0.9),
-        // `SOUND_Curious`: the gangs' uncertain lines (`S_BTHUG_UNCERTAIN_START` and on).
+        Sfx::CopArrest => {
+            let names = lines(audio, ptype::COP, "ARREST", Vec::new());
+            at(audio, names, 0.9);
+        }
+        // `SOUND_Curious`: the gangs' uncertain lines (`S_BTHUG_UNCERTAIN_START` and on), and
+        // the others' questions, which nothing played.
         Sfx::Curious { kind } => {
-            let range = match kind {
+            let own = match kind {
                 ptype::THUG_RASTA => Some(210..=216),
                 ptype::THUG_GREY => Some(223..=231),
                 ptype::THUG_RED => Some(238..=245),
                 _ => None,
-            };
-            if let Some(r) = range {
-                at(audio, r.filter_map(uc_audio::sounds::name).map(|n| n.replace('\\', "/")).collect(), 0.9);
             }
+            .map_or(Vec::new(), |r| r.filter_map(uc_audio::sounds::name).map(|n| n.replace('\\', "/")).collect());
+            let names = lines(audio, kind, "INQUIRE", own);
+            at(audio, names, 0.9);
         }
-        // Darci's; Roper's (which the original gives the civilians too) aren't shipped.
+        // `ScreamFallSound` (Sound.cpp:609): Darci's, and Roper's, which the civilians share.
         Sfx::ScreamFall { kind: ptype::DARCI } => at(audio, vec!["darci/scream fall.WAV".into(), "darci/scream fall 2.WAV".into()], 1.0),
+        Sfx::ScreamFall { kind: ptype::ROPER | ptype::CIV } => at(audio, numbered("roper/roper fall", 1..=3, ".WAV"), 1.0),
         Sfx::ScreamFall { .. } => {}
+        // Catching fire: the screams nothing played (`ScreamF1`, `ScreamF2`, `ScreamM1`), and
+        // the screams recorded for the character, if any (`DARCI-SCREAM01`, `MCIV-SCREAM`...).
+        Sfx::OnFire { kind, female } => {
+            let own = if female { vec!["ScreamF1.wav".into(), "ScreamF2.wav".into()] } else { vec!["ScreamM1.wav".into()] };
+            // Not a man's scream from a woman of the crowd.
+            let names = if female && kind == ptype::CIV { own } else { lines(audio, kind, "SCREAM", own) };
+            at(audio, names, 1.0);
+        }
         Sfx::Land => at(audio, vec!["Footsteps/StreetLand1.wav".into()], 0.6),
         Sfx::Grab => at(audio, vec!["JudoChop1.wav".into()], 0.8),
-        Sfx::Arrest => at(
-            audio,
-            ["DARCI-ARREST01", "DARCI-ARREST01B", "DARCI-ARREST02", "DARCI-ARREST02B", "under arrest"]
-                .iter()
-                .map(|n| format!("darci/{n}.wav"))
-                .collect(),
-            1.0,
-        ),
+        Sfx::Arrest => {
+            let names = lines(audio, ptype::DARCI, "ARREST", vec!["darci/under arrest.WAV".into()]);
+            at(audio, names, 1.0);
+        }
         Sfx::Freeze(line) => at(audio, vec![["darci/freeze.wav", "darci/freeze tk2.wav", "darci/stop police tk2.wav"][line.min(2) as usize].to_string()], 1.0),
+        // About one knockout in three, from every take of the line.
         Sfx::Taunt { kind } => {
-            let mut names: Vec<String> = match kind {
-                ptype::DARCI => (1..=19).map(|i| format!("darci/DARCI-TAUNT{i:02}.wav")).collect(),
-                _ => match gang_voice(kind) {
-                    // Each gang has its own taunts, five or seven of them with an alternative
-                    // take of most: `pick` drops the names it can't find.
-                    Some((dir, name, last)) => (1..=last)
-                        .flat_map(|i| ["", "B"].map(|b| format!("{dir}/{name}-TAUNT{i:02}{b}.wav")))
-                        .collect(),
-                    None => return,
-                },
-            };
-            // Not every time: about one knockout in three.
-            names.extend(std::iter::repeat_n(String::new(), names.len() * 2));
-            let n = pick(audio, &names);
-            if !n.is_empty() {
-                audio.play_at(&n, 1.0, pos, l);
+            let names = lines(audio, kind, "TAUNT", Vec::new());
+            if !names.is_empty() {
+                at(audio, sometimes(names, 3), 1.0);
             }
         }
+        // The gangs' "hey you", and everyone's alerts, which nothing played.
         Sfx::Alert { kind } => {
-            let Some((voice, ..)) = gang_voice(kind) else { return };
-            at(audio, vec![format!("{voice}/hey you.wav"), format!("{voice}/hey you 2.wav")], 0.9);
+            let own = gang_dir(kind).map_or(Vec::new(), |d| vec![format!("{d}/hey you.wav"), format!("{d}/hey you 2.wav")]);
+            let names = lines(audio, kind, "ALERT", own);
+            at(audio, names, 0.9);
+        }
+        // About one item in three.
+        Sfx::PickupLine { kind } => {
+            let names = lines(audio, kind, "PICKUP", Vec::new());
+            if !names.is_empty() {
+                at(audio, sometimes(names, 3), 0.9);
+            }
+        }
+        // The citizens' recorded chatter (#486), a take for their sex, if it was recorded for
+        // it: the women's #20 stressed with a gun on them, calm otherwise.
+        Sfx::CitizenLine { line, female, stressed } => {
+            let names = citizen_takes(line, female, stressed).iter().map(|t| t.to_string()).collect();
+            at(audio, names, 1.0);
+        }
+        // A frightened citizen's line, in a made voice for their sex (`talk2\misc\fcit-annoyed01.wav`
+        // or `mcit-...`, from the made voices' folder): silent without them.
+        Sfx::AnnoyedLine { line, female } => {
+            let who = if female { "fcit" } else { "mcit" };
+            at(audio, vec![format!("{who}-annoyed{line:02}.wav")], 1.0);
+        }
+        // What the crowd says when spoken to, in a made voice for their sex
+        // (`fcit-chat1a2b3c4d.wav`, from the made voices' folder): silent without them.
+        Sfx::ChatterLine { key, female } => {
+            let who = if female { "fcit" } else { "mcit" };
+            at(audio, vec![format!("{who}-chat{key:08x}.wav")], 1.0);
+        }
+        // The characters' lines that were recorded and never played (#486), every take.
+        Sfx::Bark { kind, bark } => {
+            use uc_game::Bark;
+            let mut names = lines(audio, kind, bark_line(bark), Vec::new());
+            // A panicking man screams as often as he cries out.
+            if bark == Bark::Panic {
+                names = lines(audio, kind, "SCREAM", names);
+            }
+            // Not every time for the small things: a grunt one pull-up in three, a moan one
+            // empty clip in two, a cry one fright in two.
+            let names = match bark {
+                Bark::Grunt => sometimes(names, 3),
+                Bark::Complain | Bark::Panic => sometimes(names, 2),
+                _ => names,
+            };
+            if !names.is_empty() {
+                at(audio, names, 1.0);
+            }
+        }
+        // Over the radio, but not over a line being said.
+        Sfx::RadioSays(said) => {
+            if audio.speaking().0 {
+                return;
+            }
+            let names: Vec<String> = match said {
+                uc_game::RadioLine::Won => audio.takes("police-CONGRATS").into_iter().chain(audio.takes("police-CHEER")).collect(),
+                uc_game::RadioLine::Lost => audio.takes("police-FAIL"),
+            };
+            if let Some(n) = audio.fresh(&names).filter(|n| !n.is_empty()) {
+                audio.play(&n, 0.9);
+            }
         }
         // A mission made out of another says its lines with that one's recordings
         // (`uc_world::level::PORT_MISSIONS`); those it says differently have numbers of their own.
@@ -175,6 +267,44 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
     }
 }
 
+/// The line a [`uc_game::Bark`] is said with: `<WHO>-<LINE>NN.wav` in `talk2\misc\`.
+fn bark_line(bark: uc_game::Bark) -> &'static str {
+    use uc_game::Bark;
+    match bark {
+        Bark::Startle => "STARTLE",
+        Bark::Search => "SEARCH",
+        Bark::Gross => "GROSS",
+        Bark::Curse => "CURSE",
+        Bark::Complain => "complain",
+        Bark::Grunt => "GRUNT",
+        Bark::Fail => "FAIL",
+        Bark::Relax => "RELAX",
+        Bark::Carry => "CARRY",
+        Bark::Shout => "SHOUT",
+        Bark::Command => "COMMAND",
+        Bark::Inquire => "INQUIRE",
+        Bark::Greet => "GREET",
+        Bark::Panic => "PANIC",
+        Bark::Innocent => "INNOCENT",
+    }
+}
+
+/// The recordings of `citsez.txt`'s line `line` (`talk2\misc\`), for a woman or a man.
+fn citizen_takes(line: u8, female: bool, stressed: bool) -> &'static [&'static str] {
+    match (line, female) {
+        (1, true) => &["fcit-sez04.wav", "fcit-sez04b.wav"],
+        (1, false) => &["mcit-sez01.wav"],
+        (3, false) => &["mcit-sez02.wav"],
+        (6, true) => &["fcit-sez03.wav", "fcit-sez03b.wav"],
+        (6, false) => &["mcit-sez03.wav"],
+        (10, false) => &["mcit-sez04.wav"],
+        (13, true) => &["fcit-sez01.wav", "fcit-sez01b.wav"],
+        (20, true) if stressed => &["fcit-sez02.wav", "fcit-sez02b.wav"],
+        (20, true) => &["fcit-sez02c.wav"],
+        _ => &[],
+    }
+}
+
 /// The title screen's and the menus' loop (`MUSIC_MODE_FRONTEND`, `S_TUNE_FRONTEND`).
 pub const FRONTEND: &str = "GeneralMusic/FrontLoop.wav";
 
@@ -210,6 +340,48 @@ pub fn music(mood: Mood, world: u8, fights: u32) -> Option<String> {
 mod tests {
     /// The voices added for #298 are in the release: the cops' pain and death, and Darci's
     /// heart giving out. Skipped without an install.
+    /// Every unplayed line (#486) has takes in the install for whoever says it, and the
+    /// radio's too. Skipped without one.
+    #[test]
+    fn every_bark_has_takes() {
+        use uc_game::Bark::*;
+        use uc_world::character::person as ptype;
+        let Some(game) = uc_formats::default_install() else { return };
+        let said = [
+            (ptype::DARCI, vec![Startle, Search, Gross, Curse, Complain, Grunt, Fail, Relax, Command]),
+            (ptype::ROPER, vec![Startle, Search, Gross, Curse, Grunt, Fail, Relax, Carry, Shout, Command]),
+            (ptype::COP, vec![Greet]),
+            (ptype::CIV, vec![Panic, Innocent]),
+            (ptype::HOSTAGE, vec![Startle, Inquire]),
+        ];
+        for (kind, barks) in said {
+            for b in barks {
+                let prefix = format!("{}-{}", super::voice(kind).unwrap(), super::bark_line(b));
+                assert!(!uc_audio::takes(&game, &prefix).is_empty(), "no takes of {prefix}");
+            }
+        }
+        for line in ["police-CONGRATS", "police-CHEER", "police-FAIL"] {
+            assert!(!uc_audio::takes(&game, line).is_empty(), "no takes of {line}");
+        }
+        for last in ["COP-TAUNTDIE02.wav", "GRED-PAINDIE02.wav"] {
+            assert!(uc_formats::resolve(&game, &format!(r"talk2\misc\{last}")).is_some(), "{last} isn't in the install");
+        }
+    }
+
+    /// Every take of the citizens' recorded chatter is in the install. Skipped without one.
+    #[test]
+    fn the_citizens_takes_are_shipped() {
+        let Some(game) = uc_formats::default_install() else { return };
+        for line in [1, 3, 6, 10, 13, 20] {
+            for (female, stressed) in [(true, true), (true, false), (false, false)] {
+                for t in super::citizen_takes(line, female, stressed) {
+                    assert!(uc_formats::resolve(&game, &format!(r"talk2\misc\{t}")).is_some(), "{t} isn't in the install");
+                }
+            }
+        }
+        assert!(super::citizen_takes(3, true, false).is_empty(), "no woman says line 3");
+    }
+
     #[test]
     fn the_cops_voices_and_the_heart_are_shipped() {
         let Some(game) = uc_formats::default_install() else { return };

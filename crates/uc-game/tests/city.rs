@@ -148,3 +148,157 @@ fn civilians_have_something_to_say() {
     println!("{said:?}");
     assert!(g.messages.iter().any(|m| m.face.is_some() && chatter.contains(&m.text)), "nothing said");
 }
+
+/// The recorded chatter lines are found by their text, and only they: in `citsez.txt` they're
+/// lines 1, 3, 6, 10, 13 and 20 (#486). Skipped without an install.
+#[test]
+fn the_recorded_chatter_lines_are_known() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let bytes = std::fs::read(uc_formats::resolve(&game, r"text\citsez.txt").unwrap()).unwrap();
+    let lines = uc_game::city::message_lines(&bytes);
+    let voiced: Vec<(usize, u8)> = lines.iter().enumerate().filter_map(|(i, l)| Some((i + 1, uc_game::city::voiced_line(l)?))).collect();
+    assert_eq!(voiced, [(1, 1), (3, 3), (6, 6), (10, 10), (13, 13), (20, 20)]);
+    assert_eq!(uc_game::city::voiced_line("sorry, officer, i'm in a HURRY"), Some(1));
+}
+
+/// A chatter line's made voice is named by its letters and digits only, as
+/// `tools/voices/make_voices.py` names it (`chatter_key` there gives b1f3a066 for line 1).
+#[test]
+fn chatter_keys_match_the_voice_tool() {
+    use uc_game::city::chatter_key;
+    assert_eq!(chatter_key("Sorry Officer, I'm in a hurry."), 0xb1f3_a066);
+    assert_eq!(chatter_key("sorry officer im in a HURRY!!"), 0xb1f3_a066);
+    assert_ne!(chatter_key("Sorry, I'm from outta town."), 0xb1f3_a066);
+}
+
+/// Talking to the crowd until one says a recorded line: it comes with its cue, a woman's
+/// take or a man's as they're drawn, stressed with Darci's gun out, or the made voice's cue
+/// if nobody of their sex recorded it; and every other line comes with the made voice's.
+/// Semtex's crowd has `citsez.txt`'s chatter. Skipped without an install.
+#[test]
+fn a_recorded_line_is_heard() {
+    let Some((level, mut g)) = load("semtex") else { return };
+    let pi = g.player.unwrap();
+    let at = Vec3::new(30.0 * 256.0, 0.0, 30.0 * 256.0);
+    let at = Vec3::new(at.x, level.ground.surface(&level.map, at.x, at.z, 1.0e4), at.z);
+    let Some(&ci) = civs(&g).first() else { panic!("semtex has no crowd") };
+    run(&level, &mut g, 1.0, Controls::default());
+    for _ in 0..200 {
+        g.people[pi].fig.pos = at;
+        g.people[ci].fig.pos = at + Vec3::new(100.0, 0.0, 0.0);
+        g.people[ci].scared = None;
+        g.people[ci].annoyed = false;
+        g.messages.clear();
+        g.take_sounds();
+        run(&level, &mut g, DT, Controls { action: true, ..Default::default() });
+        let said: Vec<String> = g.messages.iter().map(|m| m.text.clone()).collect();
+        let cues: Vec<uc_game::Sfx> = g.take_sounds().into_iter().map(|(s, _)| s).collect();
+        run(&level, &mut g, DT, Controls::default());
+        let o = &g.people[ci];
+        let female = matches!(o.kind, uc_world::character::person::SLAG_TART | uc_world::character::person::SLAG_FATUGLY)
+            || (o.kind == uc_world::character::person::CIV && o.fig.model.body == 9);
+        let Some(text) = said.first() else { continue };
+        let made = uc_game::Sfx::ChatterLine { key: uc_game::city::chatter_key(text), female };
+        let Some(line) = uc_game::city::voiced_line(text) else {
+            assert!(cues.contains(&made), "said {text:?} without its made voice: {cues:?}");
+            continue;
+        };
+        let stressed = g.people[pi].weapon.is_gun();
+        println!("line {line}, female {female}, stressed {stressed}: {cues:?}");
+        if uc_game::city::recorded_by(line, female) {
+            assert!(cues.contains(&uc_game::Sfx::CitizenLine { line, female, stressed }), "said line {line} without its cue: {cues:?}");
+            return;
+        }
+        assert!(cues.contains(&made), "said line {line}, not recorded for them, without its made voice: {cues:?}");
+    }
+    panic!("no recorded line in 200 tries");
+}
+
+/// `citsez.txt`'s annoyed section is kept for the annoyed: 21 innocent lines (the last is
+/// ":)") and 20 guilty ones for anyone, 19 annoyed ones, all of them `annoyed.txt`'s too.
+/// Skipped without an install.
+#[test]
+fn the_annoyed_lines_are_kept_apart() {
+    let (normal, annoyed) = uc_game::city::chatter_sections(b"NORMAL (Innocent)\r\n1. Hi.\r\n\r\nNORMAL (annoyed)\r\n1. Go away.\r\nGUILTY\r\n1. Back off.\r\n");
+    assert_eq!((normal, annoyed), (vec!["Hi.".to_string(), "Back off.".to_string()], vec!["Go away.".to_string()]));
+    let Some((level, _)) = load("semtex") else { return };
+    let bytes = std::fs::read(uc_formats::resolve(&level.game, r"text\citsez.txt").unwrap()).unwrap();
+    let (normal, annoyed) = uc_game::city::chatter_sections(&bytes);
+    assert_eq!((normal.len(), annoyed.len()), (41, 19));
+    assert!(!normal.iter().any(|l| l.contains("SERPICO")), "an annoyed line is ordinary chatter");
+    let chatter = uc_game::city::Chatter::load(&level);
+    assert_eq!((chatter.annoyed.len(), chatter.annoyed_file), (20, 20), "the section's lines are all annoyed.txt's");
+}
+
+/// A frightened citizen answers with an annoyed line and its cue, numbered as in
+/// `annoyed.txt`. Skipped without an install.
+#[test]
+fn a_frightened_citizen_says_an_annoyed_line() {
+    let Some((level, mut g)) = load("semtex") else { return };
+    let pi = g.player.unwrap();
+    let at = Vec3::new(30.0 * 256.0, 0.0, 30.0 * 256.0);
+    let at = Vec3::new(at.x, level.ground.surface(&level.map, at.x, at.z, 1.0e4), at.z);
+    let ci = civs(&g)[0];
+    run(&level, &mut g, 1.0, Controls::default());
+    g.people[pi].fig.pos = at;
+    g.people[ci].fig.pos = at + Vec3::new(100.0, 0.0, 0.0);
+    g.people[ci].scared = None;
+    g.people[ci].annoyed = true;
+    g.messages.clear();
+    g.take_sounds();
+    run(&level, &mut g, DT, Controls { action: true, ..Default::default() });
+    let chatter = uc_game::city::Chatter::load(&level);
+    let said = g.messages.iter().find_map(|m| chatter.annoyed.iter().position(|l| *l == m.text)).expect("no annoyed line said");
+    let cues: Vec<uc_game::Sfx> = g.take_sounds().into_iter().map(|(s, _)| s).collect();
+    assert!(cues.iter().any(|c| matches!(c, uc_game::Sfx::AnnoyedLine { line, .. } if *line as usize == said + 1)), "{cues:?}");
+}
+
+/// A mission naming a chatter file that didn't ship gets the older version that did: the
+/// last digit is the version. Factory1 asks for `factory13.txt`; `factory12.txt` is there.
+#[test]
+fn an_older_chatter_file_stands_in() {
+    let have = ["text\\factory12.txt", "text\\police11.txt"];
+    let exists = |n: &str| have.iter().any(|h| h.eq_ignore_ascii_case(n));
+    assert_eq!(uc_game::city::chatter_file("text\\factory13.txt", exists).as_deref(), Some("text\\factory12.txt"));
+    assert_eq!(uc_game::city::chatter_file("Text\\police11.txt", exists).as_deref(), Some("Text\\police11.txt"));
+    assert_eq!(uc_game::city::chatter_file("text\\Gordout11.txt", exists), None);
+    assert_eq!(uc_game::city::chatter_file("", exists), None);
+    let Some(game) = uc_formats::default_install() else { return };
+    let on_disk = |n: &str| uc_formats::resolve(&game, n).is_some();
+    for (asked, got) in [("text\\factory13.txt", "text\\factory12.txt"), ("text\\Gangorder12.txt", "text\\Gangorder11.txt"), ("text\\E32.txt", "text\\E31.txt")] {
+        assert_eq!(uc_game::city::chatter_file(asked, on_disk).as_deref(), Some(got));
+    }
+    // Factory1's crowd says factory12.txt's lines, not citsez.txt's.
+    let Some((level, _)) = load("factory1") else { return };
+    let chatter = uc_game::city::Chatter::load(&level);
+    let own = uc_game::city::chatter_sections(&std::fs::read(uc_formats::resolve(&game, "text\\factory12.txt").unwrap()).unwrap()).0;
+    assert_eq!(chatter.normal, own);
+}
+
+/// Someone in the crowd spoken to stops and gestures as they answer: a man with one of the
+/// men's talking animations, a woman as in a conversation. Skipped without an install.
+#[test]
+fn a_citizen_stops_to_answer() {
+    use uc_world::character::anim;
+    let Some((level, mut g)) = load("semtex") else { return };
+    let pi = g.player.unwrap();
+    let at = Vec3::new(30.0 * 256.0, 0.0, 30.0 * 256.0);
+    let at = Vec3::new(at.x, level.ground.surface(&level.map, at.x, at.z, 1.0e4), at.z);
+    let ci = civs(&g)[0];
+    run(&level, &mut g, 1.0, Controls::default());
+    g.people[pi].fig.pos = at;
+    g.people[ci].fig.pos = at + Vec3::new(100.0, 0.0, 0.0);
+    g.people[ci].scared = None;
+    g.messages.clear();
+    run(&level, &mut g, DT, Controls { action: true, ..Default::default() });
+    assert!(!g.messages.is_empty(), "nothing said");
+    let a = g.people[ci].fig.anim();
+    assert!(matches!(a, anim::CIV_TALK1 | anim::CIV_TALK2 | anim::CIV_TALK3 | anim::TALK_TELL), "answering with animation {a}");
+    // Still gesturing a moment later, and still there a second and a half on.
+    let was = g.people[ci].fig.pos;
+    run(&level, &mut g, 0.3, Controls::default());
+    assert_eq!(g.people[ci].fig.anim(), a, "the gesture was cut short");
+    run(&level, &mut g, 1.2, Controls::default());
+    let moved = (g.people[ci].fig.pos - was).length();
+    assert!(moved < 30.0, "walked {moved} while answering");
+}

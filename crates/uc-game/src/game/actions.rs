@@ -62,6 +62,11 @@ impl Game {
                 p.cues.push(Sfx::CarDoor);
                 true
             }
+            // Out of the helicopter, if it's low enough (#465).
+            State::Flying { chopper } => {
+                self.leave_chopper(pi, chopper, level);
+                true
+            }
             // Off the bike (`set_person_dismount_bike`), once it's stopped.
             State::Bike { bike, phase: 1 } => {
                 self.dismount(pi, bike);
@@ -71,6 +76,7 @@ impl Game {
             // Someone down to arrest: the button's for that (the player's own step does it).
             State::Move if self.arrestee_near(pi) => false,
             State::Move if self.mount_near(pi) => true,
+            State::Move if self.board_chopper(pi, level) => true,
             State::Move => {
                 let pos = self.people[pi].fig.pos;
                 // Explosives in hand: put one down at her feet with its fuse burning
@@ -110,6 +116,8 @@ impl Game {
                             p.face_towards(at);
                         }
                         self.search = Some(Search { what: Searched::Prop(ob), time: 0.0 });
+                        let kind = p.kind;
+                        p.cues.push(Sfx::Bark { kind, bark: crate::Bark::Search });
                         return true;
                     }
                 }
@@ -124,6 +132,10 @@ impl Game {
                     .min_by(|a, b| flat(a.1).total_cmp(&flat(b.1)));
                 if let Some((j, _)) = body {
                     self.search = Some(Search { what: Searched::Body(j), time: 0.0 });
+                    // A dead one's not nice to go through (#486).
+                    let bark = if self.people[j].is_dead() { crate::Bark::Gross } else { crate::Bark::Search };
+                    let kind = self.people[pi].kind;
+                    self.people[pi].cues.push(Sfx::Bark { kind, bark });
                     return true;
                 }
                 // Talk to someone friendly close by, on their feet (not lying injured: those
@@ -166,7 +178,7 @@ impl Game {
     pub(crate) fn aim_at_people(&mut self) {
         let Some(pi) = self.player else { return };
         let p = &self.people[pi];
-        let aiming = p.kind == ptype::DARCI && p.weapon.is_gun() && !matches!(p.state, State::InCar { .. });
+        let aiming = p.kind == ptype::DARCI && p.weapon.is_gun() && !p.aboard();
         let target = self.target.filter(|_| aiming);
         if target != self.aiming.last {
             if let Some(t) = target {
@@ -193,6 +205,14 @@ impl Game {
         if self.people[cop].kind == ptype::DARCI {
             let line = (self.rand() & 3).min(2) as u8;
             self.people[cop].cues.push(Sfx::Freeze(line));
+        } else if self.people[cop].kind == ptype::ROPER {
+            // Roper has no "Freeze!": he shouts (#486).
+            self.people[cop].cues.push(Sfx::Bark { kind: ptype::ROPER, bark: crate::Bark::Shout });
+        }
+        // An innocent passer-by drawn on protests it (#486).
+        let q = &self.people[t];
+        if q.kind == ptype::CIV && q.ai == person::AI_CIV && !q.felon {
+            self.people[t].cues.push(Sfx::Bark { kind: ptype::CIV, bark: crate::Bark::Innocent });
         }
         let q = &self.people[t];
         if q.bent & person::BENT_ROBOT != 0 {
@@ -220,7 +240,7 @@ impl Game {
     pub(crate) fn update_target(&mut self, cycle: bool, look: Option<f32>, level: &Level) {
         let Some(pi) = self.player else { return };
         let p = &self.people[pi];
-        if !p.weapon.is_gun() || matches!(p.state, State::InCar { .. }) {
+        if !p.weapon.is_gun() || p.aboard() {
             self.target = None;
             self.aiming.creature = None;
             self.aiming.barrel = None;
@@ -279,7 +299,7 @@ impl Game {
         let own = |q: &Person| p.is_mib() && q.is_mib();
         let people = self.people.iter().enumerate()
             .filter(|&(i, q)| i != pi && !q.removed && !q.is_dead() && !q.is_down() && !q.player && !guard_of(q) && !own(q)
-                && q.fig.anim() != uc_world::character::anim::HANDS_UP_LIE && !matches!(q.state, State::InCar { .. } | State::Carried { .. }))
+                && q.fig.anim() != uc_world::character::anim::HANDS_UP_LIE && !matches!(q.state, State::InCar { .. } | State::Flying { .. } | State::Carried { .. }))
             .filter_map(|(i, q)| seen(q.fig.pos, Aim::Person(i)).map(|(a, d, off)| (a, d / keen(q), off)));
         let creatures = self.creatures.iter().enumerate()
             .filter(|(_, c)| c.targetable())
@@ -646,6 +666,8 @@ impl Game {
         if took {
             p.cues.push(Sfx::Pickup);
             if player {
+                let who = p.kind;
+                p.cues.push(Sfx::PickupLine { kind: who });
                 self.info = info_text(kind, had).map(|t| (t.to_string(), 0.0));
             }
             self.items.remove(i);

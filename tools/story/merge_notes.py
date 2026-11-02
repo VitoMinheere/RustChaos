@@ -15,11 +15,15 @@ BASE = {'police1b': 'police1', 'bball1': 'bball2', 'wstores11': 'wstores1', 'wst
         'wstores1D': 'wstores1', 'carbomb2': 'carbomb1', 'botanic1': 'botanicc', 'botanicb': 'botanicc',
         'memtex': 'Semtex', 'test3': 'Semtex', 'test3old': 'Semtex', 'snow1': 'snow2', 'snow2_test': 'snow2',
         'Acarry': 'AWOL1', 'Finale1b': 'Finale1', 'gang2': 'Gangorder2', 'Gang order1': 'Gangorder1',
-        'gang1': 'Gangorder1', 'gang3': 'Gangorder2', 'Gang order3': 'Gangorder2', 'Transmit1': 'factory1'}
+        'gang1': 'Gangorder1', 'gang3': 'Gangorder2', 'Gang order3': 'Gangorder2', 'Transmit1': 'factory1',
+        'upperclass1': 'botanicc'}
 
 
 def people(name):
-    m = json.load(open(os.path.join(ucall, name + '.json'), encoding='utf-8'))
+    # The install's file names differ in case from the missions' (`Semtex` is `semtex.ucm`),
+    # which matters off Windows.
+    f = next(f for f in os.listdir(ucall) if f.lower() == name.lower() + '.json')
+    m = json.load(open(os.path.join(ucall, f), encoding='utf-8'))
     return {e['index']: e['data'][0] & 0xffff for e in m['event_points'] if e['type'] == 'create_enemies'}
 
 
@@ -48,15 +52,15 @@ Titles marked *unofficial* are made up here from what the mission is about. A dr
 
 Not included:
 - **Test files with nothing to tell:** `cutstest`, `moo`, `smoketest`, `oldsmoke1`, `pickups`; `downtown`, `downtwn2` and `downtwn2b`, whose map is missing and whose dialogue is placeholder ("more tedium... it's a yawn a minute round here").
-- **Sixteen older-format files this project can't read yet:** `army1`, `Assassin1`, `Rooftop1`, `supply1`, `upperclass1`, `wibble`, `ECTS3C` (likely the ECTS trade-show demo), `e7`, `bang`, `downight`, `four`, `test`, `three`, `three_n`, `timetest`, `tm3`.
+- **Tests in the editor's older file versions:** `wibble` ("a gratuitous display of very long text, just to see what happens"), `timetest` ("You have four minutes to get to the cinema"), `tm3`, `bang`, `downight`, `four`, `test`, `three` and `three_n`, most of them on the `ECTS3c.iam` map; and the two oldest files of all (version 0), `ECTS3C` (likely the ECTS trade-show demo) and `e7`, with a few people and vehicles and no script.
 - **"Breakout!" (`Album1.ucm`):** a Dreamcast-only secret mission, unlocked after Estate of Emergency, and not in the PC install.
 """
 notes['unreleased_order'] = [
     'jung3', 'FreeCD1', 'jung1', 'BAALROG1', 'creds1', 'Capflag1',
-    'Takeover1', 'Getaway1', 'Transmit1', 'subdock1', 'backalley1', 'estate1', 'Crimescene', 'police5',
+    'Takeover1', 'Getaway1', 'Transmit1', 'Assassin1', 'army1', 'supply1', 'Rooftop1', 'subdock1', 'backalley1', 'estate1', 'Crimescene', 'police5',
     'southsideroads', 'train1', 'train11', 'testdrive1', 'fight3',
     'police1b', 'gang1', 'gang2', 'gang3', 'Gang order3', 'Gang order1', 'bball1', 'wstores11', 'wstoresD',
-    'wstores1D', 'carbomb2', 'botanic1', 'botanicb', 'test3old', 'test3', 'memtex', 'Acarry', 'snow1',
+    'wstores1D', 'carbomb2', 'upperclass1', 'botanic1', 'botanicb', 'test3old', 'test3', 'memtex', 'Acarry', 'snow1',
     'snow2_test', 'Finale1b']
 notes['street_header'] = """## Street talk
 

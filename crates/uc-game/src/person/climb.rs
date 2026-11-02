@@ -27,6 +27,10 @@ impl Person {
     /// moved so that the hips start where they are and end at standing height on `to`.
     /// `from_standing`: turn to face `to` first (else keep facing, e.g. on a ladder).
     pub(super) fn climb_onto(&mut self, a: usize, to: Vec3, from_standing: bool) {
+        // The effort of it (#486).
+        if a == anim::PULL_UP && self.player {
+            self.cues.push(super::Sfx::Bark { kind: self.kind, bark: super::Bark::Grunt });
+        }
         let f = &mut self.fig;
         if from_standing {
             f.angle = uc_world::character::angle_of(vec2(to.x - f.pos.x, to.z - f.pos.z));

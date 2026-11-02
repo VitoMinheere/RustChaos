@@ -4,62 +4,14 @@
 //! where they have to be and the fighting by knocking them down, as the other mission tests
 //! do. Skipped without an install.
 
-use glam::{vec3, Vec3};
-use uc_game::person::ko;
-use uc_game::{Controls, Outcome, Search, State, Weapon};
+use glam::vec3;
+use uc_game::{Controls, Outcome, Search};
 
 mod common;
 use common::{Run, DT};
 
 fn start() -> Option<Run> {
     common::start("carbomb1")
-}
-
-impl Run {
-    fn ground(&self, p: Vec3) -> Vec3 {
-        vec3(p.x, self.level.ground.surface(&self.level.map, p.x, p.z, p.y + 64.0), p.z)
-    }
-
-    /// Delivers the car point `car` made to point `to`.
-    fn deliver(&mut self, car: usize, to: usize) {
-        let at = self.ground(self.point(to));
-        let v = self.g.vehicles.iter_mut().find(|v| v.way == car).unwrap_or_else(|| panic!("no car from point {car}"));
-        v.pos = at;
-        v.speed = 0.0;
-        self.stand(at + vec3(400.0, 0.0, 0.0));
-        self.play(3.0, Controls::default());
-    }
-
-    /// Knocks down the person point `way` made and cuffs them.
-    fn arrest(&mut self, way: usize) {
-        let i = self.g.people.iter().position(|p| p.way == way).unwrap_or_else(|| panic!("nobody from point {way}: {:?}", self.seen));
-        let at = self.g.people[i].fig.pos;
-        self.stand(at + vec3(160.0, 0.0, 0.0));
-        // A frame for her arrival to register: a bodyguard far from her is out of harm's way.
-        self.play(DT, Controls::default());
-        let at = self.g.people[i].fig.pos;
-        // From behind: he fights, and a guard up front would stop it.
-        let f = self.g.people[i].fig.facing();
-        self.g.people[i].take_hit(at - vec3(f.x, 0.0, f.y) * 50.0, 0, ko::KNOCKDOWN, false, false, Weapon::None);
-        // Let her get over any blow she took first: a flinch eats the button.
-        for _ in 0..60 {
-            let me = self.g.player.unwrap();
-            if matches!(self.g.people[me].state, State::Move) {
-                break;
-            }
-            self.play(DT * 1.01, Controls::default());
-        }
-        let body = self.g.people[i].body_pos();
-        let beside = (0..8)
-            .map(|k| body + vec3((k as f32 * 0.785).sin(), 0.0, (k as f32 * 0.785).cos()) * 60.0)
-            .find(|p| (self.level.ground.surface(&self.level.map, p.x, p.z, body.y + 64.0) - body.y).abs() < 16.0)
-            .expect("somewhere to stand");
-        self.stand(beside);
-        self.play(0.2, Controls { action: true, ..Default::default() });
-        self.play(4.0, Controls::default());
-        let p = &self.g.people[i];
-        assert!(p.arrested || matches!(p.state, State::Cuffed), "{way} wasn't arrested: {:?}", p.state);
-    }
 }
 
 /// Both bomb cars delivered, both bombers cuffed, the video found and brought back.
@@ -69,16 +21,16 @@ fn auto_destruct_script_runs_to_a_win() {
     r.play(2.0, Controls::default());
 
     // The first car to the garage (point 8 watches it), which brings out the second.
-    r.deliver(6, 8);
+    r.deliver_car(6, 8);
     assert!(r.g.point_active(8), "the first car didn't count: {:?}", r.seen);
     r.play(2.0, Controls::default());
-    r.deliver(82, 92);
+    r.deliver_car(82, 92);
     assert!(r.g.point_active(92), "the second car didn't count: {:?}", r.seen);
 
     // The bombers show themselves.
     r.play(3.0, Controls::default());
-    r.arrest(147);
-    r.arrest(148);
+    r.cuff(147);
+    r.cuff(148);
     assert!(r.seen.iter().any(|m| m.contains("You got the bombers")), "{:?}", r.seen);
 
     // The video is stashed at their den; search the prop it's in and pick it up.

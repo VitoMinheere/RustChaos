@@ -299,6 +299,10 @@ pub enum Sfx {
     Curious { kind: u8 },
     /// Someone plunging to their death screams (`ScreamFallSound`, Sound.cpp:600).
     ScreamFall { kind: u8 },
+    /// Someone catching fire screams, a woman's scream or a man's. Not the original's, which
+    /// burns them in silence: its screams (`S_SCREAM_FEMALE_START`, `S_SCREAM_MALE`) were
+    /// never played.
+    OnFire { kind: u8, female: bool },
     Stab,
     BatHit,
     Shot(Weapon),
@@ -331,6 +335,26 @@ pub enum Sfx {
     /// Getting into or out of a car.
     CarDoor,
     Pickup,
+    /// The player, of `PERSON_*` type `kind`, took an item and says so. Not the original's:
+    /// it recorded the lines (`DARCI-PICKUP01`..., `talk2\misc\`) but never plays them.
+    PickupLine { kind: u8 },
+    /// A civilian says chatter line `line` of `citsez.txt` that was recorded ([`crate::city::
+    /// voiced_line`]): a woman's take or a man's, and the stressed one if the player has a
+    /// gun in hand. Not the original's: it shows the lines as text only.
+    CitizenLine { line: u8, female: bool, stressed: bool },
+    /// A frightened civilian says `annoyed.txt`'s line `line` (from 1). Not the original's:
+    /// the lines were never recorded, so the voices are made ones, a woman's or a man's,
+    /// played where the made voices are found.
+    AnnoyedLine { line: u8, female: bool },
+    /// A civilian says a chatter line that nobody recorded, or not for their sex: its
+    /// [`crate::city::chatter_key`], for a made voice, a woman's or a man's. Not the
+    /// original's, which shows the line as text only.
+    ChatterLine { key: u32, female: bool },
+    /// One of the lines recorded for a character and never played (#486), said by someone of
+    /// `PERSON_*` type `kind`: see [`Bark`]. No more than one every [`BARK_GAP`] seconds each.
+    Bark { kind: u8, bark: Bark },
+    /// The radio's lines recorded and never played (`talk2\misc\police-*`, #486).
+    RadioSays(RadioLine),
     /// Something hidden turned up in a search (`S_HIDDENITEM`).
     Found,
     /// A bomb or a car going up.
@@ -406,6 +430,8 @@ pub struct Controls {
     pub aim: Option<Vec3>,
     /// Driving, when in a car.
     pub drive: crate::vehicle::Drive,
+    /// Flying, when in a helicopter (#465).
+    pub fly: crate::chopper::Stick,
     /// Pressed: the sniper rifle's scope, in or out.
     pub scope: bool,
     /// Taunt `target` (`ANIM_WANKER`), standing.
@@ -597,6 +623,54 @@ impl Grab {
     }
 }
 
+/// The moments the characters' unplayed lines (#486) are said at. Not the original's: it
+/// recorded them (`talk2\misc\<WHO>-<LINE>NN.wav`) but has no sound ids for them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bark {
+    /// Something blew up close by (`-STARTLE`).
+    Startle,
+    /// Starting to search a prop or someone out cold (`-SEARCH`).
+    Search,
+    /// Going through a dead body's pockets (`-GROSS`).
+    Gross,
+    /// Hurt by a fall (`-CURSE`).
+    Curse,
+    /// The trigger pulled on an empty clip (`DARCI-complain`).
+    Complain,
+    /// Pulling up onto a ledge (`-GRUNT`).
+    Grunt,
+    /// The mission lost with the player still standing (`-FAIL`).
+    Fail,
+    /// Standing about a while with nothing going on (`-RELAX`).
+    Relax,
+    /// Roper picking someone up (`ROPER-CARRY`).
+    Carry,
+    /// Roper drawing on a suspect, who has no "Freeze!" of his own (`ROPER-SHOUT`).
+    Shout,
+    /// Someone starting to follow the player, who tells them to (`-COMMAND`).
+    Command,
+    /// A hostage starting to follow (`HOSTAGE-INQUIRE`).
+    Inquire,
+    /// A cop the player walks up to (`COP-GREET`).
+    Greet,
+    /// A civilian running from gunfire (`MCIV-PANIC`, `-SCREAM`).
+    Panic,
+    /// An innocent civilian drawn on (`MCIV-INNOCENT`).
+    Innocent,
+}
+
+/// The radio's unplayed lines (#486).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RadioLine {
+    /// The mission won (`police-CHEER`, `-CONGRATS`).
+    Won,
+    /// The mission lost (`police-FAIL`).
+    Lost,
+}
+
+/// Seconds between one person's [`Bark`]s.
+pub const BARK_GAP: f32 = 8.0;
+
 /// A gang member taunting the player (`PCOM_AI_STATE_TAUNT`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Taunt {
@@ -632,6 +706,8 @@ pub enum State {
     Fence { phase: u8, at: Vec2, over: Vec2, base: f32, top: f32, from: Vec3, cross: bool },
     /// Driving (or sitting in) vehicle `vehicle`: not drawn, moved with the car.
     InCar { vehicle: usize },
+    /// Flying helicopter `chopper` (#465): not drawn, moved with it.
+    Flying { chopper: usize },
     /// Getting into vehicle `vehicle` (`SUB_STATE_ENTERING_VEHICLE`): lined up at its door,
     /// in once the animation's done.
     Enter { vehicle: usize },
@@ -1068,6 +1144,11 @@ pub struct Person {
     pub scared: Option<Scare>,
     /// Somebody has given them a fright (`pcom_ai_memory`): they don't forget it, and say so.
     pub annoyed: bool,
+    /// Seconds left on the radar after the chopper's searchlight picked them out (#466).
+    pub lit: f32,
+    /// On fire (`BurnIndex`: a `PYRO_IMMOLATE` on them, pyro.cpp:749), and the seconds since
+    /// they died of it, the flames dying down on the body.
+    pub alight: Option<f32>,
     /// Who last hurt them (a blow, a shot, a blast they're blamed for, a car they drove), to
     /// know whose doing a death was.
     pub hurt_by: Option<usize>,
@@ -1135,7 +1216,7 @@ impl Person {
             arrested: false, removed: false, skill: 0, mv: 1, weapon: Weapon::None, knife: false, bat: false, drop: None, ai_fired: 0, searched: false, guns: 0, ammo: [0; 4], spent: [0; 4], knocked_out: false, out_cold: false, down_timer: 0.0,
             block_timer: 0.0, zip_cooldown: 0.0, dodge: None, taunt: None, wander: (None, 0.0), flash: 0.0, other: 0, follow: 0,
             invulnerable: false, foe: None, truce: false, colour: 0, group: 0, zone: 0, goal: None, via: None, leap: None, steer: None, slide_odd: 0, slid_odd: None, patrol: None, blocked: 0.0, walk_check: (Vec3::ZERO, 0.0), alert: None, victim: None, home: None, landed: 0.0, landed_for: 0.0, bully_clock: 0.0, fidget: None, struggle: 0.0, idle_for: 0.0, breathed: false, screamed: false, fly_kick: None, gun_fight: false, topple: None, bonus_rolled: false, run_shot: 0.0, fetch: None, splattered: false, sized_up: false, felon: false, slot: None, ganged: false, fidget_roll: (way as u32).wrapping_mul(2654435761) ^ kind as u32, shot_wait: 1.0, aggro: false, attack_timer: 1.0, cues: Vec::new(), step_phase: 0.0, footfall: None, mucky: 0,
-            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
+            peeing: false, stamina: 128.0, max_stamina: 128.0, winded: false, sprinting: false, explosives: 0, grenades: 0, hook: false, has_key: false, can: None, can_near: false, inventory: 0.0, protected: false, guilty: false, fake: false, unseen: 0.0, scared: None, annoyed: false, lit: 0.0, alight: None, hurt_by: None, blown_up: false, crackle: 0.0, heard: None,
         }
     }
 
@@ -1507,6 +1588,18 @@ impl Person {
         (self.knocked_out && !self.arrested && !self.player).then(|| (self.down_timer / 3.0).min(1.0))
     }
 
+    /// One of the women of the crowd: the two `SLAG` types, and a civilian drawn as one (mesh 9,
+    /// `set_anim_idle`, Person.cpp:8817).
+    pub fn is_woman(&self) -> bool {
+        use uc_world::character::person as ptype;
+        matches!(self.kind, ptype::SLAG_TART | ptype::SLAG_FATUGLY) || (self.kind == ptype::CIV && self.fig.model.body == 9)
+    }
+
+    /// Inside something: driving a car or flying a helicopter, out of sight and out of reach.
+    pub fn aboard(&self) -> bool {
+        matches!(self.state, State::InCar { .. } | State::Flying { .. })
+    }
+
     /// Out of the fight for good: knocked out, arrested or gone.
     pub fn is_dead(&self) -> bool {
         self.knocked_out || self.arrested || self.removed || matches!(self.state, State::Cuffed)
@@ -1552,7 +1645,7 @@ impl Person {
             dummy: self.is_dummy(),
             attacking: matches!(self.state, State::Attack { .. }),
             blocking: matches!(self.state, State::Block { .. }),
-            in_car: matches!(self.state, State::InCar { .. }),
+            in_car: self.aboard(),
             injured: matches!(self.state, State::Injured),
             crouching: self.crouching(),
             doubled: self.doubled(),
@@ -1781,7 +1874,7 @@ impl Person {
             }
             State::Down => self.step_down(ground, map, dt),
             State::Cuffed => self.step_cuffed(dt),
-            State::Held { .. } | State::InCar { .. } => {}
+            State::Held { .. } | State::InCar { .. } | State::Flying { .. } => {}
             State::Fall { vy, vel } => self.step_fall(vy, vel, me, c, snaps, ground, map, dt, events),
             State::Vault { from, to } => {
                 self.fig.pos = from.lerp(to, self.fig.progress());

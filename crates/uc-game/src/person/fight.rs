@@ -421,6 +421,7 @@ impl Person {
         let Some(s) = self.weapon.slot().filter(|_| self.player) else { return true };
         if self.ammo[s] == 0 {
             self.cues.push(Sfx::Click);
+            self.cues.push(Sfx::Bark { kind: self.kind, bark: super::Bark::Complain });
             let was = self.weapon;
             self.weapon = self.best_with_ammo().unwrap_or(Weapon::None);
             if self.weapon != was {
@@ -465,7 +466,7 @@ impl Person {
     pub fn take_hit(&mut self, from: Vec3, damage: i32, ko_flag: u8, high: bool, low: bool, weapon: Weapon) {
         // The injured lie as the dead do (`STATE_DEAD`): nothing more happens to them.
         if self.removed || self.invulnerable || self.is_down()
-            || matches!(self.state, State::InCar { .. } | State::Injured | State::Carried { .. })
+            || matches!(self.state, State::InCar { .. } | State::Flying { .. } | State::Injured | State::Carried { .. })
             // Nobody hits someone in the middle of a foot sweep or a jump kick (combat.cpp:2929).
             || matches!(self.state, State::Attack { mv: Move::LegSweep | Move::KickJump, .. })
         {

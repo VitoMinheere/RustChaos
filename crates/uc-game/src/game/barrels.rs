@@ -27,7 +27,7 @@ impl Game {
         while self.clocks.barrel >= barrel::TICK {
             self.clocks.barrel -= barrel::TICK;
             let now: Vec<Vec3> = self.people.iter()
-                .map(|p| if p.removed || matches!(p.state, State::InCar { .. }) { Vec3::NAN } else { p.fig.pos })
+                .map(|p| if p.removed || p.aboard() { Vec3::NAN } else { p.fig.pos })
                 .collect();
             let mut seed = self.rngs.barrel;
             for (i, &at) in now.iter().enumerate() {

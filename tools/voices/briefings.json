@@ -59,6 +59,14 @@
   "voice": "radio",
   "text": "Destroy the main transmitter at the top of the television building. Roper has the sabotage equipment."
  },
+ "army1.brief.wav": {
+  "voice": "radio",
+  "text": "Sabotage the radar tower on the army base, Stern. The workmen say the place is nuke proof; the guards say you're not getting in. Switches work the lifts and the gate."
+ },
+ "upperclass1.brief.wav": {
+  "voice": "radio",
+  "text": "Union Gardens has been closed for weeks, and the locals say something dodgy is going on behind those walls. Something smells funny round there, Stern. Find a crowbar and sabotage the gang's supplies."
+ },
  "estate1.brief.wav": {
   "voice": "radio",
   "text": "This building contains the main computer. To get in, you will need to disarm the security measures. They can be disarmed by throwing the override switch in the pool house."
@@ -74,5 +82,9 @@
  "Finale1b.brief.wav": {
   "voice": "roper",
   "text": "D'arci, now is the final reckoning. Here, we will probably die, but what we will avert may very well save this city and even this earth. Bane has retreated his men to guard him at the top of Clandon Towers..."
+ },
+ "carbomb2.brief.wav": {
+  "voice": "radio",
+  "text": "Jeez D'arci, TERRORISTS have planted a CAR BOMB in Union City! The gangs have covered the area, and we can't get our bomb disposal teams in there. Get the bomb cars back to the engineers, then go after the bombers."
  }
 }

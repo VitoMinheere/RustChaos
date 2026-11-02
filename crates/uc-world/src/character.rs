@@ -316,6 +316,11 @@ pub mod anim {
     pub const HEADBUTT_VICTIM: usize = 424;
     pub const HANDS_UP_LOOP: usize = 426;
     pub const HANDS_UP_LIE: usize = 436;
+    /// The port's own, after the original's last: the men's three talking animations
+    /// (`CIV_M_ANIM_TALK1` to `3`), which nothing in the original plays. See [`super::TALK_ANIMS`].
+    pub const CIV_TALK1: usize = 437;
+    pub const CIV_TALK2: usize = 438;
+    pub const CIV_TALK3: usize = 439;
 }
 
 /// Roper's file's carrying animations (`NROPER_*`, fallen/Source/Anim.cpp:137) and the
@@ -356,6 +361,16 @@ pub const EXTRA_ANIMS: [(&str, usize, usize); 12] = [
     ("roper2.all", 269, anim::STRANGLE_VICTIM),
     ("roper2.all", 270, anim::HEADBUTT),
     ("roper2.all", 271, anim::HEADBUTT_VICTIM),
+];
+
+/// Not the original's: the men's talking animations (`newciv.all`'s 19 to 21,
+/// `CIV_M_ANIM_TALK1` to `3` in the civilians' set from `CIV_M_START`), which the original
+/// loads but never plays, taken into slots of everyone's set after its last, for a citizen
+/// answering Darci: (file, from, to).
+pub const TALK_ANIMS: [(&str, usize, usize); 3] = [
+    ("newciv.all", 19, anim::CIV_TALK1),
+    ("newciv.all", 20, anim::CIV_TALK2),
+    ("newciv.all", 21, anim::CIV_TALK3),
 ];
 
 /// One game tick is NORMAL_TICK_TOCK = 1000/15 ms; the tween advances TweenStep*2 per tick.

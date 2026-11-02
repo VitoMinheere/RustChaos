@@ -4,8 +4,12 @@
 //!   uc mission import <file.json> -o <out.ucm>
 //!   uc mission check <file.ucm|file.json>
 //!   uc textures missing [--game DIR] [--overrides DIR]
+//!   uc textures floors [--game DIR] [-o FILE]
+//!   uc textures walls [--game DIR] [-o FILE]
+//!   uc unused [--game DIR]
 
 mod textures;
+mod unused;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -24,7 +28,21 @@ uc textures missing [--game DIR] [--overrides DIR]
     For the missions with no clump of their own: the world pages drawn with another
     world's pictures, by world, as the world<N>/page_NNNN.png overrides that would fix
     them ([x] where --overrides already has one). The install is --game, else
-    $UC_GAME_DIR, else the GOG location.";
+    $UC_GAME_DIR, else the GOG location.
+uc textures floors [--game DIR] [-o FILE]
+    For the maps only clump-less missions are on: the world pages on their visible floor
+    and roofs that the released maps don't have there, and the released page to draw
+    instead, as the Rust table crates/uc-world/src/refloor.rs (stdout unless -o).
+uc textures walls [--game DIR] [-o FILE]
+    The same for their walls and fences: crates/uc-world/src/rewall.rs.
+uc unused [--game DIR]
+    What's in the install that nothing uses: mission files urban.sty doesn't list (with
+    their version, and whether they parse), mission recordings in talk2\\ that no message
+    or conversation plays, loose textures and meshes that neither fallen.exe nor a mesh it
+    loads refers to, prims the released game never draws, and sounds in data\\sfx\\ and
+    talk2\\misc\\ that the sound table in fallen.exe doesn't name, text files nothing names,
+    mission messages that can never be shown, .all files the PC game never loads, and the
+    people's animations nothing plays.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -87,6 +105,21 @@ fn run(args: &[String]) -> Result<(), String> {
         ["textures", "missing"] => {
             let game = game.or_else(uc_formats::default_install).ok_or("no install found: pass --game DIR")?;
             textures::missing(&game, overrides.as_deref())
+        }
+        ["unused"] => {
+            let game = game.or_else(uc_formats::default_install).ok_or("no install found: pass --game DIR")?;
+            unused::run(&game)
+        }
+        ["textures", which @ ("floors" | "walls")] => {
+            let game = game.or_else(uc_formats::default_install).ok_or("no install found: pass --game DIR")?;
+            let text = if *which == "floors" { textures::floors(&game)? } else { textures::walls(&game)? };
+            match out {
+                Some(p) => write(&p, text.as_bytes()),
+                None => {
+                    print!("{text}");
+                    Ok(())
+                }
+            }
         }
         _ => Err(USAGE.into()),
     }

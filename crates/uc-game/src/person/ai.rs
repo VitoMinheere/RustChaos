@@ -122,7 +122,7 @@ impl Person {
             // Civilians on foot run from the place (`PCOM_set_person_ai_flee_place`); the
             // game leaves out those on a zebra crossing.
             Noise::Van => {
-                if self.ai == AI_CIV && !matches!(self.state, State::InCar { .. }) {
+                if self.ai == AI_CIV && !self.aboard() {
                     self.scare(None, at);
                 }
             }
@@ -637,12 +637,13 @@ impl Person {
                 c.wish = (s - here).normalize_or_zero();
                 self.wander = (Some(s), left);
             }
+            // Pausing: the city's people too, when one stops to answer Darci ([`Person::answer`]).
+            None if left > 0.0 => self.wander = (None, left),
             // The city's extra people go straight on to the next place, which the game
             // picks from the pavements ([`Person::wander_to`]).
             _ if self.fake => self.wander = (None, 0.0),
             // There (or stuck): pause for a few seconds.
             Some(_) => self.wander = (None, 1.0 + (rand() % 400) as f32 / 100.0),
-            None if left > 0.0 => self.wander = (None, left),
             None => {
                 let angle = (rand() % 628) as f32 / 100.0;
                 let dist = 2.0 * 256.0 + (rand() % 1024) as f32;
@@ -683,6 +684,10 @@ impl Person {
             return;
         }
         self.annoyed = true;
+        // A man in the crowd cries out as he runs (#486); the women weren't recorded.
+        if self.scared.is_none() && self.kind == uc_world::character::person::CIV && self.fig.model.body != 9 {
+            self.cues.push(Sfx::Bark { kind: self.kind, bark: super::Bark::Panic });
+        }
         match self.scared.as_mut() {
             Some(s) => (s.by, s.at) = (by, at),
             None => self.scared = Some(Scare { by, at, time: 0.0, goal: None }),

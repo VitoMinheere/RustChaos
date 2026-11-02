@@ -87,7 +87,7 @@ impl Game {
                 creature::Act::Sound { id, at } => self.sounds.push((Sfx::ById { id, replace: false }, at)),
                 creature::Act::Float { person } => {
                     let p = &mut self.people[person];
-                    if !p.removed && !matches!(p.state, State::InCar { .. }) {
+                    if !p.removed && !p.aboard() {
                         let floor = level.ground.surface(&level.map, p.fig.pos.x, p.fig.pos.z, p.fig.pos.y + 32.0);
                         p.state = State::Float { floor };
                     }
@@ -115,7 +115,7 @@ impl Game {
     /// reeling (`set_person_recoil`).
     pub(crate) fn hurt_directly(&mut self, i: usize, damage: i32, recoil: bool, from: Vec3) {
         let p = &mut self.people[i];
-        if p.removed || p.knocked_out || p.invulnerable || matches!(p.state, State::InCar { .. }) {
+        if p.removed || p.knocked_out || p.invulnerable || p.aboard() {
             return;
         }
         p.health -= damage;

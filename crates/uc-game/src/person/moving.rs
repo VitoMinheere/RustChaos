@@ -192,7 +192,7 @@ impl Person {
         use uc_world::character::person as ptype;
         if matches!(self.weapon, Weapon::Shotgun | Weapon::Ak47 | Weapon::Sniper) && self.kind != ptype::ROPER {
             anim::SHOTGUN_IDLE
-        } else if matches!(self.kind, ptype::SLAG_TART | ptype::SLAG_FATUGLY) || (self.kind == ptype::CIV && self.fig.model.body == 9) {
+        } else if self.is_woman() {
             anim::STAND_HIP
         } else {
             anim::BREATHE
@@ -266,7 +266,8 @@ impl Person {
     /// loaded, so they just breathe.
     pub(super) fn stand_about(&mut self, dt: f32) {
         use uc_world::character::person as ptype;
-        let fidgeting = matches!(self.fig.anim(), anim::IDLE_SCRATCH1 | anim::IDLE_SCRATCH2 | anim::TALK_ASK | anim::TALK_TELL | anim::TALK_LISTEN | anim::UNFIGHT);
+        let fidgeting = matches!(self.fig.anim(), anim::IDLE_SCRATCH1 | anim::IDLE_SCRATCH2 | anim::TALK_ASK | anim::TALK_TELL | anim::TALK_LISTEN | anim::UNFIGHT
+            | anim::CIV_TALK1 | anim::CIV_TALK2 | anim::CIV_TALK3);
         if fidgeting && !self.fig.finished() {
             return;
         }
@@ -315,6 +316,22 @@ impl Person {
             (true, true) => anim::TALK_ASK,
             (true, false) => anim::TALK_TELL,
         };
+        self.fig.restart(a, Play::Once);
+    }
+
+    /// One of the city's people answering Darci: they stop where they are for a few seconds
+    /// and gesture as they say it, a man with one of the three talking animations nothing in
+    /// the original plays ([`uc_world::character::TALK_ANIMS`], chosen by `roll`), a woman, or
+    /// anyone without them, as in a conversation (`ANIM_TALK_TELL`). Not the original's: its
+    /// passers-by answer without stopping.
+    pub(crate) fn answer(&mut self, female: bool, roll: u32) {
+        if !matches!(self.state, State::Move) || self.is_down() {
+            return;
+        }
+        // Stood still while the line's up (it shows for four seconds).
+        self.wander = (None, 3.0);
+        let man = [anim::CIV_TALK1, anim::CIV_TALK2, anim::CIV_TALK3][(roll % 3) as usize];
+        let a = if !female && self.fig.first_keyframe(man).is_some() { man } else { anim::TALK_TELL };
         self.fig.restart(a, Play::Once);
     }
 
@@ -581,6 +598,10 @@ impl Person {
                 self.fig.lift = 0.0;
                 let ko = if damage >= self.health { ko::KNOCKDOWN } else { 0 };
                 self.take_hit(self.fig.pos + vec3(0.0, 0.0, 1.0), damage, ko, false, true, Weapon::None);
+                // It hurt, and she says so (#486).
+                if self.player && !self.knocked_out {
+                    self.cues.push(Sfx::Bark { kind: self.kind, bark: super::Bark::Curse });
+                }
                 // A fall that kills (`PERSON_DEATH_TYPE_LAND`, Person.cpp:2559): face down
                 // in a splash of blood from a plunge (`ANIM_PLUNGE_FRONT_SLAM`,
                 // `PYRO_SPLATTERY`), else `ANIM_BIGLAND_DIE`.
@@ -625,6 +646,7 @@ impl Person {
                 if s.injured && d < 128.0 {
                     self.fig.restart(anim::PICKUP_CARRY, Play::Once);
                     self.state = State::Carry { victim: j, phase: 0 };
+                    self.cues.push(Sfx::Bark { kind: self.kind, bark: super::Bark::Carry });
                     events.push(Event::Carry { carrier: me, victim: j });
                     return;
                 }

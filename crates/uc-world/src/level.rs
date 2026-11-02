@@ -2,9 +2,9 @@
 
 use uc_formats::units::radians;
 use crate::crinkle::ReliefQuad;
-use crate::geometry::{Builder, Layer, WorldGeometry, UNIT, UNTEXTURED};
+use crate::geometry::{Builder, Layer, SelfLit, WorldGeometry, UNIT, UNTEXTURED};
 use glam::{vec3, Vec3};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use crate::character::{ep_angle, People};
 use crate::ground::Ground;
@@ -70,10 +70,20 @@ pub struct Level {
     /// borrows them from another world by number ([`borrowed_clump`]). Empty when the
     /// mission has a clump of its own.
     pub stand_in_pages: BTreeSet<u32>,
+    /// For a mission with no clump of its own, the mission each page's picture was taken from
+    /// ([`borrowed_clump`]): an override of that mission's page is this one's too, so the
+    /// upscaled clumps cover it. Empty when the mission has a clump of its own.
+    pub page_donors: BTreeMap<u32, String>,
+    /// Its walls' pages that are another's on a map older than the texture sets that shipped
+    /// ([`crate::rewall::REWALL`]): (as the map has it, as it's drawn).
+    pub wall_pages: &'static [(u16, u16)],
     overrides: Option<PathBuf>,
     /// The prim texture pages that see through (`textype.txt`'s T, M, A or D, or the page
     /// after an I), counted from [`PRIM_PAGES`].
     see_through_prims: BTreeSet<u32>,
+    /// The pages that light themselves, from the world's, the shared and the prims'
+    /// `textype.txt` (`TEXTURE_load_needed`, texture.cpp:709-712).
+    pub self_lit: SelfLit,
 }
 
 /// Where the prims' texture pages start (`POLY_load_texture_flags(..., 11 * 64)`,
@@ -137,7 +147,7 @@ fn fence_page(map_file: &str) -> Option<u32> {
 /// and `training1.iam` are world 2): the city of RTA and the other downtown missions. It
 /// also stands in for world 6 (`subdock1.iam`'s), which the install has nothing of at all,
 /// not even the style table its walls are drawn from.
-const STAND_IN_WORLD: i32 = 3;
+pub const STAND_IN_WORLD: i32 = 3;
 
 /// Maps whose water is a page of their own world rather than [`WATER_PAGE`], and that page.
 /// `subdock1.iam`'s harbour is world 6's page 242, which no install has: it becomes the sea
@@ -266,8 +276,9 @@ fn open_the_bank_sector(mission_name: &str, map_file: &str, map: &mut Map) {
 /// install no longer has. The pages come from the clumps of other missions: first those on
 /// the same map, then those in the same world; the shared pages from any. A world no
 /// clump covers borrows `STAND_IN_WORLD`'s pages, which fit its style table only roughly.
-/// Also returns the world pages it had to take from another world (`Level::stand_in_pages`).
-fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> (Clump, BTreeSet<u32>) {
+/// Also returns the world pages it had to take from another world (`Level::stand_in_pages`),
+/// and the mission each page was taken from (`Level::page_donors`).
+fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> (Clump, BTreeSet<u32>, BTreeMap<u32, String>) {
     // (rank, mission): 0 same map, 1 same world, 2 the stand-in world, 3 any other.
     let mut donors: Vec<(u8, String)> = Vec::new();
     let mut sets: HashMap<String, Option<i32>> = HashMap::new();
@@ -294,6 +305,12 @@ fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> (Clu
     let mut clump = Clump::empty();
     let mut others = Vec::new();
     let mut own = BTreeSet::new();
+    let mut from: BTreeMap<u32, String> = BTreeMap::new();
+    let note = |clump: &Clump, from: &mut BTreeMap<u32, String>, name: &str| {
+        for p in clump.ids().map(entry_page) {
+            from.entry(p).or_insert_with(|| name.to_string());
+        }
+    };
     for (rank, name) in donors {
         if let Some(c) = read(game, &format!("clumps\\{name}.txc")).ok().and_then(|b| Clump::parse(b).ok()) {
             if rank < 2 {
@@ -301,8 +318,9 @@ fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> (Clu
             }
             // A page's crinkle is taken along with the page.
             clump.fill_from(&c, |id| rank < 2 || (rank == 2 && !own_world) || !world_page(entry_page(id)));
+            note(&clump, &mut from, &name);
             if rank >= 2 {
-                others.push(c);
+                others.push((c, name));
             }
         }
     }
@@ -310,21 +328,45 @@ fn borrowed_clump(game: &Path, map_file: &str, texture_set: Option<i32>) -> (Clu
     // (Officer Training's world 2 lacks nine of them): rather than leave holes they take the
     // stand-in world's page of the same number, then any other's. Not the right picture, but
     // something of the right sort in the right place.
-    for c in &others {
+    for (c, name) in &others {
         clump.fill_from(c, |_| true);
+        note(&clump, &mut from, name);
     }
     let stand_ins = clump.ids().map(entry_page).filter(|&p| world_page(p) && !own.contains(&p)).collect();
-    (clump, stand_ins)
+    (clump, stand_ins, from)
+}
+
+/// The maps only missions with no clump of their own are on are older than the texture sets
+/// that shipped: page numbers had moved on, and army1's yards are paved with what's now a
+/// door, Rooftop1's roofs with Bane's rune circles. Their floor and roof squares on pages no
+/// released map has there take the released maps' page most like them instead
+/// ([`crate::refloor::REFLOOR`], made by `uc textures floors`), turned as they were.
+fn refloor(map_file: &str, map: &mut Map) {
+    let Some((_, pages)) = crate::refloor::REFLOOR.iter().find(|(m, _)| m.eq_ignore_ascii_case(map_file)) else { return };
+    for sq in map.squares.iter_mut() {
+        if let Some(&(_, to)) = pages.iter().find(|&&(from, _)| from == sq.page()) {
+            sq.texture = (sq.texture & !0x3FF) | to;
+        }
+    }
 }
 
 /// The override for `page`, if there is one: the most particular of
 /// `<dir>/<mission>/page_NNNN.png`, `<dir>/world<N>/page_NNNN.png` (the map's own texture
 /// set, so a world that borrows another's pictures can be given its own) and
-/// `<dir>/page_NNNN.png`.
+/// `<dir>/page_NNNN.png`. The mission's folder is matched whatever its case: the folders are
+/// named as the clumps are (`awol1`), not always as their missions (`AWOL1`).
 pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -> Option<PathBuf> {
     let file = format!("page_{page:04}.png");
     let world = world.map(|w| dir.join(format!("world{w}")).join(&file));
-    [Some(dir.join(mission).join(&file)), world, Some(dir.join(&file))].into_iter().flatten().find(|p| p.is_file())
+    let own = dir.join(mission);
+    let own = if own.is_dir() || mission.is_empty() {
+        own
+    } else {
+        std::fs::read_dir(dir).ok().into_iter().flatten().flatten()
+            .find(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(mission))
+            .map_or(own, |e| e.path())
+    };
+    [Some(own.join(&file)), world, Some(dir.join(&file))].into_iter().flatten().find(|p| p.is_file())
 }
 
 /// What the unfinished missions never got (not in the original): an ending, and beacons for
@@ -421,6 +463,20 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
 /// (38, 92) to drop off into the alley beyond; the draft's hasn't. Here she starts in that
 /// alley, level with where she was, across the yard's east wall.
 ///
+/// carbomb2, a copy of Car Bomb (`carbomb1`) with points deleted, ends with one of two
+/// debriefs from the Sarge (points 172 and 182), but both wait for points that are gone, as
+/// does the Sarge himself (174): the video tape stashed at the Wildcats' hideout once the
+/// bombers are in (181), picking it up (187), and not having it when despatch's patience runs
+/// out (188). Here they're put back as Car Bomb has them, with the two lines, the half
+/// minute's countdown and the Sarge's beacon that went with them (the beacon up once the tape
+/// is in hand as well, not only once despatch calls) (the lines' recordings numbered from 901, as the
+/// other added lines', `carbomb1.ucm28.wav` and `29` being Car Bomb's).
+///
+/// army1, Radar Tower, is won by sabotaging the system at the top of the radar tower (point
+/// 67), out past the army base's gate, which a switch opens (42), and nothing says where
+/// either is. Here the switch has a beacon until it's worked, and the tower's console one from
+/// then on.
+///
 /// `mission_name` is the mission's file name: gang3's own name is "Gang order3", whose
 /// mission it was made from.
 pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
@@ -459,6 +515,10 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         }
         return;
     }
+    if name == "carbomb2" {
+        carbomb2_debrief(mission);
+        return;
+    }
     if name == "estate1" {
         if let Some(e) = mission.event_points.iter_mut().find(|e| e.used != 0 && e.kind == waypoint::CREATE_PLAYER && (e.x, e.z) == (4706, 22406)) {
             (e.x, e.z) = (7552, 22400);
@@ -480,7 +540,7 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         "gang2" => has(waypoint::END_GAME_WIN),
         _ => beacons > 0,
     };
-    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5" | "getaway1" | "snow1" | "jung3" | "train11" | "gang1" | "gang2") || done {
+    if !matches!(name.as_str(), "takeover1" | "subdock1" | "gang3" | "crimescene" | "police5" | "getaway1" | "snow1" | "jung3" | "train11" | "gang1" | "gang2" | "army1") || done {
         return;
     }
     let point = |m: &Mission, i: usize| m.event_points.iter().find(|e| e.index == i && e.used != 0).cloned();
@@ -491,7 +551,16 @@ pub fn finish_unfinished(mission_name: &str, mission: &mut Mission) {
         data: [0; 10], radius: 0, next: 0, prev: 0, colour: 0, group: 0, ..e.clone()
     };
     let beacon = |e: &EventPoint, track: usize| EventPoint { kind: waypoint::NAV_BEACON, data: [0, track as i32, 0, 0, 0, 0, 0, 0, 0, 0], ..at(e) };
-    if name == "takeover1" {
+    if name == "army1" {
+        // The gate's switch (42, "Gate open", which opens the gate 3) until it's worked, and
+        // the console at the top of the radar tower (67, "System Sabataged", which wins it)
+        // from then on: up its two ladders, from the ground to its walkway and on up.
+        let (Some(gate), Some(console)) = (point(mission, 42), point(mission, 67)) else { return };
+        let b = add_point(mission, beacon(&gate, 0), Some("Gate switch"));
+        let kill = EventPoint { kind: waypoint::KILL_WAYPOINT, trigger: trigger::DEPENDENCY, ep_ref: gate.index as u16, ..at(&gate) };
+        add_point(mission, EventPoint { data: [b as i32, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..kill }, None);
+        add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: gate.index as u16, ..beacon(&console, 0) }, Some("Radar tower"));
+    } else if name == "takeover1" {
         let (Some(two), Some(one)) = (point(mission, 64), point(mission, 65)) else { return };
         if !mission.event_points.iter().any(|e| e.used != 0 && e.kind == waypoint::END_GAME_WIN) {
             add_point(mission, EventPoint { kind: waypoint::END_GAME_WIN, trigger: trigger::BOOLEAN_AND, ep_ref: 64, ep_ref_bool: 65, ..at(&two) }, None);
@@ -851,6 +920,63 @@ fn reword(mission: &mut Mission, index: usize, text: &str, speech: i32) {
 
 /// Adds `ep` to the mission as its last point, with its message if it has one, and returns
 /// its index. Messages go to the points that have them in index order (`Mission::point_texts`).
+/// carbomb2's lost points, as Car Bomb (`carbomb1`) has them ([`finish_unfinished`]). The
+/// ones others refer to go back at their numbers, the rest after the last.
+fn carbomb2_debrief(mission: &mut Mission) {
+    use uc_formats::ucm::{on_trigger, point_flags::{INVERSE, REFERENCED}, trigger, waypoint, EventPoint};
+    let point = |m: &Mission, i: usize| m.event_points.iter().find(|e| e.index == i && e.used != 0).cloned();
+    // Not twice, and only the mission this is for.
+    let (Some(got_them), Some(search)) = (point(mission, 173), point(mission, 180)) else { return };
+    if [181, 187, 188, 191].iter().any(|&i| point(mission, i).is_some()) {
+        return;
+    }
+    let base = EventPoint {
+        kind: waypoint::SIMPLE, trigger: trigger::NONE, on_trigger: on_trigger::ACTIVE, flags: REFERENCED, ep_ref: 0, ep_ref_bool: 0,
+        after_timer: 0, data: [0; 10], radius: 0, next: 0, prev: 0, colour: 0, group: 0, ..got_them.clone()
+    };
+    let put = |m: &mut Mission, index: usize, ep: EventPoint| m.event_points.push(EventPoint { index, ..ep });
+    let at = |x: i32, y: i32, z: i32| EventPoint { x, y, z, ..base.clone() };
+    // The tape (`IT_VIDEO`, 19), stashed in a prop at the hideout once the bombers are in;
+    // the Sarge turns up with it.
+    put(mission, 181, EventPoint { kind: waypoint::CREATE_ITEM, trigger: trigger::DEPENDENCY, ep_ref: got_them.index as u16,
+                                   data: [19, 1, 2, 0, 0, 0, 0, 0, 0, 0], ..at(27311, 64, 3642) });
+    // Picked up, and said so (despatch's line is said by the cop by the bomb squad, 19).
+    put(mission, 187, EventPoint { trigger: trigger::ITEM_HELD, ep_ref: 181, ..at(27460, 0, 3786) });
+    add_point(mission, EventPoint { kind: waypoint::MESSAGE, trigger: trigger::DEPENDENCY, ep_ref: 187, data: [1, 4, 0, 0, 0, 0, 0, 0, 0, 901], ..at(27460, 0, 3786) },
+              Some("Whooa, what's this? \"UCNN video\"?"));
+    // Half a minute after being sent to search the hideout, despatch wants her back.
+    let wait = add_point(mission, EventPoint { trigger: trigger::COUNTDOWN, ep_ref: search.index as u16, radius: 3000, ..at(27459, 0, 4014) }, None);
+    // At its number: the hideout's area (190) is killed once it's said (149).
+    let mut called = EventPoint { kind: waypoint::MESSAGE, trigger: trigger::DEPENDENCY, ep_ref: wait as u16, data: [1, 7, 19, 0, 0, 0, 0, 0, 0, 902], ..at(25279, 0, 5564) };
+    if point(mission, 19).is_none() {
+        called.data[2] = 0;
+    }
+    put_with_text(mission, 191, called, "Stern, what the hell you up to? We ain't got all day to wait for you to get back here - ain't ya found anythin' yet?");
+    let called = 191;
+    // Without the tape by then: the other debrief.
+    let without = add_point(mission, EventPoint { trigger: trigger::ITEM_HELD, ep_ref: 181, flags: REFERENCED | INVERSE, ..at(27143, 0, 4478) }, None);
+    let late = add_point(mission, EventPoint { trigger: trigger::DEPENDENCY, ep_ref: called as u16, ..at(27187, 0, 4615) }, None);
+    put(mission, 188, EventPoint { trigger: trigger::BOOLEAN_AND, ep_ref: without as u16, ep_ref_bool: late as u16, ..at(27242, 0, 4514) });
+    // The beacon on the Sarge, which Car Bomb puts up once despatch has called (its 319).
+    // Here once the tape's in hand too: nothing else says where to take it.
+    let either = add_point(mission, EventPoint { trigger: trigger::BOOLEAN_OR, ep_ref: 187, ep_ref_bool: called as u16, ..at(12866, 0, 25596) }, None);
+    add_point(mission, EventPoint { kind: waypoint::NAV_BEACON, trigger: trigger::DEPENDENCY, ep_ref: either as u16, data: [1, 174, 0, 0, 0, 0, 0, 0, 0, 0], ..at(12866, 0, 25596) },
+              Some("Sarge"));
+}
+
+/// Puts a point that has a text at number `index`, its text among the mission's messages
+/// where it belongs: the n-th message is the n-th text-carrying point's, in number order
+/// ([`Mission::point_texts`]).
+fn put_with_text(mission: &mut Mission, index: usize, ep: uc_formats::ucm::EventPoint, text: &str) {
+    use uc_formats::ucm::{has_text, TextEntry};
+    debug_assert!(has_text(ep.kind));
+    let before = mission.event_points.iter().filter(|e| has_text(e.kind) && e.index < index).count();
+    let at = mission.texts.iter().enumerate().filter(|(_, t)| matches!(t, TextEntry::Message { .. })).nth(before)
+        .map_or(mission.texts.len(), |(i, _)| i);
+    mission.texts.insert(at, TextEntry::Message { text: text.to_string(), tail: Vec::new() });
+    mission.event_points.push(uc_formats::ucm::EventPoint { index, ..ep });
+}
+
 fn add_point(mission: &mut Mission, ep: uc_formats::ucm::EventPoint, text: Option<&str>) -> usize {
     debug_assert_eq!(uc_formats::ucm::has_text(ep.kind), text.is_some());
     let index = mission.event_points.iter().map(|e| e.index).max().unwrap_or(0) + 1;
@@ -861,12 +987,66 @@ fn add_point(mission: &mut Mission, ep: uc_formats::ucm::EventPoint, text: Optio
     index
 }
 
-/// The map a mission is played on when the install hasn't got its own: that of the mission
-/// it became. Finale1b's `Rooftest.iam` is missing, and Day Of Reckoning has its
-/// `Rooftest2.iam`.
+/// The maps missions are played on when the install hasn't got their own, and the lighting
+/// that goes with each (none for a map no mission lights): (mission, map, lighting).
+///
+/// Finale1b's `Rooftest.iam` is missing, and Day Of Reckoning, the mission it became, has its
+/// `Rooftest2.iam`. Rooftop1's `ROOFIN1.iam` ("roof, inside") is missing too, and
+/// `ROOFnoin.iam` ("roof, no inside"), oldsmoke1's, is the same rooftops without their
+/// insides: 26 of its 27 points are on its roofs.
+///
+/// The other maps of the editor's oldest missions are gone (`ECTS3c.iam`, `E7.iam`,
+/// `downtwn.iam`, `tm3.iam` and `canistst.iam`), nothing of them anywhere in the install or
+/// the source, and no map left has the roofs their raised points stand on. They're played on
+/// the map where most of their points have ground under them and nothing over them: ECTS3c's
+/// six (an ECTS show's, with a cinema, `timetest`'s race) on `supply1.iam`, the one built-up
+/// map where 28 of their 42 do; `e7` on Arms Breaker's `gpost3.iam`; `downight` on RTA's
+/// `disturb1.iam`, the city the other downtown missions are in; and the two tests with a
+/// handful of points on the ground (`tm3`, `wibble`) on `test.iam`. Their lighting was made
+/// for buildings that aren't there, so the stand-in's own is used. Those last are on maps
+/// they weren't made for: what has to be got to, or put down, at a height with nothing under
+/// it there is put on what is ([`settle_points`]). Finale1b's are fitted by hand
+/// ([`finish_unfinished`]).
+const STAND_INS: [(&str, &str, &str); 12] = [
+    ("Finale1b", r"Data\Rooftest2.iam", r"Data\Lighting\roof1.lgt"),
+    ("Rooftop1", r"Data\ROOFnoin.iam", ""),
+    ("bang", r"Data\supply1.iam", ""),
+    ("ECTS3C", r"Data\supply1.iam", ""),
+    ("four", r"Data\supply1.iam", ""),
+    ("three", r"Data\supply1.iam", ""),
+    ("three_n", r"Data\supply1.iam", ""),
+    ("timetest", r"Data\supply1.iam", ""),
+    ("e7", r"Data\gpost3.iam", r"Data\Lighting\gpost3.lgt"),
+    ("downight", r"Data\disturb1.iam", r"Data\Lighting\disturb1.lgt"),
+    ("tm3", r"Data\test.iam", ""),
+    ("wibble", r"Data\test.iam", ""),
+];
+
+/// The map `mission_name` is played on if the install hasn't got its own ([`STAND_INS`]).
 pub fn stand_in_map(mission_name: &str) -> Option<&'static str> {
-    const STAND_INS: [(&str, &str); 1] = [("Finale1b", r"Data\Rooftest2.iam")];
-    STAND_INS.iter().find(|(m, _)| m.eq_ignore_ascii_case(mission_name)).map(|&(_, map)| map)
+    STAND_INS.iter().find(|(m, ..)| m.eq_ignore_ascii_case(mission_name)).map(|&(_, map, _)| map)
+}
+
+/// On a stand-in map ([`STAND_INS`], but Finale1b), the points someone has to get to (the
+/// radius triggers) and the people and things put down, each moved down onto the floor under
+/// it if there's none where it is: timetest's cinema and Rooftop1's second panel are on
+/// roofs the stand-ins haven't got. Cameras, targets and platforms' paths are in the air
+/// anyway, and stay.
+fn settle_points(map: &Map, ground: &Ground, mission: &mut Mission) {
+    use uc_formats::ucm::trigger;
+    for e in mission.event_points.iter_mut().filter(|e| e.used != 0) {
+        let put_down = matches!(e.kind, waypoint::CREATE_PLAYER | waypoint::CREATE_ENEMIES | waypoint::CREATE_VEHICLE
+            | waypoint::CREATE_ITEM | waypoint::CREATE_BARREL | waypoint::CREATE_TREASURE | waypoint::NAV_BEACON);
+        let got_to = matches!(e.trigger, trigger::RADIUS | trigger::PLAYER_USES_RADIUS | trigger::ENEMY_RADIUS);
+        if !put_down && !got_to {
+            continue;
+        }
+        let (x, y, z) = (e.x as f32, e.y as f32, e.z as f32);
+        let floor = ground.surface(map, x, z, y + 64.0);
+        if y - floor > 64.0 {
+            e.y = floor as i32;
+        }
+    }
 }
 
 /// Missions this project makes out of one of the install's, by the name each is played as,
@@ -885,11 +1065,14 @@ impl Level {
         let file = mission_file(mission_name);
         let mut mission = Mission::parse(&read(game, &format!("levels\\{file}.ucm"))?)
             .map_err(|e| format!("{file}.ucm: {e}"))?;
+        mission.renumber_version0();
+        mission.renumber_old_enemies();
         finish_unfinished(file, &mut mission);
         make_port_mission(mission_name, &mut mission);
         if read(game, &mission.map).is_err() {
-            if let Some(map) = stand_in_map(file) {
+            if let Some(&(_, map, lighting)) = STAND_INS.iter().find(|(m, ..)| m.eq_ignore_ascii_case(file)) {
                 mission.map = map.to_string();
+                mission.lighting = lighting.to_string();
             }
         }
         let mut level = Level::load_with_mission(game, file, mission, opt)?;
@@ -901,8 +1084,9 @@ impl Level {
     /// edited one (#185). Its map and lighting are still read from the install, and its
     /// textures still looked up by `mission_name`. An edited mission keeps what
     /// [`finish_unfinished`] added when it was loaded, or doesn't if the editor took it out.
-    pub fn load_with_mission(game: &Path, mission_name: &str, mission: Mission, opt: &LoadOptions) -> Result<Level, String> {
+    pub fn load_with_mission(game: &Path, mission_name: &str, mut mission: Mission, opt: &LoadOptions) -> Result<Level, String> {
         let mut map = Map::parse(&read(game, &mission.map)?).map_err(|e| format!("{}: {e}", mission.map))?;
+        refloor(&mission.map, &mut map);
         to_sea(&mission.map, &mut map);
         open_the_store(mission_name, &mission.map, &mut map);
         climb_into_the_docks(&mission.map, &mut map);
@@ -920,8 +1104,8 @@ impl Level {
         let style_table = |w: i32| read(game, &format!("server\\textures\\world{w}\\style.tma")).ok();
         let world = map.texture_set.map(|w| if style_table(w).is_some() { w } else { STAND_IN_WORLD });
         // Textures are looked up by mission name, not by map (TEXTURE_initialise_clumping).
-        let (clump, mut stand_in_pages) = match read(game, &format!("clumps\\{mission_name}.txc")) {
-            Ok(b) => (Clump::parse(b).map_err(|e| e.to_string())?, BTreeSet::new()),
+        let (clump, mut stand_in_pages, page_donors) = match read(game, &format!("clumps\\{mission_name}.txc")) {
+            Ok(b) => (Clump::parse(b).map_err(|e| e.to_string())?, BTreeSet::new(), BTreeMap::new()),
             Err(_) => borrowed_clump(game, &mission.map, world),
         };
         // Borrowing the stand-in's world, none of its world pages are its own.
@@ -929,6 +1113,13 @@ impl Level {
             stand_in_pages = clump.ids().map(entry_page).filter(|&p| world_page(p)).collect();
         }
         let styles = world.and_then(style_table).and_then(|b| StyleTable::parse(&b).ok());
+        let textype = |rel: &str| resolve(game, rel).and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+        let mut self_lit = SelfLit::default();
+        if let Some(w) = world {
+            self_lit.read(&textype(&format!("server\\textures\\world{w}\\textype.txt")), 0);
+        }
+        self_lit.read(&textype("server\\textures\\shared\\textype.txt"), 0);
+        self_lit.read(&textype("server\\textures\\shared\\prims\\textype.txt"), PRIM_PAGES);
         let lighting = if opt.fullbright { None } else { read(game, &mission.lighting).ok().and_then(|b| Lighting::parse(&b).ok()) };
         let sky = lighting.as_ref().map_or([20, 22, 30], |l| l.sky);
 
@@ -942,6 +1133,9 @@ impl Level {
             // is fenced in, every way out unclimbable or angle-topped, so there every fence can
             // be climbed over.
             ground.fence_climb.fill(crate::ground::FenceClimb { climbable: true, over: true });
+        }
+        if !mission_name.eq_ignore_ascii_case("Finale1b") && stand_in_map(mission_name).is_some_and(|m| m.eq_ignore_ascii_case(&mission.map)) {
+            settle_points(&map, &ground, &mut mission);
         }
         let ep = mission.event_points.iter().find(|e| e.kind == waypoint::CREATE_PLAYER);
         let (sx, sy, sz) = ep.map_or((64.0 * UNIT, 0.0, 64.0 * UNIT), |e| (e.x as f32, e.y as f32, e.z as f32));
@@ -970,7 +1164,8 @@ impl Level {
             // And the civilians' and Roper's others (Anim.cpp:1373).
             let mut files: HashMap<&str, Option<Arc<AnimChunk>>> = HashMap::new();
             files.insert("rthug.all", Some(thug.clone()));
-            for &(file, from, to) in &crate::character::EXTRA_ANIMS {
+            // And, the port's own, the men's talking (not the original's).
+            for &(file, from, to) in crate::character::EXTRA_ANIMS.iter().chain(&crate::character::TALK_ANIMS) {
                 if let Some(f) = files.entry(file).or_insert_with(|| chunk(file).ok()) {
                     darci.graft(f, from, to);
                 }
@@ -979,9 +1174,11 @@ impl Level {
         } else {
             None
         };
+        let wall_pages = crate::rewall::REWALL.iter().find(|(m, _)| m.eq_ignore_ascii_case(&mission.map)).map_or(&[][..], |&(_, p)| p);
         Ok(Level {
             game: game.to_path_buf(), name: mission_name.to_string(), mission, map, clump, styles, lighting,
-            ground, spawn, sky, people, overrides: opt.overrides.clone(), platforms, barrel_props, stand_in_pages,
+            ground, spawn, sky, people, overrides: opt.overrides.clone(), platforms, barrel_props, stand_in_pages, self_lit, page_donors,
+            wall_pages,
             see_through_prims: resolve(game, "server\\textures\\shared\\prims\\textype.txt")
                 .and_then(|p| std::fs::read_to_string(p).ok())
                 .map_or_else(Default::default, |t| see_through_pages(&t)),
@@ -995,11 +1192,24 @@ impl Level {
         self.lighting.as_ref().map(|l| Lighter::new(l, &self.map.objects))
     }
 
+    /// Facet `i`'s wall quads ([`facet::wall_quads`]), on the pages they're drawn with: an old
+    /// map's ([`Level::wall_pages`]) as the released maps' walls have them.
+    pub fn wall_quads(&self, styles: &StyleTable, i: usize) -> Vec<facet::WallQuad> {
+        let mut quads = facet::wall_quads(&self.map, styles, i);
+        for q in &mut quads {
+            if let Some(&(_, to)) = self.wall_pages.iter().find(|&&(from, _)| from as u32 == q.page) {
+                q.page = to as u32;
+            }
+        }
+        quads
+    }
+
     /// The texture for a page: an override PNG if present ([`override_path`]), else the
     /// clump's.
     pub fn texture(&self, page: u32) -> Option<(Texture, bool)> {
         let over = self.overrides.as_deref()
-            .and_then(|d| override_path(d, &self.name, self.map.texture_set, page))
+            .and_then(|d| override_path(d, &self.name, self.map.texture_set, page)
+                .or_else(|| override_path(d, self.page_donors.get(&page)?, None, page)))
             .and_then(|p| load_png(&p));
         let overridden = over.is_some();
         let mut t = match over {
@@ -1059,7 +1269,7 @@ impl Level {
         let sh = Shader { lighter: lighter.as_ref() };
         let Some(styles) = &self.styles else { return vec![Vec::new(); self.ground.doors.len()] };
         self.ground.doors.iter().map(|d| {
-            facet::wall_quads(&self.map, styles, d.facet).into_iter().map(|q| {
+            self.wall_quads(styles, d.facet).into_iter().map(|q| {
                 let corners = q.corners.map(|c| vec3(c[0], c[1], c[2]) / UNIT);
                 FacetQuad { page: q.page, uv: q.uv, corners, colour: sh.quad(&corners) }
             }).collect()
@@ -1076,7 +1286,7 @@ impl Level {
         let refence = fence_page(&self.mission.map);
         (1..self.map.facets.len()).filter(|&i| shakes(self.map.facets[i].kind)).map(|i| {
             let chain_link = self.map.facets[i].kind != facet_type::FENCE_BRICK;
-            let quads = facet::wall_quads(&self.map, styles, i).into_iter().map(|q| {
+            let quads = self.wall_quads(styles, i).into_iter().map(|q| {
                 let corners = q.corners.map(|c| vec3(c[0], c[1], c[2]) / UNIT);
                 let page = refence.filter(|_| chain_link).unwrap_or(q.page);
                 FacetQuad { page, uv: q.uv, corners, colour: sh.quad(&corners) }
@@ -1125,7 +1335,7 @@ impl Level {
                 if kind == facet_type::OUTSIDE_DOOR || shakes(kind) {
                     continue;
                 }
-                for q in facet::wall_quads(&self.map, styles, i) {
+                for q in self.wall_quads(styles, i) {
                     let p = q.corners.map(|c| vec3(c[0], c[1], c[2]) / UNIT);
                     let page = q.page;
                     let crinkle = *crinkle_of.entry(page).or_insert_with(|| {
@@ -1150,7 +1360,7 @@ impl Level {
             .collect();
         build_props(&mut b, &self.map, &self.game, &sh, &moving);
         build_details(&mut b, &self.map, &sh);
-        WorldGeometry { crinkles, ..b.finish() }
+        WorldGeometry { crinkles, self_lit: self.self_lit.clone(), ..b.finish() }
     }
 }
 
@@ -1552,6 +1762,20 @@ mod see_through_tests {
         let t = "# comment\nPage 000: T\nPage 022: M\nPage 025: MS\nPage 030: W\nPage 040: I\nPage 050: S\n";
         let s = see_through_pages(t);
         assert_eq!(s.into_iter().collect::<Vec<_>>(), vec![0, 22, 25, 41]);
+    }
+
+    /// 'I' draws the next page over, 'S' draws the page unlit; either case, any order after
+    /// the colon, and the prims' counted on from [`PRIM_PAGES`].
+    #[test]
+    fn textype_flags_pick_the_pages_that_light_themselves() {
+        let mut lit = SelfLit::default();
+        lit.read("# I and S\nPage  50: I\nPage 137: wi\nPage 215: S#\nPage 65: T\n", 0);
+        lit.read("Page 025: MS\nPage 074: s\n", PRIM_PAGES);
+        assert_eq!(lit.two_pass.iter().copied().collect::<Vec<_>>(), vec![50, 137]);
+        assert_eq!(lit.unlit.iter().copied().collect::<Vec<_>>(), vec![215, PRIM_PAGES + 25, PRIM_PAGES + 74]);
+        assert_eq!(lit.overlay(137), Some(138));
+        assert_eq!(lit.overlay(138), None);
+        assert_eq!(lit.overlay(UNTEXTURED), None);
     }
 
     /// The leaves, the sky and the other extras aren't prim pages: their see-through edges

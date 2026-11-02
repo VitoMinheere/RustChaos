@@ -59,7 +59,7 @@ use uc_world::character::person as ptype;
 use uc_world::{Batch, Figure, Level};
 
 pub use mist::Mists;
-pub use person::{Controls, Person, Sfx, State, Weapon};
+pub use person::{Bark, Controls, Person, RadioLine, Sfx, State, Weapon};
 pub use pyro::Pyro;
 pub use script::Shot;
 pub use vehicle::{Drive, Vehicle};
@@ -619,6 +619,13 @@ pub struct Game {
     stats_track: game::stats::Track,
     /// Sounds not tied to a person this frame.
     sounds: Vec<(Sfx, Vec3)>,
+    /// When each person last said one of their unplayed lines ([`Bark`]), by index, for
+    /// [`person::BARK_GAP`]; the cops who've greeted the player; how long the player has
+    /// stood about; and how far through `sounds` [`Game::barks`] has looked.
+    barked: HashMap<usize, f32>,
+    greeted: std::collections::BTreeSet<usize>,
+    calm_for: f32,
+    sounds_seen: usize,
     /// Seconds left of fight music after the fighting stops.
     fight_timer: f32,
     sprinting: bool,
@@ -715,8 +722,10 @@ pub struct Game {
     routes: game::Routes,
     /// Each target's four places round them to be fought from (`gang_attacks`).
     gang_attacks: std::collections::HashMap<usize, [Option<usize>; 4]>,
-    /// The mission's helicopters.
+    /// The mission's helicopters, and one parked for the player in Explore and Beat Cop.
     pub choppers: Vec<chopper::Chopper>,
+    /// The player's helicopter controls this turn (#465).
+    stick: chopper::Stick,
     /// Where everyone was at the barrels' last turn, to knock barrels with as they walk.
     barrel_marks: Vec<Vec3>,
     /// People getting into cars: (who, which car).
@@ -892,6 +901,10 @@ impl Game {
             record: Default::default(),
             stats_track: Default::default(),
             sounds: Vec::new(),
+            barked: HashMap::new(),
+            greeted: Default::default(),
+            calm_for: 0.0,
+            sounds_seen: 0,
             fight_timer: 0.0,
             sprinting: false,
             danger: 0,
@@ -943,6 +956,7 @@ impl Game {
             routes: game::Routes::new(level),
             gang_attacks: Default::default(),
             choppers: Vec::new(),
+            stick: chopper::Stick::default(),
             barrel_marks: Vec::new(),
             entering: Vec::new(),
             creature_by_way: HashMap::new(),
@@ -1016,6 +1030,10 @@ impl Game {
             g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
         }
         g.populate(level);
+        // Explore and Beat Cop: a police chopper parked near the start, to fly (#465).
+        if !scripted {
+            g.park_chopper(level);
+        }
         // Every map's barrel props become barrels (`OB_convert_dustbins_to_barrels`).
         for &ob in &level.barrel_props {
             let o = &level.map.objects[ob];
@@ -1132,9 +1150,20 @@ impl Game {
     /// The sounds made since the last call, with where they were made (world units).
     pub fn take_sounds(&mut self) -> Vec<(Sfx, Vec3)> {
         let mut out = std::mem::take(&mut self.sounds);
-        for p in &mut self.people {
+        self.sounds_seen = 0;
+        let now = self.time;
+        for (i, p) in self.people.iter_mut().enumerate() {
             let at = p.fig.pos + Vec3::new(0.0, 100.0, 0.0);
-            out.extend(p.cues.drain(..).map(|s| (s, at)));
+            for s in p.cues.drain(..) {
+                // One unplayed line every few seconds each, whatever set it off.
+                if let Sfx::Bark { .. } = s {
+                    if self.barked.get(&i).is_some_and(|&t| now - t < person::BARK_GAP) {
+                        continue;
+                    }
+                    self.barked.insert(i, now);
+                }
+                out.push((s, at));
+            }
         }
         out
     }
@@ -1492,6 +1521,7 @@ impl Game {
             }
         }
         let drives: Vec<(usize, Drive)> = playing.iter().map(|&(pi, c, _)| (pi, c.drive)).collect();
+        self.stick = playing.first().filter(|_| !held && self.outcome.is_none()).map(|&(_, c, _)| c.fly).unwrap_or_default();
         self.drive(dt, &drives, level);
         self.ride(&drives, level);
 
@@ -1661,6 +1691,7 @@ impl Game {
         self.sit_down();
         self.strike_poses();
         self.join_dance(dt, &playing);
+        self.barks(dt);
         self.apply(events, level);
         self.back_up_gangs();
         for s in 0..seats {

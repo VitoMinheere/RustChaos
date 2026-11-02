@@ -119,6 +119,21 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     return vec4<f32>(c, 1.0);
 }
 
+// Pages that light themselves (`textype.txt`'s 'S', and the lit windows an 'I' page draws
+// over itself from the next page): the texture at its own colour, whatever the light
+// (`D3DTBLEND_DECAL`), its clear parts cut out (`D3DCMP_NOTEQUAL` 0), into the fog as the
+// rest.
+@fragment
+fn fs_unlit(in: VOut) -> @location(0) vec4<f32> {
+    let t = textureSample(tex, samp, in.uv);
+    if (t.a < 0.5) {
+        discard;
+    }
+    let d = distance(in.world, g.cam_pos.xyz);
+    let f = clamp((d - g.fog.x) / max(g.fog.y - g.fog.x, 0.001), 0.0, 1.0) * g.fog.z;
+    return vec4<f32>(mix(t.rgb, g.fog_color.rgb, f), 1.0);
+}
+
 // A ghost (#186), first pass: only its depth, so the second shows the nearest of it and not
 // the limbs behind. The texture's cut-outs still cut. (The colour isn't written.)
 @fragment

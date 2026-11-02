@@ -7,6 +7,11 @@
 //! steering clear of buildings. Chasing the player more than 32 squares from where it
 //! started sends it home, where it picks her up again if she comes near.
 //!
+//! The player can fly one too (#465), which the original never lets them: a chopper parked
+//! for them ([`Chopper::parked`], in Explore and Beat Cop) waits on the ground for them to
+//! get in, and is flown with a [`Stick`] ([`Chopper::pilot_tick`]). The ones the missions
+//! make stay the AI's.
+//!
 //! It runs on the original's 20 ticks a second in the original's own units: positions in
 //! 256ths of a world unit (`WorldPos`), speeds in those a tick, angles 2048 to a turn.
 
@@ -36,7 +41,43 @@ pub enum State {
     Landed,
     Tracking,
     Homing,
+    /// Someone at the controls, or the rotors still running down after they've got out.
+    Piloted,
 }
+
+/// The pilot's controls (#465), each -1 to 1: forward, to the right, turning right, and up;
+/// and which way to swing the searchlight (#466), right and ahead of the nose.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Stick {
+    pub ahead: f32,
+    pub side: f32,
+    pub turn: f32,
+    pub climb: f32,
+    pub aim: glam::Vec2,
+}
+
+/// How fast the pilot swings the searchlight's spot about with the stick right over (world
+/// units a tick).
+const AIM_SPEED: f32 = 40.0;
+
+/// The rotors' speed it lifts at, of the 500 they run up to.
+const LIFT: i32 = 400;
+/// The fastest the pilot goes along the ground, in 256ths a tick: the AI's own top speed
+/// (`CHOPPER_limit`'s 12288), 960 units a second.
+const TOP_SPEED: f32 = 12288.0;
+/// How fast it picks up speed with the stick right over (256ths a tick, a tick).
+const ACCEL: f32 = 320.0;
+/// The fastest it climbs or sinks (256ths a tick): 160 units a second.
+const CLIMB: f32 = 2048.0;
+/// The highest it goes over the ground or roof under it (world units).
+pub const CEILING: f32 = 2560.0;
+/// The highest the player can drop out from (world units over the ground under it): a
+/// storey.
+pub const DROP: f32 = 256.0;
+/// How far out from its middle the body and rotors keep clear of walls (world units).
+const RADIUS: f32 = 192.0;
+/// How far up a wall it can be pushed onto, as onto a kerb or a low roof (world units).
+const STEP: f32 = 48.0;
 
 /// What it follows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +132,13 @@ pub struct Chopper {
     spot_d: (i32, i32),
     /// The searchlight's way and reach (world units), from [`Chopper::aim_light`].
     pub beam: Vec3,
+    /// Parked for the player to fly: it never takes off by itself (#465).
+    pub parked: bool,
+    /// Who's flying it, if anyone.
+    pub pilot: Option<usize>,
+    /// Where the pilot has the searchlight's spot (#466), from right under it: to the right
+    /// of the nose and ahead of it (world units), never further out than it is high.
+    pub aim: glam::Vec2,
 }
 
 /// `SDIST2` of a 256ths offset, in world units.
@@ -114,8 +162,122 @@ impl Chopper {
         Chopper {
             way, x, y, z, home: (x, y, z), dx: 0, dy: 0, dz: 0, angle: 0, ry: 0, counter: 0, rotors: 0, rotorspeed: 0,
             speed: 2048, state: State::Landed, light: 0, since_takeoff: 0, victim, target: None,
-            spot: (x, z), spot_d: (0, 0), beam: Vec3::NEG_Y,
+            spot: (x, z), spot_d: (0, 0), beam: Vec3::NEG_Y, parked: false, pilot: None, aim: glam::Vec2::ZERO,
         }
+    }
+
+    /// One parked for the player (#465) at `at` on the ground, its nose along (sin, cos) of
+    /// `angle` (2048 to a turn).
+    pub fn parked(at: Vec3, angle: i32) -> Chopper {
+        // On its skids, 250 up (the mission's are put 265 up).
+        let c = Chopper::new(0, at - Vec3::new(0.0, 15.0, 0.0), None);
+        Chopper { parked: true, angle: angle & 2047, home: (c.x, c.y, c.z), ..c }
+    }
+
+    /// On the ground or a roof, for getting in or out.
+    pub fn grounded(&self, sky: &impl Sky) -> bool {
+        self.height(sky) <= 24.0
+    }
+
+    /// How high its skids are over the ground or roof under it, world units. (Not
+    /// `CHOPPER_altitude`, which takes the ground's height in world units from the
+    /// helicopter's in 256ths, as the AI's flying is tuned to.)
+    pub fn height(&self, sky: &impl Sky) -> f32 {
+        self.y as f32 / 256.0 - 250.0 - sky.map_height(self.x as f32 / 256.0, self.z as f32 / 256.0)
+    }
+
+    /// The way its nose points, in world xz.
+    pub fn nose(&self) -> glam::Vec2 {
+        let a = radians(self.angle as f32);
+        glam::Vec2::new(a.sin(), a.cos())
+    }
+
+    /// The rotors' speed, 0 (still) to 1 (flat out), for their sound.
+    pub fn rotor_speed(&self) -> f32 {
+        self.rotorspeed as f32 / 500.0
+    }
+
+    /// One tick of a parked chopper (#465): with a pilot, the rotors run up and it lifts off
+    /// once they're fast enough, climbing or sinking, turning, and going along its nose or to
+    /// the side as `stick` says, easing to a hover when let go. It settles on whatever's under
+    /// it, roofs as well as the street, and walls stop it. With nobody at the controls it
+    /// sinks to the ground and its rotors run down.
+    pub fn pilot_tick(&mut self, stick: Stick, sky: &impl Sky) {
+        let flown = self.pilot.is_some();
+        self.rotors += self.rotorspeed >> 2;
+        self.rotorspeed = if flown { (self.rotorspeed + 10).min(500) } else { (self.rotorspeed - 4).max(0) };
+        let lift = self.rotorspeed >= LIFT;
+        let on_ground = self.grounded(sky);
+        let stick = if flown { stick } else { Stick::default() };
+        let clamp = |v: f32| v.clamp(-1.0, 1.0);
+        // Turning: right turns the nose to the right, as a car's steering does.
+        let want_ry = if lift { -clamp(stick.turn) * 24.0 } else { 0.0 };
+        self.ry = ((self.ry as f32 * 3.0 + want_ry) / 4.0).round() as i32;
+        self.angle = (self.angle + self.ry) & 2047;
+        // Along the ground: only off it.
+        let (dx, dz) = (self.dx as f32, self.dz as f32);
+        let (mut dx, mut dz) = if lift && !on_ground {
+            let a = radians(self.angle as f32);
+            let (fwd, right) = (glam::Vec2::new(a.sin(), a.cos()), glam::Vec2::new(-a.cos(), a.sin()));
+            let push = (fwd * clamp(stick.ahead) + right * clamp(stick.side)) * ACCEL;
+            let (mut dx, mut dz) = (dx + push.x, dz + push.y);
+            if push == glam::Vec2::ZERO {
+                dx *= 0.94;
+                dz *= 0.94;
+            }
+            let v = glam::Vec2::new(dx, dz);
+            let v = if v.length() > TOP_SPEED { v.normalize() * TOP_SPEED } else { v };
+            (v.x, v.y)
+        } else {
+            (dx * 0.6, dz * 0.6)
+        };
+        // Up and down.
+        let want_dy = if !lift {
+            if on_ground { 0.0 } else { -CLIMB / 2.0 }
+        } else if !flown {
+            -CLIMB / 2.0
+        } else {
+            clamp(stick.climb) * CLIMB
+        };
+        let mut dy = (self.dy as f32 * 3.0 + want_dy) / 4.0;
+        // Walls: each way on its own, so it slides along them.
+        let (x, z) = (self.x as f32 / 256.0, self.z as f32 / 256.0);
+        let bottom = self.y as f32 / 256.0 - 250.0;
+        let blocked = |x: f32, z: f32| sky.map_height(x, z) > bottom + STEP;
+        if dx != 0.0 && blocked(x + dx / 256.0 + RADIUS * dx.signum(), z) {
+            dx = -dx * 0.25;
+        }
+        if dz != 0.0 && blocked(x, z + dz / 256.0 + RADIUS * dz.signum()) {
+            dz = -dz * 0.25;
+        }
+        let (nx, nz) = (x + dx / 256.0, z + dz / 256.0);
+        // The ground or roof under it: it rests on it, and never higher than the ceiling.
+        let floor = sky.map_height(nx, nz) + 250.0;
+        let mut ny = self.y as f32 / 256.0 + dy / 256.0;
+        if ny <= floor {
+            ny = floor;
+            dy = dy.max(0.0);
+        }
+        if ny > floor + CEILING {
+            ny = floor + CEILING;
+            dy = dy.min(0.0);
+        }
+        (self.x, self.y, self.z) = ((nx * 256.0) as i32, (ny * 256.0) as i32, (nz * 256.0) as i32);
+        (self.dx, self.dy, self.dz) = (dx as i32, dy as i32, dz as i32);
+        // The searchlight (#466): on in the air, swung about by the pilot within a cone under
+        // it as wide as it's high, and turning with the nose.
+        let height = self.height(sky);
+        let up = flown && height > 64.0;
+        self.light = if up { (self.light + 5).min(250) } else { (self.light - 5).max(0) };
+        let aim = self.aim + stick.aim.clamp(glam::Vec2::splat(-1.0), glam::Vec2::ONE) * AIM_SPEED;
+        self.aim = aim.clamp_length_max(height.max(0.0));
+        let a = radians(self.angle as f32);
+        let (fwd, right) = (glam::Vec2::new(a.sin(), a.cos()), glam::Vec2::new(-a.cos(), a.sin()));
+        let off = right * self.aim.x + fwd * self.aim.y;
+        let me = self.pos();
+        let floor = sky.map_height(me.x + off.x, me.z + off.y);
+        self.beam = Vec3::new(off.x, floor - me.y, off.y);
+        self.state = if !flown && self.rotorspeed == 0 && self.grounded(sky) { State::Landed } else { State::Piloted };
     }
 
     /// Where it is, world units.
@@ -276,6 +438,10 @@ impl Chopper {
 
     /// `CHOPPER_fn_normal`, one tick. `player` is the player (Darci).
     pub fn tick(&mut self, player: Option<usize>, sky: &impl Sky) {
+        // A parked one is the player's, and never goes off by itself.
+        if self.parked {
+            return self.pilot_tick(Stick::default(), sky);
+        }
         self.rotors += self.rotorspeed >> 2;
         self.x += self.dx;
         self.y += self.dy;
@@ -362,6 +528,8 @@ impl Chopper {
                     }
                 }
             }
+            // Only a parked one is flown, by `pilot_tick`.
+            State::Piloted => {}
             State::Homing => {
                 self.predict_altitude(sky);
                 self.home((self.home.0, self.home.2), sky);
@@ -493,6 +661,109 @@ mod tests {
             assert!(closest < 6.0 * 256.0, "never closer than {}", closest / 256.0);
             assert!(furthest < 16.0 * 256.0, "as far as {}", furthest / 256.0);
         }
+    }
+
+    fn fly(c: &mut Chopper, sky: &Open, stick: Stick, ticks: usize) {
+        for _ in 0..ticks {
+            c.pilot_tick(stick, sky);
+        }
+    }
+
+    const UP: Stick = Stick { ahead: 0.0, side: 0.0, turn: 0.0, climb: 1.0, aim: glam::Vec2::ZERO };
+
+    /// A parked one stays put for anyone but its pilot, who has to wait for the rotors
+    /// before it lifts; then it climbs, no higher than the ceiling.
+    #[test]
+    fn the_pilot_takes_off_once_the_rotors_are_up() {
+        let sky = Open { people: vec![Vec3::new(31.0 * 256.0, 0.0, 30.0 * 256.0)] };
+        let mut c = Chopper::parked(Vec3::new(30.0 * 256.0, 0.0, 30.0 * 256.0), 0);
+        for _ in 0..100 {
+            c.pilot_tick(UP, &sky);
+            c.tick(Some(0), &sky);
+        }
+        assert_eq!(c.state, State::Landed, "took off with nobody in it");
+        c.pilot = Some(0);
+        fly(&mut c, &sky, UP, 20);
+        assert!(c.height(&sky) < 1.0, "lifted before the rotors were up: {}", c.height(&sky));
+        fly(&mut c, &sky, UP, 60);
+        assert!(c.height(&sky) > 100.0, "only {} up", c.height(&sky));
+        fly(&mut c, &sky, UP, 1000);
+        assert!((c.height(&sky) - CEILING).abs() < 1.0, "{} up", c.height(&sky));
+        assert_eq!(c.state, State::Piloted);
+    }
+
+    /// Forward goes along the nose, turning turns it, and letting go it slows to a hover.
+    #[test]
+    fn it_goes_where_it_is_pointed() {
+        let sky = Open { people: Vec::new() };
+        let mut c = Chopper::parked(Vec3::new(20.0 * 256.0, 0.0, 10.0 * 256.0), 0);
+        c.pilot = Some(0);
+        fly(&mut c, &sky, UP, 100);
+        let from = c.pos();
+        fly(&mut c, &sky, Stick { ahead: 1.0, ..Default::default() }, 60);
+        let moved = c.pos() - from;
+        assert!(moved.z > 1000.0 && moved.x.abs() < 10.0, "nose (0, 1) went {moved}");
+        let before = c.angle;
+        fly(&mut c, &sky, Stick { turn: 1.0, ..Default::default() }, 20);
+        assert!((before - c.angle) & 2047 > 100 && (before - c.angle) & 2047 < 1024, "{before} to {}", c.angle);
+        fly(&mut c, &sky, Stick::default(), 100);
+        let at = c.pos();
+        fly(&mut c, &sky, Stick::default(), 10);
+        assert!(c.pos().distance(at) < 20.0, "drifting on {}", c.pos().distance(at));
+        // To the right of a nose along +z is -x.
+        c.angle = 0;
+        let at = c.pos();
+        fly(&mut c, &sky, Stick { side: 1.0, ..Default::default() }, 30);
+        assert!(c.pos().x < at.x - 200.0, "{} to {}", at.x, c.pos().x);
+    }
+
+    /// The tall building stops it below its roof, and it lands on the roof from above.
+    #[test]
+    fn walls_stop_it_and_roofs_hold_it() {
+        let sky = Open { people: Vec::new() };
+        let mut c = Chopper::parked(Vec3::new(36.0 * 256.0, 0.0, 30.0 * 256.0), 512);
+        c.pilot = Some(0);
+        fly(&mut c, &sky, UP, 100);
+        fly(&mut c, &sky, Stick { climb: 0.0, ..Default::default() }, 10);
+        assert!(c.pos().y < 1500.0);
+        // Nose along +x, at the wall at 40 squares.
+        fly(&mut c, &sky, Stick { ahead: 1.0, ..Default::default() }, 200);
+        assert!(c.pos().x < 40.0 * 256.0, "through the wall to {}", c.pos().x / 256.0);
+        // Up over it and onto the roof.
+        fly(&mut c, &sky, UP, 300);
+        fly(&mut c, &sky, Stick { ahead: 1.0, ..Default::default() }, 30);
+        fly(&mut c, &sky, Stick::default(), 60);
+        assert!((40.0 * 256.0..44.0 * 256.0).contains(&c.pos().x), "not over the roof: {}", c.pos().x / 256.0);
+        fly(&mut c, &sky, Stick { climb: -1.0, ..Default::default() }, 400);
+        assert!(c.grounded(&sky) && c.pos().y > 2200.0, "at {} over the roof", c.height(&sky));
+        // Got out of, the rotors run down and it's landed.
+        c.pilot = None;
+        fly(&mut c, &sky, Stick::default(), 200);
+        assert_eq!(c.state, State::Landed);
+    }
+
+    /// The searchlight comes on in the air, swings where the pilot puts it but no further out
+    /// than it is high, turns with the nose, and reaches the ground.
+    #[test]
+    fn the_pilot_aims_the_searchlight() {
+        let sky = Open { people: Vec::new() };
+        let mut c = Chopper::parked(Vec3::new(20.0 * 256.0, 0.0, 10.0 * 256.0), 0);
+        c.pilot = Some(0);
+        fly(&mut c, &sky, UP, 30);
+        assert_eq!(c.light, 0, "lit on the ground");
+        fly(&mut c, &sky, UP, 120);
+        fly(&mut c, &sky, Stick::default(), 60);
+        assert_eq!(c.light, 250);
+        let h = c.height(&sky);
+        // Straight down to start with, to the ground.
+        assert!(c.beam.x.abs() < 1.0 && c.beam.z.abs() < 1.0 && (c.beam.y + h + 250.0).abs() < 2.0, "{} at {h} up", c.beam);
+        // Ahead of the nose (along +z), as far as it's high.
+        fly(&mut c, &sky, Stick { aim: glam::Vec2::new(0.0, 1.0), ..Default::default() }, 400);
+        assert!((c.beam.z - h).abs() < 2.0 && c.beam.x.abs() < 1.0, "{} at {h} up", c.beam);
+        // Half a turn round, and it's behind where it was.
+        c.angle = 1024;
+        fly(&mut c, &sky, Stick::default(), 1);
+        assert!(c.beam.z < -h + 5.0, "{}", c.beam);
     }
 
     /// It won't chase the player more than 32 squares from home.

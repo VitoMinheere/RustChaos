@@ -31,7 +31,7 @@ No game data is included; everything is read from your install.
 | `uc-viewer` | The app (winit): plays a mission with a HUD, sound and gamepad support, or explores a level; free camera; headless screenshots. | all of the above |
 | `uc-net` | Co-op's lockstep session: the messages over TCP, the server's logic (each turn's inputs gathered and sent out, state hashes compared), the client, and the turn pacing with the input delay. Replays: a game saved as how it started and every turn's inputs, and played back. | `uc-game` |
 | `uc-server` | The headless co-op server; `--bot` plays a mission with made-up inputs, for testing. | `uc-net` |
-| `uc-tools` | `uc` command-line tool: missions to and from JSON. | `uc-formats` |
+| `uc-tools` | `uc` command-line tool: missions to and from JSON, the pages missing from the unfinished missions' worlds, and what in the install nothing uses. | `uc-formats`, `uc-world` |
 
 ## Build
 
@@ -361,11 +361,28 @@ E on a mission in the mission list (or `--edit police1`) opens it in the editor 
 - **Playing:** F5 plays the edit from the start; Shift+F5 plays it with Darci where the camera looks. Esc comes back to the editor where you were. Nothing an edit does goes into the progress, best times or replays.
 - **Next time:** the editor opens the saved edit, and `uc mission import` makes a `.ucm` of it for the original game.
 
+## What nothing uses
+
+```
+cargo run --release -p uc-tools -- unused [--game DIR]
+```
+
+Lists what's in the install that nothing uses, to find cut content:
+- **Missions** in `levels\` that `urban.sty` doesn't list, with their file version and whether they parse (16 older versions don't, #470).
+- **Voice lines**: mission recordings in `talk2\` that no message or conversation in the mission plays (66, #467).
+- **Loose textures and meshes** (`.tga`, `.imp`, `.sex`) that neither `fallen.exe` nor a mesh it loads refers to. The file names are read from `fallen.exe` itself, whole or as `sprintf` patterns, so the outro's textures count as used through its meshes. Found this way: six pictures in `data\` (three of them the E3 demo's) and the two 3D fonts besides `all`.
+
+Prims, sounds, animations and text aren't covered yet (#471).
+
 ## Upscaled textures
 
 1. Export the textures a level uses: `cargo run --release -p uc-viewer -- --mission police1 --dump-pages pages`. This writes `pages/page_NNNN.png`.
 2. Upscale them with any tool, keeping the file names. Wrap tiling textures around their edges, treat alpha separately, and check text by hand (`docs/RUST_ROADMAP.md` §4).
 3. Run with `--overrides pages_upscaled`. Any size works; textures get mipmaps automatically.
+
+A mission with no clump of its own borrows its pages from other missions' clumps, and takes their upscaled pages with them: `DIR/<mission it borrowed from>/` is tried after `DIR/<mission>/` and `DIR/world<N>/`, so the upscaled clumps cover the unreleased missions too. Folder names match whatever their case (`awol1` for `AWOL1`).
+
+The maps only unreleased missions are on (army1's, subdock1's, Capflag1's, Rooftop1's and others) are older than the texture sets that shipped, and their page numbers had moved on: army1's yards were paved with what is now a door, Rooftop1's roofs with Bane's rune circles. Their floor and roof squares on pages no released map uses there take the released maps' page most like them instead: one used on the same sort of square (roof, road, pavement), next to the same pages, and as much one field of itself. `uc textures floors` makes that table (`crates/uc-world/src/refloor.rs`), and a test checks it's current. Their walls and fences get the same: a wall page no released map has on a wall (Rooftop1's map's are pages world 12 hasn't got, drawn with other worlds' pictures of the same number) takes the released wall page most like it, on the same sort of piece (fence, bottom row, upper rows) and among the same pages on its walls (`uc textures walls`, `crates/uc-world/src/rewall.rs`). Only pictures the install already has are used, so the upscaled clumps cover them.
 
 Keep extracted and upscaled textures out of the repository; they are the game's copyrighted art.
 
@@ -413,6 +430,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for what to run before a pull request, an
 - props, which lean or crumple when they're knocked;
 - overhead cables (with their sag) and ladders;
 - baked lighting (ambient, static lights, lamppost lights);
+- lit windows: the pages each world's `textype.txt` flags 'I' draw their next page over them, its panes at full brightness whatever the light, so windows glow at night; and pages flagged 'S' are drawn unlit;
 - sky colour and distance fog;
 - Darci, with idle, walk and run animations, ground following and wall collision, and whoever else a mission makes the player: Mako out of the thugs' file, Roper out of his own;
 - explosions and the fires they leave.
@@ -424,6 +442,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for what to run before a pull request, an
 - hanging from ledges and traversing them;
 - stars, the skyline and moon;
 - animated prims (`LoadGameThing`).
+
+**The editor's oldest missions** (file versions 0 to 5, `uc unused` lists them) all load and run. Radar Tower (`army1`) and Union Gardens (`upperclass1`, the earliest Grim Gardens) play to a win and are in the mission list. Version 0's point types are one more than later versions', and are renumbered as they're loaded. Six maps are missing from the install. Rooftop1's is stood in for by the same rooftops without their insides (`ROOFnoin.iam`). The other five are gone altogether, so their missions are played on the map most of their points fit: the ECTS show's six on `supply1.iam`, `e7` on `gpost3.iam`, `downight` on `disturb1.iam`, and `tm3` and `wibble` on `test.iam`. A point on a stand-in with nothing under it is put down on the floor below, so timetest's cinema can still be reached.
 
 The shipped maps contain no fire-escape or interior-staircase facets, so those aren't needed. Warehouse roofs look black from outside: on PC the original takes their texture from a table only filled on PlayStation. Two-sided walls always use their front texture.
 
