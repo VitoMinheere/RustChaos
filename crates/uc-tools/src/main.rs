@@ -38,8 +38,8 @@ uc textures walls [--game DIR] [-o FILE]
 uc unused [--game DIR]
     What's in the install that nothing uses: mission files urban.sty doesn't list (with
     their version, and whether they parse), mission recordings in talk2\\ that no message
-    or conversation plays, and loose textures and meshes that neither fallen.exe nor a
-    mesh it loads refers to.";
+    or conversation plays, loose textures and meshes that neither fallen.exe nor a mesh it
+    loads refers to, and prims the released game never draws.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
