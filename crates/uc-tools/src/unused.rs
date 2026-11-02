@@ -101,10 +101,23 @@ pub struct Report {
     pub anim_files: usize,
     pub unused_anim_files: Vec<(String, String)>,
     pub missing_anim_files: Vec<String>,
-    /// `darci1.all`, the people's animations: how many it has, and the ones nothing plays,
-    /// with their `ANIM_*` names where they have one.
-    pub people_anims: usize,
-    pub unplayed_anims: Vec<(usize, &'static str)>,
+    /// The people's animation files, each against its set ([`PEOPLE_SETS`]).
+    pub people_files: Vec<PeopleFile>,
+}
+
+/// One of the files the people's animations are made of.
+pub struct PeopleFile {
+    pub file: String,
+    /// Its set ([`PEOPLE_SETS`]) and where its animations start in it.
+    pub set: &'static str,
+    pub start: usize,
+    /// How many animations it has.
+    pub anims: usize,
+    /// The ones nothing plays: their number in the file, and the name of their slot in the
+    /// set where it has one.
+    pub unplayed: Vec<(usize, &'static str)>,
+    /// The ones a file loaded after it puts its own over.
+    pub covered: Vec<usize>,
 }
 
 /// A prim file in `server\prims\` the released game never draws.
@@ -492,30 +505,25 @@ fn dead_points(m: &Mission) -> BTreeSet<usize> {
     }
 }
 
-/// The people's animations (`darci1.all`, `ANIM_*` in fallen/Headers/animate.h) the PC game
-/// code starts: every id it names in fallen/Source and fallen/DDEngine, comments left out,
-/// less the four it names only in code that never runs (`HIT_WALL` under `if(0)`,
-/// `STOP_RUN` in the `else` of an `if(1)`, interfac.cpp:2483, `NECK_SNAP` and `WARM_HANDS`
-/// never started; #342). No animation is started by a bare number.
+// The people's animations the PC game plays, by set, and the names of the ones it doesn't:
+// generated from the original source by tools/parity/anim_sets.py (which says how), and
+// pasted here as it prints them. Rerun it rather than editing these.
 const PLAYED_ANIMS: &[usize] = &[
-    1, 2, 3, 7, 8, 13, 14, 15, 16, 19, 20, 25, 33, 34, 37, 38, 39, 40, 41, 42,
-    43, 45, 53, 54, 57, 58, 59, 60, 62, 64, 65, 68, 77, 78, 81, 86, 88, 89, 91, 92,
-    96, 104, 105, 109, 110, 117, 121, 122, 124, 128, 129, 130, 131, 134, 137, 138, 140, 141, 143, 144,
+    2, 3, 8, 13, 14, 16, 19, 20, 25, 33, 34, 35, 36, 39, 42, 43, 45, 51, 52, 53,
+    54, 55, 56, 57, 58, 59, 60, 62, 64, 65, 68, 77, 78, 81, 86, 88, 89, 91, 92, 96,
+    104, 105, 109, 110, 117, 119, 121, 122, 124, 128, 129, 130, 131, 134, 137, 138, 140, 141, 143, 144,
     146, 147, 148, 150, 151, 154, 155, 156, 157, 158, 159, 161, 162, 164, 165, 166, 167, 168, 169, 170,
     171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 184, 188, 189, 193, 194, 198, 199, 200, 201,
-    202, 206, 208, 209, 210, 212, 213, 216, 217, 218, 219, 222, 223, 225, 226, 227, 228, 229, 230, 231,
-    232, 233, 234, 235, 236, 238, 240, 245, 246, 247, 248, 250, 252, 254, 258, 259, 260, 261, 262, 263,
-    264, 266, 267, 268, 269, 270, 271, 272, 273, 274, 275, 276, 277, 278, 279, 280, 281, 282, 283, 284,
-    285, 286, 287, 288, 290, 292, 293, 294, 295, 296, 297, 298, 304, 305, 306, 307, 309, 310, 311, 312,
-    313, 314, 315, 321, 322, 323, 324, 325, 326, 327, 328, 329, 330, 332, 333, 334, 335, 336, 337, 338,
-    339, 341, 342, 343, 344, 345, 346, 347, 348, 349, 350, 351, 353, 355, 358, 360, 368, 370, 371, 375,
-    376, 377, 378, 380, 382, 383, 384, 386, 387, 388, 389, 390, 391, 392, 394, 395, 396, 397, 398, 399,
-    400,
+    202, 203, 204, 206, 208, 209, 210, 212, 213, 216, 217, 218, 219, 222, 223, 225, 226, 227, 228, 229,
+    230, 231, 232, 233, 234, 235, 236, 238, 240, 245, 246, 247, 248, 250, 252, 254, 258, 259, 260, 261,
+    262, 263, 264, 266, 267, 268, 269, 270, 271, 272, 273, 274, 275, 276, 277, 278, 279, 280, 281, 282,
+    283, 284, 285, 286, 287, 288, 290, 292, 293, 294, 295, 296, 297, 298, 304, 305, 306, 307, 309, 310,
+    311, 312, 313, 314, 315, 321, 322, 323, 324, 325, 326, 327, 328, 329, 330, 332, 333, 334, 335, 336,
+    337, 338, 339, 341, 342, 343, 344, 345, 346, 347, 348, 349, 350, 351, 353, 355, 358, 360, 368, 370,
+    371, 375, 376, 377, 378, 380, 382, 383, 384, 386, 387, 388, 389, 390, 391, 392, 394, 395, 396, 397,
+    398, 399, 400,
 ];
-
-/// The `ANIM_*` names of the ids [`PLAYED_ANIMS`] leaves out (animate.h).
 const ANIM_NAMES: &[(usize, &str)] = &[
-    (10, "DRAW_GUN"),
     (12, "JUMP_UP_GRAB"),
     (18, "SIDLE"),
     (22, "HEAD_HIT_BIG"),
@@ -523,10 +531,11 @@ const ANIM_NAMES: &[(usize, &str)] = &[
     (26, "HEAD_HIT_SMALL"),
     (27, "GUT_HIT_SMALL"),
     (28, "HEAD_HIT_BEHIND"),
-    (32, "JUMP2"),
-    (36, "PULL_UP"),
+    (37, "HAND_OVER_HAND"),
+    (40, "GUT_HIT_BIG_BEHIND"),
     (46, "RUN_JUMP_RIGHT"),
     (47, "FALL_LONG"),
+    (48, "PULL_UP"),
     (69, "BSTEP"),
     (80, "FATAL_FALL"),
     (82, "SHOTGUN_IDLE_OLD"),
@@ -537,11 +546,11 @@ const ANIM_NAMES: &[(usize, &str)] = &[
     (93, "FLIP_RIGHT_CONT"),
     (94, "FLIP_LEFT_CONT"),
     (99, "HOSTAGE_STAND"),
-    (100, "HOSTAGE_SIT"),
-    (101, "HOSTAGE_DESPAIR"),
+    (100, "SIT"),
+    (101, "DESPAIR"),
     (102, "HOSTAGE_READY"),
-    (103, "HOSTAGE_RELEASE"),
-    (112, "BLOCK_LOW"),
+    (103, "STAND_UP"),
+    (112, "FORWARD_JUMP"),
     (118, "RUN_JUMP_MLEFT"),
     (132, "TURN90_LEFT"),
     (133, "TURN90_RIGHT"),
@@ -572,6 +581,87 @@ const ANIM_NAMES: &[(usize, &str)] = &[
     (361, "BIKE_FALL_OVER_BARS"),
     (379, "FIGHT_SHUFFLE_BAT"),
     (381, "LAND_VERT_AK"),
+];
+const PLAYED_ROPER: &[usize] = &[
+    1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 19, 20, 22, 23, 24, 25,
+    26, 27, 28, 34, 35, 36, 38, 39, 40, 41, 43, 44, 45, 46, 48, 72, 74, 76, 77, 79,
+    80, 82, 84, 87, 90, 91, 201, 202, 204, 211, 213, 214, 215, 219, 220, 221,
+];
+const PLAYED_ROPER2: &[usize] = &[
+    144, 223, 268, 269, 270, 271,
+];
+const PLAYED_CIV: &[usize] = &[
+    2, 13, 27, 28, 29, 30, 31, 52, 55, 58, 102, 103, 106, 116, 117, 118, 124, 132,
+];
+const SET_NAMES: &[(&str, usize, &str)] = &[
+    ("roper", 8, "NROPER_ANIM_DRAW_GUN"),
+    ("roper", 9, "NROPER_ANIM_GUN_AIM"),
+    ("roper", 10, "NROPER_ANIM_GUN_SHOOT"),
+    ("roper", 21, "NROPER_ANIM_AK_TAKEOUT"),
+    ("roper", 30, "NROPER_ANIM_GUN_AIM_L"),
+    ("roper", 31, "NROPER_ANIM_GUN_AIM_R"),
+    ("roper", 37, "NROPER_WALK_STOP_CARRY"),
+    ("roper", 42, "NROPER_WALK_STOP_CARRY_V"),
+    ("roper", 47, "NROPER_ANIM_RUN_WITH_AK"),
+    ("roper", 49, "NROPER_TO_WALL"),
+    ("roper", 50, "NROPER_TO_WALL_SHOTGUN"),
+    ("roper", 51, "NROPER_ALONG_WALL"),
+    ("roper", 52, "NROPER_ALONG_WALL_B"),
+    ("roper", 53, "NROPER_ALONG_WALL_SHOTGUN"),
+    ("roper", 54, "NROPER_ALONG_WALL_SHOTGUN_B"),
+    ("roper", 55, "NROPER_AIM_WALL_SHOTGUN"),
+    ("roper", 56, "NROPER_AIM_WALL_SHOTGUN_B"),
+    ("roper", 57, "NROPER_AIM_WALL_PISTOL"),
+    ("roper", 60, "NROPER_FIGHT_WALL"),
+    ("roper", 61, "NROPER_ALONG_WALL_SHOTGUN_C"),
+    ("roper", 62, "NROPER_ALONG_WALL_SHOTGUN_D"),
+    ("roper", 63, "NROPER_AIM_WALL_PISTOL_B"),
+    ("roper", 64, "NROPER_AIM_WALL_PISTOL_C"),
+    ("roper", 65, "NROPER_TO_WALL_STATIC"),
+    ("roper", 78, "NROPER_TWO_PISTOL_AWAY"),
+    ("roper", 85, "NROPER_SHOTGUN_CROUCH_HOLD"),
+    ("roper", 86, "NROPER_SHOTGUN_CROUCH_STAND_UP"),
+    ("roper", 88, "NROPER_TWO_PISTOL_CROUCH_HOLD"),
+    ("roper", 89, "NROPER_TWO_PISTOL_CROUCH_STAND_UP"),
+    ("roper", 222, "COP_ROPER_ANIM_LADDER_END_R"),
+    ("roper", 224, "COP_ROPER_ANIM_REST"),
+    ("roper", 231, "COP_ROPER_ANIM_FIGHT"),
+    ("roper", 232, "COP_ROPER_ANIM_LADDER_OFF_BOT"),
+    ("civ", 32, "CIV_ANIM_IDLE_PHONE_TALK"),
+    ("civ", 45, "CIV_BLOCK"),
+    ("civ", 46, "CIV_FIGHT_IDLE"),
+    ("civ", 53, "CIV_ANIM_WARM_HANDS"),
+    ("civ", 56, "CIV_ANIM_HANDS_UP"),
+    ("civ", 57, "CIV_ANIM_HANDS_UP_LOOP"),
+    ("civ", 107, "CIV_M_ANIM_IDLE_WATCH"),
+    ("civ", 110, "CIV_M_ANIM_SIT_LOOP"),
+    ("civ", 111, "CIV_M_ANIM_SIT_WAIT"),
+    ("civ", 113, "CIV_M_ANIM_SIT_TALK1"),
+    ("civ", 114, "CIV_M_ANIM_SIT_TALK2"),
+    ("civ", 115, "CIV_M_ANIM_SIT_TALK3"),
+    ("civ", 119, "CIV_M_ANIM_TALK1"),
+    ("civ", 120, "CIV_M_ANIM_TALK2"),
+    ("civ", 121, "CIV_M_ANIM_TALK3"),
+    ("civ", 125, "CIV_F_ANIM_IDLE_BREATHE"),
+    ("civ", 127, "CIV_F_ANIM_IDLE_LOOP"),
+    ("civ", 128, "CIV_F_ANIM_IDLE_LOOP2"),
+    ("civ", 129, "CIV_F_ANIM_IDLE_STOP"),
+    ("civ", 130, "CIV_F_ANIM_SIT_IDLE1"),
+    ("civ", 131, "CIV_F_ANIM_SIT_IDLE2"),
+];
+
+
+/// The people's animation sets (`setup_people_anims`, Anim.cpp:926), with the files each is
+/// made of: where each file's animations start in it (`append_anim_system`'s `start_anim`),
+/// and whether it's always loaded. The trainer's is only in the combat tutorial and Bane's
+/// suit only in estate2 and Album1, both over the same slots, so neither covers the other.
+/// A set's name, the ids played from it, and its files: (file, start, always loaded).
+type PeopleSet = (&'static str, &'static [usize], &'static [(&'static str, usize, bool)]);
+const PEOPLE_SETS: &[PeopleSet] = &[
+    ("everyone", PLAYED_ANIMS, &[("darci1.all", 0, true)]),
+    ("roper", PLAYED_ROPER, &[("roper.all", 0, true), ("police1.all", 200, true), ("trainer.all", 240, false), ("banesuit.all", 240, false)]),
+    ("roper2", PLAYED_ROPER2, &[("roper2.all", 0, true)]),
+    ("civ", PLAYED_CIV, &[("rthug.all", 0, true), ("newciv.all", 100, true), ("newcivf.all", 122, true)]),
 ];
 
 /// The files `fallen.exe` names that only the PlayStation build loads (`save_psx`,
@@ -634,20 +724,45 @@ fn anims(game: &Path, exe_strings: &[String], parsed: &[(String, Mission)], rele
     r.missing_anim_files = named.iter().map(|n| base(n).to_string()).filter(|n| !have.contains(n)).collect();
 
     // The people's animations nothing plays: not by the code, nor by a released mission's
-    // cutscene (an animation packet's index, less 1024 for Roper's, `PT_ANIM`, cutscene.cpp:1390).
-    let Some(chunk) = uc_formats::resolve(game, "data\\darci1.all").and_then(|p| std::fs::read(p).ok())
-        .and_then(|b| uc_formats::all::AnimChunk::parse(&b).ok()) else { return };
-    let mut played: BTreeSet<usize> = PLAYED_ANIMS.iter().copied().collect();
+    // cutscene (an animation packet's index: under 1024 everyone's, else Roper's less 1024,
+    // `PT_ANIM`, cutscene.cpp:1390).
+    let mut scenes: BTreeSet<(bool, usize)> = BTreeSet::new();
     for m in &rel {
         for c in m.cutscenes() {
-            played.extend(c.channels.iter().flat_map(|ch| &ch.packets).filter(|p| p.kind == 1 && p.index < 1024).map(|p| p.index as usize));
+            for p in c.channels.iter().flat_map(|ch| &ch.packets).filter(|p| p.kind == 1) {
+                let i = p.index as usize;
+                scenes.insert(if i < 1024 { (false, i) } else { (true, i - 1024) });
+            }
         }
     }
-    let present: Vec<usize> = chunk.anims.iter().enumerate().filter(|(_, a)| a.is_some()).map(|(i, _)| i).collect();
-    r.people_anims = present.len();
-    r.unplayed_anims = present.into_iter().filter(|i| !played.contains(i))
-        .map(|i| (i, ANIM_NAMES.iter().find(|(n, _)| *n == i).map_or("", |(_, s)| s)))
-        .collect();
+    let load = |f: &str| uc_formats::resolve(game, &format!("data\\{f}")).and_then(|p| std::fs::read(p).ok())
+        .and_then(|b| uc_formats::all::AnimChunk::parse(&b).ok());
+    for &(set, played, files) in PEOPLE_SETS {
+        let chunks: Vec<Option<uc_formats::all::AnimChunk>> = files.iter().map(|(f, ..)| load(f)).collect();
+        for (k, &(file, start, _)) in files.iter().enumerate() {
+            let Some(chunk) = &chunks[k] else { continue };
+            let present: Vec<usize> = chunk.anims.iter().enumerate().filter(|(_, a)| a.is_some()).map(|(i, _)| i).collect();
+            // Covered by an always-loaded file after it, which reads its whole list over the
+            // slots from its start (`load_append_game_chunk`, io.cpp).
+            let covers = |slot: usize| files.iter().zip(&chunks).skip(k + 1)
+                .any(|(&(_, s, always), c)| always && c.as_ref().is_some_and(|c| (s..s + c.anims.len()).contains(&slot)));
+            let mut pf = PeopleFile { file: file.to_string(), set, start, anims: present.len(), unplayed: Vec::new(), covered: Vec::new() };
+            for n in present {
+                let slot = start + n;
+                if covers(slot) {
+                    pf.covered.push(n);
+                } else if !played.contains(&slot) && !scenes.contains(&(set == "roper", slot)) {
+                    let name = if set == "everyone" {
+                        ANIM_NAMES.iter().find(|(v, _)| *v == slot).map_or("", |(_, s)| s)
+                    } else {
+                        SET_NAMES.iter().find(|(s, v, _)| *s == set && *v == slot).map_or("", |(_, _, s)| s)
+                    };
+                    pf.unplayed.push((n, name));
+                }
+            }
+            r.people_files.push(pf);
+        }
+    }
 }
 
 fn print(r: &Report) {
@@ -765,10 +880,19 @@ fn print(r: &Report) {
         println!("  named, but not there: {}", r.missing_anim_files.join(", "));
     }
     println!();
-    println!("People's animations: {} in darci1.all, {} that neither the code nor a released mission's cutscene plays:", r.people_anims, r.unplayed_anims.len());
-    let list: Vec<String> = r.unplayed_anims.iter().map(|(i, n)| if n.is_empty() { i.to_string() } else { format!("{i} {n}") }).collect();
-    println!("  {}", list.join(", "));
-    println!("  (the other files' own animations aren't checked one by one: they're numbered their own way, NROPER_*, CIV_*)");
+    println!("People's animations that neither the code nor a released mission's cutscene plays, by file:");
+    for f in &r.people_files {
+        let at = if f.start > 0 { format!(", from {}", f.start) } else { String::new() };
+        println!("  {} ({} set{at}): {} of {}", f.file, f.set, f.unplayed.len(), f.anims);
+        if !f.unplayed.is_empty() {
+            let list: Vec<String> = f.unplayed.iter().map(|(i, n)| if n.is_empty() { i.to_string() } else { format!("{i} {n}") }).collect();
+            println!("    {}", list.join(", "));
+        }
+        if !f.covered.is_empty() {
+            let list: Vec<String> = f.covered.iter().map(usize::to_string).collect();
+            println!("    covered by a file loaded after it: {}", list.join(", "));
+        }
+    }
     println!();
     println!("Mission messages never shown ({}): no point owns them, or their point waits for one that isn't in the mission:", r.unshown.len());
     for (m, rel, point, t) in &r.unshown {
@@ -1038,18 +1162,29 @@ mod tests {
             assert_eq!(why(used), None, "{used} counted as unused");
         }
         assert_eq!(r.missing_anim_files, ["roper_up.all"]);
-        assert_eq!(r.people_anims, 274);
-        let unplayed: Vec<usize> = r.unplayed_anims.iter().map(|(i, _)| *i).collect();
+        let people = |f: &str| r.people_files.iter().find(|p| p.file == f).unwrap();
+        let unplayed = |f: &str| people(f).unplayed.iter().map(|(i, _)| *i).collect::<Vec<usize>>();
+        assert_eq!(people("darci1.all").anims, 274);
         // Dead code (#342), the hostage's, and the dives.
         for id in [316, 340, 99, 100, 317, 318] {
-            assert!(unplayed.contains(&id), "{id} counted as played");
+            assert!(unplayed("darci1.all").contains(&id), "{id} counted as played");
         }
-        // In the file and played: the run, getting on a ladder, drawing a pistol.
+        // In the file and played: the run, getting on a ladder, drawing a pistol, and 51,
+        // which only the commented-out old numbers at the end of animate.h leave nameless.
         let chunk = uc_formats::all::AnimChunk::parse(&std::fs::read(uc_formats::resolve(&game, "data\\darci1.all").unwrap()).unwrap()).unwrap();
-        for id in [198, 13, 296] {
+        for id in [198, 13, 296, 51] {
             assert!(chunk.anims[id].is_some(), "{id} isn't in darci1.all");
-            assert!(!unplayed.contains(&id), "{id} counted as unplayed");
+            assert!(!unplayed("darci1.all").contains(&id), "{id} counted as unplayed");
         }
+        // The cops' idles are picked into a variable (Person.cpp:11691); Roper's wall moves
+        // aren't played.
+        for id in [4, 11, 14, 15] {
+            assert!(!unplayed("police1.all").contains(&id), "cop idle {id} counted as unplayed");
+        }
+        assert!(people("roper.all").unplayed.iter().any(|&(i, n)| i == 49 && n == "NROPER_TO_WALL"));
+        // newcivf.all, appended at 122, reads its list over newciv.all's 22 (100 + 22).
+        assert_eq!(people("newciv.all").covered, [22]);
+        assert!(unplayed("rthug.all").is_empty());
         // A map object, a car body and a special.
         for used in ["nprim141.prm", "nprim108.prm", "nprim232.prm"] {
             assert_eq!(why(used), None, "{used} counted as unused");
