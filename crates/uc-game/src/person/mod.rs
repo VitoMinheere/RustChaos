@@ -342,6 +342,10 @@ pub enum Sfx {
     /// the lines were never recorded, so the voices are made ones, a woman's or a man's,
     /// played where the made voices are found.
     AnnoyedLine { line: u8, female: bool },
+    /// A civilian says a chatter line that nobody recorded, or not for their sex: its
+    /// [`crate::city::chatter_key`], for a made voice, a woman's or a man's. Not the
+    /// original's, which shows the line as text only.
+    ChatterLine { key: u32, female: bool },
     /// One of the lines recorded for a character and never played (#486), said by someone of
     /// `PERSON_*` type `kind`: see [`Bark`]. No more than one every [`BARK_GAP`] seconds each.
     Bark { kind: u8, bark: Bark },

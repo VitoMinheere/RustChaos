@@ -161,9 +161,20 @@ fn the_recorded_chatter_lines_are_known() {
     assert_eq!(uc_game::city::voiced_line("sorry, officer, i'm in a HURRY"), Some(1));
 }
 
+/// A chatter line's made voice is named by its letters and digits only, as
+/// `tools/voices/make_voices.py` names it (`chatter_key` there gives b1f3a066 for line 1).
+#[test]
+fn chatter_keys_match_the_voice_tool() {
+    use uc_game::city::chatter_key;
+    assert_eq!(chatter_key("Sorry Officer, I'm in a hurry."), 0xb1f3_a066);
+    assert_eq!(chatter_key("sorry officer im in a HURRY!!"), 0xb1f3_a066);
+    assert_ne!(chatter_key("Sorry, I'm from outta town."), 0xb1f3_a066);
+}
+
 /// Talking to the crowd until one says a recorded line: it comes with its cue, a woman's
-/// take or a man's as they're drawn, stressed with Darci's gun out. Semtex's crowd has
-/// `citsez.txt`'s chatter. Skipped without an install.
+/// take or a man's as they're drawn, stressed with Darci's gun out, or the made voice's cue
+/// if nobody of their sex recorded it; and every other line comes with the made voice's.
+/// Semtex's crowd has `citsez.txt`'s chatter. Skipped without an install.
 #[test]
 fn a_recorded_line_is_heard() {
     let Some((level, mut g)) = load("semtex") else { return };
@@ -183,14 +194,22 @@ fn a_recorded_line_is_heard() {
         let said: Vec<String> = g.messages.iter().map(|m| m.text.clone()).collect();
         let cues: Vec<uc_game::Sfx> = g.take_sounds().into_iter().map(|(s, _)| s).collect();
         run(&level, &mut g, DT, Controls::default());
-        let Some(line) = said.iter().find_map(|t| uc_game::city::voiced_line(t)) else { continue };
         let o = &g.people[ci];
         let female = matches!(o.kind, uc_world::character::person::SLAG_TART | uc_world::character::person::SLAG_FATUGLY)
             || (o.kind == uc_world::character::person::CIV && o.fig.model.body == 9);
+        let Some(text) = said.first() else { continue };
+        let made = uc_game::Sfx::ChatterLine { key: uc_game::city::chatter_key(text), female };
+        let Some(line) = uc_game::city::voiced_line(text) else {
+            assert!(cues.contains(&made), "said {text:?} without its made voice: {cues:?}");
+            continue;
+        };
         let stressed = g.people[pi].weapon.is_gun();
         println!("line {line}, female {female}, stressed {stressed}: {cues:?}");
-        assert!(cues.contains(&uc_game::Sfx::CitizenLine { line, female, stressed }), "said line {line} without its cue: {cues:?}");
-        return;
+        if uc_game::city::recorded_by(line, female) {
+            assert!(cues.contains(&uc_game::Sfx::CitizenLine { line, female, stressed }), "said line {line} without its cue: {cues:?}");
+            return;
+        }
+        assert!(cues.contains(&made), "said line {line}, not recorded for them, without its made voice: {cues:?}");
     }
     panic!("no recorded line in 200 tries");
 }

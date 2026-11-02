@@ -166,6 +166,12 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
             let who = if female { "fcit" } else { "mcit" };
             at(audio, vec![format!("{who}-annoyed{line:02}.wav")], 1.0);
         }
+        // What the crowd says when spoken to, in a made voice for their sex
+        // (`fcit-chat1a2b3c4d.wav`, from the made voices' folder): silent without them.
+        Sfx::ChatterLine { key, female } => {
+            let who = if female { "fcit" } else { "mcit" };
+            at(audio, vec![format!("{who}-chat{key:08x}.wav")], 1.0);
+        }
         // The characters' lines that were recorded and never played (#486), every take.
         Sfx::Bark { kind, bark } => {
             use uc_game::Bark;
