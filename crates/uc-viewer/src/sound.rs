@@ -207,6 +207,7 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
             let names: Vec<String> = match said {
                 uc_game::RadioLine::Won => audio.takes("police-CONGRATS").into_iter().chain(audio.takes("police-CHEER")).collect(),
                 uc_game::RadioLine::Lost => audio.takes("police-FAIL"),
+                uc_game::RadioLine::Surprise => audio.takes("police-SURPRISE"),
             };
             if let Some(n) = audio.fresh(&names).filter(|n| !n.is_empty()) {
                 audio.play(&n, 0.9);
@@ -290,6 +291,8 @@ fn bark_line(bark: uc_game::Bark) -> &'static str {
         Bark::Greet => "GREET",
         Bark::Panic => "PANIC",
         Bark::Innocent => "INNOCENT",
+        Bark::Surprise => "SURPRISE",
+        Bark::Gloat => "TAUNT",
     }
 }
 

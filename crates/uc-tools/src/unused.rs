@@ -786,7 +786,8 @@ fn spoken(name: &str, m: &Mission) -> Vec<String> {
         let Some(text) = texts.get(&e.index) else { continue };
         let n = if e.data[9] > 0 { e.data[9] as usize } else { e.index };
         match e.kind {
-            waypoint::MESSAGE => out.push(format!("{name}.ucm{n}.wav")),
+            // A bonus points point says its line as a message does (`Command::Message`).
+            waypoint::MESSAGE | waypoint::BONUS_POINTS => out.push(format!("{name}.ucm{n}.wav")),
             waypoint::CONVERSATION => {
                 let lines = text.split('|').filter(|l| !l.trim().is_empty()).count();
                 out.extend((0..lines.min(26)).map(|i| format!("{name}.ucm{n}{}.wav", (b'A' + i as u8) as char)));
@@ -794,6 +795,12 @@ fn spoken(name: &str, m: &Mission) -> Vec<String> {
             _ => {}
         }
     }
+    // A line with no recording of its own says the one it was recorded as under its old
+    // number ([`uc_formats::speech::RENUMBERED`]).
+    let under: Vec<String> = out.iter()
+        .filter_map(|f| uc_formats::speech::RENUMBERED.iter().find(|(line, _)| line.eq_ignore_ascii_case(f)).map(|(_, r)| r.to_string()))
+        .collect();
+    out.extend(under);
     out
 }
 
@@ -984,8 +991,10 @@ mod tests {
         assert!(old.iter().all(|m| !m.listed));
         assert!(r.missions.iter().filter(|m| m.version > 5).all(|m| m.error.is_none()));
         assert!(r.missions.iter().any(|m| m.name == "army1" && m.version == 5));
-        assert_eq!(r.unplayed.values().map(Vec::len).sum::<usize>(), 66);
-        assert_eq!(r.unplayed["mission2"].len(), 13);
+        // Of #467's 66, 21 are bonus points' lines and 5 are said by lines renumbered since
+        // (`uc_formats::speech::RENUMBERED`): docs/scripts/unplayed-recordings.md has the rest.
+        assert_eq!(r.unplayed.values().map(Vec::len).sum::<usize>(), 40);
+        assert_eq!(r.unplayed["mission2"].len(), 5);
         assert_eq!(r.strays, ["Copy of Semtex.ucm106.wav"]);
         assert_eq!(r.odd.len(), 7);
         // The front end's pictures no code that shipped loads (Attract.cpp's are commented

@@ -122,3 +122,79 @@ fn a_hostage_comes_along() {
     let said = r.barks();
     assert!(said.contains(&(ptype::DARCI, Bark::Command)), "{said:?}");
 }
+
+/// The player wrecking a police car earns a red mark (`VEH_reduce_health`), and dispatch
+/// says so over the radio: "What the hell?" (`police-SURPRISE`).
+#[test]
+fn a_red_mark_gets_a_what_the_hell() {
+    let Some(mut r) = common::start("police1") else { return };
+    r.play(1.0, Controls::default());
+    r.g.take_sounds();
+    let me = r.player();
+    let at = r.g.people[me].fig.pos + vec3(2000.0, 0.0, 0.0);
+    r.g.vehicles.push(uc_game::Vehicle::new(0, 3, at, 0.0, uc_game::vehicle::Key::from_vk(0)));
+    let v = r.g.vehicles.len() - 1;
+    r.g.vehicles[v].hurt_by = Some(me);
+    r.g.vehicles[v].health = 0;
+    r.play(0.5, Controls::default());
+    let radio: Vec<Sfx> = r.g.take_sounds().into_iter().map(|(s, _)| s).filter(|s| matches!(s, Sfx::RadioSays(_))).collect();
+    assert_eq!(radio, [Sfx::RadioSays(uc_game::RadioLine::Surprise)]);
+}
+
+/// Running into a civilian out for a stroll: "Wha-" (`MCIV-SURPRISE`). Walking into one,
+/// nothing.
+#[test]
+fn a_civilian_run_into_says_wha() {
+    let Some(mut r) = common::start("police1") else { return };
+    r.play(1.0, Controls::default());
+    let me = r.player();
+    let civ = (0..r.g.people.len()).find(|&i| {
+        let p = &r.g.people[i];
+        p.kind == ptype::CIV && p.ai == uc_game::person::AI_CIV && p.mv == uc_game::person::MOVE_WANDER && matches!(p.state, State::Move)
+    }).expect("someone out for a stroll");
+    r.barks();
+    let mut said = false;
+    for _ in 0..(3.0 / DT) as usize {
+        let (from, to) = (r.g.people[me].fig.pos, r.g.people[civ].fig.pos);
+        if (to - from).length() > 600.0 {
+            r.stand(to + vec3(400.0, 0.0, 0.0));
+        }
+        let d = glam::vec2(to.x - r.g.people[me].fig.pos.x, to.z - r.g.people[me].fig.pos.z).normalize_or_zero();
+        r.play(DT, Controls { wish: d, run: true, ..Default::default() });
+        if r.barks().contains(&(ptype::CIV, Bark::Surprise)) {
+            said = true;
+            break;
+        }
+    }
+    assert!(said, "nothing said running into them");
+}
+
+/// A hostage beside someone being cuffed gloats: "I got ya, chump!" (`HOSTAGE-TAUNT`).
+#[test]
+fn a_hostage_gloats_at_an_arrest() {
+    let Some(mut r) = common::start("police1") else { return };
+    r.play(1.0, Controls::default());
+    let me = r.player();
+    let at = r.g.people[me].fig.pos;
+    let others: Vec<usize> = (0..r.g.people.len())
+        .filter(|&i| i != me && !r.g.people[i].removed && !r.g.people[i].is_dead() && matches!(r.g.people[i].state, State::Move) && r.g.people[i].kind != ptype::COP)
+        .collect();
+    let (thug, hostage) = (others[0], others[1]);
+    r.g.people[hostage].kind = ptype::HOSTAGE;
+    r.g.people[thug].fig.pos = at + vec3(80.0, 0.0, 0.0);
+    r.g.people[thug].take_hit(at, 0, ko::KNOCKDOWN, false, false, Weapon::None);
+    r.play(1.5, Controls::default());
+    r.g.people[hostage].fig.pos = r.g.people[thug].body_pos() + vec3(0.0, 0.0, 300.0);
+    r.barks();
+    let body = r.g.people[thug].body_pos();
+    r.stand(body + vec3(60.0, 0.0, 0.0));
+    let mut said = Vec::new();
+    r.play(DT, Controls { action: true, ..Default::default() });
+    for _ in 0..(4.0 / DT) as usize {
+        r.g.people[hostage].fig.pos = body + vec3(0.0, 0.0, 300.0);
+        r.play(DT, Controls::default());
+        said.extend(r.barks());
+    }
+    assert!(r.g.people[thug].arrested || matches!(r.g.people[thug].state, State::Cuffed), "not arrested");
+    assert!(said.contains(&(ptype::HOSTAGE, Bark::Gloat)), "{said:?}");
+}

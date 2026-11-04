@@ -242,6 +242,12 @@ impl Audio {
         if let Some(c) = self.load(&rel) {
             return Some(c);
         }
+        // Recorded, but under the number its point had before the mission was renumbered.
+        if let Some(&(_, under)) = uc_formats::speech::RENUMBERED.iter().find(|(line, _)| line.eq_ignore_ascii_case(name)) {
+            if let Some(c) = self.load(&format!("talk2\\{under}")) {
+                return Some(c);
+            }
+        }
         let key = format!("made\\{rel}");
         if let Some(c) = self.cache.get(&key) {
             return c.clone();
