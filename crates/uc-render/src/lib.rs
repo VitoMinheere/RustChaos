@@ -101,7 +101,8 @@ pub struct Settings {
     /// This frame's shadow maps (#241), by page (`uc_world::SMAP`): each pixel's coverage,
     /// square.
     pub shadows: Vec<(u32, Vec<u8>)>,
-    /// Walls, floors and roofs lit by their pages' normal maps (#474), if on.
+    /// Walls, floors and roofs, and people, cars and props, lit by their pages' normal maps
+    /// (#474, #521), if on.
     pub relief: Option<Relief>,
 }
 
@@ -909,6 +910,16 @@ impl Renderer {
         }
     }
 
+    /// The normal map `page` is drawn with when the relief is on: none for a page that
+    /// lights itself, whose light doesn't change with how it faces.
+    fn relief_map(&self, s: &Settings, page: u32) -> Option<&wgpu::BindGroup> {
+        s.relief.as_ref()?;
+        if self.self_lit.unlit.contains(&page) || self.self_lit.overlay(page).is_some() {
+            return None;
+        }
+        self.normals.get(&page)
+    }
+
     fn ensure_targets(&mut self, size: (u32, u32)) {
         if self.targets.as_ref().is_some_and(|t| t.size == size) {
             return;
@@ -1187,9 +1198,8 @@ impl Renderer {
                         }
                         let bg = if r.page == UNTEXTURED { &self.white } else { self.textures.get(&r.page).unwrap_or(&self.white) };
                         // A wall, floor or roof whose page has a normal map, lit by it.
-                        let normal = self.normals.get(&r.page)
-                            .filter(|_| s.relief.is_some() && matches!(r.layer, Layer::Floor | Layer::Walls | Layer::Roofs))
-                            .filter(|_| !self.self_lit.unlit.contains(&r.page) && self.self_lit.overlay(r.page).is_none());
+                        let normal = self.relief_map(s, r.page)
+                            .filter(|_| matches!(r.layer, Layer::Floor | Layer::Walls | Layer::Roofs));
                         if let Some(n) = normal {
                             pass.set_pipeline(&self.relief_pipeline);
                             pass.set_bind_group(1, bg, &[]);
@@ -1208,7 +1218,19 @@ impl Renderer {
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
                 for &(page, first, count) in dyn_ranges.iter().filter(|r| !matches!(r.0, SHADOW | GLOW | MIST | SKY_PAGE | MOON_PAGE | EXPLODE_PAGE) && !DECAL_PAGES.contains(&r.0) && !ADDITIVE_PAGES.contains(&r.0) && ghost_page(r.0).is_none() && reflect_page(r.0).is_none() && smap_slot(r.0).is_none()) {
-                    self.draw_page(&mut pass, &mut stats, page, self.textures.get(&page).unwrap_or(&self.white), first..first + count);
+                    let bg = self.textures.get(&page).unwrap_or(&self.white);
+                    // People, cars and props whose page has a normal map, lit by it (#521).
+                    if let Some(n) = self.relief_map(s, page) {
+                        pass.set_pipeline(&self.relief_pipeline);
+                        pass.set_bind_group(1, bg, &[]);
+                        pass.set_bind_group(2, n, &[]);
+                        pass.draw_indexed(first..first + count, 0, 0..1);
+                        pass.set_pipeline(&self.pipeline);
+                        stats.draw_calls += 1;
+                        stats.triangles += count as usize / 3;
+                        continue;
+                    }
+                    self.draw_page(&mut pass, &mut stats, page, bg, first..first + count);
                 }
                 // Where the puddles show, then what they reflect there, under the puddles'
                 // own sheen (drawn with the marks next, as `POLY_PAGE_PUDDLE` over the

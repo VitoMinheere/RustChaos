@@ -26,7 +26,7 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
                     lists the pages the clump-less missions need)
   --dump-pages DIR  write every texture this level uses as DIR/page_NNNN.png and exit
   --linear          smooth texture magnification (default: crisp nearest-neighbour)
-  --relief          light walls, floors and roofs by their upscaled pages' normal maps, strongly
+  --relief          light the world, people and cars by their upscaled pages' normal maps, strongly
   --fullbright      ignore the level's baked lighting
   --fog START,END   distance fog in map squares (default 20,40); --no-fog disables it
   --no-crinkles     flat walls up close (default: walls with a crinkle stand out in relief,

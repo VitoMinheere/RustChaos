@@ -25,9 +25,9 @@ pub(crate) struct Options {
     pub(crate) upscaled: bool,
     /// Where they are (`textures_dir=`): [`TEXTURES`] beside the progress file if not set.
     pub(crate) textures_dir: Option<PathBuf>,
-    /// Walls, floors and roofs lit by their upscaled pages' normal maps (#474): off, soft or
-    /// strong ([`RELIEF`]), from the next level loaded (the console's `relief` goes round
-    /// them on the spot).
+    /// Walls, floors and roofs, people, cars and props lit by their upscaled pages' normal
+    /// maps (#474, #521): off, soft or strong ([`RELIEF`]), from the next level loaded (the
+    /// console's `relief` goes round them on the spot).
     pub(crate) relief: u8,
     /// `--overrides DIR`: the textures for this run, whatever's set here. Not saved.
     pub(crate) forced: Option<PathBuf>,
