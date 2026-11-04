@@ -151,7 +151,7 @@ They need `torch`, `torchaudio` and `chatterbox-tts` (Python 3.11; also `setupto
 
 **Damaged props:** a lamp post, sign or tree that's hit leans over, by 7 to 13 degrees, the way the original picks. Other props crumple a little more with each knock (the fourth knock turns the original's two-bit count back to almost nothing, as it did in 1999). A broken hydrant gushes water for fifteen seconds, hissing. A car scraping along a wall rattles the fences on the edges of its square for a moment.
 
-**Endless mode:** ENDLESS in the main menu, then a map, or `--mission NAME --endless [--seed N]`. Waves of Wildcats keep coming at Darci, each bigger and better armed than the last:
+**Endless mode:** ENDLESS in the main menu, then an arena, or `--mission NAME --endless [--seed N]`. Each map has one round its start, named after its district (West District: outside the station, Gangland, Oval Circuit: the pits), and a couple have one somewhere else as well: West District's park, and the Oval Circuit's whole track, where Driving Bronze is driven. Waves of Wildcats keep coming at Darci, each bigger and better armed than the last:
 - fists first, then bats and knives, a few pistols from wave 7, shotguns and AKs later, with only so many guns out at once;
 - Men in Black from wave 15;
 - a boss every tenth wave, marked on the map.
