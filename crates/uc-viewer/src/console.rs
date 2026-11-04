@@ -16,7 +16,7 @@ const CHANGES: [&str; 22] = [
 ];
 
 const HELP: &str = "telw N (to event point N)  tels / telr (store / return)  wpt (nearest point)  \
-win  lose  restart  roper  darci  kit  boo  pow  pos  god  ammo  freeze  give WHAT  kill [near]  \ncrime N  time X  wave N  bonus  telb N  car  dog  call WHAT  autopilot  crinkles  sm  dike  flag  hm";
+win  lose  restart  roper  darci  kit  boo  pow  pos  god  ammo  freeze  give WHAT  kill [near]  \ncrime N  time X  wave N  bonus  telb N  car  dog  call WHAT  autopilot  crinkles  textures  sm  dike  flag  hm";
 
 #[derive(Default)]
 pub(crate) struct Console {
@@ -260,6 +260,18 @@ impl World {
             "crinkles" => {
                 self.crinkles = !self.crinkles;
                 self.console.say(if self.crinkles { "Crinkles on" } else { "Crinkles off" });
+            }
+            // The upscaled textures (`--overrides`, or Options' folder) or the originals, on
+            // the spot, to compare.
+            "textures" => {
+                let dir = match self.level.overrides() {
+                    Some(_) => None,
+                    None => self.args.overrides.clone().or_else(|| crate::options::Options::load().textures_dir()),
+                };
+                let to = if dir.is_some() { "Upscaled" } else { "Original" };
+                self.level.set_overrides(dir);
+                self.reupload = true;
+                self.console.say(format!("{to} textures..."));
             }
             _ => self.console.say(format!("Unknown command '{name}': try help")),
         }

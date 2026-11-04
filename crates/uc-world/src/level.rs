@@ -1301,6 +1301,17 @@ impl Level {
         quads
     }
 
+    /// The folder of override textures (`--overrides`, or the upscaled ones), if any.
+    pub fn overrides(&self) -> Option<&Path> {
+        self.overrides.as_deref()
+    }
+
+    /// Takes its textures from `dir` from now on (the originals if `None`): what's uploaded
+    /// next has them.
+    pub fn set_overrides(&mut self, dir: Option<PathBuf>) {
+        self.overrides = dir;
+    }
+
     /// The texture for a page: an override PNG if present ([`override_path`]), else the
     /// clump's.
     pub fn texture(&self, page: u32) -> Option<(Texture, bool)> {

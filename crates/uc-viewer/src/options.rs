@@ -3,8 +3,8 @@
 
 use crate::*;
 
-/// What's switched: three volumes in tenths, and the detail.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// What's switched: three volumes in tenths, the detail, and the textures.
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Options {
     pub(crate) master: u8,
     pub(crate) effects: u8,
@@ -19,20 +19,32 @@ pub(crate) struct Options {
     pub(crate) fog: bool,
     /// Smooth texture filtering (`--linear`), from the next start.
     pub(crate) linear: bool,
+    /// The upscaled textures (`tools/upscale/`) in place of the originals, from
+    /// [`Options::textures_dir`], from the next level loaded (the console's `textures`
+    /// switches them on the spot).
+    pub(crate) upscaled: bool,
+    /// Where they are (`textures_dir=`): [`TEXTURES`] beside the progress file if not set.
+    pub(crate) textures_dir: Option<PathBuf>,
+    /// `--overrides DIR`: the textures for this run, whatever's set here. Not saved.
+    pub(crate) forced: Option<PathBuf>,
 }
+
+/// The upscaled textures' folder when none is set, beside the progress file.
+pub(crate) const TEXTURES: &str = "textures";
 
 impl Default for Options {
     fn default() -> Options {
         Options {
             master: 10, effects: 10, music: 10, shadows: true, dirt: true, mist: true, rain: true, skyline: true, moon: true,
-            crinkles: true, fog: true, linear: false,
+            crinkles: true, fog: true, linear: false, upscaled: false, textures_dir: None, forced: None,
         }
     }
 }
 
 /// The rows of the screen, top to bottom: the settings, then the controls' page and back.
-pub(crate) const ROWS: usize = 14;
-pub(crate) const CONTROLS_ROW: usize = 12;
+pub(crate) const ROWS: usize = 15;
+pub(crate) const TEXTURES_ROW: usize = 12;
+pub(crate) const CONTROLS_ROW: usize = 13;
 
 /// The effects and music at full volume before these were here (`Audio`'s defaults).
 const EFFECTS: f32 = 0.8;
@@ -68,6 +80,8 @@ impl Options {
                 "crinkles" => o.crinkles = on,
                 "fog" => o.fog = on,
                 "filtering" => o.linear = value == "smooth",
+                "textures" => o.upscaled = value == "upscaled",
+                "textures_dir" if !value.is_empty() => o.textures_dir = Some(PathBuf::from(value)),
                 _ => {}
             }
         }
@@ -85,11 +99,28 @@ impl Options {
     /// As the file has them.
     fn text(&self) -> String {
         let on = |b: bool| if b { "on" } else { "off" };
+        let dir = self.textures_dir.as_ref().map_or(String::new(), |d| format!("textures_dir={}\n", d.display()));
         format!(
-            "master={}\neffects={}\nmusic={}\nshadows={}\ndirt={}\nmist={}\nrain={}\nskyline={}\nmoon={}\ncrinkles={}\nfog={}\nfiltering={}\n",
+            "master={}\neffects={}\nmusic={}\nshadows={}\ndirt={}\nmist={}\nrain={}\nskyline={}\nmoon={}\ncrinkles={}\nfog={}\nfiltering={}\ntextures={}\n{dir}",
             self.master, self.effects, self.music, on(self.shadows), on(self.dirt), on(self.mist), on(self.rain),
             on(self.skyline), on(self.moon), on(self.crinkles), on(self.fog), if self.linear { "smooth" } else { "crisp" },
+            if self.upscaled { "upscaled" } else { "original" },
         )
+    }
+
+    /// The upscaled textures' folder: the one set, else [`TEXTURES`] beside the progress
+    /// file. A folder with a `clumps` folder in it (the upscaler's own output, which has the
+    /// fonts and the like beside the clumps) means that one.
+    pub(crate) fn textures_dir(&self) -> Option<PathBuf> {
+        let dir = self.textures_dir.clone().or_else(|| Some(progress::Progress::folder()?.join(TEXTURES)))?;
+        let clumps = dir.join("clumps");
+        Some(if clumps.is_dir() { clumps } else { dir })
+    }
+
+    /// The folder the levels take their textures from: `--overrides`'s, else the upscaled
+    /// textures' when they're on.
+    pub(crate) fn overrides(&self) -> Option<PathBuf> {
+        self.forced.clone().or_else(|| self.upscaled.then(|| self.textures_dir()).flatten())
     }
 
     /// Row `k`: its name and what it's set to.
@@ -109,6 +140,7 @@ impl Options {
             9 => ("CRINKLES", on(self.crinkles)),
             10 => ("FOG", on(self.fog)),
             11 => ("TEXTURE FILTERING", if self.linear { "SMOOTH (NEXT START)".into() } else { "CRISP (NEXT START)".into() }),
+            TEXTURES_ROW => ("TEXTURES", self.textures_value()),
             CONTROLS_ROW => ("CONTROLS", String::new()),
             _ => ("BACK", String::new()),
         }
@@ -130,7 +162,29 @@ impl Options {
             9 => self.crinkles = !self.crinkles,
             10 => self.fog = !self.fog,
             11 => self.linear = !self.linear,
+            TEXTURES_ROW => self.upscaled = !self.upscaled,
             _ => {}
+        }
+    }
+
+    /// The textures row's value: which, and for the upscaled ones whether their folder is
+    /// there, with how many missions' clumps it has.
+    fn textures_value(&self) -> String {
+        if self.forced.is_some() {
+            return "--OVERRIDES (THIS RUN)".into();
+        }
+        if !self.upscaled {
+            return "ORIGINAL".into();
+        }
+        let dir = self.textures_dir();
+        let missions = dir.as_ref().and_then(|d| std::fs::read_dir(d).ok())
+            .map_or(0, |r| r.flatten().filter(|e| e.path().is_dir()).count());
+        let pages = dir.as_ref().and_then(|d| std::fs::read_dir(d).ok())
+            .map_or(0, |r| r.flatten().filter(|e| e.file_name().to_string_lossy().starts_with("page_")).count());
+        match (missions, pages) {
+            (0, 0) => "UPSCALED (NO FOLDER: SEE README)".into(),
+            (0, n) => format!("UPSCALED ({n} PAGES, NEXT LEVEL)"),
+            (n, _) => format!("UPSCALED ({n} CLUMPS, NEXT LEVEL)"),
         }
     }
 
@@ -146,8 +200,9 @@ impl Options {
     }
 
     /// Into `args`, for the worlds made from them: crinkles, fog (`fog` when it's on), the
-    /// rain and the other extras, and the texture filtering.
+    /// rain and the other extras, the texture filtering and the textures.
     pub(crate) fn apply_to(&self, args: &mut Args, fog: Option<(f32, f32)>) {
+        args.overrides = self.overrides();
         args.crinkles = self.crinkles;
         args.fog = if self.fog { fog } else { None };
         args.rain = self.rain;
@@ -156,11 +211,12 @@ impl Options {
     }
 
     /// The command line's switches win for the run they're given on: `--no-crinkles`,
-    /// `--no-fog` and `--linear` (`--mute` silences everything anyway).
+    /// `--no-fog`, `--linear` and `--overrides` (`--mute` silences everything anyway).
     pub(crate) fn with_args(mut self, args: &Args) -> Options {
         self.crinkles &= args.crinkles;
         self.fog &= args.fog.is_some();
         self.linear |= args.linear;
+        self.forced = args.overrides.clone();
         self
     }
 }
@@ -173,7 +229,7 @@ mod tests {
     fn every_row_changes_and_volumes_stop_at_the_ends() {
         let mut o = Options::default();
         for k in 0..CONTROLS_ROW {
-            let before = o;
+            let before = o.clone();
             o.change(k, -1);
             assert_ne!(o, before, "row {k} ({}) didn't change", o.row(k).0);
         }
@@ -197,5 +253,26 @@ mod tests {
         assert_eq!(Options::parse(""), Options::default());
         let odd = Options::parse("master=99\nfog=off\nnonsense");
         assert_eq!((odd.master, odd.fog), (10, false));
+        let up = Options::parse("textures=upscaled\ntextures_dir=/somewhere/textures_4x");
+        assert!(up.upscaled);
+        assert_eq!(Options::parse(&up.text()), up);
+    }
+
+    /// The upscaled textures are the levels' only when they're on; `--overrides` wins for
+    /// its run, on or off. A folder with `clumps` in it means that.
+    #[test]
+    fn the_textures_folder() {
+        let dir = std::env::temp_dir().join(format!("uc-textures-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("clumps/police1")).unwrap();
+        let mut o = Options { textures_dir: Some(dir.clone()), ..Options::default() };
+        assert_eq!(o.overrides(), None);
+        o.upscaled = true;
+        assert_eq!(o.overrides(), Some(dir.join("clumps")));
+        assert_eq!(o.row(TEXTURES_ROW).1, "UPSCALED (1 CLUMPS, NEXT LEVEL)");
+        let cli = Args { overrides: Some(PathBuf::from("/elsewhere")), ..Args::default() };
+        let o = o.with_args(&cli);
+        assert_eq!(o.overrides(), Some(PathBuf::from("/elsewhere")));
+        assert_eq!(o.row(TEXTURES_ROW).1, "--OVERRIDES (THIS RUN)");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

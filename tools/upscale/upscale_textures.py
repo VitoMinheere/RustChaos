@@ -17,12 +17,24 @@ Batch-upscale Urban Chaos textures with realesrgan-ncnn-vulkan.
 - Calls the upscaler once per --chunk textures, so the model loads once per batch.
 - Logs totals, progress after every batch, and every failure, to --log. A bad texture is
   logged and left for the next run; it never stops this one.
+- Per-page treatments from a rules file (--rules, rules.txt beside this script): a glob on
+  the relative path, and how pictures that match it are made, the first matching line
+  winning. One that matches nothing gets --model.
+    model=NAME   another model from --model-dir (realesr-animevideov3-x4,
+                 realesrgan-x4plus-anime);
+    nearest      no model: each pixel made a block (text, pixel art, small faces);
+    lanczos      no model: scaled smoothly;
+    skip         no upscaled picture: its output is removed, so the game uses the original;
+    manual       as skip, and listed in <dst>/manual.txt, to be painted by hand.
+  What made each output is kept in <dst>/.upscale.json; a rerun redoes a page whose rule has
+  changed since, and one an earlier run made with no rules file counts as made by --model.
 
   upscale_textures.py --src ~/uc/textures --dst ~/uc/textures_4x --limit 20
 """
 import argparse
 import fnmatch
 import hashlib
+import json
 import logging
 import os
 import shutil
@@ -66,7 +78,55 @@ def parse_args():
                    help="only relative paths matching this glob; repeatable")
     p.add_argument("--limit", type=int, default=0, help="only N distinct textures (test runs)")
     p.add_argument("--log", type=Path, default=Path("upscale.log"))
+    p.add_argument("--rules", type=Path, default=Path(__file__).with_name("rules.txt"),
+                   help="per-page treatments (see above); a missing file is no rules")
     return p.parse_args()
+
+
+# ---------------------------------------------------------------- rules
+
+TREATMENTS = ("nearest", "lanczos", "skip", "manual")
+
+
+def read_rules(path: Path):
+    """The rules file's (glob, treatment) lines, in order."""
+    rules = []
+    if not path.is_file():
+        return rules
+    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) != 2 or not (parts[1] in TREATMENTS or parts[1].startswith("model=")):
+            sys.exit(f"{path}:{n}: want 'GLOB TREATMENT', TREATMENT one of {', '.join(TREATMENTS)} or model=NAME")
+        rules.append((parts[0], parts[1]))
+    return rules
+
+
+def treatment(rel: str, rules, a) -> str:
+    """How `rel` is made: its first matching rule's treatment, else --model."""
+    for glob, t in rules:
+        if fnmatch.fnmatch(rel, glob):
+            return t
+    return f"model={a.model}"
+
+
+class Manifest:
+    """<dst>/.upscale.json: the treatment that made each output."""
+
+    def __init__(self, dst: Path, default: str):
+        self.path, self.default = dst / ".upscale.json", default
+        self.made = json.loads(self.path.read_text()) if self.path.is_file() else {}
+
+    def made_by(self, rel: str) -> str:
+        return self.made.get(rel, self.default)
+
+    def save(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_name(".upscale.json.part")
+        tmp.write_text(json.dumps(self.made, indent=0, sort_keys=True))
+        os.replace(tmp, self.path)
 
 
 def setup_logging(path: Path):
@@ -126,10 +186,12 @@ def bleed(rgb: np.ndarray, hole: np.ndarray, wrap: bool) -> np.ndarray:
 
 
 class Job:
-    """One distinct picture and every output path that should get it."""
+    """One distinct picture made one way, and every output path that should get it (with
+    its relative path, for the manifest)."""
 
-    def __init__(self, key, rel, srcs, dsts, pixels):
+    def __init__(self, key, rel, srcs, dsts, pixels, how, rels):
         self.key, self.rel, self.srcs, self.dsts, self.pixels = key, rel, srcs, dsts, pixels
+        self.how, self.rels = how, rels
 
 
 def prepare(job: Job, a, indir: Path):
@@ -181,6 +243,40 @@ def finish(job: Job, info, a, outdir: Path):
     return img
 
 
+def scale_locally(job: Job, a) -> Image.Image:
+    """`nearest` or `lanczos`: scaled with no model. Nearest keeps every pixel as a block, so
+    its alpha and colour key come through as they were; lanczos is done as the model's are,
+    holes bled and the edges wrapped (or repeated), alpha on its own."""
+    rgba, has_alpha, _ = load_rgba(job.srcs[0])
+    h, w = rgba.shape[:2]
+    s = a.scale
+    keep = "RGBA" if has_alpha else "RGB"
+    if job.how == "nearest":
+        return Image.fromarray(rgba).convert(keep).resize((w * s, h * s), Image.NEAREST)
+    wrap = not any(fnmatch.fnmatch(job.rel, p) for p in a.no_wrap)
+    rgb, alpha = rgba[..., :3], rgba[..., 3]
+    key = (rgb == np.array(a.colorkey, np.uint8)).all(-1) if a.colorkey else np.zeros(alpha.shape, bool)
+    hole = key | (alpha == 0) if has_alpha else key
+    if hole.any():
+        rgb = bleed(rgb, hole, wrap)
+    pad, mode = 4, ("wrap" if wrap else "edge")
+
+    def up(chan):
+        big = Image.fromarray(np.pad(chan, ((pad, pad), (pad, pad)) + ((0, 0),) * (chan.ndim - 2), mode=mode))
+        big = big.resize(((w + 2 * pad) * s, (h + 2 * pad) * s), Image.LANCZOS)
+        return np.array(big)[pad * s:(pad + h) * s, pad * s:(pad + w) * s]
+
+    out = up(rgb)
+    if key.any():
+        out[key.repeat(s, 0).repeat(s, 1)] = a.colorkey
+    if not has_alpha:
+        return Image.fromarray(out, "RGB")
+    al = up(alpha)
+    if np.isin(alpha, (0, 255)).all():
+        al = np.where(al >= 128, 255, 0).astype(np.uint8)
+    return Image.fromarray(np.dstack([out, al]), "RGBA")
+
+
 def save_atomic(img: Image.Image, dst: Path):
     dst.parent.mkdir(parents=True, exist_ok=True)
     fmt = {".png": "PNG", ".tga": "TGA", ".bmp": "BMP"}[dst.suffix.lower()]
@@ -198,8 +294,8 @@ def copy_atomic(src: Path, dst: Path):
 
 # ---------------------------------------------------------------- running
 
-def run_upscaler(a, indir: Path, outdir: Path, log, tile=None) -> bool:
-    cmd = [str(a.bin), "-i", str(indir), "-o", str(outdir), "-n", a.model, "-m", str(a.model_dir),
+def run_upscaler(a, model: str, indir: Path, outdir: Path, log, tile=None) -> bool:
+    cmd = [str(a.bin), "-i", str(indir), "-o", str(outdir), "-n", model, "-m", str(a.model_dir),
            "-s", str(a.scale), "-t", str(tile or a.tile), "-g", str(a.gpu), "-j", a.threads, "-f", "png"]
     r = subprocess.run(cmd, cwd=a.bin.parent, capture_output=True, text=True)
     if r.returncode != 0:
@@ -209,8 +305,9 @@ def run_upscaler(a, indir: Path, outdir: Path, log, tile=None) -> bool:
     return True
 
 
-def collect(a, log):
-    """Groups the source files by picture into jobs, and copies what an earlier run did."""
+def collect(a, rules, manifest, log):
+    """Groups the source files by picture and treatment into jobs, copies what an earlier run
+    did, and takes away the outputs of pages now skipped (returning those to paint)."""
     files = sorted(f for f in a.src.rglob("*") if f.is_file() and f.suffix.lower() in EXTS
                    and not f.name.startswith("."))
     rels = [f.relative_to(a.src).as_posix() for f in files]
@@ -227,22 +324,36 @@ def collect(a, log):
         except Exception as e:
             log.error("FAILED %s: can't read: %s", rel, e)
             continue
-        g = groups.setdefault(k, {"rel": rel, "srcs": [], "dsts": [], "px": im.size[0] * im.size[1]})
+        how = treatment(rel, rules, a)
+        g = groups.setdefault((k, how), {"rel": rel, "srcs": [], "dsts": [], "rels": [], "px": im.size[0] * im.size[1]})
         g["srcs"].append(f)
         g["dsts"].append(a.dst / rel)
-    jobs, copied, done_files = [], 0, 0
-    for k, g in groups.items():
-        have = [d for d in g["dsts"] if d.exists()]
+        g["rels"].append(rel)
+    jobs, copied, done_files, manual = [], 0, 0, []
+    for (k, how), g in groups.items():
+        if how in ("skip", "manual"):
+            # No upscaled picture: the game falls back on the original.
+            for d, rel in zip(g["dsts"], g["rels"]):
+                if d.exists():
+                    d.unlink()
+                manifest.made.pop(rel, None)
+            if how == "manual":
+                manual += g["rels"]
+            continue
+        # Done already, and made the way its rule now says.
+        done = [d.exists() and manifest.made_by(rel) == how for d, rel in zip(g["dsts"], g["rels"])]
+        have = [d for d, ok in zip(g["dsts"], done) if ok]
         done_files += len(have)
-        missing = [d for d in g["dsts"] if not d.exists()]
+        missing = [(d, rel) for d, rel, ok in zip(g["dsts"], g["rels"], done) if not ok]
         if missing and have:
-            # Upscaled before under another name: copy it, no GPU needed.
-            for d in missing:
+            # Made before under another name: copy it, no GPU needed.
+            for d, rel in missing:
                 copy_atomic(have[0], d)
+                manifest.made[rel] = how
             copied += len(missing)
         elif missing:
-            jobs.append(Job(k, g["rel"], g["srcs"], missing, g["px"]))
-    return len(files), len(groups), done_files, copied, jobs
+            jobs.append(Job(k, g["rel"], g["srcs"], [d for d, _ in missing], g["px"], how, [r for _, r in missing]))
+    return len(files), len(groups), done_files, copied, jobs, manual
 
 
 def main():
@@ -253,13 +364,23 @@ def main():
     if a.colorkey:
         a.colorkey = tuple(int(c) for c in a.colorkey.split(","))
     log = setup_logging(a.log)
+    rules = read_rules(a.rules)
+    manifest = Manifest(a.dst, f"model={a.model}")
+    log.info("rules: %d from %s", len(rules), a.rules)
     log.info("start: model %s x%d, gpu %s, tile %d, threads %s, pad %d, fill %s, colorkey %s, no-wrap %s",
              a.model, a.scale, a.gpu, a.tile, a.threads, a.pad, a.fill, a.colorkey or "none", a.no_wrap or "none")
     if not a.bin.is_file():
         sys.exit(f"upscaler not found: {a.bin}")
 
-    nfiles, nuniq, done_files, copied, jobs = collect(a, log)
-    jobs.sort(key=lambda j: j.rel)
+    nfiles, nuniq, done_files, copied, jobs, manual = collect(a, rules, manifest, log)
+    manifest.save()
+    if manual:
+        (a.dst / "manual.txt").write_text("".join(f"{r}\n" for r in sorted(manual)))
+        log.info("%d files to paint by hand: %s", len(manual), a.dst / "manual.txt")
+    else:
+        (a.dst / "manual.txt").unlink(missing_ok=True)
+    # Grouped by treatment, so each model loads once a batch.
+    jobs.sort(key=lambda j: (j.how, j.rel))
     if a.limit:
         jobs = jobs[: a.limit]
     total_px = sum(j.pixels for j in jobs)
@@ -270,8 +391,29 @@ def main():
     t0 = time.time()
     ok = failed = files_written = 0
     px_done = 0
-    for b in range(0, len(jobs), a.chunk):
-        batch = jobs[b:b + a.chunk]
+    batches = []
+    for how in dict.fromkeys(j.how for j in jobs):
+        same = [j for j in jobs if j.how == how]
+        batches += [same[b:b + a.chunk] for b in range(0, len(same), a.chunk)]
+    for batch in batches:
+        how = batch[0].how
+        if not how.startswith("model="):
+            for j in batch:
+                try:
+                    img = scale_locally(j, a)
+                    save_atomic(img, j.dsts[0])
+                    for d in j.dsts[1:]:
+                        copy_atomic(j.dsts[0], d)
+                    manifest.made.update({r: how for r in j.rels})
+                    ok += 1
+                    files_written += len(j.dsts)
+                except Exception as e:
+                    log.error("FAILED %s (%d files): %s", j.rel, len(j.dsts), e)
+                    failed += 1
+                px_done += j.pixels
+            manifest.save()
+            continue
+        model = how.removeprefix("model=")
         with tempfile.TemporaryDirectory(prefix="uc-upscale-") as tmp:
             indir, outdir = Path(tmp, "in"), Path(tmp, "out")
             indir.mkdir()
@@ -283,7 +425,7 @@ def main():
                 except Exception as e:
                     log.error("FAILED %s: prepare: %s", j.rel, e)
                     failed += 1
-            if infos and not run_upscaler(a, indir, outdir, log):
+            if infos and not run_upscaler(a, model, indir, outdir, log):
                 # Find the bad one: one call per texture for this batch, and if that fails
                 # too (out of GPU memory, say) once more with half the tile.
                 for j in batch:
@@ -293,9 +435,9 @@ def main():
                     one_in.mkdir()
                     for f in indir.glob(f"{j.key}*.png"):
                         f.rename(one_in / f.name)
-                    if not run_upscaler(a, one_in, outdir, log):
+                    if not run_upscaler(a, model, one_in, outdir, log):
                         log.info("retrying %s with tile %d", j.rel, a.tile // 2)
-                        run_upscaler(a, one_in, outdir, log, tile=a.tile // 2)
+                        run_upscaler(a, model, one_in, outdir, log, tile=a.tile // 2)
             for j in batch:
                 if j.key not in infos:
                     continue
@@ -304,12 +446,14 @@ def main():
                     save_atomic(img, j.dsts[0])
                     for d in j.dsts[1:]:
                         copy_atomic(j.dsts[0], d)
+                    manifest.made.update({r: how for r in j.rels})
                     ok += 1
                     files_written += len(j.dsts)
                 except Exception as e:
                     log.error("FAILED %s (%d files): %s", j.rel, len(j.dsts), e)
                     failed += 1
                 px_done += j.pixels
+        manifest.save()
         el = time.time() - t0
         n = ok + failed
         eta = el / px_done * (total_px - px_done) if px_done else 0
