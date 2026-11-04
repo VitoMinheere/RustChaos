@@ -25,9 +25,19 @@ pub(crate) struct Options {
     pub(crate) upscaled: bool,
     /// Where they are (`textures_dir=`): [`TEXTURES`] beside the progress file if not set.
     pub(crate) textures_dir: Option<PathBuf>,
+    /// Walls, floors and roofs lit by their upscaled pages' normal maps (#474): off, soft or
+    /// strong ([`RELIEF`]), from the next level loaded (the console's `relief` goes round
+    /// them on the spot).
+    pub(crate) relief: u8,
     /// `--overrides DIR`: the textures for this run, whatever's set here. Not saved.
     pub(crate) forced: Option<PathBuf>,
 }
+
+/// The relief's strengths (#474): off, soft and strong. At 1 the normal maps light the
+/// relief by as much as the lights light the faces, which in daylight, lit mostly by the
+/// ambient light whose direction moves it by a quarter, hardly shows.
+pub(crate) const RELIEF: [f32; 3] = [0.0, 1.5, 3.0];
+const RELIEF_NAMES: [&str; 3] = ["off", "soft", "strong"];
 
 /// The upscaled textures' folder when none is set, beside the progress file.
 pub(crate) const TEXTURES: &str = "textures";
@@ -36,15 +46,16 @@ impl Default for Options {
     fn default() -> Options {
         Options {
             master: 10, effects: 10, music: 10, shadows: true, dirt: true, mist: true, rain: true, skyline: true, moon: true,
-            crinkles: true, fog: true, linear: false, upscaled: false, textures_dir: None, forced: None,
+            crinkles: true, fog: true, linear: false, upscaled: false, textures_dir: None, relief: 0, forced: None,
         }
     }
 }
 
 /// The rows of the screen, top to bottom: the settings, then the controls' page and back.
-pub(crate) const ROWS: usize = 15;
+pub(crate) const ROWS: usize = 16;
 pub(crate) const TEXTURES_ROW: usize = 12;
-pub(crate) const CONTROLS_ROW: usize = 13;
+pub(crate) const RELIEF_ROW: usize = 13;
+pub(crate) const CONTROLS_ROW: usize = 14;
 
 /// The effects and music at full volume before these were here (`Audio`'s defaults).
 const EFFECTS: f32 = 0.8;
@@ -81,6 +92,7 @@ impl Options {
                 "fog" => o.fog = on,
                 "filtering" => o.linear = value == "smooth",
                 "textures" => o.upscaled = value == "upscaled",
+                "relief" => o.relief = RELIEF_NAMES.iter().position(|&n| n == value).unwrap_or(0) as u8,
                 "textures_dir" if !value.is_empty() => o.textures_dir = Some(PathBuf::from(value)),
                 _ => {}
             }
@@ -101,10 +113,10 @@ impl Options {
         let on = |b: bool| if b { "on" } else { "off" };
         let dir = self.textures_dir.as_ref().map_or(String::new(), |d| format!("textures_dir={}\n", d.display()));
         format!(
-            "master={}\neffects={}\nmusic={}\nshadows={}\ndirt={}\nmist={}\nrain={}\nskyline={}\nmoon={}\ncrinkles={}\nfog={}\nfiltering={}\ntextures={}\n{dir}",
+            "master={}\neffects={}\nmusic={}\nshadows={}\ndirt={}\nmist={}\nrain={}\nskyline={}\nmoon={}\ncrinkles={}\nfog={}\nfiltering={}\ntextures={}\nrelief={}\n{dir}",
             self.master, self.effects, self.music, on(self.shadows), on(self.dirt), on(self.mist), on(self.rain),
             on(self.skyline), on(self.moon), on(self.crinkles), on(self.fog), if self.linear { "smooth" } else { "crisp" },
-            if self.upscaled { "upscaled" } else { "original" },
+            if self.upscaled { "upscaled" } else { "original" }, RELIEF_NAMES[self.relief as usize % 3],
         )
     }
 
@@ -141,6 +153,11 @@ impl Options {
             10 => ("FOG", on(self.fog)),
             11 => ("TEXTURE FILTERING", if self.linear { "SMOOTH (NEXT START)".into() } else { "CRISP (NEXT START)".into() }),
             TEXTURES_ROW => ("TEXTURES", self.textures_value()),
+            RELIEF_ROW => ("RELIEF", match self.relief {
+                0 => "OFF".into(),
+                1 => "SOFT (UPSCALED TEXTURES, NEXT LEVEL)".into(),
+                _ => "STRONG (UPSCALED TEXTURES, NEXT LEVEL)".into(),
+            }),
             CONTROLS_ROW => ("CONTROLS", String::new()),
             _ => ("BACK", String::new()),
         }
@@ -163,6 +180,7 @@ impl Options {
             10 => self.fog = !self.fog,
             11 => self.linear = !self.linear,
             TEXTURES_ROW => self.upscaled = !self.upscaled,
+            RELIEF_ROW => self.relief = (self.relief as i8 + by).rem_euclid(3) as u8,
             _ => {}
         }
     }
@@ -203,6 +221,7 @@ impl Options {
     /// rain and the other extras, the texture filtering and the textures.
     pub(crate) fn apply_to(&self, args: &mut Args, fog: Option<(f32, f32)>) {
         args.overrides = self.overrides();
+        args.relief = RELIEF[self.relief as usize % 3];
         args.crinkles = self.crinkles;
         args.fog = if self.fog { fog } else { None };
         args.rain = self.rain;
@@ -211,11 +230,15 @@ impl Options {
     }
 
     /// The command line's switches win for the run they're given on: `--no-crinkles`,
-    /// `--no-fog`, `--linear` and `--overrides` (`--mute` silences everything anyway).
+    /// `--no-fog`, `--linear`, `--relief` and `--overrides` (`--mute` silences everything
+    /// anyway).
     pub(crate) fn with_args(mut self, args: &Args) -> Options {
         self.crinkles &= args.crinkles;
         self.fog &= args.fog.is_some();
         self.linear |= args.linear;
+        if args.relief > 0.0 {
+            self.relief = 2;
+        }
         self.forced = args.overrides.clone();
         self
     }
@@ -253,8 +276,9 @@ mod tests {
         assert_eq!(Options::parse(""), Options::default());
         let odd = Options::parse("master=99\nfog=off\nnonsense");
         assert_eq!((odd.master, odd.fog), (10, false));
-        let up = Options::parse("textures=upscaled\ntextures_dir=/somewhere/textures_4x");
+        let up = Options::parse("textures=upscaled\ntextures_dir=/somewhere/textures_4x\nrelief=strong");
         assert!(up.upscaled);
+        assert_eq!(up.relief, 2);
         assert_eq!(Options::parse(&up.text()), up);
     }
 

@@ -1231,6 +1231,9 @@ impl App {
             let (all, over) = world.textures;
             let from = world.level.overrides().map_or("the originals".to_string(), |d| d.display().to_string());
             world.console.say(format!("{over} of {all} textures from {from}"));
+            if world.args.relief > 0.0 {
+                world.console.say(format!("{} of them with a normal map", g.renderer.normal_maps()));
+            }
         }
         let size = (g.config.width, g.config.height);
         let mut hud = if world.editor.is_some() { world.editor_overlay(&cam, size) } else { world.hud(size) };

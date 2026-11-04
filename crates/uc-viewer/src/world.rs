@@ -88,8 +88,12 @@ pub(crate) struct World {
     /// Crinkles are on (`--no-crinkles` starts with them off; the console's `crinkles`
     /// switches them, as in the original, Controls.cpp:450).
     pub(crate) crinkles: bool,
-    /// The textures want uploading again (the console's `textures` switched them).
+    /// The textures want uploading again (the console's `textures` or `relief` switched
+    /// them).
     pub(crate) reupload: bool,
+    /// What the relief (#474: the normal maps, not the crinkles) is lit by, from the last
+    /// upload.
+    pub(crate) relief_lit: uc_render::Relief,
     /// From the last upload: the level's textures, and how many of them came from the
     /// override folder.
     pub(crate) textures: (usize, usize),
@@ -248,6 +252,7 @@ impl World {
             relief: Relief::default(),
             crinkles,
             reupload: false,
+            relief_lit: uc_render::Relief::default(),
             textures: (0, 0),
             seat,
             race,
@@ -341,7 +346,8 @@ impl World {
             .map(|l| uc_render::Light { pos: l.pos / uc_world::UNIT, radius: l.radius / uc_world::UNIT, rgb: l.rgb })
             .collect();
         let shadows = self.game.shadow_maps();
-        Settings { sky: self.level.sky, fog: self.args.fog, layers, crinkles, lights, shadows }
+        let relief = (self.args.relief > 0.0).then(|| self.relief_lit.clone());
+        Settings { sky: self.level.sky, fog: self.args.fog, layers, crinkles, lights, shadows, relief }
     }
 
     pub(crate) fn eye(&self) -> Option<Vec3> {
@@ -469,7 +475,17 @@ impl World {
         let t = Instant::now();
         let geo = self.level.build();
         self.relief = geo.relief();
-        let (textures, overridden) = r.upload_world(&geo, &Game::pages(&self.level), |p| self.level.texture(p));
+        // The normal maps only when the relief's on: they take as much room again.
+        let relief = self.args.relief > 0.0;
+        let (textures, overridden) = r.upload_world_relief(&geo, &Game::pages(&self.level), |p| self.level.texture(p),
+                                                           |p| relief.then(|| self.level.normal_map(p)).flatten());
+        self.relief_lit = self.level.lighter().map_or_else(uc_render::Relief::default, |l| uc_render::Relief {
+            strength: self.args.relief,
+            ambient_slope: l.ambient_slope(),
+            lamps: l.sources().into_iter()
+                .map(|(pos, r, rgb)| uc_render::Light { pos: Vec3::from(pos) / uc_world::UNIT, radius: r / uc_world::UNIT, rgb })
+                .collect(),
+        });
         self.textures = (textures, overridden);
         // The minimap: the whole city from straight above (8 pixels a square), north up.
         let n = 1024;
@@ -481,7 +497,7 @@ impl World {
         let mut sea = BTreeMap::new();
         self.game.draw_sea(&mut sea);
         let shot = |r: &mut Renderer, cam: &Camera| {
-            r.render_to_image((n, n), cam, &Settings { sky: self.level.sky, fog: None, layers: layers.clone(), crinkles: false, lights: Vec::new(), shadows: Vec::new() }, &sea, &Overlay::new())
+            r.render_to_image((n, n), cam, &Settings { sky: self.level.sky, fog: None, layers: layers.clone(), crinkles: false, lights: Vec::new(), shadows: Vec::new(), relief: None }, &sea, &Overlay::new())
         };
         let mut rgba = shot(r, &top);
         // Warehouse roofs (and some ceilings) are black from above, as on PC: there, show the

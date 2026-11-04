@@ -12,6 +12,14 @@ struct Globals {
     lights: array<vec4<f32>, 16>,
     light_rgb: array<vec4<f32>, 16>,
     light_count: vec4<f32>,
+    // Relief (#474), for pages with a normal map: how much the ambient light changes with
+    // the cosine to its direction (rgb) and how strong the relief is (w); the ambient
+    // light's direction (`AMB_NORM`); and the static lights nearest the camera, as `lights`.
+    relief: vec4<f32>,
+    amb_dir: vec4<f32>,
+    lamps: array<vec4<f32>, 16>,
+    lamp_rgb: array<vec4<f32>, 16>,
+    lamp_count: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -126,6 +134,81 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         discard;
     }
     var c = t.rgb * min(in.color.rgb + dynamic_light(in.world), vec3<f32>(1.0));
+    let d = distance(in.world, g.cam_pos.xyz);
+    let f = clamp((d - g.fog.x) / max(g.fog.y - g.fog.x, 0.001), 0.0, 1.0) * g.fog.z;
+    c = mix(c, g.fog_color.rgb, f);
+    return vec4<f32>(c, 1.0);
+}
+
+@group(2) @binding(0) var ntex: texture_2d<f32>;
+@group(2) @binding(1) var nsamp: sampler;
+
+// What a light at `l` (xyz, reaching w) adds at `p`, as `dynamic_light` has it: 0 to 1.
+fn reach(l: vec4<f32>, p: vec3<f32>) -> f32 {
+    let d = abs(l.xyz - p);
+    let big = max(d.x, max(d.y, d.z));
+    let dist = big + (d.x + d.y + d.z - big) * 0.25;
+    return max(1.0 - dist / l.w, 0.0);
+}
+
+// A wall, floor or roof page with a normal map (#474): lit as `fs_main`, and then by the
+// normal map. The original lights a face by its own normal only through the ambient light,
+// `amb * (192 + 64 cos) / 256` to `AMB_NORM`; here that cosine is the normal map's at each
+// pixel. The lights (static and dynamic) light by distance alone in the original; here each
+// also lights the relief, brighter where the normal map turns towards it and darker where it
+// turns away, by as much as it lights the face. A flat normal map changes nothing.
+//
+// The page's way across and down is found from how its UVs change over the screen (no
+// tangents in the vertices), and the face's normal from its position's: the side the camera
+// is on.
+@fragment
+fn fs_relief(in: VOut) -> @location(0) vec4<f32> {
+    let t = textureSample(tex, samp, in.uv);
+    let nt = textureSample(ntex, nsamp, in.uv).xyz * 2.0 - 1.0;
+    let dp1 = dpdx(in.world);
+    let dp2 = dpdy(in.world);
+    let duv1 = dpdx(in.uv);
+    let duv2 = dpdy(in.uv);
+    if (behind(in) || t.a < 0.5) {
+        discard;
+    }
+    var n = normalize(cross(dp1, dp2));
+    if (dot(n, g.cam_pos.xyz - in.world) < 0.0) {
+        n = -n;
+    }
+    // d(world)/du and d(world)/dv.
+    let det = duv1.x * duv2.y - duv1.y * duv2.x;
+    var p = n;
+    if (abs(det) > 1e-12) {
+        let tu = (dp1 * duv2.y - dp2 * duv1.y) / det;
+        let tv = (dp2 * duv1.x - dp1 * duv2.x) / det;
+        let tu1 = normalize(tu - n * dot(tu, n));
+        let tv1 = normalize(tv - n * dot(tv, n));
+        p = normalize(tu1 * nt.x + tv1 * nt.y + n * nt.z);
+    }
+    let k = g.relief.w;
+    var light = in.color.rgb + dynamic_light(in.world);
+    light = light + g.relief.rgb * (dot(p, g.amb_dir.xyz) - dot(n, g.amb_dir.xyz)) * k;
+    // Each light: as much again as it adds, times how much more (or less) the relief faces it.
+    for (var i = 0u; i < u32(g.lamp_count.x); i = i + 1u) {
+        let l = g.lamps[i];
+        let w = reach(l, in.world);
+        if (w <= 0.0) {
+            continue;
+        }
+        let to = normalize(l.xyz - in.world);
+        light = light + g.lamp_rgb[i].rgb * w * (max(dot(p, to), 0.0) - max(dot(n, to), 0.0)) * k;
+    }
+    for (var i = 0u; i < u32(g.light_count.x); i = i + 1u) {
+        let l = g.lights[i];
+        let w = reach(l, in.world);
+        if (w <= 0.0) {
+            continue;
+        }
+        let to = normalize(l.xyz - in.world);
+        light = light + g.light_rgb[i].rgb * w * (max(dot(p, to), 0.0) - max(dot(n, to), 0.0)) * k;
+    }
+    var c = t.rgb * clamp(light, vec3<f32>(0.0), vec3<f32>(1.0));
     let d = distance(in.world, g.cam_pos.xyz);
     let f = clamp((d - g.fog.x) / max(g.fog.y - g.fog.x, 0.001), 0.0, 1.0) * g.fog.z;
     c = mix(c, g.fog_color.rgb, f);
