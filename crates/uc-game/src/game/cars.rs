@@ -52,7 +52,8 @@ impl Game {
         let doors = [v.door(), v.to_world(-200.0, 20.0)];
         let near = |d: Vec2| (d - Vec2::new(pos.x, pos.z)).length();
         let door = usize::from(near(doors[1]) < near(doors[0]));
-        let at = doors[door];
+        // Stood where the animation carries her into the seat.
+        let at = v.enter_at(door);
         let quarter = std::f32::consts::FRAC_PI_2;
         let angle = v.driver_angle() + if door == 0 { -quarter } else { quarter };
         let y = level.ground.surface(&level.map, at.x, at.y, pos.y + 64.0);
@@ -60,6 +61,8 @@ impl Game {
         p.fig.pos = Vec3::new(at.x, y, at.y);
         p.fig.angle = angle;
         let anim = if door == 0 { uc_world::character::anim::ENTER_CAR } else { uc_world::character::anim::ENTER_TAXI };
+        // The door open while she gets in, as long as each animation takes (73 and 35 turns).
+        self.vehicles[vi].swing_door(door, if door == 0 { 2.4 } else { 1.2 });
         p.state = if p.fig.restart_now(anim, uc_world::character::Play::Once) {
             self.entering.push((i, vi));
             State::Enter { vehicle: vi }
@@ -67,6 +70,18 @@ impl Game {
             State::InCar { vehicle: vi }
         };
         p.cues.push(Sfx::CarDoor);
+    }
+
+    /// The cars' swinging doors, `dt` on.
+    pub(crate) fn swing_doors(&mut self, dt: f32) {
+        for v in &mut self.vehicles {
+            if let Some((_, t, total)) = &mut v.door_swing {
+                *t += dt;
+                if *t >= *total {
+                    v.door_swing = None;
+                }
+            }
+        }
     }
 
     /// `SUB_STATE_ENTERING_VEHICLE`: in once the animation's played out

@@ -54,6 +54,7 @@ impl Game {
                     return true;
                 }
                 v.driver = None;
+                v.swing_door(0, 0.9);
                 let door = v.door();
                 let y = level.ground.surface(&level.map, door.x, door.y, v.pos.y + 64.0);
                 let p = &mut self.people[pi];
