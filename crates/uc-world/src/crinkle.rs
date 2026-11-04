@@ -45,6 +45,8 @@ pub struct ReliefQuad {
     pub page: u32,
     /// Index into [`Relief::crinkles`].
     pub crinkle: u32,
+    /// Drawn only from the front ([`Batch::one_sided_quad`]).
+    pub one_sided: bool,
 }
 
 /// One chunk's quads with a crinkle, and the chunk's bounds.
@@ -89,6 +91,7 @@ impl Relief {
                         raise(c, q, e, cam, b);
                         raised += 1;
                     }
+                    _ if q.one_sided => b.one_sided_quad(q.corners, q.uv, q.colour),
                     _ => b.quad(q.corners, q.uv, q.colour),
                 }
             }
@@ -165,12 +168,31 @@ mod tests {
         // A wall along x, one square wide and tall, seen from -z: its `n` is +z, so a
         // positive `out` goes into it.
         let corners = [Vec3::new(1.0, 1.0, 0.0), Vec3::new(0.0, 1.0, 0.0), Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 0.0)];
-        ReliefQuad { corners, uv: [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]], colour: [[200; 4]; 4], page: 1, crinkle: 0 }
+        ReliefQuad { corners, uv: [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]], colour: [[200; 4]; 4], page: 1, crinkle: 0, one_sided: false }
     }
 
     fn point(u: f32, v: f32, out: f32) -> CrinklePoint {
         let w = [(1.0 - u) * (1.0 - v), u * (1.0 - v), (1.0 - u) * v, u * v].map(|x| (x * 128.0) as u8);
         CrinklePoint { u, v, out, w }
+    }
+
+    #[test]
+    fn one_sided_faces_its_front() {
+        // The shader leaves out a one-sided face where its facing points away from the camera:
+        // it must point to the side `facing` calls the front, the street side of an outside
+        // wall.
+        let q = quad();
+        let mut b = Batch::default();
+        b.one_sided_quad(q.corners, q.uv, q.colour);
+        let f = b.vertices[0].facing;
+        assert_eq!(f, [0, 0, -127, 0]);
+        let seen = |cam: Vec3| Vec3::new(f[0] as f32, f[1] as f32, f[2] as f32).dot(cam - q.corners[0]) >= 0.0;
+        assert!(facing(&q, FRONT) && seen(FRONT));
+        let back = Vec3::new(0.5, 0.5, 5.0);
+        assert!(!facing(&q, back) && !seen(back));
+        // And two-sided faces have none.
+        b.quad(q.corners, q.uv, q.colour);
+        assert_eq!(b.vertices[4].facing, [0; 4]);
     }
 
     #[test]
