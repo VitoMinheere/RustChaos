@@ -29,7 +29,9 @@ lines the citizens recorded themselves (RECORDED) are left out for the voice tha
 
 --beat TSV makes Beat Cop's dispatch lines, which the game never had: TSV is what
 `cargo run -p uc-game --example beat_lines` prints (file and words), and each goes to
-talk2/<file> in voices.json's "despatch" voice (the missions' radio, from the install).
+talk2/<file> in voices.json's "despatch" voice (the missions' radio, from the install). A
+third column names another voice: endless mode's lines (`--example endless_lines`) are
+dispatch's and Darci's.
 """
 import argparse, csv, json, os, re, shutil, time
 
@@ -174,9 +176,10 @@ def main():
         if not args.game:
             raise SystemExit("--beat needs the install: --game DIR or UC_GAME_DIR")
         for row in open(args.beat, encoding="utf-8"):
-            file, _, text = row.rstrip("\n").partition("\t")
+            file, text, *voice = row.rstrip("\n").split("\t") + [""]
+            voice = voice[0] or "despatch"
             if file and text and not os.path.exists(os.path.join(talk2, file)):
-                make(file.removesuffix(".wav"), "despatch", spoken(text))
+                make(file.removesuffix(".wav"), voice, spoken(text))
         return
 
     if args.chatter:

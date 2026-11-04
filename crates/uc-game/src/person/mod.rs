@@ -300,6 +300,8 @@ pub enum Sfx {
     /// Beat Cop's dispatch says a line aloud (#130): a made voice, as the game never had
     /// Beat Cop.
     Despatch(crate::game::beat::Despatch),
+    /// The radio in endless mode, dispatch or Darci (#129): made voices too.
+    Riot(crate::game::endless::Riot),
     /// Someone plunging to their death screams (`ScreamFallSound`, Sound.cpp:600).
     ScreamFall { kind: u8 },
     /// Someone catching fire screams, a woman's scream or a man's. Not the original's, which

@@ -2,7 +2,7 @@
 //! and arrested thugs score; the same seed gives the same waves; the crime rate loses the
 //! run if the waves are left standing. Skipped without an install.
 
-use uc_game::game::endless::{wave_size, Phase};
+use uc_game::game::endless::{wave_size, Phase, Riot, FIRST_BREATHER};
 use uc_game::person::ko;
 use uc_game::{Controls, Game, Outcome, Weapon};
 use uc_world::Level;
@@ -47,7 +47,7 @@ fn knock_out_the_wave(g: &mut Game) {
 fn waves_come_and_grow() {
     let Some((level, mut g)) = start(7) else { return };
     assert!(matches!(g.endless().unwrap().phase, Phase::Breather(_)));
-    run(&mut g, &level, 6.0);
+    run(&mut g, &level, FIRST_BREATHER + 1.0);
     let e = g.endless().unwrap();
     assert_eq!((e.wave, e.phase), (1, Phase::Wave));
     let wave = standing(&g);
@@ -79,7 +79,7 @@ fn waves_come_and_grow() {
 fn the_seed_decides_the_waves() {
     let spots = |seed| {
         let (level, mut g) = start(seed)?;
-        run(&mut g, &level, 6.0);
+        run(&mut g, &level, FIRST_BREATHER + 1.0);
         Some(standing(&g).iter().map(|&i| g.people[i].fig.pos).collect::<Vec<_>>())
     };
     let Some(a) = spots(7) else { return };
@@ -113,7 +113,7 @@ fn the_wave_comes_at_her_in_the_park() {
     assert!(glam::vec2(me.x, me.z).distance(park) < 256.0, "she should start in the park");
     let spots = &g.endless().unwrap().spots;
     assert!(spots.len() > 40, "the park should be a fair size: {} squares", spots.len());
-    run(&mut g, &level, 6.0);
+    run(&mut g, &level, FIRST_BREATHER + 1.0);
     let wave = standing(&g);
     assert_eq!(wave.len() as u32, wave_size(1));
     for &i in &wave {
@@ -202,7 +202,7 @@ fn waves_come_from_another_side_each_time() {
 #[test]
 fn the_crime_rate_holds_while_she_fights() {
     let Some((level, mut g)) = start(7) else { return };
-    run(&mut g, &level, 6.0);
+    run(&mut g, &level, FIRST_BREATHER + 1.0);
     let before = g.crime_rate;
     for k in 0..40 {
         // A light blow to one of them every three seconds.
@@ -219,7 +219,7 @@ fn the_crime_rate_holds_while_she_fights() {
 #[test]
 fn a_stuck_one_is_made_again() {
     let Some((level, mut g)) = start(7) else { return };
-    run(&mut g, &level, 6.0);
+    run(&mut g, &level, FIRST_BREATHER + 1.0);
     let me = g.player().unwrap().fig.pos;
     // A square under a roof, well away from her.
     let n = uc_formats::iam::MAP_SIZE;
@@ -238,32 +238,50 @@ fn a_stuck_one_is_made_again() {
     assert!(!sq.has(uc_formats::iam::flags::HIDDEN), "still shut in at {p:?}");
 }
 
-/// The radio before each wave and when one's cleared, and the sirens with a boss (#149).
+/// The radio: dispatch's intro and Darci's answer before the first wave, a call before each
+/// one after it, a line when one's cleared, and the sirens with a boss (#149). Each line is
+/// heard, not only shown.
 #[test]
 fn the_radio_calls_the_waves() {
     use uc_game::Sfx;
     let Some((level, mut g)) = start(7) else { return };
-    // The radio and the sirens heard over `secs`.
+    // The radio's lines and the sirens heard over `secs`.
     let listen = |g: &mut Game, level: &Level, secs: f32| -> Vec<Sfx> {
         let mut heard = Vec::new();
         for _ in 0..(secs / DT) as usize {
             g.update(DT, &Controls::default(), level);
-            heard.extend(g.take_sounds().into_iter().map(|(s, _)| s).filter(|s| matches!(s, Sfx::Radio | Sfx::Siren)));
+            heard.extend(g.take_sounds().into_iter().map(|(s, _)| s).filter(|s| matches!(s, Sfx::Riot(_) | Sfx::Siren)));
         }
         heard
     };
-    // Before the first wave.
-    let heard = listen(&mut g, &level, 2.5);
-    assert!(heard.contains(&Sfx::Radio), "no radio before the first wave");
-    assert!(g.messages.iter().any(|m| m.text.starts_with("Despatch")));
-    listen(&mut g, &level, 3.5);
+    let said = |heard: &[Sfx], f: fn(Riot) -> bool| heard.iter().any(|s| matches!(s, Sfx::Riot(l) if f(*l)));
+    // Before the first wave: the intro, and Darci.
+    let mut heard = listen(&mut g, &level, 1.0);
+    assert!(g.messages.iter().any(|m| m.text.starts_with("Despatch: This is dispatch")), "the intro isn't shown");
+    heard.extend(listen(&mut g, &level, FIRST_BREATHER - 0.5));
+    assert!(said(&heard, |l| l == Riot::Intro), "no intro: {heard:?}");
+    assert!(said(&heard, |l| l == Riot::Ready), "Darci didn't answer");
     knock_out_the_wave(&mut g);
     let heard = listen(&mut g, &level, 1.0);
-    assert!(heard.contains(&Sfx::Radio), "no radio when the wave was cleared");
-    // The boss wave.
+    assert!(said(&heard, |l| matches!(l, Riot::Cleared(_))), "nothing said when the wave was cleared: {heard:?}");
+    // The call before the next.
+    let heard = listen(&mut g, &level, uc_game::game::endless::BREATHER);
+    assert!(said(&heard, |l| matches!(l, Riot::Incoming(_))), "no call before wave 2: {heard:?}");
+    // The boss wave: its own call, and the sirens.
     let e = g.endless_mut().unwrap();
     e.wave = 9;
     e.phase = Phase::Breather(4.0);
     let heard = listen(&mut g, &level, 5.0);
+    assert!(said(&heard, |l| matches!(l, Riot::BossIncoming(_))), "no call for the boss");
     assert!(heard.contains(&Sfx::Siren), "no sirens with the boss");
+}
+
+/// Every line has words and a file of its own, and the takes don't repeat straight away.
+#[test]
+fn every_line_is_its_own() {
+    let lines = uc_game::game::endless::lines();
+    let files: std::collections::BTreeSet<&str> = lines.iter().map(|(f, _, _)| f.as_str()).collect();
+    let words: std::collections::BTreeSet<&str> = lines.iter().map(|(_, t, _)| t.as_str()).collect();
+    assert_eq!(files.len(), lines.len(), "two lines in one file");
+    assert_eq!(words.len(), lines.len(), "two lines say the same");
 }

@@ -27,6 +27,132 @@ const STUCK: f32 = 8.0;
 const NOT_NEARER: f32 = 6.0 * 256.0;
 /// Every tenth wave has a boss.
 const BOSS_EVERY: u32 = 10;
+/// Seconds before the first wave: long enough for the intro, and Darci's answer.
+pub const FIRST_BREATHER: f32 = 11.0;
+/// The waves dispatch marks with a line of its own when they're cleared.
+const MILESTONES: [u32; 8] = [5, 10, 15, 20, 25, 30, 40, 50];
+
+/// What's said over the radio (the lines are made voices, `talk2\endless\`, [`lines`]):
+/// dispatch's, and Darci's answers. The game never had endless mode, so never these. The
+/// ones with a number are takes of the same moment, picked at random, so a long run doesn't
+/// hear the same words every wave.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Riot {
+    /// The run starts.
+    Intro,
+    /// Darci's answer to it.
+    Ready,
+    /// The next wave's on its way.
+    Incoming(u8),
+    /// The next wave has a boss.
+    BossIncoming(u8),
+    /// A wave's down.
+    Cleared(u8),
+    /// A boss wave's down.
+    BossDown(u8),
+    /// A wave in [`MILESTONES`] is down: the milestone's place in it.
+    Milestone(u8),
+    /// Darci between waves, now and then.
+    Quip(u8),
+    /// Keeping out of the fight: the crime rate's climbing.
+    Slacking(u8),
+    /// The crime rate's reached 100.
+    Lost,
+}
+
+impl Riot {
+    /// How many takes of each line there are.
+    const INCOMING: u8 = 6;
+    const BOSS_INCOMING: u8 = 3;
+    const CLEARED: u8 = 6;
+    const BOSS_DOWN: u8 = 3;
+    const QUIPS: u8 = 6;
+    const SLACKING: u8 = 3;
+
+    /// Every line.
+    pub fn all() -> Vec<Riot> {
+        let mut v = vec![Riot::Intro, Riot::Ready, Riot::Lost];
+        v.extend((0..Riot::INCOMING).map(Riot::Incoming));
+        v.extend((0..Riot::BOSS_INCOMING).map(Riot::BossIncoming));
+        v.extend((0..Riot::CLEARED).map(Riot::Cleared));
+        v.extend((0..Riot::BOSS_DOWN).map(Riot::BossDown));
+        v.extend((0..MILESTONES.len() as u8).map(Riot::Milestone));
+        v.extend((0..Riot::QUIPS).map(Riot::Quip));
+        v.extend((0..Riot::SLACKING).map(Riot::Slacking));
+        v
+    }
+
+    /// Darci says it, not dispatch.
+    pub fn darci(self) -> bool {
+        matches!(self, Riot::Ready | Riot::Quip(_))
+    }
+
+    /// The made voice's file, under `talk2\`.
+    pub fn file(self) -> String {
+        let name = match self {
+            Riot::Intro => "intro".to_string(),
+            Riot::Ready => "ready".to_string(),
+            Riot::Incoming(k) => format!("incoming{k}"),
+            Riot::BossIncoming(k) => format!("boss_incoming{k}"),
+            Riot::Cleared(k) => format!("cleared{k}"),
+            Riot::BossDown(k) => format!("boss_down{k}"),
+            Riot::Milestone(k) => format!("wave{}", MILESTONES[k as usize]),
+            Riot::Quip(k) => format!("quip{k}"),
+            Riot::Slacking(k) => format!("slacking{k}"),
+            Riot::Lost => "lost".to_string(),
+        };
+        format!("endless/{name}.wav")
+    }
+
+    /// What's said.
+    pub fn text(self) -> &'static str {
+        match self {
+            Riot::Intro => "This is dispatch. The Wildcats have declared war on these streets, and you're all we've got out there. Hold them back as long as you can.",
+            Riot::Ready => "Copy that. Let them come.",
+            Riot::Incoming(0) => "Heads up, more of them heading your way.",
+            Riot::Incoming(1) => "We've got another crew moving in on your position.",
+            Riot::Incoming(2) => "Here comes the next lot. Stay sharp.",
+            Riot::Incoming(3) => "Reports of a gang massing nearby. They're coming for you.",
+            Riot::Incoming(4) => "Another wave inbound. Don't let them take the street.",
+            Riot::Incoming(_) => "They're not done yet. Get ready.",
+            Riot::BossIncoming(0) => "Watch yourself. A big one's leading the next lot.",
+            Riot::BossIncoming(1) => "Word is their top enforcer's coming down himself. Be careful.",
+            Riot::BossIncoming(_) => "Something big's heading your way. Take him down and the rest will scatter.",
+            Riot::Cleared(0) => "That's the last of them. Catch your breath.",
+            Riot::Cleared(1) => "Street's clear. Nice work.",
+            Riot::Cleared(2) => "All down. Take a moment, there'll be more.",
+            Riot::Cleared(3) => "Good job. The crime rate's coming down.",
+            Riot::Cleared(4) => "Area secure, for now.",
+            Riot::Cleared(_) => "That's them dealt with. Stay on your toes.",
+            Riot::BossDown(0) => "The big one's down! That'll rattle them.",
+            Riot::BossDown(1) => "You took out their enforcer. Outstanding.",
+            Riot::BossDown(_) => "Boss down. The Wildcats won't forget that in a hurry.",
+            Riot::Milestone(0) => "Five waves and still standing. The Chief's watching.",
+            Riot::Milestone(1) => "Ten waves. Half the precinct's listening in on this.",
+            Riot::Milestone(2) => "Fifteen waves. And we're hearing reports of men in black suits. Stay alert.",
+            Riot::Milestone(3) => "Twenty waves. Nobody's held a street this long.",
+            Riot::Milestone(4) => "Twenty five. You're making history out there.",
+            Riot::Milestone(5) => "Thirty waves. They're throwing everything they've got at you.",
+            Riot::Milestone(6) => "Forty. I don't know how you're still on your feet.",
+            Riot::Milestone(_) => "Fifty waves. They'll be writing songs about this.",
+            Riot::Quip(0) => "Is that all you've got?",
+            Riot::Quip(1) => "Next.",
+            Riot::Quip(2) => "Somebody call the meat wagon.",
+            Riot::Quip(3) => "I'm just getting warmed up.",
+            Riot::Quip(4) => "They just keep coming.",
+            Riot::Quip(_) => "Who's next?",
+            Riot::Slacking(0) => "The crime rate's climbing. Get in there!",
+            Riot::Slacking(1) => "You're losing the street. Get stuck in!",
+            Riot::Slacking(_) => "They're running riot out there. Do something!",
+            Riot::Lost => "That's it, we've lost the streets. Pull out!",
+        }
+    }
+}
+
+/// Every line said over the radio, for making their voices: (file, words, Darci's).
+pub fn lines() -> Vec<(String, String, bool)> {
+    Riot::all().into_iter().map(|l| (l.file(), l.text().to_string(), l.darci())).collect()
+}
 
 /// Where a wave is.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -84,6 +210,11 @@ pub struct Endless {
     side_beacon: f32,
     /// This wave's boss is still to be made.
     boss_due: bool,
+    /// What picks the radio's takes: apart from `rng`, so the same seed still makes the
+    /// same waves.
+    talk_rng: u32,
+    /// The last few lines said, not to be said again straight away.
+    heard: Vec<Riot>,
 }
 
 impl Endless {
@@ -153,9 +284,10 @@ impl Game {
         g.show_crime_rate = true;
         g.crime_rate = 20;
         g.endless = Some(Endless {
-            seed, wave: 0, phase: Phase::Breather(5.0), score: 0, arrests: 0, downed: 0,
+            seed, wave: 0, phase: Phase::Breather(FIRST_BREATHER), score: 0, arrests: 0, downed: 0,
             rng: seed | 1, centre, spots, grid, to_come: 0, foes: Vec::new(), red_marks: 0, crime_clock: 0.0,
             idle: 0.0, wave_health: 0, side: SIDES, side_beacon: 0.0, boss_due: false,
+            talk_rng: (seed ^ 0x2545_f491).wrapping_mul(0x9e37_79b9), heard: Vec::new(),
         });
         g
     }
@@ -180,6 +312,35 @@ impl Game {
         self.endless = Some(e);
     }
 
+    /// Says `line` over the radio: shown with its speaker's face, and heard.
+    fn riot(&mut self, e: &mut Endless, line: Riot) {
+        let (who, face) = if line.darci() { ("Darci", talk::face::DARCI) } else { ("Despatch", talk::face::RADIO) };
+        // Up for as long as it takes to say: about two and a half words a second.
+        let words = line.text().split_whitespace().count() as f32;
+        self.messages.push(Message { text: format!("{who}: {}", line.text()), left: (words / 2.6 + 1.0).max(3.0), face: Some(face), filmed: false });
+        let at = self.player().map_or(e.centre, |p| p.fig.pos);
+        if !line.darci() {
+            self.sounds.push((Sfx::Radio, at));
+        }
+        self.sounds.push((Sfx::Riot(line), at));
+        e.heard.push(line);
+        if e.heard.len() > 4 {
+            e.heard.remove(0);
+        }
+    }
+
+    /// One of the `n` takes `take` makes, not one of the last few said.
+    fn take(e: &mut Endless, n: u8, take: fn(u8) -> Riot) -> Riot {
+        let mut line = take((rand(&mut e.talk_rng) % n as u32) as u8);
+        for _ in 0..4 {
+            if !e.heard.contains(&line) {
+                break;
+            }
+            line = take((rand(&mut e.talk_rng) % n as u32) as u8);
+        }
+        line
+    }
+
     fn endless_turn(&mut self, e: &mut Endless, dt: f32, level: &Level) {
         // Innocents hurt: a red mark costs 200.
         if self.red_marks > e.red_marks {
@@ -188,17 +349,30 @@ impl Game {
         }
         match e.phase {
             Phase::Breather(t) => {
-                // Three seconds before the next: the radio, and dispatch says what's coming.
-                let soon = 3.0;
-                if t > soon && t - dt <= soon {
-                    let next = e.wave + 1;
-                    let text = if next.is_multiple_of(BOSS_EVERY) {
-                        "Despatch: a big one's leading the next lot. Watch yourself".to_string()
-                    } else {
-                        format!("Despatch: wave {next} on its way")
-                    };
-                    self.messages.push(Message { text, left: 3.0, face: Some(talk::face::RADIO), filmed: false });
-                    self.sounds.push((Sfx::Radio, e.centre));
+                let crossed = |at: f32| t > at && t - dt <= at;
+                if e.wave == 0 {
+                    // The run's start: dispatch sets the scene, and Darci answers.
+                    if crossed(FIRST_BREATHER - 0.3) {
+                        self.riot(e, Riot::Intro);
+                    }
+                    if crossed(3.5) {
+                        self.riot(e, Riot::Ready);
+                    }
+                } else {
+                    // Now and then Darci has something to say between waves.
+                    if crossed(BREATHER - 5.0) && rand(&mut e.talk_rng).is_multiple_of(3) {
+                        let line = Game::take(e, Riot::QUIPS, Riot::Quip);
+                        self.riot(e, line);
+                    }
+                    // Three seconds before the next, dispatch says what's coming.
+                    if crossed(3.0) {
+                        let line = if (e.wave + 1).is_multiple_of(BOSS_EVERY) {
+                            Game::take(e, Riot::BOSS_INCOMING, Riot::BossIncoming)
+                        } else {
+                            Game::take(e, Riot::INCOMING, Riot::Incoming)
+                        };
+                        self.riot(e, line);
+                    }
                 }
                 let t = t - dt;
                 if t > 0.0 {
@@ -316,7 +490,8 @@ impl Game {
         let standing = e.foes.iter().any(|f| !f.counted) || e.to_come > 0;
         if standing && e.idle > GRACE {
             if e.crime_clock == 0.0 {
-                self.messages.push(Message { text: "The streets need you: get stuck in".into(), left: 3.0, face: None, filmed: false });
+                let line = Game::take(e, Riot::SLACKING, Riot::Slacking);
+                self.riot(e, line);
             }
             let every = (3.0 - (e.idle - GRACE) / 10.0).max(0.5);
             e.crime_clock += dt / every;
@@ -329,6 +504,7 @@ impl Game {
             e.crime_clock = 0.0;
         }
         if self.crime_rate >= 100 {
+            self.riot(e, Riot::Lost);
             self.finish(Outcome::Lost("The Wildcats have taken the streets".into()));
             return;
         }
@@ -336,9 +512,14 @@ impl Game {
         if e.to_come == 0 && e.foes.iter().all(|f| f.counted) {
             e.score += 250 * mult;
             e.phase = Phase::Breather(BREATHER);
-            let at = self.player().map_or(e.centre, |p| p.fig.pos);
-            self.messages.push(Message { text: format!("Wave {} cleared", e.wave), left: 3.0, face: Some(talk::face::RADIO), filmed: false });
-            self.sounds.push((Sfx::Radio, at));
+            self.messages.push(Message { text: format!("Wave {} cleared", e.wave), left: 3.0, face: None, filmed: false });
+            // A milestone's own line, a boss's, or one of the takes.
+            let line = match MILESTONES.iter().position(|&m| m == e.wave) {
+                Some(k) => Riot::Milestone(k as u8),
+                None if e.wave.is_multiple_of(BOSS_EVERY) => Game::take(e, Riot::BOSS_DOWN, Riot::BossDown),
+                None => Game::take(e, Riot::CLEARED, Riot::Cleared),
+            };
+            self.riot(e, line);
         }
     }
 

@@ -238,6 +238,10 @@ pub fn play(audio: &mut Audio, sfx: Sfx, pos: Vec3, l: &Listener, mission: &str)
         Sfx::Despatch(line) => {
             audio.say_line(&line.file().replace('/', "\\"));
         }
+        // Endless mode's radio, dispatch and Darci, in made voices (`talk2\endless\`).
+        Sfx::Riot(line) => {
+            audio.say_line(&line.file().replace('/', "\\"));
+        }
         // More sfx than music, over whatever's playing.
         Sfx::Danger { near } => audio.play(if near { "SFX/DangerRed.wav" } else { "SFX/DangerGreen.wav" }, 0.8),
         Sfx::Siren => at(audio, vec!["f_SIREN1.wav".into(), "f_SIREN2.wav".into(), "f_SIREN3.wav".into(), "General/CopSiren1.wav".into()], 1.0),

@@ -17,7 +17,7 @@ fn face_off() -> Option<(Level, Game, usize)> {
     let mut g = Game::new_endless(&level, 5, Some(vec2(8827.0, 10274.0)), 9.0);
     let me = g.player.unwrap();
     let mut foe = None;
-    for _ in 0..(10.0 / DT) as usize {
+    for _ in 0..((uc_game::game::endless::FIRST_BREATHER + 5.0) / DT) as usize {
         g.update(DT, &Controls::default(), &level);
         foe = g.people.iter().position(|p| !p.player && p.hostile() && !p.removed);
         if foe.is_some() {

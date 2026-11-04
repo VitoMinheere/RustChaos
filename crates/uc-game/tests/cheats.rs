@@ -169,7 +169,7 @@ fn give_and_unlimited_ammo() {
 fn kill_knocks_out_the_enemies() {
     let Some(level) = common::load("police1") else { return };
     let mut g = Game::new_endless(&level, 5, Some(glam::vec2(8827.0, 10274.0)), 9.0);
-    for _ in 0..(8.0 / common::DT) as usize {
+    for _ in 0..((uc_game::game::endless::FIRST_BREATHER + 3.0) / common::DT) as usize {
         g.update(common::DT, &Controls::default(), &level);
     }
     let up = |g: &Game| g.people.iter().filter(|p| !p.player && !p.removed && !p.is_down() && p.hostile()).count();
@@ -184,7 +184,7 @@ fn kill_knocks_out_the_enemies() {
 fn freeze_stops_everyone_else() {
     let Some(level) = common::load("police1") else { return };
     let mut g = Game::new_endless(&level, 5, Some(glam::vec2(8827.0, 10274.0)), 9.0);
-    for _ in 0..(8.0 / common::DT) as usize {
+    for _ in 0..((uc_game::game::endless::FIRST_BREATHER + 3.0) / common::DT) as usize {
         g.update(common::DT, &Controls::default(), &level);
     }
     g.cheats.freeze = true;
