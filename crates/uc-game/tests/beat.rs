@@ -318,3 +318,169 @@ fn a_bomb_is_defused_or_goes_up() {
     assert!(g.mines[k].gone, "it never went off");
     assert!(g.beat().unwrap().missed >= 1 && g.crime_rate > crime);
 }
+
+/// Knocks person `i` out.
+fn floor(g: &mut Game, i: usize) {
+    let p = &mut g.people[i];
+    let from = p.fig.pos + glam::vec3(50.0, 0.0, 0.0);
+    p.take_hit(from, 10_000, ko::FINISHERS, false, false, Weapon::None);
+}
+
+/// Calls `kinds` in one after another, each settled away before the next.
+fn calls(level: &Level, g: &mut Game, kinds: &[Kind]) -> Vec<glam::Vec3> {
+    kinds.iter().map(|&k| {
+        assert!(g.call_in_now(k, level), "nowhere for a {}", k.label());
+        let at = g.beat().unwrap().incidents[0].at;
+        g.beat_mut().unwrap().incidents.clear();
+        at
+    }).collect()
+}
+
+/// A dumped gun goes in a bin or a skip on the beat, a different one each time, not
+/// whatever prop is nearest a spot (a lamp post, a tree).
+#[test]
+fn a_dumped_gun_is_in_a_bin_or_a_skip() {
+    let Some((level, mut g)) = start(11) else { return };
+    run(&mut g, &level, 1.0);
+    let at = calls(&level, &mut g, &[Kind::DumpedWeapon; 4]);
+    // (Not the mission's own stashed things: Beat Cop's are numbered from 50,000.)
+    let dumped: Vec<usize> = g.hidden.iter().filter(|(_, it)| it.way >= 50_000).map(|(ob, _)| *ob).collect();
+    assert_eq!(dumped.len(), 4);
+    for ob in dumped {
+        let prim = level.map.objects[ob].prim;
+        assert!([33, 134, 221].contains(&prim), "hidden in prim {prim}");
+    }
+    for (k, a) in at.iter().enumerate() {
+        assert!(at[..k].iter().all(|b| (*a - *b).length() > 256.0), "the same bin twice: {at:?}");
+    }
+}
+
+/// The last few incidents were all somewhere else: calls aren't piled up in one spot.
+#[test]
+fn incidents_are_spread_about() {
+    for mission in ["police1", "Gangorder1"] {
+        let Some(level) = common::load(mission) else { return };
+        let mut g = Game::new_beat(&level, 3, None, Some(20));
+        run(&mut g, &level, 1.0);
+        let at = calls(&level, &mut g, &[Kind::Mugging, Kind::Bomb, Kind::WantedMan, Kind::GangFight, Kind::DrugDeal, Kind::ManDown]);
+        for (k, a) in at.iter().enumerate() {
+            for b in &at[k.saturating_sub(5)..k] {
+                let d = glam::vec2(a.x - b.x, a.z - b.z).length();
+                assert!(d >= 6.0 * 256.0, "{mission}: two calls {:.1} squares apart: {at:?}", d / 256.0);
+            }
+        }
+    }
+}
+
+/// Southside Beach starts her up on a roof; the shift puts her down in the street, with
+/// somewhere for incidents.
+#[test]
+fn southside_beach_gets_calls() {
+    let Some(level) = common::load("e3") else { return };
+    let mut g = Game::new_beat(&level, 11, None, Some(20));
+    assert!(g.player().unwrap().fig.pos.y < 256.0, "still up on the roof");
+    run(&mut g, &level, 1.0);
+    calls(&level, &mut g, &[Kind::Mugging, Kind::Bomb, Kind::DrunkDriver]);
+}
+
+/// A bag snatcher is off and running from the start.
+#[test]
+fn a_bag_snatcher_runs() {
+    let Some((level, mut g)) = call(11, Kind::BagSnatch) else { return };
+    let at = g.beat().unwrap().incidents[0].at;
+    let t = g.people.iter().position(|p| !p.player && p.guilty && !p.removed && (p.fig.pos - at).length() < 200.0).expect("no thief");
+    assert!(g.people[t].scared.is_some(), "not running");
+    run(&mut g, &level, 3.0);
+    assert!((g.people[t].fig.pos - at).length() > 3.0 * 256.0, "he never got away from the spot");
+    floor(&mut g, t);
+    run(&mut g, &level, 0.5);
+    assert_eq!(g.beat().unwrap().handled, 1);
+}
+
+/// A dealer and his buyer stand together till she comes near, then both run; it's handled
+/// once both are down.
+#[test]
+fn a_drug_deal_scatters() {
+    let Some((level, mut g)) = call(11, Kind::DrugDeal) else { return };
+    let at = g.beat().unwrap().incidents[0].at;
+    let two: Vec<usize> = g.people.iter().enumerate().filter(|(_, p)| !p.player && p.guilty && !p.removed && (p.fig.pos - at).length() < 200.0).map(|(i, _)| i).collect();
+    assert_eq!(two.len(), 2);
+    run(&mut g, &level, 2.0);
+    assert!(two.iter().all(|&i| (g.people[i].fig.pos - at).length() < 200.0 && g.people[i].scared.is_none()), "they didn't wait");
+    assert!(g.teleport(at + glam::vec3(5.0 * 256.0, 0.0, 0.0), &level) || g.teleport(at + glam::vec3(0.0, 0.0, 5.0 * 256.0), &level));
+    run(&mut g, &level, 0.5);
+    assert!(two.iter().all(|&i| g.people[i].scared.is_some()), "they didn't run");
+    floor(&mut g, two[0]);
+    run(&mut g, &level, 0.5);
+    assert_eq!(g.beat().unwrap().handled, 0, "handled with one still loose");
+    floor(&mut g, two[1]);
+    run(&mut g, &level, 0.5);
+    assert_eq!(g.beat().unwrap().handled, 1);
+}
+
+/// A troublemaker picks on the passers-by.
+#[test]
+fn a_troublemaker_is_a_bully() {
+    let Some((level, mut g)) = call(11, Kind::Troublemaker) else { return };
+    let t = culprit(&g);
+    assert_eq!(g.people[t].ai, uc_game::person::AI_BULLY);
+    floor(&mut g, t);
+    run(&mut g, &level, 0.5);
+    assert_eq!(g.beat().unwrap().handled, 1);
+}
+
+/// A man down lies hurt; staying with him till the ambulance comes handles it.
+#[test]
+fn a_man_down_is_seen_to() {
+    let Some((level, mut g)) = call(11, Kind::ManDown) else { return };
+    let m = g.beat().unwrap().incidents[0].patient.unwrap();
+    run(&mut g, &level, 1.0);
+    assert!(matches!(g.people[m].state, uc_game::State::Injured), "not lying hurt: {:?}", g.people[m].state);
+    let at = g.people[m].fig.pos;
+    assert!(g.teleport(at + glam::vec3(120.0, 0.0, 0.0), &level) || g.teleport(at + glam::vec3(0.0, 0.0, 120.0), &level));
+    run(&mut g, &level, 5.0);
+    let b = g.beat().unwrap();
+    assert_eq!((b.handled, b.missed), (1, 0), "not seen to");
+}
+
+/// A gunman on a roof waits there, armed, and turns on her once she's up there with him.
+#[test]
+fn a_rooftop_gunman_turns_on_her_up_there() {
+    let Some((level, mut g)) = call(11, Kind::Gunman) else { return };
+    let t = culprit(&g);
+    let at = g.people[t].fig.pos;
+    assert!(at.y > 2.0 * 256.0, "not up on a roof: {at:?}");
+    assert!(g.people[t].has(Weapon::Pistol));
+    run(&mut g, &level, 2.0);
+    assert!(!g.people[t].aggro(), "went for her from across the beat");
+    // Up on the roof, a couple of squares from him.
+    let me = g.player.unwrap();
+    let on = (0..16).map(|k| k as f32 * std::f32::consts::TAU / 16.0)
+        .map(|a| at + glam::vec3(a.sin(), 0.0, a.cos()) * 2.0 * 256.0)
+        .map(|p| glam::vec3(p.x, level.ground.surface(&level.map, p.x, p.z, at.y + 64.0), p.z))
+        .find(|p| (p.y - at.y).abs() < 32.0)
+        .expect("no roof round him");
+    g.people[me].fig.pos = on;
+    run(&mut g, &level, 0.5);
+    let p = &g.people[t];
+    assert!(p.aggro(), "never turned on her: {:?} ai {} from {:?}, at {:?}", p.state, p.ai, g.people[me].fig.pos, p.fig.pos);
+}
+
+/// Dispatch doesn't call the same kind in twice running.
+#[test]
+fn never_the_same_kind_twice_running() {
+    let Some((level, mut g)) = start(5) else { return };
+    let mut kinds = Vec::new();
+    for _ in 0..12 {
+        g.beat_mut().unwrap().incidents.clear();
+        for _ in 0..240 {
+            run(&mut g, &level, 0.25);
+            if let Some(inc) = g.beat().unwrap().incidents.first() {
+                kinds.push(inc.kind);
+                break;
+            }
+        }
+    }
+    assert!(kinds.len() >= 8, "too few calls: {kinds:?}");
+    assert!(kinds.windows(2).all(|w| w[0] != w[1]), "{kinds:?}");
+}

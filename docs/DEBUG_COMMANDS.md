@@ -31,7 +31,7 @@ Teleports don't work while driving.
 | `restart` | Restart the mission. |
 | `crime N` ✱ | Set the crime rate (0–100). |
 | `wave N` ✱ | Jump to wave `N` (endless runs only). |
-| `call WHAT` ✱ | Call in a Beat Cop incident now (Beat Cop shifts only): `mugging`, `armed`, `dumped`, `gang`, `wanted`, `drunk`, `getaway`, `jumper`, `bomb`. |
+| `call WHAT` ✱ | Call in a Beat Cop incident now (Beat Cop shifts only): `mugging`, `armed`, `dumped`, `gang`, `wanted`, `drunk`, `getaway`, `jumper`, `bomb`, `bag`, `drug`, `troublemaker`, `man`, `rooftop`. |
 | `autopilot` ✱ | Put Darci on AI control, bot against bot (capture the flag only). |
 
 ## Player & cheats
