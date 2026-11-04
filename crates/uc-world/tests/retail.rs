@@ -326,3 +326,31 @@ fn rtas_station_roof_has_kerbs_and_shading() {
         assert!(pages.contains(&want), "no page {want} on the station's roof: {pages:?}");
     }
 }
+
+/// An older map's roofs, laid as one page over every square (army1's, of pages its world
+/// has no picture of), are laid out as its world's released rooftops are: plain middles,
+/// kerbs on the edges, corners ([`uc_world::roofs`]).
+#[test]
+fn army1s_roofs_are_laid_as_rooftops() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let l = Level::load(&game, "army1", &LoadOptions { fullbright: true, character: false, overrides: None }).unwrap();
+    let mut pages = std::collections::BTreeMap::<u16, usize>::new();
+    for rf in l.map.roof_faces.iter().skip(1) {
+        *pages.entry(l.map.square((rf.rx & 127) as usize, (rf.rz & 127) as usize).page()).or_default() += 1;
+    }
+    for want in [421, 438, 439] {
+        assert!(pages.get(&want).is_some_and(|&n| n > 20), "army1's roofs have little of page {want}: {pages:?}");
+    }
+    let rooftop = pages.iter().filter(|(&p, _)| uc_world::roofs::rooftop_page(3, p as u32)).map(|(_, n)| n).sum::<usize>();
+    assert!(rooftop * 10 >= pages.values().sum::<usize>() * 9, "{pages:?}");
+}
+
+/// A released map's roofs are left as they shipped.
+#[test]
+fn a_released_maps_roofs_are_as_shipped() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let l = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: false, overrides: None }).unwrap();
+    let raw = uc_formats::iam::Map::parse(&std::fs::read(uc_formats::resolve(&game, &l.mission.map).unwrap()).unwrap()).unwrap();
+    let changed = (0..raw.squares.len()).filter(|&i| raw.squares[i].texture != l.map.squares[i].texture).count();
+    assert_eq!(changed, 0);
+}
