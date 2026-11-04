@@ -52,9 +52,27 @@ pub(crate) fn line(mission: &str, secs: f32, fair: bool) -> (String, String) {
     let Some((i, &(_, mins, ss, who))) = found else {
         return (format!("({h:02}:{m:02}:{s:02})"), "No time yet. Email TomF your time!".to_string());
     };
-    let beaten = fair && total < mins * 60 + ss;
+    let beaten = fair && beaten(secs, mins * 60 + ss);
     let code = if beaten { format!("   CODE <{:X}>", code(i as u32, m, s)) } else { String::new() };
     (format!("({h:02}:{m:02}:{s:02}){code}"), format!("(00:{mins:02}:{ss:02})  {}", who.unwrap_or_default()))
+}
+
+/// The Mucky Time for `mission`, in seconds; `None` for the training missions and those not
+/// in the table.
+pub(crate) fn mucky_secs(mission: &str) -> Option<u32> {
+    let name = mission.to_ascii_lowercase();
+    MUCKY_TIMES.iter().find(|t| name == t.0 && t.3.is_some()).map(|&(_, m, s, _)| m * 60 + s)
+}
+
+/// `mission` is in the table: one of the story's (the training missions too).
+pub(crate) fn listed(mission: &str) -> bool {
+    MUCKY_TIMES.iter().any(|t| mission.eq_ignore_ascii_case(t.0))
+}
+
+/// A win in `secs` beats a Mucky Time of `mucky` seconds: in whole seconds, under it (as
+/// `ScoresDraw` compares them, Attract.cpp:936).
+pub(crate) fn beaten(secs: f32, mucky: u32) -> bool {
+    (secs.max(0.0) as u32) < mucky
 }
 
 /// `hash` (Attract.cpp:930): from the mission's place in the table and the minutes and

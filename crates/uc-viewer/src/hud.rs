@@ -609,14 +609,21 @@ impl World {
                 if let Some((killed, arrested, left)) = self.game.criminals() {
                     rows.push(format!("Criminals Killed: {killed}   Criminals Arrested: {arrested}   Criminals Still at Large: {left}"));
                 }
-                let fair = self.counts() && self.recorder.is_some();
+                let fair = self.counts() && self.fair;
                 let (taken, par) = par::line(&self.args.mission, secs, fair);
                 rows.push(format!("Time Taken: {taken}   Mucky Time: {par}"));
-                o.rect(0.0, below - 4.0 * s, w, (rows.len() as f32 * 11.0 + 6.0) * s, [0, 0, 0, 140]);
+                // The medals won (#516), "NEW" on those better than before.
+                let medals = self.medals.map(|(now, before)| medals::won_line(&self.level.name, now, before, self.has_extras()));
+                let n = rows.len() + medals.is_some() as usize;
+                o.rect(0.0, below - 4.0 * s, w, (n as f32 * 11.0 + 6.0) * s, [0, 0, 0, 140]);
                 for (k, r) in rows.iter().enumerate() {
                     o.text(w / 2.0 - Overlay::text_width(r, s) / 2.0, below + k as f32 * 11.0 * s, s, white, r);
                 }
-                below += (rows.len() as f32 * 11.0 + 8.0) * s;
+                if let Some(parts) = &medals {
+                    let y = below + rows.len() as f32 * 11.0 * s;
+                    medals::draw_line(&mut o, w / 2.0 - medals::line_width(parts, s) / 2.0, y, s, parts);
+                }
+                below += (n as f32 * 11.0 + 8.0) * s;
             }
             // The chief's word on the civilians killed (`deadcivs.tga`'s message).
             if let Some(warning) = &self.civ_warning {

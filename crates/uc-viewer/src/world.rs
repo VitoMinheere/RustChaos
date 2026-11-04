@@ -59,6 +59,12 @@ pub(crate) struct World {
     pub(crate) help_lines: Vec<String>,
     /// A win, once recorded: (time, best time before it).
     pub(crate) result: Option<(f32, Option<f32>)>,
+    /// The win was fair: kept as a replay, so the console didn't change it (the Mucky code's
+    /// `dkeys_have_been_used`, Attract.cpp:936). Noted as it's recorded, since the recorder
+    /// is gone once the replay's saved.
+    pub(crate) fair: bool,
+    /// A story mission's fair win (#516): its medals, and the best before.
+    pub(crate) medals: Option<(medals::Medals, medals::Medals)>,
     /// The mission's badges and side objectives, and those done in earlier wins.
     pub(crate) goals: uc_game::goals::Goals,
     pub(crate) kept: progress::Done,
@@ -227,6 +233,8 @@ impl World {
             help_forced: false,
             help_lines: Vec::new(),
             result: None,
+            fair: false,
+            medals: None,
             goals,
             kept,
             title,
@@ -260,6 +268,27 @@ impl World {
         let done = self.game.sides_done(&self.goals);
         let sides = self.goals.sides.iter().filter(|g| self.kept.sides.contains(&g.id) || done.contains(&g.id)).count();
         (badges, sides)
+    }
+
+    /// The mission has badges or side objectives to do.
+    pub(crate) fn has_extras(&self) -> bool {
+        !self.goals.badges.is_empty() || !self.goals.sides.is_empty()
+    }
+
+    /// Every badge and side objective done, this run or in earlier wins: the `perfect` stat,
+    /// and the thorough medal.
+    pub(crate) fn thorough(&self) -> bool {
+        let (badges, sides) = self.tally();
+        self.has_extras() && badges == self.goals.badges.len() && sides == self.goals.sides.len()
+    }
+
+    /// The medals this win earns (#516), from its time, red marks and what's been done.
+    pub(crate) fn medals_won(&self) -> medals::Medals {
+        medals::Medals {
+            time: medals::Tier::of(&self.level.name, self.game.time),
+            clean: self.game.red_marks == 0,
+            thorough: self.thorough(),
+        }
     }
 
     /// Adds this game's stats to the saved totals, once: when it's over, or left.
@@ -313,6 +342,7 @@ impl World {
         self.save_stats();
         self.stats_saved = false;
         self.result = None;
+        self.medals = None;
         self.civ_warning = None;
         let start;
         (self.game, start) = new_game(&self.level, &self.args);
