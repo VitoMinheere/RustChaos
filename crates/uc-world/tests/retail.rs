@@ -354,3 +354,36 @@ fn a_released_maps_roofs_are_as_shipped() {
     let changed = (0..raw.squares.len()).filter(|&i| raw.squares[i].texture != l.map.squares[i].texture).count();
     assert_eq!(changed, 0);
 }
+
+/// Black faces of a doorway's recess in `l`, round (x, z) at height `y` (squares), and the
+/// way each faces.
+fn recess_at(l: &Level, x: f32, z: f32, y: f32) -> Vec<[i8; 4]> {
+    let w = l.build();
+    w.chunks.iter().flat_map(|c| c.batches.iter())
+        .filter(|((ly, p), _)| *ly == Layer::Walls && *p == uc_world::geometry::UNTEXTURED)
+        .flat_map(|(_, b)| b.vertices.iter())
+        .filter(|v| (v.pos[0] - x).abs() <= 1.5 && (v.pos[2] - z).abs() <= 1.5 && (v.pos[1] - y).abs() <= 1.0)
+        .map(|v| v.facing)
+        .collect()
+}
+
+/// A doorway into a building nobody goes into is drawn as the original draws it, a dark
+/// recess a square deep (`AENG_draw_box_around_recessed_door`), seen from the street only:
+/// backalley1's, from (73,73) to (73,74), whose street is to the east.
+#[test]
+fn a_closed_doorway_is_a_recess() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let l = Level::load(&game, "backalley1", &LoadOptions { fullbright: true, character: false, overrides: None }).unwrap();
+    let faces = recess_at(&l, 73.0, 73.5, 0.5);
+    assert!(faces.len() >= 16, "{} recess vertices", faces.len());
+    assert!(faces.iter().all(|f| f[0] > 0), "not all facing the street: {faces:?}");
+}
+
+/// A warehouse's doorway is a way in, and stays open: RTA's police station's, (81,88) to
+/// (82,88), onto its lobby.
+#[test]
+fn a_warehouse_doorway_stays_open() {
+    let Some(game) = uc_formats::default_install() else { return };
+    let l = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: false, overrides: None }).unwrap();
+    assert!(recess_at(&l, 81.5, 88.0, 0.5).is_empty());
+}
