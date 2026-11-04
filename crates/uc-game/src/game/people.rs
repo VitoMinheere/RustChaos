@@ -54,11 +54,22 @@ pub(crate) struct Routes {
     /// The one for inside the warehouses ([`uc_world::mav::Mav::inside`]), if there are any.
     pub(crate) inside: Option<uc_world::mav::Mav>,
     pub(crate) ways: HashMap<usize, Route>,
+    /// Where each person someone follows has been lately, oldest first, a point every
+    /// [`TRAIL_STEP`]: the way their followers go ([`Game::lay_trails`]).
+    pub(crate) trails: HashMap<usize, std::collections::VecDeque<Vec3>>,
 }
+
+/// A trail's points are this far apart (world units), and it's this many long: about 16
+/// squares.
+const TRAIL_STEP: f32 = 64.0;
+const TRAIL_LEN: usize = 64;
+/// Followers keep to a trail only this close to whoever they follow (world units): further
+/// off, the navigation map finds the way.
+const TRAIL_NEAR: f32 = 6.0 * 256.0;
 
 impl Routes {
     pub(crate) fn new(level: &Level) -> Routes {
-        Routes { mav: uc_world::mav::Mav::new(level), inside: uc_world::mav::Mav::inside(level), ways: HashMap::new() }
+        Routes { mav: uc_world::mav::Mav::new(level), inside: uc_world::mav::Mav::inside(level), ways: HashMap::new(), trails: HashMap::new() }
     }
 }
 
@@ -248,7 +259,14 @@ impl Game {
                 continue;
             }
             let at = p.fig.pos;
-            if let Some(goal) = p.goal {
+            // A follower on the trail of whoever they follow goes along it.
+            let trail = (p.mv == person::MOVE_FOLLOW && p.goal.is_some() && !p.aggro())
+                .then(|| self.trail_leg(i, at, level)).flatten();
+            if let Some(t) = trail {
+                // (A route from before is no good once they're off the trail again.)
+                self.routes.ways.remove(&i);
+                self.people[i].goal = Some(t);
+            } else if let Some(goal) = p.goal {
                 if let Some(leg) = self.leg(i, at, goal, level) {
                     self.people[i].goal = Some(leg);
                 }
@@ -473,6 +491,70 @@ impl Game {
         }
     }
 
+    /// Who person `i` follows (`PCOM_MOVE_FOLLOW`): whoever their `follow` point made, else
+    /// the player.
+    fn leader(&self, i: usize) -> Option<usize> {
+        let p = &self.people[i];
+        if p.follow == 0 { self.player } else { self.by_way.get(&p.follow).copied() }
+    }
+
+    /// Followers keep to the way whoever they follow went (not in the original, whose
+    /// followers make for them by the navigation map): so through a doorway where they went
+    /// through it, not at the middle of its square and into the door frame. Each leader on
+    /// foot leaves a point every [`TRAIL_STEP`]; one that jumps further (a teleport) or
+    /// leaves the ground (a fence, a ladder, a car) starts afresh, and their followers go by
+    /// the navigation map, which knows the way over, till there's a trail again.
+    pub(crate) fn lay_trails(&mut self) {
+        let leaders: std::collections::BTreeSet<usize> = (0..self.people.len())
+            .filter(|&i| { let p = &self.people[i]; p.mv == person::MOVE_FOLLOW && !p.player && !p.removed && !p.is_dead() })
+            .filter_map(|i| self.leader(i))
+            .collect();
+        self.routes.trails.retain(|j, _| leaders.contains(j));
+        for j in leaders {
+            let q = &self.people[j];
+            let on_foot = !q.aboard() && matches!(q.state, State::Move | State::Crouch { .. } | State::Shoot { .. } | State::Block { .. } | State::Attack { .. } | State::Recover { .. });
+            let at = q.fig.pos;
+            let trail = self.routes.trails.entry(j).or_default();
+            match trail.back() {
+                Some(&last) if (at - last).length() > 4.0 * 256.0 || !on_foot => trail.clear(),
+                Some(&last) if (at - last).length() < TRAIL_STEP => continue,
+                _ => {}
+            }
+            if on_foot {
+                trail.push_back(at);
+                if trail.len() > TRAIL_LEN {
+                    trail.pop_front();
+                }
+            }
+        }
+    }
+
+    /// The next point on the trail of whoever follower `i` follows, from `from`, within
+    /// [`TRAIL_NEAR`] of them: of the points within a square and a storey that can be seen,
+    /// the newest (a trail that crosses itself isn't followed back round), then the furthest
+    /// of the few after it that can be seen too; none within two squares of a fire. `None`
+    /// if they're off the trail, for the navigation map's way.
+    fn trail_leg(&self, i: usize, from: Vec3, level: &Level) -> Option<Vec3> {
+        let j = self.leader(i)?;
+        if (self.people[j].fig.pos - from).length() > TRAIL_NEAR {
+            return None;
+        }
+        let trail = self.routes.trails.get(&j)?;
+        let waist = Vec3::new(0.0, 80.0, 0.0);
+        // Not near a fire, which sends a civilian running within 200 (`Game::burn`) and can
+        // be right where the leader went: there, the navigation map's way, as before there
+        // were trails.
+        if self.pyro.fires().any(|(f, _)| (f - from).length() < 2.0 * 256.0) {
+            return None;
+        }
+        let seen = |t: &Vec3| (t.y - from.y).abs() < 96.0 && level.ground.line_of_sight(from + waist, *t + waist)
+            && self.pyro.fires().all(|(f, _)| (f - *t).length() > 2.0 * 256.0);
+        let n = trail.iter().rposition(|t| Vec2::new(t.x - from.x, t.z - from.z).length() < 256.0 && seen(t))?;
+        // (Nowhere further on to go by it: by the map instead.)
+        trail.iter().skip(n).take(4).take_while(|t| seen(t)).last().copied()
+            .filter(|t| Vec2::new(t.x - from.x, t.z - from.z).length() > 40.0)
+    }
+
     /// Where each person is walking to when they aren't fighting: `PCOM_process_patrol`
     /// (move 2 or 3) heads for the nearest active point of their colour and group, and once
     /// there, the next one by number, and so on (it keeps to the one it's
@@ -534,11 +616,27 @@ impl Game {
                             if going { d >= 0x60 as f32 } else { d > if running { 0x40 } else { 0xa0 } as f32 }
                         })
                         .map(|j| at[j]);
-                    let hurrying = j == self.player && self.sprinting;
-                    // Keeping down with them when they crouch or crawl (`PERSON_SPEED_CRAWL`,
-                    // pcom.cpp:8016).
-                    let crawling = j.is_some_and(|j| matches!(self.people[j].state, State::Crouch { .. }));
-                    (to, if crawling { person::Pace::Crawl } else if hurrying { person::Pace::Sprint } else { person::Pace::Run })
+                    // Their pace (`PCOM_process_following`, pcom.cpp:8195): within 0xc0, as the
+                    // leader goes (`PCOM_follow_speed`: walking if they walk, keeping down
+                    // with them when they crouch or crawl), further off a run. More than 0x180
+                    // behind someone running, a sprint, which the original doesn't have but
+                    // which keeps them up with a leader as quick as they are.
+                    let pace = j.map_or(person::Pace::Run, |j| {
+                        let q = &self.people[j];
+                        let d = Vec2::new(at[j].x - at[i].x, at[j].z - at[i].z).length();
+                        let running = person::running_anim(q.fig.anim());
+                        let sprinting = Some(j) == self.player && self.sprinting;
+                        if matches!(q.state, State::Crouch { .. }) {
+                            person::Pace::Crawl
+                        } else if sprinting || d > 0x180 as f32 && running {
+                            person::Pace::Sprint
+                        } else if d < 0xc0 as f32 && !running {
+                            person::Pace::Walk
+                        } else {
+                            person::Pace::Run
+                        }
+                    });
+                    (to, pace)
                 }
                 // `PCOM_process_patrol`: a walk, unless they're `PCOM_BENT_DILIGENT`. On a
                 // random patrol (`PCOM_MOVE_PATROL_RAND`), the next point is any of the others

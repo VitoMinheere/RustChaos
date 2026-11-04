@@ -267,7 +267,8 @@ impl Game {
         // get her four times as keenly, gangs, Men In Black and guards twice, cops half as
         // keenly, civilians 180/256, hostages 170/256, the tarts 210/256; and nobody lying
         // down with their hands up. A higher score counts here as being that much nearer.
-        // Her own bodyguards aren't to be shot (`people_allowed_to_hit_each_other`). (AI 5 is
+        // Her own bodyguards aren't to be shot (`people_allowed_to_hit_each_other`), nor
+        // anyone following her. (AI 5 is
         // `PCOM_AI_COP`.)
         let darci = matches!(p.kind, ptype::DARCI | ptype::ROPER);
         let keen = |q: &Person| -> f32 {
@@ -295,11 +296,15 @@ impl Game {
             k
         };
         let guard_of = |q: &Person| q.ai == person::AI_BODYGUARD && (q.other == 0 || self.by_way.get(&q.other) == Some(&pi));
+        // Nor is whoever's following her and means her no harm: a freed hostage, a witness
+        // being taken in (not in the original, which picks them, if less keenly).
+        let following = |q: &Person| q.mv == person::MOVE_FOLLOW && !q.hostile()
+            && (q.follow == 0 || self.by_way.get(&q.follow) == Some(&pi));
         // Not in the original, which never had one as the player: one of the Men in Black
         // doesn't aim at the others.
         let own = |q: &Person| p.is_mib() && q.is_mib();
         let people = self.people.iter().enumerate()
-            .filter(|&(i, q)| i != pi && !q.removed && !q.is_dead() && !q.is_down() && !q.player && !guard_of(q) && !own(q)
+            .filter(|&(i, q)| i != pi && !q.removed && !q.is_dead() && !q.is_down() && !q.player && !guard_of(q) && !following(q) && !own(q)
                 && q.fig.anim() != uc_world::character::anim::HANDS_UP_LIE && !matches!(q.state, State::InCar { .. } | State::Flying { .. } | State::Carried { .. }))
             .filter_map(|(i, q)| seen(q.fig.pos, Aim::Person(i)).map(|(a, d, off)| (a, d / keen(q), off)));
         let creatures = self.creatures.iter().enumerate()
