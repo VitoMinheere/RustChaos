@@ -95,6 +95,9 @@ pub struct Vertex {
     pub uv: [f32; 2],
     /// Vertex colour (lighting), multiplied with the texture in gamma space like the original.
     pub color: [u8; 4],
+    /// For a face drawn from one side only, the way it faces (xyz, -127 to 127; w unused):
+    /// from behind it isn't drawn. All zero, the default, it's drawn from both sides.
+    pub facing: [i8; 4],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -120,9 +123,30 @@ pub struct Batch {
 
 impl Batch {
     pub fn quad(&mut self, p: [Vec3; 4], uv: [[f32; 2]; 4], c: [[u8; 4]; 4]) {
+        self.quad_facing(p, uv, c, Vec3::ZERO);
+    }
+
+    /// The way a quad faces, which [`Batch::one_sided_quad`] draws it from: the side
+    /// [`crate::crinkle::facing`] sees it from, which its normal (corner 0 to 1, cross 0 to 2)
+    /// points away from.
+    pub fn front(p: &[Vec3; 4]) -> Vec3 {
+        (p[2] - p[0]).cross(p[1] - p[0]).normalize_or_zero()
+    }
+
+    /// A quad drawn only from its front ([`Batch::front`]): a warehouse's outside wall and the
+    /// inside wall back to back with it, its rooms' walls back to back, and the floors
+    /// upstairs, black from below ([`crate::Level::build`]).
+    pub fn one_sided_quad(&mut self, p: [Vec3; 4], uv: [[f32; 2]; 4], c: [[u8; 4]; 4]) {
+        self.quad_facing(p, uv, c, Self::front(&p));
+    }
+
+    /// A quad drawn only from the side `facing` points to (any length), or from both if it's
+    /// zero.
+    pub fn quad_facing(&mut self, p: [Vec3; 4], uv: [[f32; 2]; 4], c: [[u8; 4]; 4], facing: Vec3) {
+        let facing = facing_bytes(facing);
         let base = self.vertices.len() as u32;
         for i in 0..4 {
-            self.vertices.push(Vertex { pos: p[i].to_array(), uv: uv[i], color: c[i] });
+            self.vertices.push(Vertex { pos: p[i].to_array(), uv: uv[i], color: c[i], facing });
         }
         // Engine corner order: 0,1 one edge, 2,3 the opposite edge.
         self.indices.extend_from_slice(&[base, base + 1, base + 2, base + 1, base + 3, base + 2]);
@@ -138,10 +162,16 @@ impl Batch {
     pub fn tri(&mut self, p: [Vec3; 3], uv: [[f32; 2]; 3], c: [[u8; 4]; 3]) {
         let base = self.vertices.len() as u32;
         for i in 0..3 {
-            self.vertices.push(Vertex { pos: p[i].to_array(), uv: uv[i], color: c[i] });
+            self.vertices.push(Vertex { pos: p[i].to_array(), uv: uv[i], color: c[i], facing: [0; 4] });
         }
         self.indices.extend_from_slice(&[base, base + 1, base + 2]);
     }
+}
+
+/// [`Vertex::facing`] for a direction of any length.
+fn facing_bytes(v: Vec3) -> [i8; 4] {
+    let n = v.normalize_or_zero() * 127.0;
+    [n.x.round() as i8, n.y.round() as i8, n.z.round() as i8, 0]
 }
 
 /// A piece of the world for culling: its bounds and its batches by (layer, page).
@@ -267,7 +297,12 @@ impl Builder {
     /// A wall quad with a crinkle: drawn flat, and kept to raise.
     pub fn crinkled(&mut self, q: ReliefQuad) {
         let parts = self.parts(q.corners[0]);
-        parts.crinkled.entry(q.page).or_default().quad(q.corners, q.uv, q.colour);
+        let b = parts.crinkled.entry(q.page).or_default();
+        if q.one_sided {
+            b.one_sided_quad(q.corners, q.uv, q.colour);
+        } else {
+            b.quad(q.corners, q.uv, q.colour);
+        }
         parts.reliefs.push(q);
     }
 

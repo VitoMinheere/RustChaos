@@ -63,6 +63,9 @@ pub mod facet_flags {
 
 /// `BUILDING_TYPE_*`.
 pub const BUILDING_TYPE_WAREHOUSE: u8 = 1;
+/// A warehouse's insides: its rooms, counters and shelves, which the original draws only
+/// from inside it (aeng.cpp:9974, 12399).
+pub const BUILDING_TYPE_CRATE_IN: u8 = 4;
 
 /// `PAP_Hi`: one hi-res map square (6 bytes).
 #[derive(Debug, Clone, Copy, Default)]

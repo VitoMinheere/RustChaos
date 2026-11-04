@@ -23,11 +23,15 @@ struct VOut {
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
     @location(2) world: vec3<f32>,
+    // The way a one-sided face faces (zero for one drawn from both sides).
+    @location(3) facing: vec3<f32>,
 };
 
 @vertex
-fn vs_main(@location(0) pos: vec3<f32>, @location(1) uv: vec2<f32>, @location(2) color: vec4<f32>) -> VOut {
+fn vs_main(@location(0) pos: vec3<f32>, @location(1) uv: vec2<f32>, @location(2) color: vec4<f32>,
+           @location(3) facing: vec4<f32>) -> VOut {
     var o: VOut;
+    o.facing = facing.xyz;
     o.clip = g.view_proj * vec4<f32>(pos, 1.0);
     o.uv = uv;
     o.color = color;
@@ -105,9 +109,18 @@ fn dynamic_light(p: vec3<f32>) -> vec3<f32> {
     return add;
 }
 
+// Seen from behind a one-sided face: a warehouse's outside wall from inside, or its inside
+// wall from the street, which lie back to back in the same place.
+fn behind(in: VOut) -> bool {
+    return dot(in.facing, g.cam_pos.xyz - in.world) < 0.0;
+}
+
 @fragment
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let t = textureSample(tex, samp, in.uv);
+    if (behind(in)) {
+        discard;
+    }
     // Cut-out transparency (fences, windows, foliage): no sorting needed.
     if (t.a < 0.5) {
         discard;
@@ -126,6 +139,9 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_unlit(in: VOut) -> @location(0) vec4<f32> {
     let t = textureSample(tex, samp, in.uv);
+    if (behind(in)) {
+        discard;
+    }
     if (t.a < 0.5) {
         discard;
     }

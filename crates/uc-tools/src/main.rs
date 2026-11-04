@@ -6,6 +6,7 @@
 //!   uc textures missing [--game DIR] [--overrides DIR]
 //!   uc textures floors [--game DIR] [-o FILE]
 //!   uc textures walls [--game DIR] [-o FILE]
+//!   uc textures roofs [--game DIR] [-o FILE]
 //!   uc unused [--game DIR]
 
 mod textures;
@@ -35,6 +36,10 @@ uc textures floors [--game DIR] [-o FILE]
     instead, as the Rust table crates/uc-world/src/refloor.rs (stdout unless -o).
 uc textures walls [--game DIR] [-o FILE]
     The same for their walls and fences: crates/uc-world/src/rewall.rs.
+uc textures roofs [--game DIR] [-o FILE]
+    For each world, the page and turn the released maps' rooftops have most for each shape
+    of roof round a square (edges, raised parts, corners), for roofs whose textures never
+    shipped, as crates/uc-world/src/rooftiles.rs. How sure each is goes to stderr.
 uc unused [--game DIR]
     What's in the install that nothing uses: mission files urban.sty doesn't list (with
     their version, and whether they parse), mission recordings in talk2\\ that no message
@@ -110,9 +115,13 @@ fn run(args: &[String]) -> Result<(), String> {
             let game = game.or_else(uc_formats::default_install).ok_or("no install found: pass --game DIR")?;
             unused::run(&game)
         }
-        ["textures", which @ ("floors" | "walls")] => {
+        ["textures", which @ ("floors" | "walls" | "roofs")] => {
             let game = game.or_else(uc_formats::default_install).ok_or("no install found: pass --game DIR")?;
-            let text = if *which == "floors" { textures::floors(&game)? } else { textures::walls(&game)? };
+            let text = match *which {
+                "floors" => textures::floors(&game)?,
+                "walls" => textures::walls(&game)?,
+                _ => textures::roofs(&game, true)?,
+            };
             match out {
                 Some(p) => write(&p, text.as_bytes()),
                 None => {

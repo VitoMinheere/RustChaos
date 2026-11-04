@@ -9,6 +9,8 @@ pub mod ground;
 pub mod level;
 pub mod refloor;
 pub mod rewall;
+pub mod roofs;
+pub mod rooftiles;
 pub mod mav;
 
 pub use character::{Figure, Model, People, Play};

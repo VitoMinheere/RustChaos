@@ -2,7 +2,7 @@
 
 use uc_formats::units::radians;
 use crate::crinkle::ReliefQuad;
-use crate::geometry::{Builder, Layer, SelfLit, WorldGeometry, UNIT, UNTEXTURED};
+use crate::geometry::{Batch, Builder, Layer, SelfLit, WorldGeometry, UNIT, UNTEXTURED};
 use glam::{vec3, Vec3};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ use crate::ground::Ground;
 use std::sync::Arc;
 use uc_formats::all::AnimChunk;
 use uc_formats::facet;
-use uc_formats::iam::{facet_flags, facet_type, flags, Map, BUILDING_TYPE_WAREHOUSE, KERB_HEIGHT, MAP_SIZE};
+use uc_formats::iam::{facet_flags, facet_type, flags, Facet, Map, RoofFace4, BUILDING_TYPE_CRATE_IN, BUILDING_TYPE_WAREHOUSE, KERB_HEIGHT, MAP_SIZE};
 use uc_formats::lgt::{Lighter, Lighting};
 use uc_formats::prm::Prim;
 use uc_formats::tma::StyleTable;
@@ -213,6 +213,93 @@ fn climb_into_the_docks(map_file: &str, map: &mut Map) {
             f.flags &= !uc_formats::iam::facet_flags::UNCLIMBABLE;
         }
     }
+}
+
+/// RTA's offices (police1, `disturb1.iam`), upstairs in the police station over its
+/// lobby, where three cops stand: the rooms (`BUILDING_TYPE_CRATE_IN` 60 and 61) were built
+/// with no way up to them, nor any from one to the other, so in the original nobody gets in.
+/// Between them and the air over the lobby runs a gap a square wide, (78,80) to (79,88), with
+/// no floor. Here a ladder goes up the lobby's west wall, which is a storey high, through a
+/// doorway in the wall over it into the gap, floored as a landing; from there, a doorway
+/// leads into each office:
+///
+/// - the ladder (facet added, as the original's are, `STOREY_TYPE_LADDER`), from (79,85) to
+///   (79,86), with a doorway over it in facet 1361 ((79,82) to (79,86));
+/// - office A's (facet 1358, (78,88) to (78,80)), across the landing from the ladder;
+/// - office B's (facet 1360, (79,80) to (79,82)), at the landing's north end, into the
+///   strip of office B along the station's north wall;
+/// - the landing's floor, a storey up as the offices' are, on (78,80) to (78,87), and on
+///   (79,86) and (79,87), the hollow it opens into at its south end.
+///
+/// A doorway is a `STOREY_TYPE_DOOR` facet, which is neither drawn nor collided with: the
+/// wall it's cut from is split round it, the storey over it kept. The plant in front of
+/// where the ladder goes moves along the wall, and so does the vent over the doorway.
+fn up_to_rtas_offices(map_file: &str, map: &mut Map) {
+    if !map_file.eq_ignore_ascii_case(r"data\disturb1.iam") {
+        return;
+    }
+    let walls = [(1358, [78, 78], [88, 80], 12), (1360, [79, 79], [80, 82], 8), (1361, [79, 79], [82, 86], 8)];
+    // Only the map as shipped: an edited one may have it some other way.
+    let shipped = walls.iter().all(|&(i, x, z, h)| map.facets.get(i).is_some_and(|f| {
+        f.kind == facet_type::NORMAL && f.building == 60 && (f.x, f.z, f.y, f.height) == (x, z, [256, 256], h)
+    }));
+    let props = [(410, 208), (411, 225)];
+    if !shipped || !props.iter().all(|&(i, prim)| map.objects.get(i).is_some_and(|o| o.prim == prim)) {
+        return;
+    }
+    // Squares along each wall from its first end to the doorway.
+    cut_doorway(map, 1358, 2);
+    cut_doorway(map, 1360, 0);
+    cut_doorway(map, 1361, 3);
+    let ladder = Facet { kind: facet_type::LADDER, height: 4, x: [79, 79], y: [0, 0], z: [85, 86], flags: 0, style_index: 0, building: 60, storey: 0, fheight: 0, block_height: 16, open: 0 };
+    map.facets.push(ladder);
+    let floor = map.roof_faces.iter().skip(1).find(|rf| (rf.rx & 127, rf.rz & 127, rf.y) == (77, 84, 256)).copied();
+    if let Some(floor) = floor {
+        let landing = (80..88).map(|z| (78, z)).chain([(79, 86), (79, 87)]);
+        for (x, z) in landing {
+            map.roof_faces.push(RoofFace4 { rx: x | (floor.rx & 128), rz: z | (floor.rz & 128), next: 0, ..floor });
+        }
+    }
+    // The plant to the lobby's north-west corner, the vent half a square north.
+    (map.objects[410].x, map.objects[410].z) = (20595, 21600);
+    map.objects[411].z = 21632;
+}
+
+/// Splits facet `i`, a wall a storey or more high, round a doorway a square wide and a storey
+/// high (`STOREY_TYPE_DOOR`) `at` squares along it from its first end: the wall before it
+/// keeps the facet's place, and the doorway, the wall over it and the wall after it are added.
+fn cut_doorway(map: &mut Map, i: usize, at: u8) {
+    let f = map.facets[i];
+    let (dx, dz) = ((f.x[1] as i16 - f.x[0] as i16).signum(), (f.z[1] as i16 - f.z[0] as i16).signum());
+    let len = (f.x[1] as i16 - f.x[0] as i16).abs().max((f.z[1] as i16 - f.z[0] as i16).abs()) as u8;
+    let point = |t: u8| ((f.x[0] as i16 + dx * t as i16) as u8, (f.z[0] as i16 + dz * t as i16) as u8);
+    let piece = |from: u8, to: u8| {
+        let ((x0, z0), (x1, z1)) = (point(from), point(to));
+        Facet { x: [x0, x1], z: [z0, z1], ..f }
+    };
+    // A row of wall is a storey; the rows over the doorway start their styles a row on, as
+    // a facet two-textured or two-sided steps two at a time (`facet::wall_quads`).
+    let two = f.flags & facet_flags::HUG_FLOOR == 0 && f.flags & (facet_flags::TWO_TEXTURED | facet_flags::TWO_SIDED) != 0;
+    let lintel = Facet {
+        y: [f.y[0] + 256, f.y[1] + 256],
+        height: f.height - 4,
+        style_index: f.style_index + if two { 2 } else { 1 },
+        ..piece(at, at + 1)
+    };
+    let door = Facet { kind: facet_type::DOOR, height: 4, ..piece(at, at + 1) };
+    let mut added = vec![door];
+    if lintel.height > 0 {
+        added.push(lintel);
+    }
+    if at + 1 < len {
+        added.push(piece(at + 1, len));
+    }
+    if at > 0 {
+        map.facets[i] = piece(0, at);
+    } else {
+        map.facets[i] = added.remove(0);
+    }
+    map.facets.extend(added);
 }
 
 /// The Missile Silos' missiles (`PRIM_OBJ` 245), which the mission is won by blowing up: its
@@ -916,6 +1003,7 @@ impl Level {
         to_sea(&mission.map, &mut map);
         open_the_store(mission_name, &mission.map, &mut map);
         climb_into_the_docks(&mission.map, &mut map);
+        up_to_rtas_offices(&mission.map, &mut map);
         missiles_first(&mission.map, &mut map);
         open_the_bank_sector(mission_name, &mission.map, &mut map);
         // The mission's no-go squares: nobody walks into them, routes go round them, and
@@ -1148,21 +1236,60 @@ impl Level {
         // Each page's crinkle, as an index into `crinkles`.
         let mut crinkles = Vec::new();
         let mut crinkle_of: HashMap<u32, Option<u32>> = HashMap::new();
+        // A warehouse's walls are built twice, back to back: facing out with the outside's
+        // textures, and facing in (`FACET_FLAG_INSIDE`) with the inside's. The original draws
+        // one or the other, by whether Darci is in it (aeng.cpp:9974, 12398); drawn from the
+        // front only, each shows from its own side. Its rooms' walls lying on them aren't
+        // drawn; its neighbours' walls and props lying on them are moved off them a little, to
+        // their own side ([`through`]).
+        let warehouse = |f: &Facet| self.map.buildings.get(f.building as usize).is_some_and(|b| b.kind == BUILDING_TYPE_WAREHOUSE);
+        let drawn = |f: &Facet| f.kind != facet_type::DOOR && f.kind != facet_type::OUTSIDE_DOOR && !shakes(f.kind);
+        let quads = |keep: &dyn Fn(&Facet) -> bool| -> Vec<([Vec3; 4], usize)> {
+            let Some(styles) = &self.styles else { return Vec::new() };
+            (1..self.map.facets.len())
+                .filter(|&i| keep(&self.map.facets[i]) && drawn(&self.map.facets[i]))
+                .flat_map(|i| self.wall_quads(styles, i).into_iter().map(move |q| (q.corners.map(|c| vec3(c[0], c[1], c[2]) / UNIT), i)))
+                .collect()
+        };
+        let warehouse_walls = WallIndex::new(quads(&warehouse));
+        // A warehouse's rooms (`BUILDING_TYPE_CRATE_IN`) next door to each other each have
+        // their own wall between them, back to back in the same place: each is drawn from its
+        // front only, into the room next door, as the warehouse's own are. A wall standing on
+        // its own, a counter's, is still drawn from both sides.
+        let crate_in = |f: &Facet| self.map.buildings.get(f.building as usize).is_some_and(|b| b.kind == BUILDING_TYPE_CRATE_IN);
+        let room_walls = WallIndex::new(quads(&crate_in));
+        let back_to_back = |i: usize, p: &[Vec3; 4]| room_walls
+            .under(p, |w, &j| j != i && Batch::front(w).dot(Batch::front(p)) < 0.0).is_some();
+        // Every wall as built, for the props flat against them ([`build_props`]).
+        let mut walls = Vec::new();
         if let Some(styles) = &self.styles {
             for i in 1..self.map.facets.len() {
-                let kind = self.map.facets[i].kind;
+                let f = &self.map.facets[i];
                 // A doorway is a hole in the wall: the original draws a recess round it and
                 // never the facet itself (`AENG_draw_box_around_recessed_door`, aeng.cpp:9981).
-                if kind == facet_type::DOOR {
-                    continue;
-                }
                 // A door that can open is left to the game, which swings it ([`Level::doors`]),
                 // and so is a fence, which rattles when a car scrapes it ([`Level::fences`]).
-                if kind == facet_type::OUTSIDE_DOOR || shakes(kind) {
+                if !drawn(f) {
                     continue;
                 }
+                let (in_warehouse, room) = (warehouse(f), crate_in(f));
                 for q in self.wall_quads(styles, i) {
-                    let p = q.corners.map(|c| vec3(c[0], c[1], c[2]) / UNIT);
+                    let mut p = q.corners.map(|c| vec3(c[0], c[1], c[2]) / UNIT);
+                    if !in_warehouse {
+                        if let Some((w, j)) = warehouse_walls.under(&p, |_, _| true) {
+                            // A room's wall on the warehouse's own is left to the warehouse's
+                            // inside wall, which is what's built to be seen from in there:
+                            // police1's office landing would end in the station's facade.
+                            if room {
+                                continue;
+                            }
+                            // A neighbour's goes on its outside.
+                            let inside = self.map.facets[*j].flags & facet_flags::INSIDE != 0;
+                            p = p.map(|v| v + through(w, inside, true) * OFF_WALL);
+                        }
+                    }
+                    let one_sided = in_warehouse || (room && back_to_back(i, &p));
+                    walls.push((p, ()));
                     let page = q.page;
                     let crinkle = *crinkle_of.entry(page).or_insert_with(|| {
                         let c = self.clump.crinkle(page).ok().flatten()?;
@@ -1170,7 +1297,8 @@ impl Level {
                         Some(crinkles.len() as u32 - 1)
                     });
                     match crinkle {
-                        Some(crinkle) => b.crinkled(ReliefQuad { corners: p, uv: q.uv, colour: sh.quad(&p), page, crinkle }),
+                        Some(crinkle) => b.crinkled(ReliefQuad { corners: p, uv: q.uv, colour: sh.quad(&p), page, crinkle, one_sided }),
+                        None if one_sided => b.batch(p[0], Layer::Walls, page).one_sided_quad(p, q.uv, sh.quad(&p)),
                         None => b.batch(p[0], Layer::Walls, page).quad(p, q.uv, sh.quad(&p)),
                     }
                 }
@@ -1184,7 +1312,7 @@ impl Level {
             .chain(switches)
             .chain(self.bendable())
             .collect();
-        build_props(&mut b, &self.map, &self.game, &sh, &moving);
+        build_props(&mut b, &self.map, &self.game, &sh, &moving, &WallIndex::new(walls));
         build_details(&mut b, &self.map, &sh);
         WorldGeometry { crinkles, self_lit: self.self_lit.clone(), ..b.finish() }
     }
@@ -1351,7 +1479,25 @@ fn build_floor(b: &mut Builder, map: &Map, sh: &Shader, skip_unseen: impl Fn(u32
 /// the PC engine draws them black from below, and from above with textures from the
 /// editor's `.map` files (`WARE_roof_tex`, ware.cpp:242), which the game doesn't ship. So
 /// is a face whose square is hidden and has no page in the clump.
+///
+/// But for a floor inside a warehouse, one with the warehouse's roof above it: the floor
+/// of a room upstairs, which people stand on (RTA's offices over its lobby). That's drawn
+/// black from below as the original does, and from above with its square's page, or where
+/// that's not in the clump, the one most of the warehouse's squares have ([`inside_floor`]).
+/// And for the warehouse's roof over it all: from above, laid out as the world's rooftops are
+/// ([`crate::roofs`]), or where the table hasn't the world, the page most other roofs have
+/// ([`most_roofs`]); black from below.
 fn build_roof_faces(b: &mut Builder, map: &Map, sh: &Shader, has_page: impl Fn(u32) -> bool) {
+    let warehouse = |building: u16| map.buildings.get(building as usize).is_some_and(|b| b.kind == BUILDING_TYPE_WAREHOUSE);
+    // The highest of a warehouse's roof faces on each square: its roof there.
+    let mut roof: HashMap<(usize, usize), i16> = HashMap::new();
+    for rf in map.roof_faces.iter().skip(1).filter(|rf| warehouse(rf.building)) {
+        let top = roof.entry(((rf.rx & 127) as usize, (rf.rz & 127) as usize)).or_insert(rf.y);
+        *top = (*top).max(rf.y);
+    }
+    let floor_page = inside_floor(map, &roof, &has_page);
+    let roof_page = most_roofs(map, warehouse, &has_page);
+    let tops = crate::roofs::Tops::new(map);
     for rf in map.roof_faces.iter().skip(1) {
         let (x, z) = ((rf.rx & 127) as usize, (rf.rz & 127) as usize);
         let sq = map.square(x, z);
@@ -1364,13 +1510,68 @@ fn build_roof_faces(b: &mut Builder, map: &Map, sh: &Shader, has_page: impl Fn(u
         let (xf, zf) = (x as f32, z as f32);
         let p = [vec3(xf, ys[0] as f32 / UNIT, zf), vec3(xf + 1.0, ys[1] as f32 / UNIT, zf),
                  vec3(xf, ys[2] as f32 / UNIT, zf + 1.0), vec3(xf + 1.0, ys[3] as f32 / UNIT, zf + 1.0)];
-        let warehouse = map.buildings.get(rf.building as usize).is_some_and(|b| b.kind == BUILDING_TYPE_WAREHOUSE);
-        if warehouse || (sq.has(flags::HIDDEN) && !has_page(sq.page() as u32)) {
-            b.batch(p[0], Layer::Roofs, UNTEXTURED).quad(p, [[0.0; 2]; 4], [[10, 10, 12, 255]; 4]);
+        let dark = [[10, 10, 12, 255]; 4];
+        let upstairs = roof.get(&(x, z)).is_some_and(|&top| top > rf.y);
+        let page = sq.page() as u32;
+        if upstairs {
+            // Its front is up ([`Batch::front`]): a floor from above, a ceiling from below.
+            let page = if has_page(page) { Some(page) } else { floor_page };
+            if let Some(page) = page {
+                b.batch(p[0], Layer::Roofs, page).one_sided_quad(p, FLOOR_UVS[sq.rotation() as usize], sh.quad(&p));
+                b.batch(p[0], Layer::Roofs, UNTEXTURED).quad_facing(p, [[0.0; 2]; 4], dark, -Batch::front(&p));
+                continue;
+            }
+        }
+        // A warehouse's roof itself: from above, as most of the other roofs are; from inside,
+        // black, as the original draws it.
+        // Laid out as the world's rooftops are, by the shape of the roof round it
+        // ([`crate::roofs`]): kerbs along its edges, shaded asphalt along what's raised.
+        let tile = map.texture_set
+            .and_then(|w| crate::roofs::tile(w, tops.shape(x as i32, z as i32, rf.y as i32), &has_page))
+            .or(roof_page.map(|page| (page, sq.rotation())));
+        if let (true, Some((page, turn))) = (warehouse(rf.building) && !upstairs, tile) {
+            b.batch(p[0], Layer::Roofs, page).one_sided_quad(p, FLOOR_UVS[turn as usize], sh.quad(&p));
+            b.batch(p[0], Layer::Roofs, UNTEXTURED).quad_facing(p, [[0.0; 2]; 4], dark, -Batch::front(&p));
+            continue;
+        }
+        if warehouse(rf.building) || (sq.has(flags::HIDDEN) && !has_page(page)) {
+            b.batch(p[0], Layer::Roofs, UNTEXTURED).quad(p, [[0.0; 2]; 4], dark);
         } else {
-            b.batch(p[0], Layer::Roofs, sq.page() as u32).quad(p, FLOOR_UVS[sq.rotation() as usize], sh.quad(&p));
+            b.batch(p[0], Layer::Roofs, page).quad(p, FLOOR_UVS[sq.rotation() as usize], sh.quad(&p));
         }
     }
+}
+
+/// The page most of the roofs that aren't a warehouse's are textured with, of those in the
+/// clump: the rooftops ([`build_floor`]) and other buildings' roof faces. For a warehouse's
+/// own roof, whose textures were never shipped.
+fn most_roofs(map: &Map, warehouse: impl Fn(u16) -> bool, has_page: impl Fn(u32) -> bool) -> Option<u32> {
+    let rooftops = map.squares.iter().filter(|sq| sq.has(flags::ROOF_EXISTS));
+    let faces = map.roof_faces.iter().skip(1).filter(|rf| !warehouse(rf.building))
+        .map(|rf| map.square((rf.rx & 127) as usize, (rf.rz & 127) as usize))
+        .filter(|sq| !sq.has(flags::ROOF_EXISTS));
+    let mut count: BTreeMap<u32, usize> = BTreeMap::new();
+    for sq in rooftops.chain(faces) {
+        if has_page(sq.page() as u32) {
+            *count.entry(sq.page() as u32).or_default() += 1;
+        }
+    }
+    count.into_iter().max_by_key(|&(page, n)| (n, std::cmp::Reverse(page))).map(|(page, _)| page)
+}
+
+/// The page most of the warehouses' squares that have one in the clump are textured with
+/// (`roof` holds their squares), for the floors upstairs whose square has none: police1's
+/// offices are on page 174, which no world's clump has.
+fn inside_floor(map: &Map, roof: &HashMap<(usize, usize), i16>, has_page: impl Fn(u32) -> bool) -> Option<u32> {
+    let mut count: BTreeMap<u32, usize> = BTreeMap::new();
+    for &(x, z) in roof.keys() {
+        let page = map.square(x, z).page() as u32;
+        if has_page(page) {
+            *count.entry(page).or_default() += 1;
+        }
+    }
+    // The lowest page of those most used, so it's the same every time.
+    count.into_iter().max_by_key(|&(page, n)| (n, std::cmp::Reverse(page))).map(|(page, _)| page)
 }
 
 /// An older map's roofs and walkable tops (`uc_formats::iam::WalkablesLayout::Old`): prim
@@ -1500,7 +1701,72 @@ fn platform_props(map: &Map, mission: &Mission) -> Vec<(usize, usize)> {
     out
 }
 
-fn build_props(b: &mut Builder, map: &Map, game: &Path, sh: &Shader, moving: &std::collections::BTreeSet<usize>) {
+/// How far (squares) a face can be from a wall and still fight it over the same pixels.
+const ON_WALL: f32 = 0.04;
+/// How far (squares) such a face is moved off the wall, to its own side: about two and a half
+/// world units, which the depth buffer tells apart to well past the fog.
+const OFF_WALL: f32 = 0.01;
+
+/// The way out of a warehouse through one of its wall quads `w`, or in: `inside` is its
+/// facet's `FACET_FLAG_INSIDE`, which faces into the warehouse.
+fn through(w: &[Vec3; 4], inside: bool, out: bool) -> Vec3 {
+    if inside == out { -Batch::front(w) } else { Batch::front(w) }
+}
+
+/// Whether `face` lies flat on the wall quad `w`: in its plane and over it, where drawn as
+/// it is it would fight `w` over the same pixels.
+fn lies_on(w: &[Vec3; 4], face: &[Vec3]) -> bool {
+    let n = (face[1] - face[0]).cross(face[2] - face[0]).normalize_or_zero();
+    let front = Batch::front(w);
+    if n.dot(front).abs() < 0.99 || face.iter().any(|&p| (p - w[0]).dot(front).abs() > ON_WALL) {
+        return false;
+    }
+    // Over it, if only partly: corners 0 to 1 run along the wall, 0 to 2 down it. Faces that
+    // only meet it at an edge, the next quad along, aren't.
+    let (along, down) = (w[1] - w[0], w[2] - w[0]);
+    let over = |axis: Vec3| {
+        let t = face.iter().map(|&p| (p - w[0]).dot(axis) / axis.length_squared());
+        let (lo, hi) = t.fold((f32::MAX, f32::MIN), |(lo, hi), t| (lo.min(t), hi.max(t)));
+        hi > 0.001 && lo < 0.999
+    };
+    over(along) && over(down)
+}
+
+/// Wall quads, each with something about it, by the map squares they're in: to find the one
+/// a face lies on quickly.
+struct WallIndex<T> {
+    walls: Vec<([Vec3; 4], T)>,
+    squares: HashMap<(i32, i32), Vec<usize>>,
+}
+
+impl<T> WallIndex<T> {
+    fn new(walls: Vec<([Vec3; 4], T)>) -> WallIndex<T> {
+        let mut squares: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
+        for (i, (q, _)) in walls.iter().enumerate() {
+            let (lo, hi) = (q.iter().copied().reduce(Vec3::min).unwrap(), q.iter().copied().reduce(Vec3::max).unwrap());
+            for x in lo.x.floor() as i32..=hi.x.floor() as i32 {
+                for z in lo.z.floor() as i32..=hi.z.floor() as i32 {
+                    squares.entry((x, z)).or_default().push(i);
+                }
+            }
+        }
+        WallIndex { walls, squares }
+    }
+
+    /// A wall `face` lies flat on ([`lies_on`]) that `keep` keeps, if any.
+    fn under(&self, face: &[Vec3], keep: impl Fn(&[Vec3; 4], &T) -> bool) -> Option<&([Vec3; 4], T)> {
+        // Each square's walls are in it: a face no bigger than a wall quad, a square or so
+        // along, is over those of the squares round its middle.
+        let middle = face.iter().copied().sum::<Vec3>() / face.len() as f32;
+        let (x, z) = (middle.x.floor() as i32, middle.z.floor() as i32);
+        let mut seen = (x - 1..=x + 1).flat_map(|x| (z - 1..=z + 1).map(move |z| (x, z)))
+            .filter_map(|k| self.squares.get(&k))
+            .flatten();
+        seen.find(|&&i| { let (w, t) = &self.walls[i]; lies_on(w, face) && keep(w, t) }).map(|&i| &self.walls[i])
+    }
+}
+
+fn build_props(b: &mut Builder, map: &Map, game: &Path, sh: &Shader, moving: &std::collections::BTreeSet<usize>, walls: &WallIndex<()>) {
     let mut cache: HashMap<u8, Option<Prim>> = HashMap::new();
     for ob in map.objects.iter().enumerate().filter(|(i, _)| !moving.contains(i)).map(|(_, o)| o) {
         let Some(prim) = cache.entry(ob.prim).or_insert_with(|| load_prim(game, ob.prim)) else { continue };
@@ -1514,7 +1780,14 @@ fn build_props(b: &mut Builder, map: &Map, game: &Path, sh: &Shader, moving: &st
         };
         for f in &prim.faces {
             let (page, uv) = f.texture();
-            let pts: Vec<Vec3> = f.points.iter().map(|&i| place(prim.points[i as usize])).collect();
+            let mut pts: Vec<Vec3> = f.points.iter().map(|&i| place(prim.points[i as usize])).collect();
+            // A face flat on a wall, a sign's or a plaque's, is moved off it a little to the
+            // side the prop stands on: in the same place, the two fight over the same pixels.
+            if let Some((w, _)) = walls.under(&pts, |_, _| true) {
+                let n = Batch::front(w);
+                let side = if (origin / UNIT - w[0]).dot(n) >= 0.0 { n } else { -n };
+                pts.iter_mut().for_each(|p| *p += side * OFF_WALL);
+            }
             let n = (pts[1] - pts[0]).cross(pts[2] - pts[0]);
             let col: Vec<[u8; 4]> = pts.iter().map(|&p| sh.at(p, n)).collect();
             let batch = b.batch(origin / UNIT, Layer::Props, page);
