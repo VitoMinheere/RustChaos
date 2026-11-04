@@ -408,6 +408,7 @@ impl Game {
     /// loader only makes those under `if (0)` (elev.cpp:1434), so they never do.
     pub(crate) fn tally_crime(&mut self) {
         let mut rate = self.crime_rate as i32;
+        let mut red = 0;
         for (i, p) in self.people.iter().enumerate() {
             let arrested = p.arrested || matches!(p.state, State::Cuffed);
             // A passer-by the crowd brings back (`respawn`) counts again next time.
@@ -434,12 +435,22 @@ impl Game {
                 let civ = p.ai == person::AI_CIV && p.mv == person::MOVE_WANDER;
                 let cop = p.kind == uc_world::character::person::COP;
                 if p.hurt_by.is_some() && p.hurt_by == self.player && (civ || cop) && !p.guilty {
-                    self.red_marks = self.red_marks.saturating_add(1);
+                    red += 1;
                 }
             }
             rate = rate.clamp(0, 100);
         }
         self.crime_rate = rate as u8;
+        for _ in 0..red {
+            self.red_mark();
+        }
+    }
+
+    /// The player earning a red mark: and over the radio, "What the hell?" (#486).
+    pub(crate) fn red_mark(&mut self) {
+        self.red_marks = self.red_marks.saturating_add(1);
+        let at = self.player().map_or(Vec3::ZERO, |p| p.fig.pos);
+        self.sounds.push((Sfx::RadioSays(crate::RadioLine::Surprise), at));
     }
 
     pub(crate) fn finish(&mut self, o: Outcome) {

@@ -11,6 +11,7 @@ pub mod prm;
 pub mod reader;
 pub mod tma;
 pub mod txc;
+pub mod speech;
 pub mod ucm;
 pub mod units;
 #[cfg(feature = "json")]

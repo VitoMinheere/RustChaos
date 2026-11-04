@@ -660,6 +660,10 @@ pub enum Bark {
     Panic,
     /// An innocent civilian drawn on (`MCIV-INNOCENT`).
     Innocent,
+    /// A civilian out walking the player runs into (`MCIV-SURPRISE`, "Wha-").
+    Surprise,
+    /// A hostage seeing someone cuffed nearby (`HOSTAGE-TAUNT`, "I got ya, chump!").
+    Gloat,
 }
 
 /// The radio's unplayed lines (#486).
@@ -669,6 +673,9 @@ pub enum RadioLine {
     Won,
     /// The mission lost (`police-FAIL`).
     Lost,
+    /// The player earning a red mark, an innocent killed or a police car wrecked
+    /// (`police-SURPRISE`, "What the hell?").
+    Surprise,
 }
 
 /// Seconds between one person's [`Bark`]s.

@@ -375,6 +375,13 @@ impl Game {
                 }
                 Event::Arrested { victim } => {
                     self.people[victim].arrested = true;
+                    // A hostage near enough to see it gloats (#486).
+                    let at = self.people[victim].fig.pos;
+                    for q in self.people.iter_mut().filter(|q| q.kind == ptype::HOSTAGE && !q.removed && !q.is_dead()) {
+                        if q.fig.pos.distance(at) < GLOAT_RANGE {
+                            q.cues.push(Sfx::Bark { kind: ptype::HOSTAGE, bark: crate::Bark::Gloat });
+                        }
+                    }
                 }
                 Event::Punch { attacker } if Some(attacker) == self.player => {
                     if let Some(s) = &mut self.script {
@@ -459,6 +466,13 @@ impl Game {
                 if len >= MIN || len < 1e-3 {
                     continue;
                 }
+                // A civilian out walking the player runs into: "Wha-" (#486).
+                for (runner, other) in [(i, j), (j, i)] {
+                    let (r, o) = (&self.people[runner], &self.people[other]);
+                    if r.player && person::running_anim(r.fig.anim()) && o.kind == ptype::CIV && o.ai == person::AI_CIV && o.mv == person::MOVE_WANDER {
+                        self.people[other].cues.push(Sfx::Bark { kind: ptype::CIV, bark: crate::Bark::Surprise });
+                    }
+                }
                 let push = d / len * (MIN - len) * 0.5;
                 for (k, s) in [(i, -1.0), (j, 1.0)] {
                     self.people[k].slid_odd = Some(true);
@@ -507,3 +521,6 @@ impl Game {
         self.gunfx.fire(muzzle, hand, dir, casings);
     }
 }
+
+/// How near (world units) someone being cuffed a hostage gloats at: five squares.
+const GLOAT_RANGE: f32 = 5.0 * 256.0;
