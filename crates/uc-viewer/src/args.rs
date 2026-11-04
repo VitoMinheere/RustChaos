@@ -3,7 +3,7 @@
 use crate::*;
 
 pub(crate) const USAGE: &str = "\
-uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DIR] [--relief] [--linear] [--fullbright]
+uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DIR] [--relief] [--bloom] [--linear] [--fullbright]
           [--fog START,END | --no-fog] [--no-crinkles] [--no-character] [--cam X,Y,Z,YAW,PITCH] [--dogs N]
           [--screenshot FILE [--size WxH] [--sim-walk SECS | --sim-run SECS | --sim SECS]]
           [--dump-pages DIR] [--host [PORT] | --join HOST[:PORT]] [--name NAME] [--replay FILE] [--edit NAME]
@@ -27,6 +27,7 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --dump-pages DIR  write every texture this level uses as DIR/page_NNNN.png and exit
   --linear          smooth texture magnification (default: crisp nearest-neighbour)
   --relief          light the world, people and cars by their upscaled pages' normal maps, strongly
+  --bloom           make lit windows, lamps, headlights and fire glow, strongly
   --fullbright      ignore the level's baked lighting
   --fog START,END   distance fog in map squares (default 20,40); --no-fog disables it
   --no-crinkles     flat walls up close (default: walls with a crinkle stand out in relief,
@@ -120,6 +121,8 @@ pub(crate) struct Args {
     /// Walls, floors and roofs lit by their pages' normal maps (#474), this strongly (0 is
     /// off; see [`crate::options::RELIEF`]).
     pub(crate) relief: f32,
+    /// How strongly what lights itself glows (#523): 0 for none.
+    pub(crate) bloom: f32,
     pub(crate) fullbright: bool,
     pub(crate) fog: Option<(f32, f32)>,
     /// Walls with a crinkle stand out in relief up close (#113).
@@ -171,6 +174,7 @@ impl Default for Args {
             overrides: None,
             linear: false,
             relief: 0.0,
+            bloom: 0.0,
             fullbright: false,
             fog: Some((20.0, 40.0)),
             crinkles: true,
@@ -247,6 +251,7 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             "--overrides" => a.overrides = Some(PathBuf::from(value()?)),
             "--linear" => a.linear = true,
             "--relief" => a.relief = crate::options::RELIEF[2],
+            "--bloom" => a.bloom = crate::options::BLOOM[2],
             "--fullbright" => a.fullbright = true,
             "--no-fog" => a.fog = None,
             "--fog" => {

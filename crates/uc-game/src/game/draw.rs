@@ -231,6 +231,22 @@ impl Game {
                 }
             }
         }
+        // The headlights of the cars being driven, at night (vehicle.cpp:1236, `BLOOM_draw`'s
+        // glow, `0x606040`): each glows the more, the more it points the camera's way. (Not
+        // their beams, `BLOOM_BEAM`.)
+        if self.night {
+            for v in self.vehicles.iter().filter(|v| v.driver.is_some()) {
+                let (_, wheel, ..) = vehicle::TYPES[v.kind as usize];
+                let lift = vehicle::wheel_radius(level.item_prims.get(&wheel)) - vehicle::WHEEL_ABOVE_BODY;
+                let (lights, ahead) = v.headlights(lift);
+                for at in lights {
+                    let towards = ahead.dot((at - eye).normalize_or(Vec3::Z));
+                    if towards < 0.0 {
+                        billboard(&mut out, uc_world::GLOW, at, 64.0, [0x60, 0x60, 0x40, (-towards * 255.0) as u8]);
+                    }
+                }
+            }
+        }
         // A set charge's light the same way, green (`SPECIAL_EXPLOSIVES`, `0x007F5D`), turning
         // with its timer (`timer << 3`; the timer counts down 0x10 a tick).
         for c in &self.charges {

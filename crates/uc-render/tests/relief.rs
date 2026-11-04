@@ -30,7 +30,7 @@ fn shot(level: &Level, n: impl Fn(usize, usize) -> [u8; 3], relief: bool) -> Opt
             .collect(),
     });
     let layers = vec![Layer::Floor, Layer::Walls, Layer::Roofs];
-    let s = Settings { sky: level.sky, fog: None, layers, crinkles: false, lights: Vec::new(), shadows: Vec::new(), relief };
+    let s = Settings { sky: level.sky, fog: None, layers, crinkles: false, lights: Vec::new(), shadows: Vec::new(), relief, bloom: 0.0 };
     Some(r.render_to_image((320, 240), &cam, &s, &Default::default(), &Overlay::new()))
 }
 
@@ -87,7 +87,7 @@ fn person_shot(level: &Level, n: impl Fn(usize, usize) -> [u8; 3]) -> Option<Vec
     b.quad([q(2.0, 3.0), q(-2.0, 3.0), q(-2.0, -1.0), q(2.0, -1.0)], [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]], [[160, 160, 160, 255]; 4]);
     let dynamic = std::collections::BTreeMap::from([(PAGE, b)]);
     let relief = Some(Relief { strength: 3.0, ambient_slope: level.lighter()?.ambient_slope(), lamps: Vec::new() });
-    let s = Settings { sky: level.sky, fog: None, layers: vec![Layer::Floor, Layer::Walls, Layer::Character], crinkles: false, lights: Vec::new(), shadows: Vec::new(), relief };
+    let s = Settings { sky: level.sky, fog: None, layers: vec![Layer::Floor, Layer::Walls, Layer::Character], crinkles: false, lights: Vec::new(), shadows: Vec::new(), relief, bloom: 0.0 };
     Some(r.render_to_image((320, 240), &cam, &s, &dynamic, &Overlay::new()))
 }
 

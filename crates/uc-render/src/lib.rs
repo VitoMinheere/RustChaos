@@ -8,6 +8,7 @@
 //!   headless tests).
 //! - A 2D overlay (text, rectangles) on top, for the HUD.
 
+mod bloom;
 mod overlay;
 
 use bytemuck::{Pod, Zeroable};
@@ -104,6 +105,9 @@ pub struct Settings {
     /// Walls, floors and roofs, and people, cars and props, lit by their pages' normal maps
     /// (#474, #521), if on.
     pub relief: Option<Relief>,
+    /// How strongly what lights itself glows (#523): 0 for none, 1 for as bright again at
+    /// night.
+    pub bloom: f32,
 }
 
 /// What the relief is lit by (#474): see `fs_relief`.
@@ -193,6 +197,7 @@ pub struct Renderer {
     backdrop: Option<wgpu::BindGroup>,
     minimap: Option<wgpu::BindGroup>,
     faces: [Option<wgpu::BindGroup>; 2],
+    bloom: bloom::Bloom,
     pub stats: Stats,
 }
 
@@ -798,11 +803,12 @@ impl Renderer {
         let (fw, fh, fpx) = overlay::font_atlas();
         let font_tex = Texture { width: fw, height: fh, has_alpha: true, rgba: fpx };
         let font = make_texture_levels(&device, &queue, &tex_layout, &font_sampler, &font_tex, 1);
+        let bloom = bloom::Bloom::new(&device, &shader, &layout, &tex_layout, format);
         Renderer {
             device, queue, format, pipeline, globals_buf, globals_bg, tex_layout, sampler,
             textures: HashMap::new(), white, shadow_pipeline, decal_pipeline, glow_pipeline, additive_pipeline, sprite_pipeline, ghost_depth_pipeline, ghost_pipeline, unlit_pipeline, relief_pipeline, normals: HashMap::new(), windows_pipeline, self_lit: SelfLit::default(), sky_pipeline, moon_pipeline, puddle_mask_pipeline, reflect_pipeline, moon_reflect_pipeline, smap_pipeline, shadow_tex, mist_tex,
             statics: None, chunks: Vec::new(), dynamic: None, targets: None,
-            overlay_pipeline, screen_buf, screen_bg, font, overlay_buf: None, backdrop: None, minimap: None, faces: [None, None], stats: Stats::default(),
+            overlay_pipeline, screen_buf, screen_bg, font, overlay_buf: None, backdrop: None, minimap: None, faces: [None, None], bloom, stats: Stats::default(),
         }
     }
 
@@ -918,6 +924,60 @@ impl Renderer {
             return None;
         }
         self.normals.get(&page)
+    }
+
+    /// Bloom (#523): what lights itself drawn again, on its own, against the frame's depth:
+    /// the self-lit pages and the lit windows over theirs, in the world and among the moving
+    /// things, then the lamps, headlights and flashes (`GLOW`) and the fire.
+    fn draw_glowing(&self, encoder: &mut wgpu::CommandEncoder, stats: &mut Stats, s: &Settings, planes: &[Vec4; 6],
+                    cam: &Camera, dyn_ranges: &[(u32, u32, u32)]) {
+        let t = self.targets.as_ref().unwrap();
+        let mut pass = self.bloom.begin_glow(encoder, &t.depth);
+        pass.set_bind_group(0, &self.globals_bg, &[]);
+        pass.set_stencil_reference(1);
+        pass.set_pipeline(&self.bloom.emit);
+        // The texture page `page` glows with, if any: its own, or its lit windows'.
+        let glowing = |page: u32| {
+            let own = if self.self_lit.unlit.contains(&page) { Some(page) } else { self.self_lit.overlay(page) };
+            own.and_then(|p| self.textures.get(&p))
+        };
+        let mut draw = |pass: &mut wgpu::RenderPass<'_>, bg: &wgpu::BindGroup, range: std::ops::Range<u32>| {
+            pass.set_bind_group(1, bg, &[]);
+            pass.draw_indexed(range.clone(), 0, 0..1);
+            stats.draw_calls += 1;
+            stats.triangles += range.len() / 3;
+        };
+        if let Some((vb, ib)) = &self.statics {
+            pass.set_vertex_buffer(0, vb.slice(..));
+            pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+            for c in self.chunks.iter().filter(|c| aabb_visible(planes, c.min, c.max)) {
+                let raised = s.crinkles && uc_world::crinkle::near(cam.pos, c.min, c.max);
+                for r in c.ranges.iter().filter(|r| s.layers.contains(&r.layer) && !(raised && r.crinkled)) {
+                    if let Some(bg) = glowing(r.page) {
+                        draw(&mut pass, bg, r.first..r.first + r.count);
+                    }
+                }
+            }
+        }
+        let Some((vb, ib, _, _)) = &self.dynamic else { return };
+        if dyn_ranges.is_empty() {
+            return;
+        }
+        pass.set_vertex_buffer(0, vb.slice(..));
+        pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+        for &(page, first, count) in dyn_ranges {
+            if let Some(bg) = glowing(page) {
+                draw(&mut pass, bg, first..first + count);
+            }
+        }
+        pass.set_pipeline(&self.bloom.glow);
+        for &(_, first, count) in dyn_ranges.iter().filter(|r| r.0 == GLOW) {
+            draw(&mut pass, &self.shadow_tex, first..first + count);
+        }
+        pass.set_pipeline(&self.bloom.sprite);
+        for &(_, first, count) in dyn_ranges.iter().filter(|r| r.0 == EXPLODE_PAGE) {
+            draw(&mut pass, self.textures.get(&EXPLODE_PAGE).unwrap_or(&self.white), first..first + count);
+        }
     }
 
     fn ensure_targets(&mut self, size: (u32, u32)) {
@@ -1143,6 +1203,15 @@ impl Renderer {
 
         let planes = frustum_planes(&vp);
         let mut stats = Stats { chunks_total: self.chunks.len(), ..Default::default() };
+        // With bloom, the frame's samples and depth are kept for the glow to be drawn against
+        // and added to, and the HUD waits till it's added.
+        let glows = bloom::by_daylight(s.bloom, s.sky);
+        let keep = if glows > 0.0 {
+            self.bloom.ensure_targets(&self.device, size);
+            wgpu::StoreOp::Store
+        } else {
+            wgpu::StoreOp::Discard
+        };
         let mut encoder = self.device.create_command_encoder(&Default::default());
         {
             let t = self.targets.as_ref().unwrap();
@@ -1154,13 +1223,13 @@ impl Renderer {
                     resolve_target: Some(target),
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color { r: sky[0] as f64, g: sky[1] as f64, b: sky[2] as f64, a: 1.0 }),
-                        store: wgpu::StoreOp::Discard,
+                        store: keep,
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &t.depth,
-                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
-                    stencil_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0), store: wgpu::StoreOp::Discard }),
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: keep }),
+                    stencil_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0), store: keep }),
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
@@ -1313,6 +1382,34 @@ impl Renderer {
                     }
                 }
             }
+            if overlay_count > 0 && glows == 0.0 {
+                self.draw_overlay(&mut pass, overlay, overlay_count);
+                stats.draw_calls += 1;
+            }
+        }
+        if glows > 0.0 {
+            self.draw_glowing(&mut encoder, &mut stats, s, &planes, cam, &dyn_ranges);
+            self.bloom.blur(&self.queue, &mut encoder, glows);
+            let t = self.targets.as_ref().unwrap();
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("bloom composite"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &t.msaa,
+                    depth_slice: None,
+                    resolve_target: Some(target),
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Discard },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &t.depth,
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Discard }),
+                    stencil_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Discard }),
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            self.bloom.composite(&mut pass);
+            stats.draw_calls += 1;
             if overlay_count > 0 {
                 self.draw_overlay(&mut pass, overlay, overlay_count);
                 stats.draw_calls += 1;

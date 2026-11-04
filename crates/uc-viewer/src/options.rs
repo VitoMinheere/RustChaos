@@ -29,6 +29,8 @@ pub(crate) struct Options {
     /// maps (#474, #521): off, soft or strong ([`RELIEF`]), from the next level loaded (the
     /// console's `relief` goes round them on the spot).
     pub(crate) relief: u8,
+    /// What lights itself glowing (#523): off, soft or strong ([`BLOOM`]), on the spot.
+    pub(crate) bloom: u8,
     /// `--overrides DIR`: the textures for this run, whatever's set here. Not saved.
     pub(crate) forced: Option<PathBuf>,
 }
@@ -39,6 +41,10 @@ pub(crate) struct Options {
 pub(crate) const RELIEF: [f32; 3] = [0.0, 1.5, 3.0];
 const RELIEF_NAMES: [&str; 3] = ["off", "soft", "strong"];
 
+/// The bloom's strengths (#523): off, soft and strong. At 1, at night, a lit window's glow
+/// is added round it as bright again.
+pub(crate) const BLOOM: [f32; 3] = [0.0, 1.2, 2.4];
+
 /// The upscaled textures' folder when none is set, beside the progress file.
 pub(crate) const TEXTURES: &str = "textures";
 
@@ -46,16 +52,17 @@ impl Default for Options {
     fn default() -> Options {
         Options {
             master: 10, effects: 10, music: 10, shadows: true, dirt: true, mist: true, rain: true, skyline: true, moon: true,
-            crinkles: true, fog: true, linear: false, upscaled: false, textures_dir: None, relief: 0, forced: None,
+            crinkles: true, fog: true, linear: false, upscaled: false, textures_dir: None, relief: 0, bloom: 0, forced: None,
         }
     }
 }
 
 /// The rows of the screen, top to bottom: the settings, then the controls' page and back.
-pub(crate) const ROWS: usize = 16;
+pub(crate) const ROWS: usize = 17;
 pub(crate) const TEXTURES_ROW: usize = 12;
 pub(crate) const RELIEF_ROW: usize = 13;
-pub(crate) const CONTROLS_ROW: usize = 14;
+pub(crate) const BLOOM_ROW: usize = 14;
+pub(crate) const CONTROLS_ROW: usize = 15;
 
 /// The effects and music at full volume before these were here (`Audio`'s defaults).
 const EFFECTS: f32 = 0.8;
@@ -93,6 +100,7 @@ impl Options {
                 "filtering" => o.linear = value == "smooth",
                 "textures" => o.upscaled = value == "upscaled",
                 "relief" => o.relief = RELIEF_NAMES.iter().position(|&n| n == value).unwrap_or(0) as u8,
+                "bloom" => o.bloom = RELIEF_NAMES.iter().position(|&n| n == value).unwrap_or(0) as u8,
                 "textures_dir" if !value.is_empty() => o.textures_dir = Some(PathBuf::from(value)),
                 _ => {}
             }
@@ -113,10 +121,11 @@ impl Options {
         let on = |b: bool| if b { "on" } else { "off" };
         let dir = self.textures_dir.as_ref().map_or(String::new(), |d| format!("textures_dir={}\n", d.display()));
         format!(
-            "master={}\neffects={}\nmusic={}\nshadows={}\ndirt={}\nmist={}\nrain={}\nskyline={}\nmoon={}\ncrinkles={}\nfog={}\nfiltering={}\ntextures={}\nrelief={}\n{dir}",
+            "master={}\neffects={}\nmusic={}\nshadows={}\ndirt={}\nmist={}\nrain={}\nskyline={}\nmoon={}\ncrinkles={}\nfog={}\nfiltering={}\ntextures={}\nrelief={}\nbloom={}\n{dir}",
             self.master, self.effects, self.music, on(self.shadows), on(self.dirt), on(self.mist), on(self.rain),
             on(self.skyline), on(self.moon), on(self.crinkles), on(self.fog), if self.linear { "smooth" } else { "crisp" },
             if self.upscaled { "upscaled" } else { "original" }, RELIEF_NAMES[self.relief as usize % 3],
+            RELIEF_NAMES[self.bloom as usize % 3],
         )
     }
 
@@ -158,6 +167,7 @@ impl Options {
                 1 => "SOFT (UPSCALED TEXTURES, NEXT LEVEL)".into(),
                 _ => "STRONG (UPSCALED TEXTURES, NEXT LEVEL)".into(),
             }),
+            BLOOM_ROW => ("BLOOM", ["OFF", "SOFT", "STRONG"][self.bloom as usize % 3].into()),
             CONTROLS_ROW => ("CONTROLS", String::new()),
             _ => ("BACK", String::new()),
         }
@@ -181,6 +191,7 @@ impl Options {
             11 => self.linear = !self.linear,
             TEXTURES_ROW => self.upscaled = !self.upscaled,
             RELIEF_ROW => self.relief = (self.relief as i8 + by).rem_euclid(3) as u8,
+            BLOOM_ROW => self.bloom = (self.bloom as i8 + by).rem_euclid(3) as u8,
             _ => {}
         }
     }
@@ -222,6 +233,7 @@ impl Options {
     pub(crate) fn apply_to(&self, args: &mut Args, fog: Option<(f32, f32)>) {
         args.overrides = self.overrides();
         args.relief = RELIEF[self.relief as usize % 3];
+        args.bloom = BLOOM[self.bloom as usize % 3];
         args.crinkles = self.crinkles;
         args.fog = if self.fog { fog } else { None };
         args.rain = self.rain;
@@ -230,7 +242,7 @@ impl Options {
     }
 
     /// The command line's switches win for the run they're given on: `--no-crinkles`,
-    /// `--no-fog`, `--linear`, `--relief` and `--overrides` (`--mute` silences everything
+    /// `--no-fog`, `--linear`, `--relief`, `--bloom` and `--overrides` (`--mute` silences everything
     /// anyway).
     pub(crate) fn with_args(mut self, args: &Args) -> Options {
         self.crinkles &= args.crinkles;
@@ -238,6 +250,9 @@ impl Options {
         self.linear |= args.linear;
         if args.relief > 0.0 {
             self.relief = 2;
+        }
+        if args.bloom > 0.0 {
+            self.bloom = 2;
         }
         self.forced = args.overrides.clone();
         self
