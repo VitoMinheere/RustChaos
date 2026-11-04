@@ -314,13 +314,16 @@ pub fn walls(game: &Path) -> Result<String, String> {
 /// `uc textures roofs`: for each world, the page and turn the released maps' rooftops
 /// (`ROOF_EXISTS` squares with a page their clump has) have most for each shape of the roof
 /// round a square ([`uc_world::roofs::Shape`], turned upright), as `uc_world::rooftiles`'s
-/// table. A shape seen fewer than [`MIN_ROOFS`] times is left out. With `report`, how many of
+/// table, and each world's rooftop pages. A shape or page seen fewer than [`MIN_ROOFS`]
+/// times is left out. With `report`, how many of
 /// each shape had the page chosen goes to stderr.
 pub fn roofs(game: &Path, report: bool) -> Result<String, String> {
     use uc_world::roofs::Tops;
     let maps = load_maps(game)?;
     // World, shape upright, (page, turn): how many squares.
     let mut seen: BTreeMap<i32, BTreeMap<u16, Uses>> = BTreeMap::new();
+    // World, page: how many rooftop squares.
+    let mut pages: BTreeMap<i32, BTreeMap<u16, usize>> = BTreeMap::new();
     for (world, clumped, level) in maps.values() {
         if !*clumped {
             continue;
@@ -337,6 +340,7 @@ pub fn roofs(game: &Path, report: bool) -> Result<String, String> {
                 let (shape, k) = tops.shape(x as i32, z as i32, sq.height as i32 * 64).upright();
                 let turn = (sq.rotation() + k) % 4;
                 *seen.entry(*world).or_default().entry(shape.0).or_default().entry((sq.page(), turn)).or_default() += 1;
+                *pages.entry(*world).or_default().entry(sq.page()).or_default() += 1;
             }
         }
     }
@@ -360,6 +364,14 @@ pub fn roofs(game: &Path, report: bool) -> Result<String, String> {
             tiles.push(format!("({shape:#06x}, {page}, {turn})"));
         }
         out += &format!("    ({world}, &[{}]),\n", tiles.join(", "));
+    }
+    out += "];\n\n\
+        /// For each world, the pages its released maps' rooftops have, on as many squares as\n\
+        /// a shape needs to be in [`ROOF_TILES`].\n\
+        pub const ROOF_PAGES: &[(i32, &[u16])] = &[\n";
+    for (world, uses) in &pages {
+        let kept: Vec<String> = uses.iter().filter(|(_, &n)| n >= MIN_ROOFS).map(|(p, _)| p.to_string()).collect();
+        out += &format!("    ({world}, &[{}]),\n", kept.join(", "));
     }
     out += "];\n";
     Ok(out)

@@ -1173,6 +1173,8 @@ impl Level {
     /// [`finish_unfinished`] added when it was loaded, or doesn't if the editor took it out.
     pub fn load_with_mission(game: &Path, mission_name: &str, mut mission: Mission, opt: &LoadOptions) -> Result<Level, String> {
         let mut map = Map::parse(&read(game, &mission.map)?).map_err(|e| format!("{}: {e}", mission.map))?;
+        // An older map's roofs, as it has them, before `refloor` swaps their pages.
+        let unlaid = crate::roofs::unlaid(&map, crate::roofs::tiles_world(map.texture_set));
         refloor(&mission.map, &mut map);
         to_sea(&mission.map, &mut map);
         open_the_store(mission_name, &mission.map, &mut map);
@@ -1196,6 +1198,13 @@ impl Level {
             Ok(b) => (Clump::parse(b).map_err(|e| e.to_string())?, BTreeSet::new(), BTreeMap::new()),
             Err(_) => borrowed_clump(game, &mission.map, world),
         };
+        // A map no mission with a clump of its own is on has its roofs laid as one page over
+        // every square, which isn't one its world's rooftops have: they're laid out as the
+        // released maps' rooftops are ([`crate::roofs`]), edges, raised parts and all.
+        if !page_donors.is_empty() {
+            let ids: std::collections::HashSet<u32> = clump.ids().collect();
+            crate::roofs::lay(&mut map, &unlaid, crate::roofs::tiles_world(world), |p| ids.contains(&p));
+        }
         // Borrowing the stand-in's world, none of its world pages are its own.
         if world != map.texture_set {
             stand_in_pages = clump.ids().map(entry_page).filter(|&p| world_page(p)).collect();

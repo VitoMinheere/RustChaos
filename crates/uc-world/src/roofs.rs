@@ -133,6 +133,47 @@ impl Tops {
     }
 }
 
+/// The world whose tiles to lay out `world`'s roofs with: its own if the table has it, else
+/// the stand-in world's ([`crate::level::STAND_IN_WORLD`]), whose pages a world no released
+/// map is of borrows.
+pub fn tiles_world(world: Option<i32>) -> i32 {
+    world.filter(|w| crate::rooftiles::ROOF_TILES.iter().any(|(t, _)| t == w)).unwrap_or(crate::level::STAND_IN_WORLD)
+}
+
+/// Whether the released maps of `world` have `page` on their rooftops.
+pub fn rooftop_page(world: i32, page: u32) -> bool {
+    crate::rooftiles::ROOF_PAGES.iter().find(|(w, _)| *w == world).is_some_and(|(_, pages)| pages.contains(&(page as u16)))
+}
+
+/// The squares of `map`'s roofs (its rooftops, and the squares under roof faces that aren't a
+/// warehouse's) whose page isn't one `world`'s released maps have on a rooftop: an older
+/// map's roofs, laid as one page over every square, with no edges or shading. As the map
+/// has them, before any page is swapped for another ([`crate::refloor`]).
+pub fn unlaid(map: &Map, world: i32) -> Vec<(usize, usize)> {
+    let warehouse = |b: u16| map.buildings.get(b as usize).is_some_and(|b| b.kind == uc_formats::iam::BUILDING_TYPE_WAREHOUSE);
+    let mut squares: Vec<(usize, usize)> = map.roof_faces.iter().skip(1)
+        .filter(|rf| !warehouse(rf.building))
+        .map(|rf| ((rf.rx & 127) as usize, (rf.rz & 127) as usize))
+        .chain((0..MAP_SIZE).flat_map(|x| (0..MAP_SIZE).map(move |z| (x, z))).filter(|&(x, z)| map.square(x, z).has(flags::ROOF_EXISTS)))
+        .filter(|&(x, z)| !rooftop_page(world, map.square(x, z).page() as u32))
+        .collect();
+    squares.sort();
+    squares.dedup();
+    squares
+}
+
+/// Lays `squares` of `map`'s roofs ([`unlaid`]) as `world`'s rooftops are: each square's page
+/// and turn by the shape of the roof round it, at its top ([`Tops`]).
+pub fn lay(map: &mut Map, squares: &[(usize, usize)], world: i32, has_page: impl Fn(u32) -> bool) {
+    let tops = Tops::new(map);
+    for &(x, z) in squares {
+        let Some(y) = tops.at(x as i32, z as i32) else { continue };
+        let Some((page, turn)) = tile(world, tops.shape(x as i32, z as i32, y), &has_page) else { continue };
+        let sq = &mut map.squares[x * MAP_SIZE + z];
+        sq.texture = (sq.texture & !0xFFF) | page as u16 | (turn as u16) << 10;
+    }
+}
+
 /// The page and turn ([`uc_formats::iam::Square::rotation`]) world `world`'s rooftops have
 /// for a square of shape `shape`, from [`crate::rooftiles::ROOF_TILES`], if the table has the
 /// world. `has_page` says which pages can be drawn.
