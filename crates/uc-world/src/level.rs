@@ -443,8 +443,12 @@ fn refloor(map_file: &str, map: &mut Map) {
 /// `<dir>/page_NNNN.png`. The mission's folder is matched whatever its case: the folders are
 /// named as the clumps are (`awol1`), not always as their missions (`AWOL1`).
 pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -> Option<PathBuf> {
-    let file = format!("page_{page:04}.png");
-    let world = world.map(|w| dir.join(format!("world{w}")).join(&file));
+    override_file(dir, mission, world, &format!("page_{page:04}.png"))
+}
+
+/// [`override_path`] for any file of a page's: `page_NNNN_n.png`, its normal map.
+fn override_file(dir: &Path, mission: &str, world: Option<i32>, file: &str) -> Option<PathBuf> {
+    let world = world.map(|w| dir.join(format!("world{w}")).join(file));
     let own = dir.join(mission);
     let own = if own.is_dir() || mission.is_empty() {
         own
@@ -453,7 +457,7 @@ pub fn override_path(dir: &Path, mission: &str, world: Option<i32>, page: u32) -
             .find(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(mission))
             .map_or(own, |e| e.path())
     };
-    [Some(own.join(&file)), world, Some(dir.join(&file))].into_iter().flatten().find(|p| p.is_file())
+    [Some(own.join(file)), world, Some(dir.join(file))].into_iter().flatten().find(|p| p.is_file())
 }
 
 /// What the unfinished missions never got (not in the original): an ending, and beacons for
@@ -1311,6 +1315,16 @@ impl Level {
     /// next has them.
     pub fn set_overrides(&mut self, dir: Option<PathBuf>) {
         self.overrides = dir;
+    }
+
+    /// The normal map of a page (#474): `page_NNNN_n.png` beside its override
+    /// (`tools/upscale/normal_maps.py` makes them), found as the override is.
+    pub fn normal_map(&self, page: u32) -> Option<Texture> {
+        let d = self.overrides.as_deref()?;
+        let file = format!("page_{page:04}_n.png");
+        override_file(d, &self.name, self.map.texture_set, &file)
+            .or_else(|| override_file(d, self.page_donors.get(&page)?, None, &file))
+            .and_then(|p| load_png(&p))
     }
 
     /// The texture for a page: an override PNG if present ([`override_path`]), else the

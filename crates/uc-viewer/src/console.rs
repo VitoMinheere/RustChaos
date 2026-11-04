@@ -16,7 +16,7 @@ const CHANGES: [&str; 22] = [
 ];
 
 const HELP: &str = "telw N (to event point N)  tels / telr (store / return)  wpt (nearest point)  \
-win  lose  restart  roper  darci  kit  boo  pow  pos  god  ammo  freeze  give WHAT  kill [near]  \ncrime N  time X  wave N  bonus  telb N  car  dog  call WHAT  autopilot  crinkles  textures  sm  dike  flag  hm";
+win  lose  restart  roper  darci  kit  boo  pow  pos  god  ammo  freeze  give WHAT  kill [near]  \ncrime N  time X  wave N  bonus  telb N  car  dog  call WHAT  autopilot  crinkles  textures  relief  sm  dike  flag  hm";
 
 #[derive(Default)]
 pub(crate) struct Console {
@@ -272,6 +272,15 @@ impl World {
                 self.level.set_overrides(dir);
                 self.reupload = true;
                 self.console.say(format!("{to} textures..."));
+            }
+            // Walls, floors and roofs lit by the upscaled pages' normal maps (#474): off, soft,
+            // strong and round again.
+            "relief" => {
+                let r = crate::options::RELIEF;
+                let k = r.iter().position(|&v| v == self.args.relief).map_or(0, |k| (k + 1) % r.len());
+                self.args.relief = r[k];
+                self.reupload = true;
+                self.console.say(["Relief off", "Relief soft...", "Relief strong..."][k]);
             }
             _ => self.console.say(format!("Unknown command '{name}': try help")),
         }

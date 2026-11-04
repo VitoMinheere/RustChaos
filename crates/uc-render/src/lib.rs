@@ -35,6 +35,11 @@ struct Globals {
     lights: [[f32; 4]; MAX_LIGHTS],
     light_rgb: [[f32; 4]; MAX_LIGHTS],
     light_count: [f32; 4],
+    relief: [f32; 4],
+    amb_dir: [f32; 4],
+    lamps: [[f32; 4]; MAX_LIGHTS],
+    lamp_rgb: [[f32; 4]; MAX_LIGHTS],
+    lamp_count: [f32; 4],
 }
 
 /// How many dynamic lights the shader takes: the nearest to the camera.
@@ -96,6 +101,20 @@ pub struct Settings {
     /// This frame's shadow maps (#241), by page (`uc_world::SMAP`): each pixel's coverage,
     /// square.
     pub shadows: Vec<(u32, Vec<u8>)>,
+    /// Walls, floors and roofs lit by their pages' normal maps (#474), if on.
+    pub relief: Option<Relief>,
+}
+
+/// What the relief is lit by (#474): see `fs_relief`.
+#[derive(Debug, Clone, Default)]
+pub struct Relief {
+    /// How strong it is: 1 lights it by as much as the lights light the faces.
+    pub strength: f32,
+    /// How much the ambient light changes with the cosine to its direction
+    /// (`uc_formats::lgt::Lighter::ambient_slope`).
+    pub ambient_slope: [f32; 3],
+    /// The static lights (square units); the nearest [`MAX_LIGHTS`] to the camera are used.
+    pub lamps: Vec<Light>,
 }
 
 /// Draw statistics for the last frame.
@@ -147,6 +166,9 @@ pub struct Renderer {
     ghost_depth_pipeline: wgpu::RenderPipeline,
     ghost_pipeline: wgpu::RenderPipeline,
     unlit_pipeline: wgpu::RenderPipeline,
+    /// Walls, floors and roofs with a normal map (#474), and those maps by page.
+    relief_pipeline: wgpu::RenderPipeline,
+    normals: HashMap<u32, wgpu::BindGroup>,
     windows_pipeline: wgpu::RenderPipeline,
     /// The level's pages that light themselves, from the last [`Renderer::upload_world`].
     self_lit: SelfLit,
@@ -282,6 +304,43 @@ impl Renderer {
                     blend: None,
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        // As the main pipeline, with the page's normal map as a third bind group.
+        let relief_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("relief layout"),
+            bind_group_layouts: &[Some(&globals_layout), Some(&tex_layout), Some(&tex_layout)],
+            immediate_size: 0,
+        });
+        let relief_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("relief pipeline"),
+            layout: Some(&relief_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4, 3 => Snorm8x4],
+                })],
+            },
+            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_relief"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
             }),
             multiview_mask: None,
             cache: None,
@@ -740,7 +799,7 @@ impl Renderer {
         let font = make_texture_levels(&device, &queue, &tex_layout, &font_sampler, &font_tex, 1);
         Renderer {
             device, queue, format, pipeline, globals_buf, globals_bg, tex_layout, sampler,
-            textures: HashMap::new(), white, shadow_pipeline, decal_pipeline, glow_pipeline, additive_pipeline, sprite_pipeline, ghost_depth_pipeline, ghost_pipeline, unlit_pipeline, windows_pipeline, self_lit: SelfLit::default(), sky_pipeline, moon_pipeline, puddle_mask_pipeline, reflect_pipeline, moon_reflect_pipeline, smap_pipeline, shadow_tex, mist_tex,
+            textures: HashMap::new(), white, shadow_pipeline, decal_pipeline, glow_pipeline, additive_pipeline, sprite_pipeline, ghost_depth_pipeline, ghost_pipeline, unlit_pipeline, relief_pipeline, normals: HashMap::new(), windows_pipeline, self_lit: SelfLit::default(), sky_pipeline, moon_pipeline, puddle_mask_pipeline, reflect_pipeline, moon_reflect_pipeline, smap_pipeline, shadow_tex, mist_tex,
             statics: None, chunks: Vec::new(), dynamic: None, targets: None,
             overlay_pipeline, screen_buf, screen_bg, font, overlay_buf: None, backdrop: None, minimap: None, faces: [None, None], stats: Stats::default(),
         }
@@ -769,6 +828,14 @@ impl Renderer {
     /// Returns (textures loaded, of which from overrides).
     pub fn upload_world(&mut self, geo: &WorldGeometry, extra_pages: &[u32],
                         texture: impl Fn(u32) -> Option<(Texture, bool)>) -> (usize, usize) {
+        self.upload_world_relief(geo, extra_pages, texture, |_| None)
+    }
+
+    /// [`Renderer::upload_world`], with the normal maps of the pages that have one (#474),
+    /// for the walls, floors and roofs to be lit by when [`Settings::relief`] is on.
+    pub fn upload_world_relief(&mut self, geo: &WorldGeometry, extra_pages: &[u32],
+                               texture: impl Fn(u32) -> Option<(Texture, bool)>,
+                               normal: impl Fn(u32) -> Option<Texture>) -> (usize, usize) {
         let (mut vertices, mut indices): (Vec<Vertex>, Vec<u32>) = (Vec::new(), Vec::new());
         self.chunks.clear();
         for c in &geo.chunks {
@@ -808,6 +875,10 @@ impl Renderer {
                 self.textures.insert(page, bg);
                 loaded += 1;
                 overridden += over as usize;
+            }
+            if let Some(n) = normal(page) {
+                let bg = self.make_texture(&n);
+                self.normals.insert(page, bg);
             }
         }
         (loaded, overridden)
@@ -909,6 +980,12 @@ impl Renderer {
     /// Forgets every level texture (before loading another level).
     pub fn clear_textures(&mut self) {
         self.textures.clear();
+        self.normals.clear();
+    }
+
+    /// How many of the level's pages have a normal map.
+    pub fn normal_maps(&self) -> usize {
+        self.normals.len()
     }
 
     /// Draws only the overlay (menus), over black.
@@ -1014,6 +1091,20 @@ impl Renderer {
             lights[k] = [l.pos.x, l.pos.y, l.pos.z, l.radius];
             light_rgb[k] = [l.rgb[0], l.rgb[1], l.rgb[2], 0.0];
         }
+        // The relief's static lights: the nearest to the camera.
+        let mut lamps = [[0.0; 4]; MAX_LIGHTS];
+        let mut lamp_rgb = [[0.0; 4]; MAX_LIGHTS];
+        let mut lamp_count = 0;
+        if let Some(r) = &s.relief {
+            let mut near: Vec<&Light> = r.lamps.iter().filter(|l| l.radius > 0.0).collect();
+            near.sort_by(|a, b| (a.pos - cam.pos).length_squared().total_cmp(&(b.pos - cam.pos).length_squared()));
+            near.truncate(MAX_LIGHTS);
+            for (k, l) in near.iter().enumerate() {
+                lamps[k] = [l.pos.x, l.pos.y, l.pos.z, l.radius];
+                lamp_rgb[k] = [l.rgb[0], l.rgb[1], l.rgb[2], 0.0];
+            }
+            lamp_count = near.len();
+        }
         let globals = Globals {
             view_proj: vp.to_cols_array_2d(),
             cam_pos: [cam.pos.x, cam.pos.y, cam.pos.z, 1.0],
@@ -1022,6 +1113,11 @@ impl Renderer {
             lights,
             light_rgb,
             light_count: [near.len() as f32, 0.0, 0.0, 0.0],
+            relief: s.relief.as_ref().map_or([0.0; 4], |r| [r.ambient_slope[0], r.ambient_slope[1], r.ambient_slope[2], r.strength]),
+            amb_dir: { let a = Vec3::from(uc_formats::lgt::AMB_NORM).normalize(); [a.x, a.y, a.z, 0.0] },
+            lamps,
+            lamp_rgb,
+            lamp_count: [lamp_count as f32, 0.0, 0.0, 0.0],
         };
         self.queue.write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
         let dyn_ranges = if s.layers.contains(&Layer::Character) { self.upload_dynamic(dynamic) } else { Vec::new() };
@@ -1090,6 +1186,20 @@ impl Renderer {
                             continue;
                         }
                         let bg = if r.page == UNTEXTURED { &self.white } else { self.textures.get(&r.page).unwrap_or(&self.white) };
+                        // A wall, floor or roof whose page has a normal map, lit by it.
+                        let normal = self.normals.get(&r.page)
+                            .filter(|_| s.relief.is_some() && matches!(r.layer, Layer::Floor | Layer::Walls | Layer::Roofs))
+                            .filter(|_| !self.self_lit.unlit.contains(&r.page) && self.self_lit.overlay(r.page).is_none());
+                        if let Some(n) = normal {
+                            pass.set_pipeline(&self.relief_pipeline);
+                            pass.set_bind_group(1, bg, &[]);
+                            pass.set_bind_group(2, n, &[]);
+                            pass.draw_indexed(r.first..r.first + r.count, 0, 0..1);
+                            pass.set_pipeline(&self.pipeline);
+                            stats.draw_calls += 1;
+                            stats.triangles += r.count as usize / 3;
+                            continue;
+                        }
                         self.draw_page(&mut pass, &mut stats, r.page, bg, r.first..r.first + r.count);
                     }
                 }

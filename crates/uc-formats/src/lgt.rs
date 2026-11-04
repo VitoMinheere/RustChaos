@@ -130,6 +130,25 @@ impl<'a> Lighter<'a> {
         self.lighting.sky
     }
 
+    /// Every static light and lamppost light as [`Lighter::light`] adds it: where it is and
+    /// how far it reaches (world units), and what it adds to the vertex colour (0..1 a
+    /// channel) at its middle, falling off evenly to nothing at its edge.
+    pub fn sources(&self) -> Vec<([f32; 3], f32, [f32; 3])> {
+        // `rgb * bright / 256`, `bright` 128 at the middle, then `* 4 / 255`.
+        let scale = |rgb: [f32; 3]| rgb.map(|v| v * 128.0 / 256.0 * 4.0 / 255.0);
+        let lights = self.lighting.lights.iter()
+            .map(|l| (l.pos.map(|v| v as f32), l.range as f32 * 4.0, scale(l.rgb.map(|v| (v as i32 >> 1) as f32))));
+        let lamp = (self.lighting.lampost_radius as f32 * 4.0, scale(self.lighting.lampost_rgb.map(|v| v as f32)));
+        lights.chain(self.lamps.iter().map(|&p| (p, lamp.0, lamp.1))).filter(|s| s.1 > 0.0).collect()
+    }
+
+    /// How much the ambient light changes the vertex colour (0..1 a channel) with the
+    /// cosine between the surface's normal and [`AMB_NORM`]: `amb * (192 + 64 cos) / 256`,
+    /// then `* 4 / 255`.
+    pub fn ambient_slope(&self) -> [f32; 3] {
+        self.lighting.amb().map(|a| a * 64.0 / 256.0 * 4.0 / 255.0)
+    }
+
     /// Vertex colour (0..1 per channel, to multiply with the texture) at a world-space point
     /// with the given surface normal (any length).
     pub fn light(&self, p: [f32; 3], normal: [f32; 3]) -> [f32; 3] {
