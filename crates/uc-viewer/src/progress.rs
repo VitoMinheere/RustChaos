@@ -200,6 +200,28 @@ impl Progress {
         self.endless.get(&key(map)).copied()
     }
 
+    /// The records kept under arena `old`'s name go under `new`'s, an endless run's and every
+    /// Beat Cop shift length's, unless there's one there already (an arena renamed). Whether
+    /// any moved; saved if so.
+    pub fn rename_endless(&mut self, old: &str, new: &str) -> bool {
+        let (old, new) = (key(old), key(new));
+        let moving: Vec<(String, String)> = self.endless.keys()
+            .filter_map(|k| {
+                let (shift, name) = k.split_once(':').filter(|(s, _)| s.starts_with("beat")).map_or(("", k.as_str()), |(s, n)| (s, n));
+                (name == old).then(|| (k.clone(), if shift.is_empty() { new.clone() } else { format!("{shift}:{new}") }))
+            })
+            .filter(|(_, to)| !self.endless.contains_key(to))
+            .collect();
+        for (from, to) in &moving {
+            let r = self.endless.remove(from).unwrap();
+            self.endless.insert(to.clone(), r);
+        }
+        if !moving.is_empty() {
+            self.save();
+        }
+        !moving.is_empty()
+    }
+
     /// Records an endless run on `map`; whether it's a new best.
     pub fn record_endless(&mut self, map: &str, score: i64, wave: u32) -> bool {
         let e = self.endless.entry(key(map)).or_insert((i64::MIN, 0));
@@ -333,5 +355,25 @@ mod tests {
         assert_eq!(p.best_endless(&five), Some((900, 4)));
         assert_eq!(p.best_endless(&open), Some((300, 2)));
         assert!(!key(&five).contains(' '));
+    }
+
+    /// A renamed arena keeps its records: the endless run's and each shift length's, not
+    /// over one already kept under the new name.
+    #[test]
+    fn a_renamed_arena_keeps_its_records() {
+        let mut p = Progress::default();
+        let old = "Combat Tutorial: round the start (fight1)";
+        p.record_endless(old, 500, 3);
+        p.record_endless(&beat_key(old, Some(10)), 950, 4);
+        p.record_endless(&beat_key("Gangland", Some(10)), 3450, 15);
+        assert!(p.rename_endless(old, "Combat Centre"));
+        assert_eq!(p.best_endless("Combat Centre"), Some((500, 3)));
+        assert_eq!(p.best_endless(&beat_key("Combat Centre", Some(10))), Some((950, 4)));
+        assert_eq!(p.best_endless(old), None);
+        assert_eq!(p.best_endless(&beat_key("Gangland", Some(10))), Some((3450, 15)));
+        p.record_endless("West Block", 100, 1);
+        p.record_endless("Insane Assault: round the start (balbash1)", 900, 9);
+        assert!(!p.rename_endless("Insane Assault: round the start (balbash1)", "West Block"));
+        assert_eq!(p.best_endless("West Block"), Some((100, 1)));
     }
 }

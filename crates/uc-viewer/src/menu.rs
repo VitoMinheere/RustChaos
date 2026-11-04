@@ -88,10 +88,50 @@ pub struct Pin {
 /// mission's start if none) and its radius.
 pub type Arena = (String, String, Option<(f32, f32)>, f32);
 
+/// What each map's endless arena round its start is called: (map, name). The district it's
+/// in on the city map, and where in it when a district has more than one, or the place for
+/// the maps only the unreleased missions are on. A map not here is called after its first
+/// mission.
+const ARENA_NAMES: [(&str, &str); 30] = [
+    ("army1", "Army Base: the radar tower"),
+    ("assault", "Assault Course"),
+    ("balbash1", "West Block"),
+    ("bball1", "The Purple Palace"),
+    ("bball2", "Baseball Ground"),
+    ("botanic", "Union Gardens"),
+    ("botanicc", "Botanical Gardens"),
+    ("disturb1", "West District: outside the station"),
+    ("fight1", "Combat Centre"),
+    ("freeoncd1", "Construction Site"),
+    ("gang1", "Gangland"),
+    ("gpost3", "Rio Canal"),
+    ("jumper1", "Bank Sector"),
+    ("jung3", "El Cossa Island"),
+    ("nestate01", "Banes Estate"),
+    ("nestate0x", "Farraday's Estate"),
+    ("oval1", "Oval Circuit: the pits"),
+    ("parkypsx03", "Central Park"),
+    ("road4_2", "Advanced Circuit: the silver course"),
+    ("road4_3", "Advanced Circuit: the gold course"),
+    ("rooftest2", "Clandon Heights: the rooftops"),
+    ("skymap30", "Skyline"),
+    ("snocrime", "Southside Beach: the beach houses"),
+    ("snow1", "Missile Silos"),
+    ("snow2", "Snow Plains"),
+    ("southside", "Southside Beach: Mabel Greer's Diner"),
+    ("stealth1", "Medical Centre"),
+    ("subdock1", "Submarine Dock"),
+    ("training1", "Police Training Ground"),
+    ("tv1", "Television Centre"),
+];
+
 /// Endless arenas with names: (map, name, middle in squares, radius in squares).
-const NAMED_ARENAS: [(&str, &str, f32, f32, f32); 1] = [
+const NAMED_ARENAS: [(&str, &str, f32, f32, f32); 2] = [
     // Where Gun Hunt sends Darci to find Deeks ("Park: Find Deeks", police3 point 202).
     ("disturb1", "West District: the park", 34.5, 40.1, 9.0),
+    // Driving Bronze's whole track: the oval is two straights 70 squares long, joined at
+    // both ends, so from the top bend it takes this far to reach the bottom one.
+    ("oval1", "Oval Circuit: the whole track", 56.5, 26.5, 66.0),
 ];
 
 /// Beat Cop's districts: (mission, name). Only city streets with a crowd and traffic; the
@@ -279,14 +319,17 @@ impl Menu {
                 .or_else(|| unreleased(&mission).then(|| made_briefing(&mission)));
             entries.push(Entry { mission, title, briefing, playable, goals, district, voice });
         }
-        let progress = Progress::load();
+        let mut progress = Progress::load();
         let theme = Theme::of(entries.iter().filter(|e| progress.completed(&e.mission)).count());
-        // An endless arena round the start of each map the missions use (named after its
-        // first mission), and the few named ones besides.
+        // An endless arena round the start of each map the missions use ([`ARENA_NAMES`]),
+        // and the few named ones besides. Records kept under the names they had before
+        // (their first mission's title, "round the start" and the map) move to the new ones.
         let mut arenas = Vec::new();
         for (map, ms) in maps {
             let stem = map.rsplit(['\\', '/']).next().unwrap_or(&map).trim_end_matches(".iam").to_string();
-            arenas.push((ms[0].0.clone(), format!("{}: round the start ({stem})", ms[0].1), None, 10.0));
+            let name = ARENA_NAMES.iter().find(|(m, _)| m.eq_ignore_ascii_case(&stem)).map_or_else(|| ms[0].1.clone(), |(_, n)| n.to_string());
+            progress.rename_endless(&format!("{}: round the start ({stem})", ms[0].1), &name);
+            arenas.push((ms[0].0.clone(), name, None, 10.0));
             for &(m, name, x, z, r) in &NAMED_ARENAS {
                 if m.eq_ignore_ascii_case(&stem) {
                     arenas.push((ms[0].0.clone(), name.to_string(), Some((x, z)), r));
@@ -1540,5 +1583,26 @@ mod tests {
         for f in voiced.iter().filter(|f| **f != "policem.wav") {
             assert!(uc_formats::resolve(&game, &format!("talk2\\{f}")).is_some(), "{f} missing");
         }
+    }
+}
+
+#[cfg(test)]
+mod arena_tests {
+    use super::*;
+
+    /// Every endless arena has a name of its own, from [`ARENA_NAMES`] (none left called
+    /// after its first mission), and Driving Bronze's map has its whole track as one.
+    #[test]
+    fn arenas_are_named_after_their_places() {
+        let Some(game) = uc_formats::default_install() else { return };
+        let m = Menu::new(&game);
+        let names: std::collections::BTreeSet<&str> = m.maps.iter().map(|a| a.1.as_str()).collect();
+        assert_eq!(names.len(), m.maps.len(), "two arenas with one name");
+        for a in &m.maps {
+            assert!(ARENA_NAMES.iter().any(|(_, n)| *n == a.1) || NAMED_ARENAS.iter().any(|n| n.1 == a.1), "{} isn't named", a.1);
+        }
+        let oval = m.maps.iter().find(|a| a.1 == "Oval Circuit: the whole track").expect("no whole track");
+        assert_eq!(oval.0, "testdrive1a");
+        assert_eq!(oval.3, 66.0);
     }
 }
