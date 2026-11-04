@@ -2,6 +2,7 @@
 //! screens.
 
 use crate::checklist;
+use crate::medals;
 use crate::bindings::{Bindings, ACTS};
 use crate::options::Options;
 use crate::credits::Credits;
@@ -483,6 +484,16 @@ impl Menu {
         self.progress.completed(&e.mission) && self.tally(e) == (e.goals.badges.len(), e.goals.sides.len())
     }
 
+    /// Entry `e`'s best medals (#516), if it's a story mission (none won yet: all dim).
+    fn medals(&self, e: &Entry) -> Option<medals::Medals> {
+        medals::story(&e.mission).then(|| self.progress.get(&e.mission).map(|d| d.medals).unwrap_or_default())
+    }
+
+    /// Entry `e`'s medal markers at `x`, `y` (a row's top), if it has any; the width they take.
+    fn medal_dots(&self, o: &mut Overlay, x: f32, y: f32, s: f32, e: &Entry) -> f32 {
+        self.medals(e).map_or(0.0, |m| medals::dots(o, x, y, s, &e.mission, m, has_extras(e)))
+    }
+
     /// The pin the chosen mission is at, if it's on the map.
     fn pin_of(&self, entry: usize) -> Option<usize> {
         self.pins.iter().position(|p| p.missions.contains(&entry))
@@ -558,7 +569,7 @@ impl Menu {
             let (x, y) = at(p);
             let line = 11.0 * s;
             let rows: Vec<(String, usize)> = p.missions.iter().map(|&m| (self.entries[m].title.clone(), m)).collect();
-            let bw = rows.iter().map(|(t, _)| Overlay::text_width(t, s)).fold(Overlay::text_width(&p.name, s * 1.5), f32::max) + 30.0 * s;
+            let bw = rows.iter().map(|(t, _)| Overlay::text_width(t, s) + 24.0 * s).fold(Overlay::text_width(&p.name, s * 1.5), f32::max) + 30.0 * s;
             let bh = 22.0 * s + rows.len() as f32 * line;
             let bx = if x + 14.0 * s + bw < w { x + 14.0 * s } else { x - 14.0 * s - bw };
             let by = (y - bh / 2.0).clamp(36.0 * s, h - 60.0 * s - bh);
@@ -574,6 +585,7 @@ impl Menu {
                 }
                 let col = if self.entries[*m].playable { white } else { dim };
                 o.text(bx + 20.0 * s, ry, s, col, title);
+                self.medal_dots(o, bx + bw - 27.0 * s, ry, s, &self.entries[*m]);
             }
         }
         // Along the bottom: the mission chosen, how it's gone, and the keys.
@@ -590,6 +602,11 @@ impl Menu {
                 _ => "Not completed yet".to_string(),
             };
             o.text(12.0 * s, h - 25.0 * s, s, white, &best);
+            // Its medals' time targets, at the right.
+            if let Some(m) = self.medals(e) {
+                let parts = medals::targets(&e.mission, m.time, false);
+                medals::draw_line(o, w - medals::line_width(&parts, s) - 12.0 * s, h - 25.0 * s, s, &parts);
+            }
         }
         let keys = if self.for_coop {
             "CO-OP: choose the mission to play together.   Left/Right district   Up/Down mission   Enter play   Tab list   Esc back"
@@ -1091,7 +1108,10 @@ impl Menu {
             let best = self.progress.best_time(&e.mission).map_or(String::new(), clock);
             let right = w * 0.5 - 12.0 * s;
             let bw = Overlay::text_width(&best, s);
-            o.text(x + 10.0 * s, y, s, col, &fit(&e.title, right - bw - 12.0 * s - (x + 10.0 * s), s));
+            // The medals (#516) just before it.
+            let dots = if self.medals(e).is_some() { 22.0 * s } else { 0.0 };
+            self.medal_dots(&mut o, right - bw - dots - 2.0 * s, y, s, e);
+            o.text(x + 10.0 * s, y, s, col, &fit(&e.title, right - bw - dots - 12.0 * s - (x + 10.0 * s), s));
             o.text(right - bw, y, s, gold, &best);
         }
         // The selected mission in a panel on the right: its title, the best time (or not
@@ -1113,8 +1133,16 @@ impl Menu {
                 _ => ("Not completed yet".to_string(), [170, 170, 160, 255]),
             };
             let list_h = checklist::height(&items, bw, s);
+            // The medals' targets (#516): the times (shortened if they don't fit), then the
+            // other goals.
+            let targets = self.medals(e).map(|m| {
+                let long = medals::targets(&e.mission, m.time, false);
+                let times = if medals::line_width(&long, s) <= bw { long } else { medals::targets(&e.mission, m.time, true) };
+                [times, medals::goals_line(m, has_extras(e))]
+            });
+            let medal_h = targets.as_ref().map_or(0.0, |t| t.iter().filter(|l| !l.is_empty()).count() as f32 * line);
             // The briefing gets what's left between the panel's top limit and the bottom.
-            let head = 58.0 * s + list_h;
+            let head = 58.0 * s + medal_h + list_h;
             let room = (((h - 24.0 * s - 74.0 * s - head) / line).floor() as usize).max(1);
             let mut lines = Overlay::wrap(&story, bw, s);
             if lines.len() > room {
@@ -1128,7 +1156,11 @@ impl Menu {
             o.rect(px, py, pw, ph, [0, 0, 0, 180]);
             o.text(px + 12.0 * s, py + 10.0 * s, s * 2.0, gold, &fit(&e.title, bw, s * 2.0));
             o.text(px + 12.0 * s, py + 30.0 * s, s, best_col, &fit(&best, bw, s));
-            let y = py + 46.0 * s;
+            let mut y = py + 46.0 * s;
+            for parts in targets.iter().flatten().filter(|l| !l.is_empty()) {
+                medals::draw_line(&mut o, px + 12.0 * s, y - 4.0 * s, s, parts);
+                y += line;
+            }
             checklist::draw(&mut o, px + 12.0 * s, y, bw, s, &items);
             for (k, l) in lines.iter().enumerate() {
                 o.text(px + 12.0 * s, y + list_h + 6.0 * s + k as f32 * line, s, [215, 215, 205, 255], l);
@@ -1136,6 +1168,11 @@ impl Menu {
         }
         o
     }
+}
+
+/// Entry `e` has badges or side objectives to do (so a thorough medal to win).
+fn has_extras(e: &Entry) -> bool {
+    !e.goals.badges.is_empty() || !e.goals.sides.is_empty()
 }
 
 /// Finished missions the game never listed, after the story as in the original's suggested

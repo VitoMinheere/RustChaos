@@ -1,7 +1,8 @@
 //! Which missions have been completed: the best time for each, and the badges and side
 //! objectives done in it (across all the runs that were won). Kept in a small text file in the
 //! user's settings folder, a line per mission: `mission seconds b=<badge points> s=<side
-//! objectives>`. (Older files have four stat counts in place of the lists.)
+//! objectives> d=<hardest difficulty> m=<medals>`. (Older files have four stat counts in place
+//! of the lists, and no difficulty or medals.)
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -18,6 +19,8 @@ pub struct Done {
     legacy: [u8; 4],
     /// The hardest difficulty it's been won on (Normal for wins from before there was one).
     pub hardest: uc_game::Difficulty,
+    /// The best medal for each goal (#516), over all its fair wins.
+    pub medals: crate::medals::Medals,
 }
 
 impl Done {
@@ -86,7 +89,11 @@ impl Progress {
     }
 
     pub fn load() -> Progress {
-        let path = Progress::default_path();
+        Progress::load_from(Progress::default_path())
+    }
+
+    /// The progress kept at `path` (none if there's no file, and nothing saved without one).
+    fn load_from(path: Option<PathBuf>) -> Progress {
         let text = path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
         let civ_warnings = text.lines().find_map(|l| l.strip_prefix("@civ_warnings ")?.trim().parse().ok()).unwrap_or(0);
         let endless = text.lines().filter_map(|l| {
@@ -108,6 +115,8 @@ impl Progress {
                         d.sides = list(s);
                     } else if let Some(n) = field.strip_prefix("d=").and_then(|n| n.parse::<usize>().ok()) {
                         d.hardest = uc_game::Difficulty::ALL.get(n).copied().unwrap_or_default();
+                    } else if let Some(m) = field.strip_prefix("m=").and_then(crate::medals::Medals::decode) {
+                        d.medals = m;
                     } else if let (Ok(n), true) = (field.parse(), legacy < 4) {
                         d.legacy[legacy] = n;
                         legacy += 1;
@@ -270,6 +279,16 @@ impl Progress {
         self.save();
     }
 
+    /// Keeps the best of each of `mission`'s medals with those of `won` (a win already
+    /// [`record`](Progress::record)ed); the medals before.
+    pub fn record_medals(&mut self, mission: &str, won: crate::medals::Medals) -> crate::medals::Medals {
+        let Some(d) = self.done.get_mut(&mission.to_ascii_lowercase()) else { return Default::default() };
+        let before = d.medals;
+        d.medals = before.best(won);
+        self.save();
+        before
+    }
+
     fn save(&self) {
         let Some(path) = &self.path else { return };
         let join = |s: &BTreeSet<usize>| s.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",");
@@ -280,7 +299,8 @@ impl Progress {
                 let [a, b, c, e] = d.legacy;
                 let legacy = if d.legacy == [0; 4] { String::new() } else { format!(" {a} {b} {c} {e}") };
                 let on = uc_game::Difficulty::ALL.iter().position(|&x| x == d.hardest).unwrap_or(1);
-                format!("{m} {:.1} b={} s={} d={on}{legacy}\n", d.best, join(&d.badges), join(&d.sides))
+                let medals = if d.medals == Default::default() { String::new() } else { format!(" m={}", d.medals.encode()) };
+                format!("{m} {:.1} b={} s={} d={on}{medals}{legacy}\n", d.best, join(&d.badges), join(&d.sides))
             })
             .chain((self.civ_warnings > 0).then(|| format!("@civ_warnings {}\n", self.civ_warnings)))
             .chain(self.endless.iter().map(|(m, (s, w))| format!("@endless {m} {s} {w}\n")))
@@ -343,6 +363,53 @@ mod tests {
         p.record("police1", 500.0, &none, &none, Hard);
         p.record("police1", 400.0, &none, &none, Normal);
         assert_eq!(p.get("police1").unwrap().hardest, Hard);
+    }
+
+    /// A progress file of its own in the temp folder, never the player's.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("uc-progress-test-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("progress.txt");
+        let _ = std::fs::remove_file(&path);
+        path
+    }
+
+    /// Medals are saved, the best of each goal kept, and loaded back as they were.
+    #[test]
+    fn medals_round_trip() {
+        use crate::medals::{Medals, Tier};
+        let path = scratch("medals");
+        let mut p = Progress::load_from(Some(path.clone()));
+        let none = BTreeSet::new();
+        assert_eq!(p.record_medals("police1", Medals { time: Tier::Gold, ..Default::default() }), Medals::default(), "not won yet");
+        p.record("police1", 70.0, &[23].into(), &none, uc_game::Difficulty::Normal);
+        p.record_medals("police1", Medals { time: Tier::Gold, clean: false, thorough: true });
+        let before = p.record_medals("police1", Medals { time: Tier::Bronze, clean: true, thorough: false });
+        assert_eq!(before, Medals { time: Tier::Gold, clean: false, thorough: true });
+        p.record("fight1", 30.0, &none, &none, uc_game::Difficulty::Easy);
+        let q = Progress::load_from(Some(path.clone()));
+        assert_eq!(q.get("police1").unwrap().medals, Medals { time: Tier::Gold, clean: true, thorough: true });
+        assert_eq!(q.get("police1").unwrap().badges, [23].into());
+        assert_eq!(q.get("fight1").unwrap().medals, Medals::default());
+        // Missions without medals are saved as they were before there were any.
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("police1 70.0 b=23 s= d=1 m=311\n") && text.contains("fight1 30.0 b= s= d=0\n"), "{text}");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// A file from before medals (and before difficulties and badge lists) loads as it did,
+    /// with none.
+    #[test]
+    fn old_files_load_without_medals() {
+        let path = scratch("old");
+        std::fs::write(&path, "police1 600.0 2 0 0 1\npolice2 95.5 b=23,82 s=149 d=2\n@civ_warnings 1\n@ach rookie\n").unwrap();
+        let p = Progress::load_from(Some(path.clone()));
+        let (a, b) = (p.get("police1").unwrap(), p.get("police2").unwrap());
+        assert_eq!((a.best, a.legacy, a.medals), (600.0, [2, 0, 0, 1], Default::default()));
+        assert_eq!((b.best, b.badges.len(), b.sides.len(), b.hardest), (95.5, 2, 1, uc_game::Difficulty::Hard));
+        assert_eq!(b.medals, Default::default());
+        assert_eq!((p.civ_warnings, p.achieved.len()), (1, 1));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     /// Beat Cop bests are kept per shift length, and a map label with spaces in is one key.

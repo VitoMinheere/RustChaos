@@ -17,6 +17,7 @@ mod editor;
 mod ghosts;
 mod hud;
 mod input;
+mod medals;
 mod menu;
 mod options;
 mod par;
@@ -1179,6 +1180,14 @@ impl App {
             p.record(&world.level.name, world.game.time, &world.game.found, &sides, world.game.difficulty());
             world.kept = p.get(&world.level.name).cloned().unwrap_or_default();
             world.result = Some((world.game.time, before));
+            // Medals (#516): a story mission's, won fairly.
+            world.fair = world.recorder.is_some();
+            if world.fair && medals::story(&world.level.name) {
+                let won = world.medals_won();
+                let before = p.record_medals(&world.level.name, won);
+                world.kept.medals = before.best(won);
+                world.medals = Some((won, before));
+            }
             if let Some(r) = world.race.as_mut() {
                 r.won(&world.game, &world.level.name);
             }
@@ -1188,8 +1197,7 @@ impl App {
             if s.arrests > 0 && s.shots == 0 && world.game.red_marks == 0 {
                 s.by_the_book += 1;
             }
-            let (badges, sides) = world.tally();
-            if badges + sides > 0 && badges == world.goals.badges.len() && sides == world.goals.sides.len() {
+            if world.thorough() {
                 world.game.record.perfect += 1;
             }
         }
