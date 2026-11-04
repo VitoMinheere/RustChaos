@@ -843,7 +843,7 @@ impl App {
                 }
                 // Each change heard (and seen) straight away, the command line's switches over
                 // them; kept (as set here) on the way out.
-                let now = m.options.with_args(&self.cli);
+                let now = m.options.clone().with_args(&self.cli);
                 if now != self.options {
                     self.options = now;
                     apply = true;
@@ -1223,6 +1223,15 @@ impl App {
             world.game.end_draw();
             return;
         };
+        // The console's `textures`: the level built and its textures uploaded again.
+        if world.reupload {
+            world.reupload = false;
+            g.renderer.clear_textures();
+            world.upload(&mut g.renderer);
+            let (all, over) = world.textures;
+            let from = world.level.overrides().map_or("the originals".to_string(), |d| d.display().to_string());
+            world.console.say(format!("{over} of {all} textures from {from}"));
+        }
         let size = (g.config.width, g.config.height);
         let mut hud = if world.editor.is_some() { world.editor_overlay(&cam, size) } else { world.hud(size) };
         if world.pause.is_none() && world.editor.is_none() {

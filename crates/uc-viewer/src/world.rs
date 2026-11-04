@@ -88,6 +88,11 @@ pub(crate) struct World {
     /// Crinkles are on (`--no-crinkles` starts with them off; the console's `crinkles`
     /// switches them, as in the original, Controls.cpp:450).
     pub(crate) crinkles: bool,
+    /// The textures want uploading again (the console's `textures` switched them).
+    pub(crate) reupload: bool,
+    /// From the last upload: the level's textures, and how many of them came from the
+    /// override folder.
+    pub(crate) textures: (usize, usize),
     /// Co-op (#182): this player's seat. The game is focused on it.
     pub(crate) seat: Option<usize>,
     /// The race against the best run's ghost, on the missions that have one (#186).
@@ -242,6 +247,8 @@ impl World {
             ach_clock: 1.0,
             relief: Relief::default(),
             crinkles,
+            reupload: false,
+            textures: (0, 0),
             seat,
             race,
             ghost_on: progress::Progress::load().ghosts(),
@@ -463,6 +470,7 @@ impl World {
         let geo = self.level.build();
         self.relief = geo.relief();
         let (textures, overridden) = r.upload_world(&geo, &Game::pages(&self.level), |p| self.level.texture(p));
+        self.textures = (textures, overridden);
         // The minimap: the whole city from straight above (8 pixels a square), north up.
         let n = 1024;
         let half = uc_formats::iam::MAP_SIZE as f32 / 2.0;

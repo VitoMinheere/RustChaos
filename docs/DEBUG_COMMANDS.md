@@ -73,6 +73,7 @@ Teleports don't work while driving.
 | `pos` | Toggle the position readout (x/y/z, nearest event point, game time). |
 | `time X` | Game speed, 0.1 to 4 (1 is normal). |
 | `crinkles` | Toggle crinkles (walls in relief up close, Controls.cpp:450). |
+| `textures` | Switch between the original and the upscaled textures (`--overrides`, or Options' folder) on the spot, and say how many of the level's textures the folder had. |
 | `help` / `?` | List the commands. |
 
 ## Editor only
