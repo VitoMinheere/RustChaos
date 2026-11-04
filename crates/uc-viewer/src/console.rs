@@ -16,7 +16,7 @@ const CHANGES: [&str; 22] = [
 ];
 
 const HELP: &str = "telw N (to event point N)  tels / telr (store / return)  wpt (nearest point)  \
-win  lose  restart  roper  darci  kit  boo  pow  pos  god  ammo  freeze  give WHAT  kill [near]  \ncrime N  time X  wave N  bonus  telb N  car  dog  call WHAT  autopilot  crinkles  textures  relief  sm  dike  flag  hm";
+win  lose  restart  roper  darci  kit  boo  pow  pos  god  ammo  freeze  give WHAT  kill [near]  \ncrime N  time X  wave N  bonus  telb N  car  dog  call WHAT  autopilot  crinkles  textures  relief  bloom  sm  dike  flag  hm";
 
 #[derive(Default)]
 pub(crate) struct Console {
@@ -281,6 +281,13 @@ impl World {
                 self.args.relief = r[k];
                 self.reupload = true;
                 self.console.say(["Relief off", "Relief soft...", "Relief strong..."][k]);
+            }
+            // What lights itself glowing (#523): off, soft, strong and round again.
+            "bloom" => {
+                let b = crate::options::BLOOM;
+                let k = b.iter().position(|&v| v == self.args.bloom).map_or(0, |k| (k + 1) % b.len());
+                self.args.bloom = b[k];
+                self.console.say(["Bloom off", "Bloom soft", "Bloom strong"][k]);
             }
             _ => self.console.say(format!("Unknown command '{name}': try help")),
         }

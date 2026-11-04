@@ -291,3 +291,25 @@ fn fs_glow(in: VOut) -> @location(0) vec4<f32> {
     let a = t.a * t.a * in.color.a * (1.0 - f);
     return vec4<f32>(in.color.rgb * a, a);
 }
+
+// Bloom (#523): a self-lit page or lit window as it glows: its colour, fading to nothing in
+// the fog rather than to the fog's colour.
+@fragment
+fn fs_emit(in: VOut) -> @location(0) vec4<f32> {
+    let t = textureSample(tex, samp, in.uv);
+    if (behind(in) || t.a < 0.5) {
+        discard;
+    }
+    let d = distance(in.world, g.cam_pos.xyz);
+    let f = clamp((d - g.fog.x) / max(g.fog.y - g.fog.x, 0.001), 0.0, 1.0) * g.fog.z;
+    return vec4<f32>(t.rgb * (1.0 - f), 1.0);
+}
+
+// Bloom: a sprite of fire as it glows, by its alpha, fading in the fog.
+@fragment
+fn fs_sprite_emit(in: VOut) -> @location(0) vec4<f32> {
+    let t = textureSample(tex, samp, in.uv) * in.color;
+    let d = distance(in.world, g.cam_pos.xyz);
+    let f = clamp((d - g.fog.x) / max(g.fog.y - g.fog.x, 0.001), 0.0, 1.0) * g.fog.z;
+    return vec4<f32>(t.rgb * t.a * (1.0 - f), t.a);
+}

@@ -53,6 +53,22 @@ pub const LIGHT_BARS: [Option<(f32, f32, f32, bool)>; 9] = [
     None,
 ];
 
+/// The headlights (`veh_info`'s `HLX`, `HLY` and `HLZ`, vehicle.cpp:155 and 181): a pair
+/// `HLZ` either side of the middle and `HLX` from it (forward, negative), in the original's
+/// car space, and `HLY` up from the car's position, `BodyOffset` above the body's origin (64
+/// for the cars, 104 for the vans) included here, as [`LIGHT_BARS`].
+pub const HEADLIGHTS: [(f32, f32, f32); 9] = [
+    (-248.0, 15.0 + 104.0, 90.0), // van
+    (-205.0, 64.0, 60.0),         // car
+    (-225.0, 64.0, 60.0),         // taxi
+    (-225.0, 64.0, 60.0),         // police
+    (-248.0, 15.0 + 104.0, 90.0), // ambulance
+    (-225.0, -10.0 + 104.0, 80.0), // jeep
+    (-240.0, -10.0 + 104.0, 80.0), // meat wagon
+    (-225.0, -20.0 + 64.0, 60.0), // sedan
+    (-248.0, 15.0 + 104.0, 90.0), // Wildcat van
+];
+
 /// A swinging door takes this long to open and to shut (seconds), and opens this far
 /// (radians).
 const DOOR_OPENS: f32 = 0.35;
@@ -284,6 +300,15 @@ impl Vehicle {
         let (x, y, z, red) = LIGHT_BARS[self.kind as usize]?;
         let at = |side: f32| self.body_point(vec3(side, y, x), lift);
         Some(([at(z), at(-z)], red))
+    }
+
+    /// The headlights in the world, for a body drawn `lift` up, and the way they shine (see
+    /// [`HEADLIGHTS`]): straight ahead, as an undamaged car's (vehicle.cpp:1240).
+    pub fn headlights(&self, lift: f32) -> ([Vec3; 2], Vec3) {
+        let (x, y, z) = HEADLIGHTS[self.kind as usize];
+        let at = |side: f32| self.body_point(vec3(side, y, x), lift);
+        let ahead = (self.body_point(vec3(0.0, 0.0, -256.0), lift) - self.body_point(Vec3::ZERO, lift)).normalize_or(Vec3::Z);
+        ([at(z), at(-z)], ahead)
     }
 
     /// Scraping along a wall loud enough to hear (vehicle.cpp:2348: `Scrapin` over 5, and

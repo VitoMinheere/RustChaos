@@ -321,6 +321,7 @@ The HUD shows Darci's health, the weapon in hand and its rounds, enemy health ba
 - `--cam X,Y,Z,YAW,PITCH`: start in the free camera (map squares; degrees).
 - `--fog START,END` or `--no-fog`: distance fog in map squares (default 20,40).
 - `--fullbright`: no baked lighting.
+- `--bloom`: what lights itself glows (#523), as Options > BLOOM's STRONG. Only what lights itself: the lit windows and the pages flagged 'S', the lamps and lights drawn as glows (car light bars, headlights, mines' lights, muzzle flashes) and fire, drawn again on their own, blurred at a quarter of the size and added back under the HUD; so a white wall in the sun doesn't glow. Fully at night, and a quarter as much under a white sky. OFF, SOFT or STRONG in Options, on the spot; the console's `bloom` goes round them. About 0.6 ms a frame at 1080p on a T1000. Not in the original.
 - `--no-crinkles`: flat walls up close. By default, as in the shipped game, walls with a crinkle (doors, windows, ledges) stand out in relief within about ten squares of the camera. The console's `crinkles` switches them.
 - `--linear`: smooth texture magnification instead of crisp pixels.
 - `--no-character`: leave people out.
@@ -451,6 +452,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for what to run before a pull request, an
 - overhead cables (with their sag) and ladders;
 - baked lighting (ambient, static lights, lamppost lights);
 - lit windows: the pages each world's `textype.txt` flags 'I' draw their next page over them, its panes at full brightness whatever the light, so windows glow at night; and pages flagged 'S' are drawn unlit;
+- headlights: at night a car being driven glows at its headlights, the more the more they face the camera (`BLOOM_draw`, vehicle.cpp:1236; not their beams);
 - sky colour and distance fog;
 - Darci, with idle, walk and run animations, ground following and wall collision, and whoever else a mission makes the player: Mako out of the thugs' file, Roper out of his own;
 - explosions and the fires they leave.
