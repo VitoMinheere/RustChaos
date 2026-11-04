@@ -74,7 +74,7 @@ Teleports don't work while driving.
 | `time X` | Game speed, 0.1 to 4 (1 is normal). |
 | `crinkles` | Toggle crinkles (walls in relief up close, Controls.cpp:450). |
 | `textures` | Switch between the original and the upscaled textures (`--overrides`, or Options' folder) on the spot, and say how many of the level's textures the folder had. |
-| `relief` | Go round OFF, SOFT and STRONG for the walls, floors and roofs lit by the upscaled pages' normal maps (#474), on the spot. |
+| `relief` | Go round OFF, SOFT and STRONG for the walls, floors, roofs, people, cars and props lit by the upscaled pages' normal maps (#474), on the spot. |
 | `help` / `?` | List the commands. |
 
 ## Editor only

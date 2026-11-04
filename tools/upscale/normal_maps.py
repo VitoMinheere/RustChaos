@@ -15,9 +15,10 @@ Made from the picture alone, no model:
 - Stored as the renderer reads it: x along the picture's width, y down it, z out of the
   page; each 0..255 for -1..1 (128,128,255 is flat).
 
-Only the world's own and shared pages (below 704: the prims' pages are people and props,
-which the renderer doesn't light this way), and only opaque ones (a fence or a window that
-can be seen through gets none). Made again when the picture is newer than its map.
+Every page up to the extras (below 1408: the world's own, the shared, people's from 576 and
+the prims' from 704, the cars' and props'; #521), but not the faces, whose eyes and mouths as
+height would sink into the head, and only opaque ones (a fence or a window that can be seen
+through gets none). Made again when the picture is newer than its map.
 
   normal_maps.py --dst ~/uc/textures_4x
 """
@@ -30,7 +31,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-PRIM_PAGES = 704
+EXTRA_PAGES = 1408
+# The faces: rules.txt's "Faces" pages.
+FACES = {577, 578, 580, 582, 583, 587, 588, 602, 603, 618, 619, 654, 678, 696, 699, 1158, 1159,
+         1169, 1170, 1186, 1210, 1211, 1214, 1215, 1228, 1229, 1237, 1238, 1251, 1252, 1271, 1272, 1287}
 PAGE = re.compile(r"page_(\d{4})\.png$")
 
 
@@ -69,9 +73,11 @@ def main():
     made = skipped = 0
     cache = {}
     for f in pages:
-        if int(PAGE.search(f.name).group(1)) >= PRIM_PAGES:
-            continue
+        page = int(PAGE.search(f.name).group(1))
         out = f.with_name(f.name.replace(".png", "_n.png"))
+        if page >= EXTRA_PAGES or page in FACES:
+            out.unlink(missing_ok=True)
+            continue
         if not a.force and out.exists() and out.stat().st_mtime >= f.stat().st_mtime:
             skipped += 1
             continue

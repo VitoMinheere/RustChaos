@@ -273,8 +273,8 @@ impl World {
                 self.reupload = true;
                 self.console.say(format!("{to} textures..."));
             }
-            // Walls, floors and roofs lit by the upscaled pages' normal maps (#474): off, soft,
-            // strong and round again.
+            // Walls, floors, roofs, people, cars and props lit by the upscaled pages' normal
+            // maps (#474, #521): off, soft, strong and round again.
             "relief" => {
                 let r = crate::options::RELIEF;
                 let k = r.iter().position(|&v| v == self.args.relief).map_or(0, |k| (k + 1) % r.len());
