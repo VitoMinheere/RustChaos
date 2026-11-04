@@ -161,13 +161,20 @@ Each wave comes from a different side of the arena, marked with a beacon for its
 **Beat Cop:** BEAT COP in the main menu, then a district (West District, Gangland, Southside Beach, Rio Canal, Botanical Gardens, Baseball Ground, Television Centre or West Block: the city streets with a crowd and traffic), or `--mission NAME --beat [--shift MINUTES|endless] [--seed N]`. A shift of 5, 10 (the default), 15 or 20 minutes, or an open-ended one (Left/Right on the map list picks it), with no mission script: dispatch calls in incidents, each with a beacon and a time limit:
 - a mugging;
 - an armed suspect;
-- a gun dumped in a bin;
+- a gun dumped in a bin or a skip somewhere on the beat: search it out;
 - a gang fight;
 - a wanted man who runs when he sees you;
 - a drunk driver weaving down the road: get him out of the car (draw a gun, or wreck it), then take him;
 - a getaway car with an armed robber, who fights once he's out of it;
 - a jumper on a roof by a ladder: get up there and stay with them a moment to talk them down;
-- a bomb in the street: stay beside it for three seconds to defuse it before it goes up.
+- a bomb in the street: stay beside it for three seconds to defuse it before it goes up;
+- a bag snatcher, already running: run him down;
+- a drug deal on a corner: the dealer and his buyer scatter when they see you, and both have to be taken;
+- a troublemaker picking fights with anyone who walks by;
+- a man down in the street: get to him and stay with him for four seconds till the ambulance comes;
+- a gunman on a roof by a ladder: get up there and take him down.
+
+Dispatch never calls the same kind twice running, and sends you somewhere other than where the last few were. A district whose streets are hemmed in (Gangland's) gets a wider beat. Southside Beach's start is up on a roof, so a shift there starts in the street below.
 
 The console's `call` command calls one in at once (`call drunk`, `call bomb` and so on), and `car` puts an empty car in front of you.
 

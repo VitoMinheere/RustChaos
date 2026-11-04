@@ -1,7 +1,9 @@
 //! Beat Cop (#130): a shift on a district with no mission script. Dispatch calls in
 //! incidents one or two at a time (a mugging, an armed suspect, a dumped weapon, a gang
-//! fight, a wanted man running, a drunk driver, a getaway car, a jumper on a roof, a bomb),
-//! each with a beacon and a time limit; handling them scores
+//! fight, a wanted man running, a drunk driver, a getaway car, a jumper on a roof, a bomb,
+//! a bag snatch, a drug deal, a troublemaker, a man down, a gunman on a roof), each with a
+//! beacon and a time limit, never the same kind twice running nor where the last few were;
+//! handling them scores
 //! and brings the crime rate down, missing them puts it up. The shift ends when its time's
 //! up (a win; one of [`SHIFTS`], or open-ended), or when the crime rate reaches 100 or the
 //! player goes down. Everything comes from the shift's seed.
@@ -19,9 +21,24 @@ pub fn shift_name(minutes: Option<u32>) -> String {
     minutes.map_or("OPEN-ENDED".to_string(), |m| format!("{m} MIN"))
 }
 /// How far round the start incidents happen, in squares, and no nearer the player than
-/// this when they're called in.
+/// this when they're called in. A district with fewer than [`ROOMY`] spots that far from
+/// the start (Gangland's streets are hemmed in by the river) gets a wider beat, up to
+/// [`WIDEST`].
 const BEAT: f32 = 20.0;
+const WIDEST: f32 = 40.0;
+const ROOMY: usize = 200;
 const NOT_NEARER: f32 = 8.0 * 256.0;
+/// A new incident is no nearer than this to one on or to any of the last [`RECENT`] (world
+/// units), while there's anywhere else for it.
+const APART: f32 = 6.0 * 256.0;
+const RECENT: usize = 5;
+/// What a dumped gun goes in: the dustbins (`PRIM_OBJ_BIN`, and the bigger 134) and the
+/// skips (221), the props the missions stash things in.
+const BINS: [u8; 3] = [33, 134, 221];
+/// A bag snatcher, a dealer and his buyer run from a cop this near (world units).
+const RUNS_FROM: f32 = 8.0 * 256.0;
+/// A gunman on a roof turns on a cop this near, up there with him.
+const OPENS_UP: f32 = 12.0 * 256.0;
 /// No more than this many incidents at once.
 const AT_ONCE: usize = 2;
 /// The event point numbers given to the people incidents make, so the AI's "go for the
@@ -37,6 +54,8 @@ const STUCK: f32 = 1.5;
 const BAIL_HEALTH: i32 = 150;
 const TALK_DOWN: f32 = 2.0;
 const DEFUSE: f32 = 3.0;
+/// Seeing to a man down: this long beside him, till the ambulance comes.
+const FIRST_AID: f32 = 4.0;
 
 /// What dispatch says aloud (the lines are made voices, `talk2\beat\`, [`lines`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,12 +128,25 @@ pub enum Kind {
     Jumper,
     /// A bomb ticking in the street: get to it and defuse it (stay with it a moment).
     Bomb,
+    /// A thief already running off with a bag: run him down.
+    BagSnatch,
+    /// A dealer and his buyer on a corner, who scatter when they see a cop: take both.
+    DrugDeal,
+    /// A thug picking fights with whoever walks by (`PCOM_AI_BULLY`): take him down.
+    Troublemaker,
+    /// Someone lying hurt in the street: get to them and stay with them till the ambulance
+    /// comes.
+    ManDown,
+    /// A gunman up on a roof by a ladder: get up there and take him down (he turns on her
+    /// once she's up).
+    Gunman,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 9] = [
+    pub const ALL: [Kind; 14] = [
         Kind::Mugging, Kind::ArmedSuspect, Kind::DumpedWeapon, Kind::GangFight, Kind::WantedMan,
-        Kind::DrunkDriver, Kind::Getaway, Kind::Jumper, Kind::Bomb,
+        Kind::DrunkDriver, Kind::Getaway, Kind::Jumper, Kind::Bomb, Kind::BagSnatch, Kind::DrugDeal,
+        Kind::Troublemaker, Kind::ManDown, Kind::Gunman,
     ];
 
     /// The beacon's label.
@@ -129,6 +161,11 @@ impl Kind {
             Kind::Getaway => "Getaway",
             Kind::Jumper => "Jumper",
             Kind::Bomb => "Bomb",
+            Kind::BagSnatch => "Bag snatch",
+            Kind::DrugDeal => "Drug deal",
+            Kind::Troublemaker => "Troublemaker",
+            Kind::ManDown => "Man down",
+            Kind::Gunman => "Rooftop gunman",
         }
     }
 
@@ -149,6 +186,11 @@ impl Kind {
             Kind::Getaway => "Robbery! The suspect's making off in a car, and he's armed. Stop him.",
             Kind::Jumper => "We got a jumper up on a roof. Get up there and talk them down, quick.",
             Kind::Bomb => "Bomb threat, and this one's real. Get to it and defuse it before it goes up!",
+            Kind::BagSnatch => "Bag snatch! The thief's on foot and running. Run him down.",
+            Kind::DrugDeal => "There's a deal going down on a corner. They'll scatter when they see you: bring them both in.",
+            Kind::Troublemaker => "Some lunatic's picking fights with anybody who walks past. Put a stop to it.",
+            Kind::ManDown => "Man down in the street, hurt bad. Get to him and stay with him till the ambulance gets there.",
+            Kind::Gunman => "Shots fired from a rooftop! Get up there and take the shooter down.",
         }
     }
 
@@ -164,6 +206,11 @@ impl Kind {
             Kind::Getaway => 150.0,
             Kind::Jumper => 120.0,
             Kind::Bomb => 90.0,
+            Kind::BagSnatch => 90.0,
+            Kind::DrugDeal => 150.0,
+            Kind::Troublemaker => 120.0,
+            Kind::ManDown => 90.0,
+            Kind::Gunman => 150.0,
         }
     }
 
@@ -179,6 +226,11 @@ impl Kind {
             Kind::Getaway => 350,
             Kind::Jumper => 250,
             Kind::Bomb => 400,
+            Kind::BagSnatch => 200,
+            Kind::DrugDeal => 300,
+            Kind::Troublemaker => 200,
+            Kind::ManDown => 200,
+            Kind::Gunman => 350,
         }
     }
 }
@@ -196,10 +248,11 @@ pub struct Incident {
     victims: Vec<usize>,
     /// For a dumped weapon: the item's point number.
     item: Option<usize>,
-    /// For a jumper: who; for a bomb: which mine it is.
+    /// For a jumper: who; for a man down: who; for a bomb: which mine it is.
     pub jumper: Option<usize>,
+    pub patient: Option<usize>,
     pub bomb: Option<usize>,
-    /// Seconds Darci's been with the jumper, or at the bomb.
+    /// Seconds Darci's been with the jumper or the man down, or at the bomb.
     pub with: f32,
     /// Arrests among the culprits, counted as they're made.
     arrests: u32,
@@ -223,6 +276,14 @@ pub struct Beat {
     next_way: usize,
     /// Where incidents can happen: the beat's squares, walkable from the start.
     spots: Vec<Vec3>,
+    /// How far round the start the beat goes (world units).
+    radius: f32,
+    /// The bins and skips on the beat (map object numbers), for a dumped gun.
+    bins: Vec<usize>,
+    /// Where the last few incidents were, the latest last.
+    recent: Vec<Vec3>,
+    /// The kind called in last.
+    last: Option<Kind>,
     /// The way the spot last picked faces (a car's lane, a jumper's ledge).
     yaw: f32,
     red_marks: u8,
@@ -231,6 +292,22 @@ pub struct Beat {
 impl Beat {
     fn rand(&mut self) -> u32 {
         rand(&mut self.rng)
+    }
+
+    /// Incident `inc` is on, and remembered, so the next few happen elsewhere.
+    fn called(&mut self, inc: Incident) {
+        self.last = Some(inc.kind);
+        self.recent.push(inc.at);
+        if self.recent.len() > RECENT {
+            self.recent.remove(0);
+        }
+        self.incidents.push(inc);
+    }
+
+    /// Whether `at` is clear of the incidents on and the last few.
+    fn fresh(&self, at: Vec3) -> bool {
+        let far = |o: Vec3| Vec2::new(at.x - o.x, at.z - o.z).length() >= APART;
+        self.recent.iter().all(|&o| far(o)) && self.incidents.iter().all(|i| far(i.at))
     }
 }
 
@@ -251,17 +328,47 @@ impl Game {
         }
         let start = g.player().map_or(Vec3::ZERO, |p| p.fig.pos);
         // Out in the street: RTA's start is inside the police station.
-        let outside = game::endless::out_of_doors(level, start);
+        let mut outside = game::endless::out_of_doors(level, start);
+        // And down in it: Southside Beach's start is up on a roof, with nowhere to go.
+        if game::endless::arena(level, outside, BEAT * 256.0).len() < ROOMY {
+            let ground = level.ground.surface(&level.map, start.x, start.z, 128.0);
+            let down = game::endless::out_of_doors(level, Vec3::new(start.x, ground, start.z));
+            if game::endless::arena(level, down, BEAT * 256.0).len() >= ROOMY {
+                outside = down;
+            }
+        }
         if outside != start {
             g.teleport(outside, level);
         }
         let start = outside;
-        let spots = game::endless::arena(level, start, BEAT * 256.0).values().map(|(at, _)| *at).collect();
+        // Wide enough for a beat's worth of places to send her.
+        let mut radius = BEAT * 256.0;
+        let mut grid = game::endless::arena(level, start, radius);
+        let far = |g: &game::endless::Grid| g.values().filter(|(at, _)| Vec2::new(at.x - start.x, at.z - start.z).length() >= NOT_NEARER).count();
+        while far(&grid) < ROOMY && radius < WIDEST * 256.0 {
+            radius += 5.0 * 256.0;
+            grid = game::endless::arena(level, start, radius);
+        }
+        let spots = grid.values().map(|(at, _)| *at).collect();
+        // A bin or skip on (or beside) a square she can walk to, out to the widest beat: they
+        // are few and far between (West District has a skip by the start, and the next
+        // twenty squares off).
+        let wide = if radius < WIDEST * 256.0 { game::endless::arena(level, start, WIDEST * 256.0) } else { grid.clone() };
+        let bins = level.map.objects.iter().enumerate()
+            .filter(|(_, o)| BINS.contains(&o.prim))
+            .filter(|(_, o)| {
+                let (x, z) = (o.x >> 8, o.z >> 8);
+                (-1..=1).any(|dx| (-1..=1).any(|dz| wide.contains_key(&(x + dx, z + dz))))
+            })
+            .map(|(i, _)| i)
+            .collect();
         g.show_crime_rate = true;
         g.crime_rate = 40;
         g.beat = Some(Beat {
-            seed, shift: minutes.map(|m| m as f32 * 60.0), on: 0.0, score: 0, handled: 0, missed: 0, incidents: Vec::new(), rng: seed | 1,
-            next: 4.0, next_way: FIRST_WAY, spots, yaw: 0.0, red_marks: 0,
+            // Stirred, so seeds a step apart don't make the same shift.
+            seed, shift: minutes.map(|m| m as f32 * 60.0), on: 0.0, score: 0, handled: 0, missed: 0, incidents: Vec::new(),
+            rng: (seed ^ 0x5bd1_e995).wrapping_mul(0x9e37_79b9),
+            next: 4.0, next_way: FIRST_WAY, spots, radius, bins, recent: Vec::new(), last: None, yaw: 0.0, red_marks: 0,
         });
         g
     }
@@ -279,7 +386,7 @@ impl Game {
         let called = inc.is_some();
         if let Some(inc) = inc {
             self.say(Despatch::Call(kind));
-            b.incidents.push(inc);
+            b.called(inc);
         }
         self.beat = Some(b);
         called
@@ -348,10 +455,23 @@ impl Game {
         // The next call, when there's room for one.
         b.next -= dt;
         if b.next <= 0.0 && b.incidents.len() < AT_ONCE {
-            let kind = Kind::ALL[(b.rand() as usize) % Kind::ALL.len()];
-            if let Some(inc) = self.call_in(b, kind, level) {
-                self.say(Despatch::Call(kind));
-                b.incidents.push(inc);
+            // Not the kind just called, nor one that's on.
+            let mut kind = Kind::ALL[(b.rand() as usize) % Kind::ALL.len()];
+            for _ in 0..8 {
+                if Some(kind) != b.last && !b.incidents.iter().any(|i| i.kind == kind) {
+                    break;
+                }
+                kind = Kind::ALL[(b.rand() as usize) % Kind::ALL.len()];
+            }
+            // One there's no place for on this beat (a jumper, with no ladder up onto a roof)
+            // makes way for another.
+            for _ in 0..4 {
+                if let Some(inc) = self.call_in(b, kind, level) {
+                    self.say(Despatch::Call(kind));
+                    b.called(inc);
+                    break;
+                }
+                kind = Kind::ALL[(b.rand() as usize) % Kind::ALL.len()];
             }
             b.next = 25.0 + (b.rand() % 25) as f32;
         }
@@ -393,6 +513,24 @@ impl Game {
             }
             return (inc.left <= 0.0 || down(p)).then_some(false);
         }
+        if let Some(j) = inc.patient {
+            let p = &self.people[j];
+            if p.is_dead() || p.removed {
+                return Some(false);
+            }
+            if beside(p.fig.pos) {
+                if inc.with == 0.0 {
+                    self.messages.push(Message { text: "First aid...".into(), left: FIRST_AID, face: None, filmed: false });
+                }
+                inc.with += dt;
+                if inc.with >= FIRST_AID {
+                    return Some(true);
+                }
+            } else {
+                inc.with = 0.0;
+            }
+            return (inc.left <= 0.0).then_some(false);
+        }
         if let Some(k) = inc.bomb {
             if self.mines[k].gone {
                 return Some(false);
@@ -425,12 +563,14 @@ impl Game {
         if inc.left <= 0.0 || victim_down {
             return Some(false);
         }
-        // A wanted man runs from a cop he sees within eight squares.
-        if inc.kind == Kind::WantedMan {
+        // A wanted man, a bag snatcher, a dealer and his buyer run from a cop they see
+        // within eight squares.
+        if matches!(inc.kind, Kind::WantedMan | Kind::BagSnatch | Kind::DrugDeal) {
             if let Some(me) = self.player().map(|p| p.fig.pos) {
                 for &i in &inc.culprits {
                     let p = &mut self.people[i];
-                    if !down(p) && p.scared.is_none() && (p.fig.pos - me).length() < 8.0 * 256.0 {
+                    if !down(p) && p.scared.is_none() && (p.fig.pos - me).length() < RUNS_FROM {
+                        p.mv = person::MOVE_WANDER;
                         p.scare(self.player, me);
                     }
                 }
@@ -493,12 +633,14 @@ impl Game {
                 }
             }
         }
-        // An armed suspect turns on her when she's near.
-        if inc.kind == Kind::ArmedSuspect {
+        // An armed suspect turns on her when she's near; a gunman on a roof once she's up
+        // there with him (a fighter gives up on someone more than a storey above or below).
+        if matches!(inc.kind, Kind::ArmedSuspect | Kind::Gunman) {
+            let range = if inc.kind == Kind::Gunman { OPENS_UP } else { 6.0 * 256.0 };
             if let Some(me) = self.player().map(|p| p.fig.pos) {
                 for &i in &inc.culprits {
                     let p = &mut self.people[i];
-                    if !down(p) && !p.aggro() && (p.fig.pos - me).length() < 6.0 * 256.0 {
+                    if !down(p) && !p.aggro() && (p.fig.pos - me).length() < range && (p.fig.pos.y - me.y).abs() < 256.0 {
                         p.ai = person::AI_GANG;
                         p.go_for();
                     }
@@ -525,19 +667,40 @@ impl Game {
         if let Some(j) = inc.jumper.filter(|_| inc.with < TALK_DOWN) {
             self.people[j].removed = true;
         }
+        // A man down is taken off in the ambulance, seen to or not.
+        if let Some(j) = inc.patient {
+            self.people[j].removed = true;
+        }
     }
 
-    /// Somewhere on the beat for the next incident: away from the player, but reachable.
+    /// Somewhere on the beat for the next incident: away from the player, but reachable,
+    /// and away from the incidents on and the last few while there's anywhere else.
     fn incident_spot(&self, b: &mut Beat) -> Option<Vec3> {
         let me = self.player().map(|p| p.fig.pos)?;
-        for _ in 0..60 {
+        for k in 0..120 {
             if b.spots.is_empty() {
                 return None;
             }
-            let k = (b.rand() as usize) % b.spots.len();
-            let at = b.spots[k];
-            if Vec2::new(at.x - me.x, at.z - me.z).length() >= NOT_NEARER {
+            let r = b.rand() as usize;
+            let at = b.spots[r % b.spots.len()];
+            if Vec2::new(at.x - me.x, at.z - me.z).length() >= NOT_NEARER && (k >= 80 || b.fresh(at)) {
                 return Some(at);
+            }
+        }
+        None
+    }
+
+    /// A bin or skip on the beat for a dumped gun, as [`Self::incident_spot`] picks a spot:
+    /// its map object number and where it is.
+    fn bin_spot(&self, b: &mut Beat, level: &Level) -> Option<(usize, Vec3)> {
+        let me = self.player().map(|p| p.fig.pos)?;
+        for k in 0..60 {
+            let r = b.rand() as usize;
+            let ob = *b.bins.get(r % b.bins.len().max(1))?;
+            let o = &level.map.objects[ob];
+            let at = Vec3::new(o.x as f32, o.y as f32, o.z as f32);
+            if Vec2::new(at.x - me.x, at.z - me.z).length() >= NOT_NEARER && (k >= 40 || b.fresh(at)) {
+                return Some((ob, at));
             }
         }
         None
@@ -547,12 +710,15 @@ impl Game {
     /// lane runs goes in `b.yaw`.
     fn road_spot(&self, b: &mut Beat, level: &Level) -> Option<Vec3> {
         let me = self.player().map(|p| p.fig.pos)?;
-        for _ in 0..60 {
-            let k = (b.rand() as usize) % b.spots.len().max(1);
-            let near = *b.spots.get(k)?;
+        for k in 0..60 {
+            let r = b.rand() as usize;
+            let near = *b.spots.get(r % b.spots.len().max(1))?;
             let heading = b.rand() & 1 == 1;
             let Some((at, yaw)) = self.lane_spot(level, Vec2::new(near.x, near.z), heading) else { continue };
             if (at - Vec2::new(me.x, me.z)).length() < NOT_NEARER || (at - Vec2::new(near.x, near.z)).length() > 6.0 * 256.0 {
+                continue;
+            }
+            if k < 40 && !b.fresh(Vec3::new(at.x, near.y, at.y)) {
                 continue;
             }
             b.yaw = yaw;
@@ -573,9 +739,12 @@ impl Game {
                 let y = level.ground.surface(&level.map, on.x, on.y, l.top + 64.0);
                 let at = Vec3::new(on.x, y, on.y);
                 let flat = Vec2::new(at.x - me.x, at.z - me.z).length();
-                ((y - l.top).abs() < 96.0 && (NOT_NEARER..BEAT * 256.0).contains(&flat)).then(|| (at, l.out.x.atan2(l.out.y)))
+                ((y - l.top).abs() < 96.0 && (NOT_NEARER..b.radius).contains(&flat)).then(|| (at, l.out.x.atan2(l.out.y)))
             })
             .collect();
+        // Not a roof one's on or one of the last few was on, while there's another.
+        let fresh: Vec<(Vec3, f32)> = roofs.iter().copied().filter(|&(at, _)| b.fresh(at)).collect();
+        let roofs = if fresh.is_empty() { roofs } else { fresh };
         let k = (b.rand() as usize) % roofs.len().max(1);
         let (at, yaw) = *roofs.get(k)?;
         b.yaw = yaw;
@@ -597,14 +766,25 @@ impl Game {
 
     /// Makes incident `kind`, somewhere on the beat.
     fn call_in(&mut self, b: &mut Beat, kind: Kind, level: &Level) -> Option<Incident> {
+        // A dumped gun goes in a bin or skip on the beat; with none, in the prop nearest
+        // where it was dumped, or lying there.
+        let mut bin = None;
         let at = match kind {
             Kind::DrunkDriver | Kind::Getaway => self.road_spot(b, level)?,
-            Kind::Jumper => self.ledge(b, level)?,
+            Kind::Jumper | Kind::Gunman => self.ledge(b, level)?,
+            Kind::DumpedWeapon => match self.bin_spot(b, level) {
+                Some((ob, at)) => {
+                    bin = Some(ob);
+                    let y = level.ground.surface(&level.map, at.x, at.z, at.y + 128.0);
+                    Vec3::new(at.x, y, at.z)
+                }
+                None => self.incident_spot(b)?,
+            },
             _ => self.incident_spot(b)?,
         };
         let thug = |b: &mut Beat| [ptype::THUG_GREY, ptype::THUG_RED, ptype::THUG_RASTA][(b.rand() % 3) as usize];
         let mut inc = Incident {
-            kind, at, left: kind.time(), culprits: Vec::new(), victims: Vec::new(), item: None, jumper: None, bomb: None, with: 0.0, arrests: 0,
+            kind, at, left: kind.time(), culprits: Vec::new(), victims: Vec::new(), item: None, jumper: None, patient: None, bomb: None, with: 0.0, arrests: 0,
         };
         match kind {
             Kind::Mugging => {
@@ -634,9 +814,7 @@ impl Game {
                 let way = b.next_way;
                 b.next_way += 1;
                 let item = Item { way, kind: 2, pos: at, rounds: None, born: self.time };
-                // In the nearest bin or skip within a few squares, if there is one; else
-                // lying where it was dumped.
-                match find_ob(level, at, 3.0 * 256.0, None) {
+                match bin.or_else(|| find_ob(level, at, 3.0 * 256.0, None)) {
                     Some(ob) => {
                         self.searchable.insert(ob);
                         self.hidden.push((ob, item));
@@ -704,6 +882,56 @@ impl Game {
                 self.mines.push(game::mines::Mine { way, pos: at, fuse: Some(kind.time()), gone: false });
                 inc.bomb = Some(self.mines.len() - 1);
             }
+            Kind::BagSnatch => {
+                // The one robbed stands where it happened; the thief's off already.
+                let victim = self.incident_person(b, level, ptype::CIV, at, 0)?;
+                self.people[victim].mv = 1;
+                let k = thug(b);
+                let thief = self.incident_person(b, level, k, at, 1)?;
+                let p = &mut self.people[thief];
+                (p.ai, p.mv, p.guilty) = (person::AI_CIV, person::MOVE_WANDER, true);
+                p.scare(None, at);
+                inc.culprits = vec![thief];
+            }
+            Kind::DrugDeal => {
+                let k = thug(b);
+                let dealer = self.incident_person(b, level, k, at, 0)?;
+                let buyer = self.incident_person(b, level, ptype::CIV, at, 1)?;
+                // Standing together, face to face.
+                for (i, o) in [(dealer, buyer), (buyer, dealer)] {
+                    let to = self.people[o].fig.pos;
+                    let p = &mut self.people[i];
+                    (p.ai, p.mv, p.guilty) = (person::AI_CIV, 1, true);
+                    p.face_towards(to);
+                }
+                inc.culprits = vec![dealer, buyer];
+            }
+            Kind::Troublemaker => {
+                let k = thug(b);
+                let s = self.incident_person(b, level, k, at, 0)?;
+                let p = &mut self.people[s];
+                (p.ai, p.mv, p.guilty) = (person::AI_BULLY, person::MOVE_WANDER, true);
+                inc.culprits = vec![s];
+            }
+            Kind::ManDown => {
+                // Lies hurt (`PCOM_AI_HYPOCHONDRIA`), and nobody's to blame.
+                let s = self.incident_person(b, level, ptype::CIV, at, 0)?;
+                self.people[s].ai = person::AI_INJURED;
+                inc.patient = Some(s);
+            }
+            Kind::Gunman => {
+                let way = b.next_way;
+                b.next_way += 1;
+                let k = thug(b);
+                let i = self.spawn(level, k, false, way, at, b.yaw)?;
+                self.tune(i, self.difficulty().skill_change());
+                // Up on the ledge with a gun, till she comes near.
+                let p = &mut self.people[i];
+                (p.ai, p.mv, p.guilty) = (person::AI_CIV, 1, true);
+                p.weapon = Weapon::Pistol;
+                p.give(Weapon::Pistol);
+                inc.culprits = vec![i];
+            }
         }
         Some(inc)
     }
@@ -712,9 +940,11 @@ impl Game {
     pub(crate) fn beat_beacons(&self) -> Vec<(String, Vec3)> {
         let Some(b) = &self.beat else { return Vec::new() };
         b.incidents.iter().map(|inc| {
-            let on = inc.culprits.iter().chain(&inc.jumper).map(|&i| &self.people[i]).find(|p| !p.removed && !p.is_down()).map(|p| p.fig.pos);
+            let on = inc.culprits.iter().chain(&inc.jumper).map(|&i| &self.people[i]).find(|p| !p.removed && !p.is_down()).map(|p| p.fig.pos)
+                .or_else(|| inc.patient.map(|i| self.people[i].fig.pos));
             let doing = match inc.kind {
                 Kind::Jumper if inc.with > 0.0 => " talking",
+                Kind::ManDown if inc.with > 0.0 => " first aid",
                 Kind::Bomb if inc.with > 0.0 => " defusing",
                 _ => "",
             };

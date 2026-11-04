@@ -1219,6 +1219,7 @@ impl Level {
         self_lit.read(&textype("server\\textures\\shared\\prims\\textype.txt"), PRIM_PAGES);
         let lighting = if opt.fullbright { None } else { read(game, &mission.lighting).ok().and_then(|b| Lighting::parse(&b).ok()) };
         let sky = lighting.as_ref().map_or([20, 22, 30], |l| l.sky);
+        let sky = haze(&mission.lighting).unwrap_or(sky);
 
         // The mission's player spawn.
         let platforms = platform_props(&map, &mission);
@@ -1854,6 +1855,16 @@ pub fn prim_batches(prim: &Prim, place: impl Fn(Vec3) -> Vec3, lighter: Option<&
     }
 }
 
+/// The haze (the fog's and the clear colour) of a lighting file whose own sky colour won't
+/// do for it. Gangland's dawn (`gang1DAWN.lgt`, Gang order1, and Beat Cop's Gangland) has a
+/// mustard sky, 161,129,30, over streets as dark as night: the distance went yellow. A pale
+/// grey instead, as the other districts' haze.
+fn haze(lighting: &str) -> Option<[u8; 3]> {
+    const HAZE: [(&str, [u8; 3]); 1] = [("gang1DAWN.lgt", [196, 196, 204])];
+    let file = lighting.rsplit(['\\', '/']).next()?;
+    HAZE.iter().find(|(f, _)| f.eq_ignore_ascii_case(file)).map(|&(_, c)| c)
+}
+
 /// Loads prop prim `id` (`nprimNNN.prm`, else the older `primNNN.prm`).
 pub fn load_prim(game: &Path, id: impl Into<u16>) -> Option<Prim> {
     let id = id.into();
@@ -2068,6 +2079,22 @@ mod see_through_tests {
         for page in [LEAF_PAGE, RUBBISH_PAGE, SNOWFLAKE_PAGE, crate::SKY_PAGE, crate::MOON_PAGE] {
             assert!(!is_prim_page(page), "page {page}");
         }
+    }
+}
+
+#[cfg(test)]
+mod haze_tests {
+    use super::*;
+
+    /// Gangland's dawn hazes grey, not mustard; Gang order1 loads with it. Any other lighting
+    /// keeps its own sky.
+    #[test]
+    fn gangland_dawn_hazes_grey() {
+        assert_eq!(haze("Data\\Lighting\\gang1DAWN.lgt"), Some([196, 196, 204]));
+        assert_eq!(haze("Data\\Lighting\\gang1NIGHT.lgt"), None);
+        let Some(game) = uc_formats::default_install() else { return };
+        let level = Level::load(&game, "Gangorder1", &LoadOptions { fullbright: false, character: false, overrides: None }).unwrap();
+        assert_eq!(level.sky, [196, 196, 204]);
     }
 }
 
