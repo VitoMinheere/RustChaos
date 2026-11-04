@@ -1496,6 +1496,7 @@ impl Level {
             .chain(self.bendable())
             .collect();
         build_props(&mut b, &self.map, &self.game, &sh, &moving, &WallIndex::new(walls));
+        build_recesses(&mut b, &self.map);
         build_details(&mut b, &self.map, &sh);
         WorldGeometry { crinkles, self_lit: self.self_lit.clone(), ..b.finish() }
     }
@@ -1755,6 +1756,85 @@ fn inside_floor(map: &Map, roof: &HashMap<(usize, usize), i16>, has_page: impl F
     }
     // The lowest page of those most used, so it's the same every time.
     count.into_iter().max_by_key(|&(page, n)| (n, std::cmp::Reverse(page))).map(|(page, _)| page)
+}
+
+/// A doorway (`STOREY_TYPE_DOOR`) into a building nobody goes into, drawn as the original
+/// draws them from outside (`AENG_draw_box_around_recessed_door`, aeng.cpp:16449): a box a
+/// square deep into the building and a storey high behind the hole, its floor the square's
+/// page fading from grey at the doorway to black at the back, the rest black. A warehouse's
+/// doorways and its rooms' are ways in, and the original draws the box only while it isn't
+/// drawing the inside: here, where both are drawn at once, those are left open, as is a
+/// doorway with open ground or a floor behind it rather than a building's insides.
+fn build_recesses(b: &mut Builder, map: &Map) {
+    let open = |building: u16| map.buildings.get(building as usize)
+        .is_some_and(|b| b.kind == BUILDING_TYPE_WAREHOUSE || b.kind == BUILDING_TYPE_CRATE_IN);
+    // The doorway's front edge, and everything further in.
+    const FRONT: [u8; 4] = [0xaa, 0xaa, 0xaa, 255];
+    const BACK: [u8; 4] = [0, 0, 0, 255];
+    for f in map.facets.iter().skip(1).filter(|f| f.kind == facet_type::DOOR && !open(f.building)) {
+        let (dx, dz) = ((f.x[1] as i32 - f.x[0] as i32).signum(), (f.z[1] as i32 - f.z[0] as i32).signum());
+        if (dx, dz) == (0, 0) || (dx != 0 && dz != 0) {
+            continue;
+        }
+        // Into the building: the wall's front faces the other way ([`Batch::front`]).
+        let (ix, iz) = (-dz, dx);
+        let y = f.y[0] as f32 / UNIT;
+        let len = (f.x[1] as i32 - f.x[0] as i32).abs().max((f.z[1] as i32 - f.z[0] as i32).abs());
+        let at = |t: i32, inner: bool, up: bool| {
+            let (x, z) = (f.x[0] as i32 + dx * t + if inner { ix } else { 0 }, f.z[0] as i32 + dz * t + if inner { iz } else { 0 });
+            vec3(x as f32, y + if up { 1.0 } else { 0.0 }, z as f32)
+        };
+        // Only into a building: behind it, ground a building stands on (`PAP_FLAG_HIDDEN`) with
+        // nothing to stand on at the doorway's height. One with a floor behind it there
+        // (Rooftop1's, between walkways on the roofs) is a way through, left open.
+        let y0 = f.y[0] as i32;
+        let floor_at = |mx: i32, mz: i32| {
+            let sq = map.square(mx as usize, mz as usize);
+            (sq.has(flags::ROOF_EXISTS) && (sq.height as i32 * 64 - y0).abs() < 64)
+                || map.roof_faces.iter().skip(1).any(|rf| ((rf.rx & 127) as i32, (rf.rz & 127) as i32) == (mx, mz) && (rf.y as i32 - y0).abs() < 64)
+        };
+        // And from somewhere to stand at its height: open ground, or a floor (Rooftop1's
+        // walkways). One between two buildings' insides (estate1's into a storeroom) is left
+        // open.
+        let on_map = |x: i32, z: i32| (0..MAP_SIZE as i32).contains(&x) && (0..MAP_SIZE as i32).contains(&z);
+        let inside = (0..len).all(|t| {
+            let (mx, mz) = (f.x[0] as i32 + dx * t + (dx - dz).min(0), f.z[0] as i32 + dz * t + (dz + dx).min(0));
+            let (ox, oz) = (mx - ix, mz - iz);
+            on_map(mx, mz) && on_map(ox, oz)
+                && map.square(mx as usize, mz as usize).has(flags::HIDDEN) && !floor_at(mx, mz)
+                && (!map.square(ox as usize, oz as usize).has(flags::HIDDEN) || floor_at(ox, oz))
+        });
+        if !inside {
+            continue;
+        }
+        // Seen from in front of the doorway only: behind it may be somewhere open after all
+        // (estate1's walled yard), which the box would stand in the way of.
+        let out = vec3(dz as f32, 0.0, -dx as f32);
+        let dark = |b: &mut Builder, p: [Vec3; 4]| {
+            b.batch(p[0], Layer::Walls, UNTEXTURED).quad_facing(p, [[0.0; 2]; 4], [BACK; 4], out);
+        };
+        for t in 0..len {
+            // The floor: the square inside the doorway, at its corners in the square's order
+            // so its page lies as it does on the ground, a hair up off the ground under it.
+            let (mx, mz) = (f.x[0] as i32 + dx * t + (dx - dz).min(0), f.z[0] as i32 + dz * t + (dz + dx).min(0));
+            if (0..MAP_SIZE as i32).contains(&mx) && (0..MAP_SIZE as i32).contains(&mz) {
+                let sq = map.square(mx as usize, mz as usize);
+                let corners = [(0, 0), (1, 0), (0, 1), (1, 1)].map(|(cx, cz)| (mx + cx, mz + cz));
+                let p = corners.map(|(cx, cz)| vec3(cx as f32, y + OFF_WALL, cz as f32));
+                // Grey on the doorway's line, black a square in.
+                let on_door = |(cx, cz): (i32, i32)| (cx - f.x[0] as i32) * ix + (cz - f.z[0] as i32) * iz == 0;
+                let c = corners.map(|k| if on_door(k) { FRONT } else { BACK });
+                b.batch(p[0], Layer::Walls, sq.page() as u32).quad_facing(p, FLOOR_UVS[sq.rotation() as usize], c, out);
+            }
+            // The ceiling and the back wall.
+            dark(b, [at(t, false, true), at(t, true, true), at(t + 1, false, true), at(t + 1, true, true)]);
+            dark(b, [at(t, true, true), at(t + 1, true, true), at(t, true, false), at(t + 1, true, false)]);
+        }
+        // Its two ends.
+        for t in [0, len] {
+            dark(b, [at(t, false, true), at(t, true, true), at(t, false, false), at(t, true, false)]);
+        }
+    }
 }
 
 /// An older map's roofs and walkable tops (`uc_formats::iam::WalkablesLayout::Old`): prim
