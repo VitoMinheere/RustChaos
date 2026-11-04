@@ -53,6 +53,12 @@ pub const LIGHT_BARS: [Option<(f32, f32, f32, bool)>; 9] = [
     None,
 ];
 
+/// A swinging door takes this long to open and to shut (seconds), and opens this far
+/// (radians).
+const DOOR_OPENS: f32 = 0.35;
+const DOOR_SHUTS: f32 = 0.4;
+pub const DOOR_ANGLE: f32 = 1.1;
+
 /// How far a wheel's middle is above a car body's origin (see [`TYPES`]): the spring at rest,
 /// 51 less its length of 107, from a body drawn 64 down.
 pub const WHEEL_ABOVE_BODY: f32 = 8.0;
@@ -196,6 +202,10 @@ pub struct Vehicle {
     pub hurt_by: Option<usize>,
     /// The person (index) driving.
     pub driver: Option<usize>,
+    /// A door swinging open and shut (not in the original, whose cars are one mesh and whose
+    /// door animation is switched off, `set_vehicle_anim`): which (0 the driver's, 1 the
+    /// other), seconds since it started and how long it's open for in all.
+    pub door_swing: Option<(usize, f32, f32)>,
     /// Stopped by the mission (`stall_car`).
     pub stalled: bool,
     /// What it takes to get in: set by the event point that made it, and by `lock_vehicle`
@@ -225,7 +235,7 @@ pub struct Vehicle {
 impl Vehicle {
     pub fn new(way: usize, kind: u8, pos: Vec3, yaw: f32, key: Key) -> Vehicle {
         Vehicle {
-            way, kind: kind.min(8), pos, yaw, speed: 0.0, slip: 0.0, slide: 0.0, steer: 0.0, health: 300, hurt_by: None, driver: None, stalled: false,
+            way, kind: kind.min(8), pos, yaw, speed: 0.0, slip: 0.0, slide: 0.0, steer: 0.0, health: 300, hurt_by: None, driver: None, door_swing: None, stalled: false,
             key, pitch: 0.0, roll: 0.0, wheel_spin: 0.0, smokin: false, scrapin: 0, walled: false, reverse: false, siren: false,
         }
     }
@@ -366,6 +376,31 @@ impl Vehicle {
     pub fn to_world(&self, x: f32, z: f32) -> Vec2 {
         let (s, c) = self.yaw.sin_cos();
         vec2(self.pos.x + c * x + s * z, self.pos.z - s * x + c * z)
+    }
+
+    /// How far open its swinging door is, 0 to 1, and which: opened quickly, held, and
+    /// shut over the end.
+    pub fn door_open(&self) -> Option<(usize, f32)> {
+        let (door, t, total) = self.door_swing?;
+        let open = (t / DOOR_OPENS).min((total - t) / DOOR_SHUTS).clamp(0.0, 1.0);
+        (open > 0.0).then_some((door, open))
+    }
+
+    /// Starts door `door` swinging open, for `secs` in all.
+    pub fn swing_door(&mut self, door: usize, secs: f32) {
+        self.door_swing = Some((door, 0.0, secs));
+    }
+
+    /// Where someone stands to play the getting-in animation at door `door` (0 the driver's,
+    /// 1 the other), which carries them into the seat (`position_person_for_vehicle` with
+    /// `get_car_door_offsets`' wider spacing for it, vehicle.cpp:252): out from the middle by
+    /// 450/256 of the wheel's own offset, and along by 50/256 of the front wheel's for the
+    /// driver's door, the back wheel's for the other, both counted back from the middle
+    /// (`get_car_enter_xz` goes along `-(sin, cos)` of the car's angle).
+    pub fn enter_at(&self, door: usize) -> Vec2 {
+        let (_, _, x, front, back) = TYPES[self.kind as usize];
+        let (x, z) = if door == 0 { (x, front) } else { (-x, back) };
+        self.to_world(x * 450.0 / 256.0, -z * 50.0 / 256.0)
     }
 
     /// Where the driver gets in and out: beside the driver's (left) door. Car space +x is the

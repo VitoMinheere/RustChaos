@@ -654,6 +654,9 @@ pub(crate) fn car(v: &Vehicle, level: &Level, lighter: Option<&uc_formats::lgt::
     let lift = radius - vehicle::WHEEL_ABOVE_BODY;
     if let Some(prim) = level.item_prims.get(&body) {
         uc_world::level::prim_batches(prim, |p| v.body_point(p, lift), lighter, out);
+        if let Some((door, open)) = v.door_open() {
+            car_door(prim, v, lift, door, open, lighter, out);
+        }
     }
     if let Some(prim) = wheel_prim {
         let (ss, cs) = v.wheel_spin.sin_cos();
@@ -669,6 +672,91 @@ pub(crate) fn car(v: &Vehicle, level: &Level, lighter: Option<&uc_formats::lgt::
             uc_world::level::prim_batches(prim, place, lighter, out);
         }
     }
+}
+
+/// A car's door swung `open` (0 to 1) of the way open, and dark where it was (not in the
+/// original: its cars are one mesh, and its door animation is switched off). The body has no
+/// door of its own, but its sides are made of panels: the door is the panels on that side
+/// between the front and back of the lowest one level with the front seat, cut there, swung
+/// out about its front edge.
+///
+/// The body is modelled nose towards -z and mirrored ([`Vehicle::body_point`]): the driver's
+/// door (car space +x) is on its -x side, and the front of a door is its smaller z.
+fn car_door(prim: &uc_formats::prm::Prim, v: &Vehicle, lift: f32, door: usize, open: f32,
+            lighter: Option<&uc_formats::lgt::Lighter>, out: &mut BTreeMap<u32, Batch>) {
+    /// The front seat, in the body's z: where getting in leaves her hips, and a little ahead.
+    const SEAT: f32 = -50.0;
+    let side = if door == 0 { -1.0 } else { 1.0 };
+    let half = prim.points.iter().map(|p| (p[0] as f32).abs()).fold(0.0, f32::max);
+    let point = |i: u16| { let p = prim.points[i as usize]; Vec3::new(p[0] as f32, p[1] as f32, p[2] as f32) };
+    // The panels on that side: out past most of the body's width, facing sideways. Only
+    // quads: the triangles there are the wing mirrors and the corners of the pillars.
+    let panels: Vec<(usize, Vec<Vec3>)> = prim.faces.iter().enumerate().filter_map(|(k, f)| {
+        let pts: Vec<Vec3> = f.points.iter().map(|&i| point(i)).collect();
+        if pts.len() != 4 {
+            return None;
+        }
+        let n = (pts[1] - pts[0]).cross(pts[2] - pts[0]).normalize_or_zero();
+        (pts.iter().all(|p| p.x * side > half * 0.6) && n.x.abs() > 0.6).then_some((k, pts))
+    }).collect();
+    let span = |pts: &[Vec3]| pts.iter().fold((f32::MAX, f32::MIN), |(a, b), p| (a.min(p.z), b.max(p.z)));
+    let Some((front, back)) = panels.iter()
+        .filter(|(_, pts)| { let (a, b) = span(pts); a <= SEAT && SEAT <= b })
+        .min_by(|a, b| a.1.iter().map(|p| p.y).fold(f32::MAX, f32::min).total_cmp(&b.1.iter().map(|p| p.y).fold(f32::MAX, f32::min)))
+        .map(|(_, pts)| span(pts)) else { return };
+    let hinge_x = panels.iter().flat_map(|(_, pts)| pts.iter().map(|p| p.x * side)).fold(0.0, f32::max) * side;
+    let (sin, cos) = (open * vehicle::DOOR_ANGLE).sin_cos();
+    let swing = |p: Vec3| {
+        let (dx, dz) = (p.x - hinge_x, p.z - front);
+        Vec3::new(hinge_x + dx * cos + side * dz * sin, p.y, front + dz * cos - side * dx * sin)
+    };
+    let shade = |pts: &[Vec3]| -> Vec<[u8; 4]> {
+        let n = (pts[1] - pts[0]).cross(pts[2] - pts[0]);
+        pts.iter().map(|&p| match lighter {
+            Some(l) => { let [r, g, b] = l.light((p * uc_world::UNIT).to_array(), n.to_array()); [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8, 255] }
+            None => [255; 4],
+        }).collect()
+    };
+    for (k, _) in &panels {
+        let f = &prim.faces[*k];
+        let (page, uv) = f.texture();
+        let corners: Vec<(Vec3, [f32; 2])> = f.points.iter().map(|&i| point(i)).zip(uv).collect();
+        let cut = clip_z(&clip_z(&corners, front, 1.0), back, -1.0);
+        if cut.len() < 3 {
+            continue;
+        }
+        // Where the door was: dark, just outside the side.
+        let hole: Vec<Vec3> = cut.iter().map(|(p, _)| v.body_point(*p + Vec3::new(side * 1.5, 0.0, 0.0), lift) / uc_world::UNIT).collect();
+        let dark = out.entry(uc_world::UNTEXTURED).or_default();
+        for t in 1..hole.len() - 1 {
+            dark.tri([hole[0], hole[t], hole[t + 1]], [[0.0; 2]; 3], [[14, 14, 16, 255]; 3]);
+        }
+        // The door, swung out.
+        let pts: Vec<Vec3> = cut.iter().map(|(p, _)| v.body_point(swing(*p), lift) / uc_world::UNIT).collect();
+        let col = shade(&pts);
+        let batch = out.entry(page).or_default();
+        for t in 1..pts.len() - 1 {
+            batch.tri([pts[0], pts[t], pts[t + 1]], [cut[0].1, cut[t].1, cut[t + 1].1], [col[0], col[t], col[t + 1]]);
+        }
+    }
+}
+
+/// The part of polygon `poly` (points with their UVs) on the `keep` side of z = `at`: +1
+/// keeps z at or over it, -1 at or under.
+fn clip_z(poly: &[(Vec3, [f32; 2])], at: f32, keep: f32) -> Vec<(Vec3, [f32; 2])> {
+    let inside = |p: &(Vec3, [f32; 2])| (p.0.z - at) * keep >= 0.0;
+    let mut out = Vec::new();
+    for k in 0..poly.len() {
+        let (a, b) = (poly[k], poly[(k + 1) % poly.len()]);
+        if inside(&a) {
+            out.push(a);
+        }
+        if inside(&a) != inside(&b) {
+            let t = (at - a.0.z) / (b.0.z - a.0.z);
+            out.push((a.0.lerp(b.0, t), [a.1[0] + (b.1[0] - a.1[0]) * t, a.1[1] + (b.1[1] - a.1[1]) * t]));
+        }
+    }
+    out
 }
 
 fn shadow(out: &mut BTreeMap<u32, Batch>, p: &Person, level: &Level) {

@@ -1706,6 +1706,7 @@ impl Game {
             p.advance(dt, &level.ground);
         }
         self.finish_entering();
+        self.swing_doors(dt);
         self.sync_grapples();
         self.sync_carrying(level);
         self.separate(level);
