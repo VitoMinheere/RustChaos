@@ -289,6 +289,73 @@ pub struct Ground {
     /// Each prop's prim's `damage` and `flag` bytes, by index into the map's objects: whether
     /// it can be damaged, and whether it blows up when it is (`PRIM_DAMAGE_*`, `PRIM_FLAG_*`).
     pub prop_damage: Vec<(u8, u8)>,
+    /// Which of `walls` are in each map square (`x * 128 + z`), in index order: those whose
+    /// bounding box, a unit wider all round, covers some of it (a wall off the map's edge is
+    /// in the edge square nearest it). What [`Ground::slide_odd`] and [`Ground::first_hit`]
+    /// look through instead of every wall, so `walls` mustn't change after
+    /// [`Ground::new`]. Doors aren't in it: there are a few, and they open.
+    wall_grid: Vec<Vec<u32>>,
+}
+
+/// The squares of the map, a side, and a square's side in world units.
+const GRID: usize = 128;
+const SIDE: f32 = 256.0;
+
+/// The squares from `lo` to `hi` (world units) along one side of the map, clamped to it.
+fn cells(lo: f32, hi: f32) -> std::ops::RangeInclusive<usize> {
+    let c = |v: f32| ((v / SIDE).floor() as i64).clamp(0, GRID as i64 - 1) as usize;
+    c(lo)..=c(hi)
+}
+
+fn wall_grid(walls: &[WallSegment]) -> Vec<Vec<u32>> {
+    let mut grid = vec![Vec::new(); GRID * GRID];
+    for (k, w) in walls.iter().enumerate() {
+        for x in cells(w.a[0].min(w.b[0]) - 1.0, w.a[0].max(w.b[0]) + 1.0) {
+            for z in cells(w.a[1].min(w.b[1]) - 1.0, w.a[1].max(w.b[1]) + 1.0) {
+                grid[x * GRID + z].push(k as u32);
+            }
+        }
+    }
+    grid
+}
+
+/// How far a slide can push someone from where they were going before [`Ground::slide_odd`]
+/// stops trusting the walls it looked up round there and looks at all of them.
+const SLIDE_ROOM: f32 = 128.0;
+
+/// Pushes `p` out to `radius` from `w` if it's closer, at height `y`: whether it did. As
+/// `slide_along` (collide.cpp:4357), a wall blocks feet from 64 below its bottom to a step
+/// below its top.
+fn push_off(w: &WallSegment, y: f32, radius: f32, p: &mut Vec2) -> bool {
+    if y < w.y0 - 64.0 || y >= w.y1 - STEP_HEIGHT {
+        return false;
+    }
+    let (a, b) = (Vec2::from(w.a), Vec2::from(w.b));
+    let ab = b - a;
+    let t = ((*p - a).dot(ab) / ab.length_squared().max(1e-6)).clamp(0.0, 1.0);
+    let closest = a + ab * t;
+    let d = *p - closest;
+    let dist = d.length();
+    if dist >= radius {
+        return false;
+    }
+    let n = if dist > 1e-3 { d / dist } else { vec2(-ab.y, ab.x).normalize_or_zero() };
+    *p = closest + n * radius;
+    true
+}
+
+/// How far along the line from `a` to `a + r` (0..1, xz), at heights `a.y` to `a.y + dy`,
+/// wall `w` cuts it, if it does.
+fn cut(w: &WallSegment, a: Vec3, p: Vec2, r: Vec2, dy: f32) -> Option<f32> {
+    let (q, s) = (Vec2::from(w.a), Vec2::from(w.b) - Vec2::from(w.a));
+    let denom = r.perp_dot(s);
+    if denom.abs() < 1e-6 {
+        return None;
+    }
+    let t = (q - p).perp_dot(s) / denom;
+    let u = (q - p).perp_dot(r) / denom;
+    let y = a.y + dy * t;
+    ((0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u) && y >= w.y0 && y <= w.y1).then_some(t)
 }
 
 /// A door. It blocks like any other wall until a mission opens it, which is the only way one
@@ -488,7 +555,8 @@ impl Ground {
                     .as_ref().map_or((0, 0), |p| (p.damage, p.flag))
             })
             .collect();
-        Ground { roofs, prop_tops, prop_tris, walls, doors, ladders, cables, fences, fence_buildings, fence_climb, prop_walls, prop_damage, moving: Default::default() }
+        let wall_grid = wall_grid(&walls);
+        Ground { roofs, prop_tops, prop_tris, walls, doors, ladders, cables, fences, fence_buildings, fence_climb, prop_walls, prop_damage, moving: Default::default(), wall_grid }
     }
 
     /// The heights at (x, z) of the roofs over its square.
@@ -589,31 +657,62 @@ impl Ground {
     /// [`Ground::slide`], and whether it slid along a prop rather than a wall or a door
     /// (`slid_odd`, collide.cpp:6623).
     pub fn slide_odd(&self, from: Vec2, y: f32, delta: Vec2, radius: f32) -> (Vec2, bool) {
+        let start = from + delta;
+        // The walls near where they're going, in the order `blocking` gives them, then the
+        // doors still shut: the same pushes in the same order as going through every wall,
+        // since one further off than the room round there plus `radius` can't be within
+        // `radius` of them. Pushed out of that room, every wall after all.
+        let room = Vec2::splat(SLIDE_ROOM + radius);
+        let near = self.walls_in(start - room, start + room);
+        self.slide_through(start, y, radius, Some(&near))
+            .or_else(|| self.slide_through(start, y, radius, None))
+            .expect("a slide past every wall always finishes")
+    }
+
+    /// [`Ground::slide_odd`]'s pushes, from `start`, by the walls in `near` (all of them if
+    /// `None`) and the doors still shut. `None` if they pushed it out of the room round
+    /// `start` that `near` was looked up for. Anything that can't be stepped onto blocks: a
+    /// jump that lifts the feet to within a step of a ledge's top clears it (and lands on it).
+    fn slide_through(&self, start: Vec2, y: f32, radius: f32, near: Option<&[u32]>) -> Option<(Vec2, bool)> {
         let props = self.prop_walls.first().map_or(usize::MAX, |(_, r)| r.start)..self.walls.len();
-        let mut odd = false;
-        let mut p = from + delta;
-        // Anything that can't be stepped onto blocks: a jump that lifts the feet to within a
-        // step of a ledge's top clears it (and lands on it). As `slide_along` (collide.cpp:4357),
-        // a wall blocks feet from 64 below its bottom to a step below its top.
+        let walls: Vec<usize> = match near {
+            Some(near) => near.iter().map(|&k| k as usize).collect(),
+            None => (0..self.walls.len()).collect(),
+        };
+        let (mut p, mut odd) = (start, false);
         for _ in 0..2 {
-            for (k, w) in self.blocking().enumerate() {
-                if y < w.y0 - 64.0 || y >= w.y1 - STEP_HEIGHT {
-                    continue;
-                }
-                let (a, b) = (Vec2::from(w.a), Vec2::from(w.b));
-                let ab = b - a;
-                let t = ((p - a).dot(ab) / ab.length_squared().max(1e-6)).clamp(0.0, 1.0);
-                let closest = a + ab * t;
-                let d = p - closest;
-                let dist = d.length();
-                if dist < radius {
-                    let n = if dist > 1e-3 { d / dist } else { vec2(-ab.y, ab.x).normalize_or_zero() };
-                    p = closest + n * radius;
+            let mut pushed = false;
+            let doors = self.doors.iter().filter(|d| !d.is_open()).map(|d| &d.wall);
+            let each = walls.iter().map(|&k| (k, &self.walls[k])).chain(doors.enumerate().map(|(j, w)| (self.walls.len() + j, w)));
+            for (k, w) in each {
+                if push_off(w, y, radius, &mut p) {
+                    pushed = true;
                     odd |= props.contains(&k);
+                    if near.is_some() && (p - start).abs().max_element() > SLIDE_ROOM {
+                        return None;
+                    }
                 }
             }
+            // (Nothing moved them, so another time round would push them no differently.)
+            if !pushed {
+                break;
+            }
         }
-        (p, odd)
+        Some((p, odd))
+    }
+
+    /// The walls (indices into [`Ground::walls`]) in the map squares the box from `lo` to
+    /// `hi` (xz) covers, in index order: all those whose bounding box meets it, and some more.
+    pub fn walls_in(&self, lo: Vec2, hi: Vec2) -> Vec<u32> {
+        let mut out = Vec::new();
+        for x in cells(lo.x, hi.x) {
+            for z in cells(lo.y, hi.y) {
+                out.extend_from_slice(&self.wall_grid[x * GRID + z]);
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
     }
 
     /// Everything solid at the moment: the map's walls, and the doors still shut.
@@ -718,23 +817,69 @@ impl Ground {
 
     /// Whether nothing solid lies between `a` and `b` (eye to eye).
     pub fn line_of_sight(&self, a: Vec3, b: Vec3) -> bool {
-        self.first_hit(a, b).is_none()
+        self.cuts(a, b, |_| true).is_none()
     }
 
     /// How far from `a` to `b` (0..1) the first solid wall cuts the line, if one does.
     pub fn first_hit(&self, a: Vec3, b: Vec3) -> Option<f32> {
-        let (p, r) = (vec2(a.x, a.z), vec2(b.x - a.x, b.z - a.z));
-        self.blocking().filter_map(|w| {
-            let (q, s) = (Vec2::from(w.a), Vec2::from(w.b) - Vec2::from(w.a));
-            let denom = r.perp_dot(s);
-            if denom.abs() < 1e-6 {
+        let mut first: Option<f32> = None;
+        self.cuts(a, b, |t| {
+            first = Some(first.filter(|f| f.total_cmp(&t).is_le()).unwrap_or(t));
+            false
+        });
+        first
+    }
+
+    /// Calls `stop` with how far along from `a` to `b` each solid wall that cuts the line
+    /// does (a wall can come more than once), till it says to stop: the cut it stopped at.
+    /// Only the walls in the map squares the line crosses are looked at, and the doors
+    /// still shut; every wall for a line that leaves the map.
+    fn cuts(&self, a: Vec3, b: Vec3, mut stop: impl FnMut(f32) -> bool) -> Option<f32> {
+        let (p, r, dy) = (vec2(a.x, a.z), vec2(b.x - a.x, b.z - a.z), b.y - a.y);
+        let mut try_wall = |w: &WallSegment| cut(w, a, p, r, dy).filter(|&t| stop(t));
+        let size = GRID as f32 * SIDE;
+        let on_map = |v: Vec2| (0.0..size).contains(&v.x) && (0.0..size).contains(&v.y);
+        let hit = if on_map(p) && on_map(p + r) {
+            self.squares_along(p, p + r, |sq| self.wall_grid[sq].iter().find_map(|&k| try_wall(&self.walls[k as usize])))
+        } else {
+            self.walls.iter().find_map(&mut try_wall)
+        };
+        hit.or_else(|| self.doors.iter().filter(|d| !d.is_open()).find_map(|d| try_wall(&d.wall)))
+    }
+
+    /// The map squares (`x * 128 + z`) the line from `a` to `b` crosses, both on the map, in
+    /// order, to `f` till it gives something back. Where the line runs through a corner it
+    /// takes one of the squares either side; that's enough, as a wall is in the squares a
+    /// unit round it (`wall_grid`).
+    fn squares_along<T>(&self, a: Vec2, b: Vec2, mut f: impl FnMut(usize) -> Option<T>) -> Option<T> {
+        let sq = |v: f32| (v / SIDE).floor() as i64;
+        let (mut x, mut z) = (sq(a.x), sq(a.y));
+        let (ex, ez) = (sq(b.x), sq(b.y));
+        let d = b - a;
+        // How far along the line (0..1) it next crosses into another square along x and z,
+        // and how far between crossings.
+        let next = |at: f32, cell: i64, d: f32| {
+            if d > 0.0 { ((cell + 1) as f32 * SIDE - at) / d } else if d < 0.0 { (cell as f32 * SIDE - at) / d } else { f32::INFINITY }
+        };
+        let (mut tx, mut tz) = (next(a.x, x, d.x), next(a.y, z, d.y));
+        let (dtx, dtz) = (SIDE / d.x.abs(), SIDE / d.y.abs());
+        let (stepx, stepz) = (if d.x < 0.0 { -1 } else { 1 }, if d.y < 0.0 { -1 } else { 1 });
+        for _ in 0..=(ex - x).abs() + (ez - z).abs() {
+            if let Some(t) = f((x as usize) * GRID + z as usize) {
+                return Some(t);
+            }
+            if (x, z) == (ex, ez) {
                 return None;
             }
-            let t = (q - p).perp_dot(s) / denom;
-            let u = (q - p).perp_dot(r) / denom;
-            let y = a.y + (b.y - a.y) * t;
-            ((0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u) && y >= w.y0 && y <= w.y1).then_some(t)
-        }).min_by(f32::total_cmp)
+            if tx < tz {
+                (x, tx) = (x + stepx, tx + dtx);
+            } else {
+                (z, tz) = (z + stepz, tz + dtz);
+            }
+            (x, z) = (x.clamp(0, GRID as i64 - 1), z.clamp(0, GRID as i64 - 1));
+        }
+        // (Rounding took it somewhere off the line: the square at the end too.)
+        f((ex as usize) * GRID + ez as usize)
     }
 
     /// The cable within `reach` of point `p` (e.g. a person's hands): (cable, fraction along).
