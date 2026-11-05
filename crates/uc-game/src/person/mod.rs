@@ -1508,12 +1508,22 @@ impl Person {
     /// Goes for `by` (`PCOM_set_person_ai_navtokill`): those who fight anyway notice them at
     /// once; anyone else guilty takes up the fight as a gang member would.
     pub fn go_for(&mut self) {
+        if !self.aggro {
+            self.cues.push(Sfx::Alert { kind: self.kind });
+        }
+        self.keep_after();
+    }
+
+    /// [`Person::go_for`] without the shout, for someone who was already after them and let
+    /// off for a moment: the player down (which drops `aggro` every turn she's lying there),
+    /// say. An endless wave's thugs come back to her this way, or they'd all shout every
+    /// turn she was down, so many shouts at once they made one long scream (#529).
+    pub(crate) fn keep_after(&mut self) {
         if !self.fights() {
             self.ai = AI_GANG;
         }
         if !self.aggro {
             self.aggro = true;
-            self.cues.push(Sfx::Alert { kind: self.kind });
             self.attack_timer = 0.8;
         }
     }

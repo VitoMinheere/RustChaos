@@ -637,7 +637,10 @@ impl Game {
         // there with him (a fighter gives up on someone more than a storey above or below).
         if matches!(inc.kind, Kind::ArmedSuspect | Kind::Gunman) {
             let range = if inc.kind == Kind::Gunman { OPENS_UP } else { 6.0 * 256.0 };
-            if let Some(me) = self.player().map(|p| p.fig.pos) {
+            // Not while she's down: they leave her be then (the AI drops `aggro` every turn
+            // she's lying there), and going for her again every turn they'd shout every turn
+            // (#529).
+            if let Some(me) = self.player().filter(|p| !p.is_down()).map(|p| p.fig.pos) {
                 for &i in &inc.culprits {
                     let p = &mut self.people[i];
                     if !down(p) && !p.aggro() && (p.fig.pos - me).length() < range && (p.fig.pos.y - me.y).abs() < 256.0 {

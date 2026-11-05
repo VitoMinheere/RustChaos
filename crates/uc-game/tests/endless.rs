@@ -285,3 +285,25 @@ fn every_line_is_its_own() {
     assert_eq!(files.len(), lines.len(), "two lines in one file");
     assert_eq!(words.len(), lines.len(), "two lines say the same");
 }
+
+/// Darci knocked down by a slide in the middle of a wave: the thugs leave her be while she's
+/// down, then come back to her without shouting again. Each used to shout every turn she lay
+/// there, so many at once it sounded like her screaming (#529).
+#[test]
+fn a_wave_doesnt_shout_while_darci_is_down() {
+    let Some((level, mut g)) = start(1) else { return };
+    run(&mut g, &level, FIRST_BREATHER + 5.0);
+    assert!(!standing(&g).is_empty(), "no wave");
+    g.take_sounds();
+    let me = g.player.unwrap();
+    let from = g.people[me].fig.pos + glam::vec3(0.0, 0.0, 60.0);
+    g.people[me].take_hit(from, 30, ko::SLIDE, false, true, Weapon::None);
+    assert!(g.people[me].is_down());
+    let mut shouts = 0;
+    for _ in 0..(5.0 / DT) as usize {
+        g.update(DT, &Controls::default(), &level);
+        shouts += g.take_sounds().iter().filter(|(s, _)| matches!(s, uc_game::Sfx::Alert { .. })).count();
+    }
+    assert!(!g.people[me].is_down(), "Darci didn't get up");
+    assert_eq!(shouts, 0, "the wave shouted {shouts} times while Darci was down and getting up");
+}
