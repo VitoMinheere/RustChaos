@@ -72,6 +72,21 @@ struct Gfx {
     renderer: Renderer,
 }
 
+impl Gfx {
+    /// The surface's next image to draw into, or none this frame (reconfiguring the surface
+    /// first if it was out of date or lost).
+    fn acquire(&mut self) -> Option<wgpu::SurfaceTexture> {
+        match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                self.surface.configure(&self.renderer.device, &self.config);
+                None
+            }
+            _ => None,
+        }
+    }
+}
+
 struct App {
     /// The mission being played (None at the menu).
     world: Option<World>,
@@ -413,17 +428,8 @@ impl App {
             w.save_stats();
         }
         match World::load_coop(self.args.clone(), &setup, seat) {
-            Ok(mut w) => {
-                if let Some(g) = self.gfx.as_mut() {
-                    g.renderer.clear_textures();
-                    w.upload(&mut g.renderer);
-                }
-                if let Some(s) = self.sound.as_mut() {
-                    s.start(&w);
-                }
-                self.world = Some(w);
-                self.menu = None;
-                self.capture_cursor(self.want_cursor());
+            Ok(w) => {
+                self.show(w, true);
                 if let Some(c) = self.coop.as_mut() {
                     println!("co-op: playing {} as seat {}, with an input delay of {} turns", setup.mission, seat + 1, c.client.delay());
                     c.lock = uc_net::client::Lockstep::new();
@@ -448,18 +454,7 @@ impl App {
         let mut args = self.args.clone();
         args.mission = name.to_string();
         match World::load(args) {
-            Ok(mut w) => {
-                if let Some(g) = self.gfx.as_mut() {
-                    g.renderer.clear_textures();
-                    w.upload(&mut g.renderer);
-                }
-                if let Some(s) = self.sound.as_mut() {
-                    s.start(&w);
-                }
-                self.world = Some(w);
-                self.menu = None;
-                self.capture_cursor(self.want_cursor());
-            }
+            Ok(w) => self.show(w, true),
             Err(e) => eprintln!("{name}: {e}"),
         }
     }
@@ -468,18 +463,7 @@ impl App {
     fn watch(&mut self, path: &Path) {
         let loaded = replays::load(path).and_then(|r| World::load_replay(self.args.clone(), r));
         match loaded {
-            Ok(mut w) => {
-                if let Some(g) = self.gfx.as_mut() {
-                    g.renderer.clear_textures();
-                    w.upload(&mut g.renderer);
-                }
-                if let Some(s) = self.sound.as_mut() {
-                    s.start(&w);
-                }
-                self.world = Some(w);
-                self.menu = None;
-                self.capture_cursor(self.want_cursor());
-            }
+            Ok(w) => self.show(w, true),
             Err(e) => {
                 eprintln!("{e}");
                 if let Some(m) = self.menu.as_mut() {
@@ -502,15 +486,8 @@ impl App {
             if let Some(v) = w.replay.as_mut() {
                 v.demo = true;
             }
-            if let Some(g) = self.gfx.as_mut() {
-                g.renderer.clear_textures();
-                w.upload(&mut g.renderer);
-            }
-            if let Some(s) = self.sound.as_mut() {
-                s.start(&w);
-            }
-            self.world = Some(w);
-            self.menu = None;
+            // The cursor is left as it is: a demo is watched, not played.
+            self.show(w, false);
         }
     }
 
@@ -522,8 +499,9 @@ impl App {
         self.open_menu();
     }
 
-    /// Puts `w` on screen, in place of what was there.
-    fn show(&mut self, mut w: World) {
+    /// Puts `w` on screen, in place of what was there, and (if `capture`) captures the
+    /// cursor if it's wanted.
+    fn show(&mut self, mut w: World, capture: bool) {
         if let Some(g) = self.gfx.as_mut() {
             g.renderer.clear_textures();
             w.upload(&mut g.renderer);
@@ -537,7 +515,9 @@ impl App {
         }
         self.world = Some(w);
         self.menu = None;
-        self.capture_cursor(self.want_cursor());
+        if capture {
+            self.capture_cursor(self.want_cursor());
+        }
     }
 
     /// Opens mission `name` in the editor (#185): `back`, the editor and its camera, when
@@ -555,7 +535,7 @@ impl App {
                 if let Some(f) = fly {
                     w.fly = f;
                 }
-                self.show(w);
+                self.show(w, true);
             }
             Err(e) => {
                 eprintln!("{name}: {e}");
@@ -590,7 +570,7 @@ impl App {
                 }
                 let ed = self.world.as_mut().and_then(|w| w.editor.take()).unwrap();
                 self.editing = Some((ed, fly));
-                self.show(played);
+                self.show(played, true);
             }
             Err(e) => {
                 if let Some(ed) = self.world.as_mut().and_then(|w| w.editor.as_mut()) {
@@ -969,11 +949,7 @@ impl App {
             }
             s.audio.update(dt);
         }
-        self.input.pressed.clear();
-        self.input.typed.clear();
-        self.input.lmb_pressed = false;
-        self.input.mouse = Vec2::ZERO;
-        self.input.wheel = 0.0;
+        self.input.end_frame();
         let Some(g) = self.gfx.as_mut() else { return };
         // The screen's image, when it changes.
         let image = m.image();
@@ -985,14 +961,7 @@ impl App {
         }
         let size = (g.config.width, g.config.height);
         let overlay = m.overlay(size);
-        let frame = match g.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
-            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                g.surface.configure(&g.renderer.device, &g.config);
-                return;
-            }
-            _ => return,
-        };
+        let Some(frame) = g.acquire() else { return };
         let view = frame.texture.create_view(&Default::default());
         g.renderer.render_2d(&view, size, &overlay);
         g.window.pre_present_notify();
@@ -1212,11 +1181,7 @@ impl App {
         world.check_achievements(dt);
         let shift = self.input.held(KeyCode::ShiftLeft) || self.input.held(KeyCode::ShiftRight);
         let screenshot = self.input.hit(KeyCode::F12) && !shift;
-        self.input.pressed.clear();
-        self.input.typed.clear();
-        self.input.lmb_pressed = false;
-        self.input.mouse = Vec2::ZERO;
-        self.input.wheel = 0.0;
+        self.input.end_frame();
 
         // Drawn between the last two turns, so it moves smoothly at any frame rate.
         world.game.begin_draw();
@@ -1261,14 +1226,7 @@ impl App {
             let text = format!("DIFFICULTY: {}", world.game.difficulty().name().to_uppercase());
             hud.text(size.0 as f32 / 2.0 - Overlay::text_width(&text, s) / 2.0, size.1 as f32 * 0.9, s, [200, 200, 190, 220], &text);
         }
-        let frame = match g.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
-            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                g.surface.configure(&g.renderer.device, &g.config);
-                return;
-            }
-            _ => return,
-        };
+        let Some(frame) = g.acquire() else { return };
         let view = frame.texture.create_view(&Default::default());
         g.renderer.render(&view, size, &cam, &settings, &dynamic, &hud);
         g.window.pre_present_notify();

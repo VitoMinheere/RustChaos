@@ -63,18 +63,8 @@ pub fn made_briefing(mission: &str) -> String {
 
 /// Each mission's `urban.sty` id (its line's first field), by mission file.
 fn mission_ids(game: &Path) -> Vec<(String, u32)> {
-    let text = uc_formats::resolve(game, "data\\urban.sty")
-        .and_then(|p| std::fs::read(p).ok())
-        .map(|b| b.iter().map(|&c| c as char).collect::<String>())
-        .unwrap_or_default();
-    text.lines()
-        .filter(|l| !l.trim_start().starts_with("//"))
-        .filter_map(|l| {
-            let f: Vec<&str> = l.split(" : ").map(str::trim).collect();
-            let file = f.get(7).filter(|f| f.to_ascii_lowercase().ends_with(".ucm"))?;
-            Some((file[..file.len() - 4].to_string(), f[0].parse().ok()?))
-        })
-        .collect()
+    let text = uc_formats::sty::read(game);
+    uc_formats::sty::lines(&text).filter_map(|l| Some((l.mission()?.to_string(), l.id()?))).collect()
 }
 
 /// A pin on the city map (`FE_MAPSCREEN`, fallen/Source/frontend.cpp:4046): a district's
@@ -1374,27 +1364,21 @@ const OBJECTIVES: [(&str, &str); 3] = [
 /// briefing), for the missions this install has, then the unreleased ones that play. Lines
 /// are `id : group : parent : ... : file.ucm : title : briefing`.
 pub fn missions(game: &Path) -> Vec<(String, String, String)> {
-    let text = uc_formats::resolve(game, "data\\urban.sty")
-        .and_then(|p| std::fs::read(p).ok())
-        .map(|b| b.iter().map(|&c| c as char).collect::<String>())
-        .unwrap_or_default();
+    let text = uc_formats::sty::read(game);
     let mut out: Vec<(String, String, String)> = Vec::new();
-    for line in text.lines().filter(|l| !l.trim_start().starts_with("//")) {
-        let f: Vec<&str> = line.split(" : ").map(str::trim).collect();
-        if f.len() < 9 || !f[7].to_ascii_lowercase().ends_with(".ucm") {
-            continue;
-        }
-        let mission = f[7][..f[7].len() - 4].to_string();
+    for line in uc_formats::sty::lines(&text) {
+        let (Some(mission), Some(title)) = (line.mission(), line.title()) else { continue };
+        let mission = mission.to_string();
         if out.iter().any(|e| e.0.eq_ignore_ascii_case(&mission))
             || uc_formats::resolve(game, &format!("levels\\{mission}.ucm")).is_none()
         {
             continue;
         }
-        let mut briefing = f.get(9).copied().unwrap_or("").to_string();
+        let mut briefing = line.briefing().unwrap_or("").to_string();
         if let Some((_, objectives)) = OBJECTIVES.iter().find(|o| o.0.eq_ignore_ascii_case(&mission)) {
             briefing += objectives;
         }
-        out.push((mission, f[8].to_string(), briefing));
+        out.push((mission, title.to_string(), briefing));
     }
     for (mission, title, briefing) in UNRELEASED.iter().chain(DRAFTS.iter()).chain(OWN.iter()) {
         let file = uc_world::level::mission_file(mission);
@@ -1422,10 +1406,7 @@ pub type District = (String, (f32, f32));
 /// by 480 map, by place in the list (none for the blank ones), and each mission's district,
 /// the seventh field of its line (keyed by the mission file's name, lower case).
 pub fn districts(game: &Path) -> (Vec<Option<District>>, BTreeMap<String, usize>) {
-    let text = uc_formats::resolve(game, "data\\urban.sty")
-        .and_then(|p| std::fs::read(p).ok())
-        .map(|b| b.iter().map(|&c| c as char).collect::<String>())
-        .unwrap_or_default();
+    let text = uc_formats::sty::read(game);
     let (mut named, mut of) = (Vec::new(), BTreeMap::new());
     let mut in_list = false;
     for line in text.lines().map(str::trim) {
@@ -1439,12 +1420,9 @@ pub fn districts(game: &Path) -> (Vec<Option<District>>, BTreeMap<String, usize>
                 (!name.is_empty() && x > 0.0 && y > 0.0).then(|| (name.to_string(), (x, y)))
             });
             named.push(pin);
-        } else if !line.starts_with("//") {
-            let f: Vec<&str> = line.split(" : ").map(str::trim).collect();
-            if let (Some(d), Some(file)) = (f.get(6).and_then(|d| d.parse().ok()), f.get(7)) {
-                if let Some(m) = file.to_ascii_lowercase().strip_suffix(".ucm") {
-                    of.insert(m.to_string(), d);
-                }
+        } else if let Some(l) = uc_formats::sty::Line::parse(line) {
+            if let (Some(d), Some(m)) = (l.district(), l.mission()) {
+                of.insert(m.to_ascii_lowercase(), d);
             }
         }
     }

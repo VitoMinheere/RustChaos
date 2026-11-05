@@ -817,14 +817,8 @@ fn mission_of(file: &str) -> Option<(String, usize)> {
 
 /// The mission files `urban.sty` lists (its lines' eighth field), lowercased without `.ucm`.
 fn listed_missions(game: &Path) -> BTreeSet<String> {
-    let text: String = uc_formats::resolve(game, "data\\urban.sty").and_then(|p| std::fs::read(p).ok())
-        .map(|b| b.iter().map(|&c| c as char).collect()).unwrap_or_default();
-    text.lines().filter(|l| !l.trim_start().starts_with("//"))
-        .filter_map(|l| {
-            let f: Vec<&str> = l.split(" : ").map(str::trim).collect();
-            f.get(7)?.to_ascii_lowercase().strip_suffix(".ucm").map(str::to_string)
-        })
-        .collect()
+    let text = uc_formats::sty::read(game);
+    uc_formats::sty::lines(&text).filter_map(|l| Some(l.mission()?.to_ascii_lowercase())).collect()
 }
 
 /// What `fallen.exe` names: files, by name or `sprintf` pattern, and folders it reads whole.

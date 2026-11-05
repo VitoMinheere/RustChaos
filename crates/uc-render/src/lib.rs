@@ -278,79 +278,31 @@ impl Renderer {
             bind_group_layouts: &[Some(&globals_layout), Some(&tex_layout)],
             immediate_size: 0,
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("uc pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4, 3 => Snorm8x4],
-                })],
-            },
-            // No culling: the original data doesn't use a consistent winding.
-            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let mesh_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4, 3 => Snorm8x4];
+        // Opaque, depth-tested and depth-written: what every other pipeline below varies.
+        let base = PipelineDesc {
+            label: "uc pipeline",
+            layout: &layout,
+            shader: &shader,
+            vertex_stride: std::mem::size_of::<Vertex>() as u64,
+            attributes: &mesh_attrs,
+            fragment: "fs_main",
+            format,
+            blend: None,
+            write_mask: wgpu::ColorWrites::ALL,
+            depth_write: true,
+            depth_compare: wgpu::CompareFunction::Less,
+            stencil: Default::default(),
+            bias: Default::default(),
+        };
+        let pipeline = make_pipeline(&device, &base);
         // As the main pipeline, with the page's normal map as a third bind group.
         let relief_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("relief layout"),
             bind_group_layouts: &[Some(&globals_layout), Some(&tex_layout), Some(&tex_layout)],
             immediate_size: 0,
         });
-        let relief_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("relief pipeline"),
-            layout: Some(&relief_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4, 3 => Snorm8x4],
-                })],
-            },
-            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_relief"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let relief_pipeline = make_pipeline(&device, &PipelineDesc { label: "relief pipeline", layout: &relief_layout, fragment: "fs_relief", ..base.clone() });
         let globals_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("globals"),
             size: std::mem::size_of::<Globals>() as u64,
@@ -379,238 +331,37 @@ impl Renderer {
         let white = make_texture(&device, &queue, &tex_layout, &sampler,
                                  &Texture { width: 1, height: 1, has_alpha: false, rgba: vec![255; 4] });
 
+        // Pulled slightly towards the camera, so marks on a surface win its depth test.
+        let pulled = wgpu::DepthBiasState { constant: -8, slope_scale: -1.0, clamp: 0.0 };
+        let additive = wgpu::BlendState { color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add }, alpha: wgpu::BlendComponent::OVER };
+        // Blended over the scene, depth-tested but not written.
+        let blended = PipelineDesc {
+            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+            depth_write: false,
+            depth_compare: wgpu::CompareFunction::LessEqual,
+            ..base.clone()
+        };
         // Blob shadows: blended, no depth writes, pulled slightly towards the camera.
-        let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("shadow pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4, 3 => Snorm8x4],
-                })],
-            },
-            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::LessEqual),
-                stencil: Default::default(),
-                bias: wgpu::DepthBiasState { constant: -8, slope_scale: -1.0, clamp: 0.0 },
-            }),
-            multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_shadow"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let shadow_pipeline = make_pipeline(&device, &PipelineDesc { label: "shadow pipeline", fragment: "fs_shadow", bias: pulled, ..blended.clone() });
         // Marks on the ground (footprints, tyre tracks): the page's own texture blended the
         // same way, tinted by the vertex colour.
-        let decal_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("decal pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4, 3 => Snorm8x4],
-                })],
-            },
-            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::LessEqual),
-                stencil: Default::default(),
-                bias: wgpu::DepthBiasState { constant: -8, slope_scale: -1.0, clamp: 0.0 },
-            }),
-            multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_decal"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let decal_pipeline = make_pipeline(&device, &PipelineDesc { label: "decal pipeline", fragment: "fs_decal", bias: pulled, ..blended.clone() });
         // Explosions: the same round blobs added to the scene instead of blended over it.
-        let glow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("glow pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4, 3 => Snorm8x4],
-                })],
-            },
-            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::LessEqual),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_glow"),
-                compilation_options: Default::default(),
-                // The shader premultiplies by the alpha it works out, so both factors are one.
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::One,
-                            dst_factor: wgpu::BlendFactor::One,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent::OVER,
-                    }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        // The shader premultiplies by the alpha it works out, so both factors are one.
+        let glow_pipeline = make_pipeline(&device, &PipelineDesc { label: "glow pipeline", fragment: "fs_glow", blend: Some(additive), ..blended.clone() });
         // Ribbons of smoke (`POLY_PAGE_SMOKER`): their page's texture added to the scene the same
-        // way, the texture wrapping.
-        let additive_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("additive pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4, 3 => Snorm8x4],
-                })],
-            },
-            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::LessEqual),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_additive"),
-                compilation_options: Default::default(),
-                // The shader premultiplies by the alpha it works out, so both factors are one.
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::One,
-                            dst_factor: wgpu::BlendFactor::One,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent::OVER,
-                    }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        // way, the texture wrapping. The shader premultiplies here too.
+        let additive_pipeline = make_pipeline(&device, &PipelineDesc { label: "additive pipeline", fragment: "fs_additive", blend: Some(additive), ..blended.clone() });
         // Sprites of fire (`POLY_PAGE_EXPLODE1`): the texture blended over the scene by its
         // alpha, with no depth writes.
-        let sprite_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("sprite pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4, 3 => Snorm8x4],
-                })],
-            },
-            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::LessEqual),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_sprite"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let sprite_pipeline = make_pipeline(&device, &PipelineDesc { label: "sprite pipeline", fragment: "fs_sprite", ..blended.clone() });
         // Ghosts (#186), in two passes over the rest of the scene: their depth alone, then
         // their colour blended by the vertex alpha where they're nearest, so a ghost is one
         // see-through body rather than every limb through every other.
-        let ghost = |label, entry, depth_write, blend, write_mask| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some(label),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4, 3 => Snorm8x4],
-                })],
-            },
-            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH,
-                depth_write_enabled: Some(depth_write),
-                depth_compare: Some(wgpu::CompareFunction::LessEqual),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some(entry),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState { format, blend, write_mask })],
-            }),
-            multiview_mask: None,
-            cache: None,
+        let ghost = |label, fragment, depth_write, blend, write_mask| make_pipeline(&device, &PipelineDesc {
+            label, fragment, depth_write, blend, write_mask,
+            depth_compare: wgpu::CompareFunction::LessEqual,
+            ..base.clone()
         });
         let ghost_depth_pipeline = ghost("ghost depth pipeline", "fs_ghost_depth", true, None, wgpu::ColorWrites::empty());
         let ghost_pipeline = ghost("ghost pipeline", "fs_ghost", false, Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::ColorWrites::ALL);
@@ -620,116 +371,21 @@ impl Renderer {
         let unlit_pipeline = ghost("unlit pipeline", "fs_unlit", true, None, wgpu::ColorWrites::ALL);
         let windows_pipeline = ghost("lit windows pipeline", "fs_unlit", false, None, wgpu::ColorWrites::ALL);
         // The sky: drawn first, opaque, with no depth test and no fog (`POLY_PAGE_SKY`).
-        let sky_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("sky pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4, 3 => Snorm8x4],
-                })],
-            },
-            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::Always),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_sky"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let sky = PipelineDesc { label: "sky pipeline", fragment: "fs_sky", depth_write: false, depth_compare: wgpu::CompareFunction::Always, ..base.clone() };
+        let sky_pipeline = make_pipeline(&device, &sky);
         // The moon: added over the sky (`POLY_PAGE_MOON`, `D3DBLEND_ONE` both ways).
-        let moon_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("moon pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4, 3 => Snorm8x4],
-                })],
-            },
-            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::Always),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_sky"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState { color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add }, alpha: wgpu::BlendComponent::OVER }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let moon_pipeline = make_pipeline(&device, &PipelineDesc { label: "moon pipeline", blend: Some(additive), ..sky });
         // Reflections in the puddles (#268). The puddles first mark the stencil where they show
         // (over the ground and behind whatever stands on them); then what's reflected is
         // drawn only there, whatever the depth, since it lies under the ground.
-        let additive = wgpu::BlendState { color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add }, alpha: wgpu::BlendComponent::OVER };
-        let stencilled = |label, entry, depth_compare, stencil: wgpu::StencilFaceState, write: bool, blend: Option<wgpu::BlendState>| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label),
-                layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs_main"),
-                    compilation_options: Default::default(),
-                    buffers: &[Some(wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<Vertex>() as u64,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Unorm8x4, 3 => Snorm8x4],
-                    })],
-                },
-                primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: DEPTH,
-                    depth_write_enabled: Some(false),
-                    depth_compare: Some(depth_compare),
-                    stencil: wgpu::StencilState { front: stencil, back: stencil, read_mask: 0xff, write_mask: if write { 0xff } else { 0 } },
-                    bias: wgpu::DepthBiasState { constant: -8, slope_scale: -1.0, clamp: 0.0 },
-                }),
-                multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some(entry),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format,
-                        blend,
-                        write_mask: if blend.is_some() { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::empty() },
-                    })],
-                }),
-                multiview_mask: None,
-                cache: None,
+        let stencilled = |label, fragment, depth_compare, stencil: wgpu::StencilFaceState, write: bool, blend: Option<wgpu::BlendState>| {
+            make_pipeline(&device, &PipelineDesc {
+                label, fragment, depth_compare, blend,
+                write_mask: if blend.is_some() { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::empty() },
+                depth_write: false,
+                stencil: wgpu::StencilState { front: stencil, back: stencil, read_mask: 0xff, write_mask: if write { 0xff } else { 0 } },
+                bias: pulled,
+                ..base.clone()
             })
         };
         let mark = wgpu::StencilFaceState { compare: wgpu::CompareFunction::Always, fail_op: wgpu::StencilOperation::Keep, depth_fail_op: wgpu::StencilOperation::Keep, pass_op: wgpu::StencilOperation::Replace };
@@ -748,40 +404,17 @@ impl Renderer {
             label: Some("overlay shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("overlay.wgsl").into()),
         });
-        let overlay_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("overlay pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &oshader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<overlay::OVertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Unorm8x4],
-                })],
-            },
-            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::Always),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
-            fragment: Some(wgpu::FragmentState {
-                module: &oshader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
+        let overlay_attrs = wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Unorm8x4];
+        let overlay_pipeline = make_pipeline(&device, &PipelineDesc {
+            label: "overlay pipeline",
+            shader: &oshader,
+            vertex_stride: std::mem::size_of::<overlay::OVertex>() as u64,
+            attributes: &overlay_attrs,
+            fragment: "fs_main",
+            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+            depth_write: false,
+            depth_compare: wgpu::CompareFunction::Always,
+            ..base.clone()
         });
         let screen_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("screen"),
@@ -1536,6 +1169,60 @@ fn blob_texture() -> Texture {
         }
     }
     Texture { width: n, height: n, has_alpha: true, rgba }
+}
+
+/// The parts of a render pipeline that differ between the renderer's pipelines; the rest
+/// (vertex entry `vs_main`, triangle lists, no culling, `SAMPLES` and `DEPTH`) they share.
+#[derive(Clone)]
+struct PipelineDesc<'a> {
+    label: &'a str,
+    layout: &'a wgpu::PipelineLayout,
+    shader: &'a wgpu::ShaderModule,
+    vertex_stride: u64,
+    attributes: &'a [wgpu::VertexAttribute],
+    fragment: &'a str,
+    format: wgpu::TextureFormat,
+    blend: Option<wgpu::BlendState>,
+    write_mask: wgpu::ColorWrites,
+    depth_write: bool,
+    depth_compare: wgpu::CompareFunction,
+    stencil: wgpu::StencilState,
+    bias: wgpu::DepthBiasState,
+}
+
+fn make_pipeline(device: &wgpu::Device, d: &PipelineDesc) -> wgpu::RenderPipeline {
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some(d.label),
+        layout: Some(d.layout),
+        vertex: wgpu::VertexState {
+            module: d.shader,
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
+            buffers: &[Some(wgpu::VertexBufferLayout {
+                array_stride: d.vertex_stride,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: d.attributes,
+            })],
+        },
+        // No culling: the original data doesn't use a consistent winding.
+        primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: DEPTH,
+            depth_write_enabled: Some(d.depth_write),
+            depth_compare: Some(d.depth_compare),
+            stencil: d.stencil.clone(),
+            bias: d.bias,
+        }),
+        multisample: wgpu::MultisampleState { count: SAMPLES, ..Default::default() },
+        fragment: Some(wgpu::FragmentState {
+            module: d.shader,
+            entry_point: Some(d.fragment),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState { format: d.format, blend: d.blend, write_mask: d.write_mask })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
 }
 
 /// Uploads a texture with its full mip chain and returns its bind group.
