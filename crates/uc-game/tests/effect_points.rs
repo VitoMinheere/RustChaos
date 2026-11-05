@@ -1,7 +1,7 @@
 //! A mission's `visual_effect` points (#257): only a fireball bangs, and a bonfire burns for
 //! good.
 
-mod common;
+use crate::common;
 
 use uc_game::{Controls, Sfx};
 

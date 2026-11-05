@@ -7,7 +7,7 @@ use uc_game::person::{AI_BULLY, AI_CIV, MOVE_WANDER};
 use uc_game::{Controls, State};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 use common::DT;
 
 #[test]

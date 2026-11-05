@@ -8,7 +8,7 @@ use glam::{vec2, vec3};
 use uc_game::{Controls, Game, State};
 use uc_world::mav::{self, Mav};
 
-mod common;
+use crate::common;
 use common::DT;
 
 #[test]

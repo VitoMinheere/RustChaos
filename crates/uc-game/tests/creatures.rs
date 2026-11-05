@@ -7,7 +7,7 @@ use glam::{vec3, Vec3};
 use uc_game::creature::{self, State as Cs};
 use uc_game::{Controls, Outcome, State, Weapon};
 
-mod common;
+use crate::common;
 use common::Run;
 
 fn start(mission: &str) -> Option<Run> {

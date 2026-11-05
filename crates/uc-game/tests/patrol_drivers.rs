@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use uc_formats::ucm::trigger;
 use uc_game::{Controls, Game, State};
 
-mod common;
+use crate::common;
 use common::DT;
 
 #[test]

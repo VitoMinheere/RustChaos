@@ -5,7 +5,7 @@ use glam::{vec2, Vec2};
 use uc_game::{Controls, Drive, Game, Outcome, State};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 #[test]

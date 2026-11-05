@@ -5,7 +5,7 @@
 use glam::vec2;
 use uc_game::{Controls, Weapon};
 
-mod common;
+use crate::common;
 
 #[test]
 fn the_path_shows_where_it_lands() {

@@ -6,7 +6,7 @@
 use uc_game::person::ko;
 use uc_game::{Controls, Outcome};
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 fn start() -> Option<Run> {

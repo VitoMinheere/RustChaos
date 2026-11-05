@@ -9,7 +9,7 @@ use uc_game::{Controls, Game, State, Weapon};
 use uc_world::character::{anim, Play};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// Combat Silver with one of its fighters squared up to Darci, everyone else gone, and a

@@ -6,7 +6,7 @@
 use glam::vec3;
 use uc_game::{Controls, Mood, Sfx, State, Theme};
 
-mod common;
+use crate::common;
 use common::DT;
 
 #[test]

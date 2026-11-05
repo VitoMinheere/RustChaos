@@ -5,7 +5,7 @@
 use uc_game::{Controls, Game, Item};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// The level with its lighting, which says whether it's night.

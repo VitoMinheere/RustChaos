@@ -5,7 +5,7 @@
 use glam::vec3;
 use uc_game::{Controls, Item};
 
-mod common;
+use crate::common;
 
 /// Drops item `kind` `off` from her, made `age` seconds ago, and gives her half a second:
 /// whether she took it.

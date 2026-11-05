@@ -5,7 +5,7 @@
 use uc_game::vehicle::Key;
 use uc_game::{Controls, Drive, Vehicle};
 
-mod common;
+use crate::common;
 
 /// Blows up a car of `kind` that the player damaged, in RTA: how many red marks it earned.
 fn red_marks_for(kind: u8) -> Option<u8> {

@@ -2,7 +2,7 @@
 //! scratches (`ANIM_IDLE_SCRATCH1`, `_2`), every 400 to 655 turns; with something in hand
 //! she doesn't. Skipped without an install.
 
-mod common;
+use crate::common;
 
 use uc_game::{Controls, Weapon};
 use uc_world::character::anim;

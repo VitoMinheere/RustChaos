@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use uc_game::{Controls, Game};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 
 fn load(mission: &str) -> Option<(Level, Game)> {
     let level = common::load_lit(mission)?;

@@ -5,7 +5,7 @@
 use uc_game::{Controls, Game, Item, Weapon};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// Combat Silver with one of its fighters, empty-handed and far from Darci, and a pistol

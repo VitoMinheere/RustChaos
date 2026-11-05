@@ -8,7 +8,7 @@ use uc_game::person::{AI_CIV, MOVE_FOLLOW};
 use uc_game::{Controls, Weapon};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 fn crowd(r: &Run, n: usize) -> usize {

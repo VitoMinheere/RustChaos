@@ -6,7 +6,7 @@ use glam::{vec2, vec3, Vec3};
 use uc_game::{Controls, Drive, Game, Item, State, Weapon, SNIPER};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// RTA, with Darci out on open ground (as the route tests find it), facing +z.

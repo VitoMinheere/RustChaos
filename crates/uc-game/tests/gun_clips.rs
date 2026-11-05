@@ -4,7 +4,7 @@
 
 use uc_game::{Controls, Sfx, Weapon};
 
-mod common;
+use crate::common;
 
 /// What each of `n` pulls of the trigger did: 's' a shot, 'c' a click.
 fn pulls(r: &mut common::Run, n: usize) -> String {

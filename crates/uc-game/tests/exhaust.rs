@@ -7,7 +7,7 @@ use glam::Vec3;
 use uc_game::{Controls, Drive, State};
 use uc_world::geometry::SMOKER_PAGE;
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 #[test]

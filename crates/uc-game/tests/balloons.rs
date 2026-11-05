@@ -7,7 +7,7 @@ use uc_game::game::balloons::{POINTS, POINT_DIST};
 use uc_game::person::ko;
 use uc_game::{Controls, Weapon};
 
-mod common;
+use crate::common;
 use common::Run;
 
 /// The string's full length, world units.

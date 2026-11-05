@@ -6,7 +6,7 @@ use uc_game::person::Sfx;
 use uc_game::{Controls, Game, State};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn police1() -> Option<(Level, Game)> {

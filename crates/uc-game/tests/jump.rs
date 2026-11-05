@@ -7,7 +7,7 @@ use glam::{vec3, Vec3};
 use uc_game::{Controls, Game, Outcome};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn start() -> Option<(Level, Game)> {
