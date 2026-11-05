@@ -16,8 +16,6 @@ const LENS_NORMAL: f32 = 4.0;
 /// `SNIPE_TURN_SPEED_YAW`, `_PITCH`, and `SNIPE_PITCH_MAX` (16.16, 2048ths of a turn).
 const TURN: i64 = 0x6000;
 const PITCH_MAX: i64 = 300 << 16;
-/// The game's turn.
-const TICK: f32 = 1.0 / 20.0;
 
 /// The scope (`SNIPE_*`).
 #[derive(Debug, Clone)]
@@ -106,8 +104,8 @@ impl Game {
         let Some(s) = self.snipe.as_mut() else { return false };
         // `SNIPE_turn` while a key's held, a turn at a time: left, right, up and down.
         s.clock += dt;
-        while s.clock >= TICK {
-            s.clock -= TICK;
+        while s.clock >= crate::TICK {
+            s.clock -= crate::TICK;
             let d = input.drive;
             if d.steer < -0.3 {
                 s.dyaw += TURN;
@@ -149,7 +147,7 @@ impl Game {
         let me = self.people[pi].fig.pos;
         let angle = (facing * 2048.0 / std::f32::consts::TAU) as i64 & 2047;
         let best = (0..self.people.len())
-            .filter(|&i| i != pi && !self.people[i].removed && !self.people[i].is_dead())
+            .filter(|&i| i != pi && !self.people[i].is_dead())
             .filter_map(|i| snipe_score(me, angle, self.people[i].fig.pos).map(|s| (i, s)))
             .max_by_key(|&(_, s)| s)
             .map(|(i, _)| i);

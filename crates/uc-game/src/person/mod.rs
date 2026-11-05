@@ -7,6 +7,7 @@
 //! moves their event point names (`PCOM_COMBAT_*`, fallen/Headers/pcom.h).
 
 use glam::{vec2, vec3, Vec2, Vec3};
+use crate::flat;
 use uc_formats::iam::Map;
 use uc_world::character::{anim, facing, Figure, Play};
 use uc_world::ground::{Ground, STEP_HEIGHT};
@@ -1214,11 +1215,6 @@ pub fn running_anim(a: usize) -> bool {
         | anim::YOMP_START | anim::YOMP_START_AK | anim::YOMP_START_PISTOL | anim::YOMP_START_BAT)
 }
 
-/// `(a - b)` in the ground plane.
-fn flat(a: Vec3, b: Vec3) -> Vec2 {
-    vec2(a.x - b.x, a.z - b.z)
-}
-
 impl Person {
     pub fn new(fig: Figure, kind: u8, player: bool, way: usize) -> Person {
         let health = uc_world::character::person::HEALTH[kind.min(14) as usize];
@@ -1483,7 +1479,7 @@ impl Person {
     /// go: on their feet and about their own business, not fighting, running, driving,
     /// carrying or being carried.
     pub fn doing_nothing_important(&self) -> bool {
-        matches!(self.state, State::Move) && !self.removed && !self.is_dead() && !self.aggro && self.scared.is_none()
+        matches!(self.state, State::Move) && !self.is_dead() && !self.aggro && self.scared.is_none()
     }
 
     /// Hands up to `by`'s gun (`PCOM_set_person_ai_hands_up`, pcom.cpp:4677): turned to face
@@ -1615,6 +1611,12 @@ impl Person {
     /// Out of the fight for good: knocked out, arrested or gone.
     pub fn is_dead(&self) -> bool {
         self.knocked_out || self.arrested || self.removed || matches!(self.state, State::Cuffed)
+    }
+
+    /// Still in the fight and standing: neither [`dead`](Self::is_dead) nor
+    /// [`down`](Self::is_down).
+    pub fn on_feet(&self) -> bool {
+        !self.is_dead() && !self.is_down()
     }
 
     pub fn grabbing(&self) -> bool {
@@ -1791,8 +1793,8 @@ impl Person {
                 }
                 let left = self.fidget.map_or(INJURED_BEAT, |t| t.min(INJURED_BEAT)) - dt;
                 self.fidget = Some(if left > 0.0 { left } else { INJURED_BEAT });
-                self.fidget_roll = self.fidget_roll.wrapping_mul(69069).wrapping_add(1);
-                if left <= 0.0 && (self.fidget_roll >> 16) & 0xff < 50 && !self.is_dummy()
+                let roll = crate::rand(&mut self.fidget_roll);
+                if left <= 0.0 && roll & 0xff < 50 && !self.is_dummy()
                     && self.fig.restart(anim::INJURED_LOOP_STRUGGLE, Play::Once)
                 {
                     return;

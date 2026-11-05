@@ -33,9 +33,8 @@ pub const GARGOYLE: u8 = 2;
 pub const BALROG: u8 = 3;
 pub const BANE: u8 = 4;
 
-/// The original's game tick, and how much a creature's timer drops in one.
-pub const TICK: f32 = 1.0 / 20.0;
 const SECOND: f32 = 160.0;
+/// How much a creature's timer drops in one of the original's game ticks.
 const TIMER_TICK: f32 = SECOND / 20.0;
 
 /// `BAT_ANIM_*`.
@@ -279,7 +278,7 @@ impl Creature {
     /// `BAT_animate`: one tick of the animation; whether it's over.
     fn animate(&mut self) -> bool {
         // The original's tween goes `TweenStep * 2` a tick at 20 a second; the figure counts at 15.
-        let (passed, ended) = self.fig.advance_frames(TICK * 20.0 / 15.0);
+        let (passed, ended) = self.fig.advance_frames(crate::TICK * 20.0 / 15.0);
         self.frame += passed;
         ended
     }
@@ -292,14 +291,10 @@ impl Creature {
         self.fig.pos
     }
 
-    fn rand(rng: &mut u32) -> u32 {
-        rand(rng)
-    }
-
     /// `BAT_turn_to_place`: a sixteenth of the way round a tick, at most 20. The Balrog is
     /// modelled back to front, so he turns to face the other way. Returns how far off it was.
     fn turn_to(&mut self, at: Vec3) -> f32 {
-        let d = Vec2::new(at.x - self.pos().x, at.z - self.pos().z);
+        let d = crate::flat(at, self.pos());
         let mut want = calc_angle(d);
         if self.kind == BALROG {
             want += 1024.0;
@@ -322,13 +317,13 @@ impl Creature {
         let d = t.pos + vec3(0.0, 0x30 as f32, 0.0) - self.pos();
         let dist = qdist3(d) + 1.0;
         let mut vel = d / dist * 0x40 as f32;
-        vel.y += (Self::rand(rng) & 0x3ff) as f32 / 256.0;
+        vel.y += (rand(rng) & 0x3ff) as f32 / 256.0;
         acts.push(Act::Fireball { at: self.pos() + vec3(0.0, 0x50 as f32, 0.0), vel });
         acts.push(Act::Sound { id: sound::BALROG_FIREBALL, at: self.pos() });
     }
 
     fn growl(&self, rng: &mut u32, acts: &mut Vec<Act>) {
-        acts.push(Act::Sound { id: sound::BALROG_GROWL + (Self::rand(rng) % 3) as usize, at: self.pos() });
+        acts.push(Act::Sound { id: sound::BALROG_GROWL + (rand(rng) % 3) as usize, at: self.pos() });
     }
 
     /// `BAT_change_state`: what to do next.
@@ -362,7 +357,6 @@ impl Creature {
                     }
                 }
                 self.target = best.map(|b| b.0);
-                let r = |rng: &mut u32| Self::rand(rng);
                 match best {
                     Some((_, _, dist)) => {
                         dangle = self.turn_to_target(w).abs();
@@ -371,16 +365,16 @@ impl Creature {
                         } else if dist < 0x200 as f32 && dangle < 256.0 {
                             State::Swipe
                         } else if dist < 0x400 as f32 {
-                            if r(rng) & 0x40 != 0 { State::Stomp } else { State::Follow }
-                        } else if r(rng) & 0x20 != 0 {
-                            if r(rng) & 3 == 0 { State::Charge } else { State::Fireball }
+                            if rand(rng) & 0x40 != 0 { State::Stomp } else { State::Follow }
+                        } else if rand(rng) & 0x20 != 0 {
+                            if rand(rng) & 3 == 0 { State::Charge } else { State::Fireball }
                         } else {
                             State::Follow
                         }
                     }
                     None if matches!(self.state, State::Fireball | State::Charge | State::Swipe | State::Stomp) => State::Roar,
-                    None if r(rng) & 3 == 0 => {
-                        if r(rng) & 2 != 0 { State::Roar } else { State::BalrogIdle }
+                    None if rand(rng) & 3 == 0 => {
+                        if rand(rng) & 2 != 0 { State::Roar } else { State::BalrogIdle }
                     }
                     None => State::Wander,
                 }
@@ -389,7 +383,7 @@ impl Creature {
                 self.target = None;
                 if self.summon[0].is_none() {
                     State::BaneStart
-                } else if Self::rand(rng) & 3 == 0 {
+                } else if rand(rng) & 3 == 0 {
                     State::BaneAttack
                 } else {
                     State::BaneIdle
@@ -402,7 +396,7 @@ impl Creature {
                 if off.x.abs() > 0x400 as f32 || off.y.abs() > 0x400 as f32 {
                     State::Goto
                 } else {
-                    match Self::rand(rng) % 3 {
+                    match rand(rng) % 3 {
                         0 => State::Idle,
                         1 => State::Goto,
                         _ if self.target.is_some() => State::Attack,
@@ -413,23 +407,22 @@ impl Creature {
         };
         self.state = new;
         self.attacked = false;
-        let r = |rng: &mut u32| Self::rand(rng);
         match new {
             State::Idle => {
-                self.timer = SECOND * (1 + (r(rng) & 1)) as f32;
+                self.timer = SECOND * (1 + (rand(rng) & 1)) as f32;
                 self.set_anim(anim::GARGOYLE_FLY);
             }
             State::Goto => {
-                let x = ((self.home.0 << 8) + (r(rng) & 0x3ff) as i32 - 0x1ff) as f32;
-                let z = ((self.home.1 << 8) + (r(rng) & 0x3ff) as i32 - 0x1ff) as f32;
-                let y = (w.floor)(x, z) + 0x80 as f32 + (r(rng) & 0x7f) as f32;
+                let x = ((self.home.0 << 8) + (rand(rng) & 0x3ff) as i32 - 0x1ff) as f32;
+                let z = ((self.home.1 << 8) + (rand(rng) & 0x3ff) as i32 - 0x1ff) as f32;
+                let y = (w.floor)(x, z) + 0x80 as f32 + (rand(rng) & 0x7f) as f32;
                 self.want = vec3(x, y, z);
-                self.timer = SECOND * (2 + (r(rng) & 1)) as f32;
+                self.timer = SECOND * (2 + (rand(rng) & 1)) as f32;
                 self.set_anim(anim::GARGOYLE_FLY);
             }
             State::Circle => {
                 self.sub = if self.target.is_some() { Sub::CircleTarget } else { Sub::CircleHome };
-                self.timer = SECOND * (3 + (r(rng) & 3)) as f32;
+                self.timer = SECOND * (3 + (rand(rng) & 3)) as f32;
                 self.set_anim(anim::GARGOYLE_FLY);
             }
             State::Attack => self.set_anim(anim::GARGOYLE_ATTACK),
@@ -437,10 +430,10 @@ impl Creature {
                 // `WAND_get_next_place` and the navigation map choose somewhere to walk to; here
                 // it's somewhere within four squares.
                 let me = self.pos();
-                let dx = (r(rng) & 0x7ff) as f32 - 0x400 as f32;
-                let dz = (r(rng) & 0x7ff) as f32 - 0x400 as f32;
+                let dx = (rand(rng) & 0x7ff) as f32 - 0x400 as f32;
+                let dz = (rand(rng) & 0x7ff) as f32 - 0x400 as f32;
                 self.want = vec3(me.x + dx, me.y, me.z + dz);
-                self.timer = SECOND * (2 + (r(rng) & 1)) as f32;
+                self.timer = SECOND * (2 + (rand(rng) & 1)) as f32;
                 self.set_anim(anim::BALROG_YOMP_START);
                 self.sub = Sub::YompStart;
             }
@@ -452,7 +445,7 @@ impl Creature {
             }
             State::Charge | State::Follow => {
                 self.set_anim(anim::BALROG_YOMP_START);
-                self.timer = SECOND * (2 + (r(rng) & 1)) as f32;
+                self.timer = SECOND * (2 + (rand(rng) & 1)) as f32;
                 self.sub = Sub::YompStart;
             }
             State::Swipe | State::Stomp => {
@@ -475,13 +468,13 @@ impl Creature {
             }
             State::BalrogIdle => {
                 self.set_anim(anim::BALROG_IDLE);
-                self.timer = SECOND * (2 + (r(rng) & 3)) as f32;
+                self.timer = SECOND * (2 + (rand(rng) & 3)) as f32;
                 self.vel.x = 0.0;
                 self.vel.z = 0.0;
             }
             State::BaneIdle => {
                 self.set_anim(anim::BANE_IDLE);
-                self.timer = SECOND * (3 + (r(rng) & 3)) as f32;
+                self.timer = SECOND * (3 + (rand(rng) & 3)) as f32;
                 self.vel.x = 0.0;
                 self.vel.z = 0.0;
             }
@@ -772,7 +765,7 @@ impl Creature {
                 vec3(x, (w.floor)(x, z) + 0x100 as f32, z)
             }
         };
-        let d = Vec2::new(want.x - me.x, want.z - me.z);
+        let d = crate::flat(want, me);
         let mut dangle = wrap(calc_angle(d) - self.yaw);
         if let (Sub::CircleTarget, Some((t, p))) = (self.sub, target) {
             if dangle.abs() < 300.0 {

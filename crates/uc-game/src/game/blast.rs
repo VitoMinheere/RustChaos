@@ -103,7 +103,7 @@ impl Game {
         }
         for i in 0..self.people.len() {
             let p = &self.people[i];
-            if p.removed || p.is_dead() {
+            if p.is_dead() {
                 continue;
             }
             // QDIST3: the largest axis plus a quarter of each of the others.
@@ -167,7 +167,7 @@ impl Game {
             return;
         }
         for h in &mut self.hydrants {
-            h.2 -= 1.0 / 20.0;
+            h.2 -= crate::TICK;
         }
         self.hydrants.retain(|h| h.2 > 0.0);
         for &(at, yaw, left) in &self.hydrants.clone() {
@@ -226,7 +226,7 @@ impl Game {
         let fires: Vec<Vec3> = self.pyro.fires().map(|(f, _)| f).collect();
         for i in 0..self.people.len() {
             let p = &self.people[i];
-            if let Some(t) = p.alight.filter(|_| p.is_dead() || p.removed) {
+            if let Some(t) = p.alight.filter(|_| p.is_dead()) {
                 let t = t + 0.05;
                 self.people[i].alight = (t < EMBERS && !self.people[i].removed).then_some(t);
                 if let Some((_, at)) = self.people[i].fig.part_world(0) {
@@ -234,7 +234,7 @@ impl Game {
                 }
                 continue;
             }
-            if p.removed || p.is_dead() || p.invulnerable || p.bent & person::BENT_PLAYERKILL != 0 || p.aboard() {
+            if p.is_dead() || p.invulnerable || p.bent & person::BENT_PLAYERKILL != 0 || p.aboard() {
                 continue;
             }
             let wanderer = p.ai == person::AI_CIV || p.mv == person::MOVE_WANDER;

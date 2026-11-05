@@ -18,8 +18,6 @@
 use uc_formats::units::radians;
 use glam::Vec3;
 
-pub const TICK: f32 = 1.0 / 20.0;
-
 /// `HARDWIRED_RADIUS`: how far from home it chases the player.
 const HARDWIRED_RADIUS: i64 = 8192;
 /// `DETECTION_RADIUS`: how near the player has to come to be noticed.

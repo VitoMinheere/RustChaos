@@ -14,8 +14,8 @@ impl Game {
             .map(|prim| prim.as_ref().map(|prim| plat::top_box(&prim.points)))
             .collect();
         self.clocks.plat += dt;
-        while self.clocks.plat >= plat::TICK {
-            self.clocks.plat -= plat::TICK;
+        while self.clocks.plat >= crate::TICK {
+            self.clocks.plat -= crate::TICK;
             let Some(script) = self.script.take() else { break };
             for (k, t) in tops.iter().enumerate() {
                 let Some((_, _, bot, top)) = *t else { continue };
@@ -43,7 +43,7 @@ impl Game {
                 let under = (self.platforms[k].pos.y + bot - 0x80 as f32, self.platforms[k].pos.y + bot - 0x40 as f32);
                 for i in 0..self.people.len() {
                     let p = &self.people[i];
-                    if p.removed || p.is_dead() || riders.contains(&i) || !level.ground.over_moving(k, p.fig.pos.x, p.fig.pos.z, 10.0) {
+                    if p.is_dead() || riders.contains(&i) || !level.ground.over_moving(k, p.fig.pos.x, p.fig.pos.z, 10.0) {
                         continue;
                     }
                     let y = p.fig.pos.y;

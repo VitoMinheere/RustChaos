@@ -22,8 +22,8 @@ impl Game {
         let Some(pi) = self.player else { return Vec::new() };
         let me = self.people[pi].fig.pos;
         self.people.iter().enumerate()
-            .filter(|&(i, q)| i != pi && !q.removed && !q.is_dead())
-            .filter(|(_, q)| Vec2::new(q.fig.pos.x - me.x, q.fig.pos.z - me.z).length() < 16.0 * 256.0)
+            .filter(|&(i, q)| i != pi && !q.is_dead())
+            .filter(|(_, q)| flat(q.fig.pos, me).length() < 16.0 * 256.0)
             .filter_map(|(_, q)| {
                 let gang = matches!(q.kind, ptype::THUG_RASTA | ptype::THUG_GREY | ptype::THUG_RED);
                 let after_her = q.aggro() && q.foe == Some(pi);
@@ -194,6 +194,14 @@ impl Game {
                 [colour; 4],
             );
         };
+        // A light shining along `dir`: it glows only while it points the camera's way, the
+        // brighter the more straight on, so it flares as it turns past.
+        let flare = |out: &mut BTreeMap<u32, Batch>, at: Vec3, dir: Vec3, r: f32, [red, g, b]: [u8; 3]| {
+            let towards = dir.dot((at - eye).normalize_or(Vec3::Z));
+            if towards < 0.0 {
+                billboard(out, uc_world::GLOW, at, r, [red, g, b, (-towards * 255.0) as u8]);
+            }
+        };
         // The mines' red lights (`DRAWXTRA_Special`, drawxtra.cpp:3018, and `BLOOM_draw`): a
         // light 15 above each, turning round at a rate of its own (3 to 10 sixteenths of a
         // 2048 turn a tick), that glows only while it points the camera's way, the brighter
@@ -207,10 +215,7 @@ impl Game {
             };
             let a = radians(c0 as f32);
             let at = m.pos + Vec3::new(0.0, up, 0.0);
-            let towards = Vec3::new(a.sin(), 0.0, a.cos()).dot((at - eye).normalize_or(Vec3::Z));
-            if towards < 0.0 {
-                billboard(&mut out, uc_world::GLOW, at, 40.0, [255, 30, 20, (-towards * 255.0) as u8]);
-            }
+            flare(&mut out, at, Vec3::new(a.sin(), 0.0, a.cos()), 40.0, [255, 30, 20]);
         }
         // The light bars of cars with their sirens going (vehicle.cpp:1268): two lights, each
         // flaring as it turns past the camera, a turn every 16 ticks. The second turns the
@@ -218,17 +223,13 @@ impl Game {
         // step; it's red, the first blue (red on the ambulance). Each car starts at a turn of
         // its own.
         for (k, v) in self.vehicles.iter().enumerate().filter(|(_, v)| v.siren) {
-            let (_, wheel, ..) = vehicle::TYPES[v.kind as usize];
-            let lift = vehicle::wheel_radius(level.item_prims.get(&wheel)) - vehicle::WHEEL_ABOVE_BODY;
+            let lift = v.lift(&level.item_prims);
             let Some(([first, second], red)) = v.light_bar(lift) else { continue };
             let a = radians((((k as i64 * 331) + (turn << 7)) & 2047) as f32);
             let (sin, cos) = a.sin_cos();
             let blue = if red { [223, 0, 0] } else { [0, 0, 223] };
             for (at, dir, [r, g, b]) in [(first, Vec3::new(sin, 0.0, cos), blue), (second, Vec3::new(cos, 0.0, sin), [223, 0, 0])] {
-                let towards = dir.dot((at - eye).normalize_or(Vec3::Z));
-                if towards < 0.0 {
-                    billboard(&mut out, uc_world::GLOW, at, 60.0, [r, g, b, (-towards * 255.0) as u8]);
-                }
+                flare(&mut out, at, dir, 60.0, [r, g, b]);
             }
         }
         // The headlights of the cars being driven, at night (vehicle.cpp:1236, `BLOOM_draw`'s
@@ -236,14 +237,10 @@ impl Game {
         // their beams, `BLOOM_BEAM`.)
         if self.night {
             for v in self.vehicles.iter().filter(|v| v.driver.is_some()) {
-                let (_, wheel, ..) = vehicle::TYPES[v.kind as usize];
-                let lift = vehicle::wheel_radius(level.item_prims.get(&wheel)) - vehicle::WHEEL_ABOVE_BODY;
+                let lift = v.lift(&level.item_prims);
                 let (lights, ahead) = v.headlights(lift);
                 for at in lights {
-                    let towards = ahead.dot((at - eye).normalize_or(Vec3::Z));
-                    if towards < 0.0 {
-                        billboard(&mut out, uc_world::GLOW, at, 64.0, [0x60, 0x60, 0x40, (-towards * 255.0) as u8]);
-                    }
+                    flare(&mut out, at, ahead, 64.0, [0x60, 0x60, 0x40]);
                 }
             }
         }
@@ -253,10 +250,7 @@ impl Game {
             let timer = (c.fuse * 20.0 * 16.0) as i64;
             let a = radians(((timer << 3) & 2047) as f32);
             let at = c.pos + Vec3::new(0.0, 25.0, 0.0);
-            let towards = Vec3::new(a.sin(), 0.0, a.cos()).dot((at - eye).normalize_or(Vec3::Z));
-            if towards < 0.0 {
-                billboard(&mut out, uc_world::GLOW, at, 40.0, [0, 255, 186, (-towards * 255.0) as u8]);
-            }
+            flare(&mut out, at, Vec3::new(a.sin(), 0.0, a.cos()), 40.0, [0, 255, 186]);
         }
         for f in &self.fireballs {
             billboard(&mut out, uc_world::GLOW, f.pos, 70.0, [255, 200, 110, 255]);
@@ -667,7 +661,7 @@ pub(crate) fn car(v: &Vehicle, level: &Level, lighter: Option<&uc_formats::lgt::
     let radius = vehicle::wheel_radius(wheel_prim);
     // The meshes are modelled nose towards -z: turn them round to face the way it drives.
     // The body sits so the wheels are where the original has them in it.
-    let lift = radius - vehicle::WHEEL_ABOVE_BODY;
+    let lift = vehicle::body_lift(radius);
     if let Some(prim) = level.item_prims.get(&body) {
         uc_world::level::prim_batches(prim, |p| v.body_point(p, lift), lighter, out);
         if let Some((door, open)) = v.door_open() {

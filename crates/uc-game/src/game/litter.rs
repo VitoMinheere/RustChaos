@@ -32,7 +32,7 @@ impl Game {
         self.hold_cans();
         self.clocks.dirt -= dt;
         while self.clocks.dirt <= 0.0 {
-            self.clocks.dirt += 1.0 / 20.0;
+            self.clocks.dirt += crate::TICK;
             if let Some(p) = self.player() {
                 let at = p.fig.pos;
                 self.dirt.set_focus(at.x as i32, at.z as i32, dirt::FOCUS_RADIUS, at.y as i32, &level.map);

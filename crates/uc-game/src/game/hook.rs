@@ -244,7 +244,7 @@ fn caught(level: &Level, from: Vec3, dir: Vec2, floor: f32) -> Hold {
 /// the edge, and caught there. None if it never reaches one (the roof slopes away, or it's
 /// further than the line).
 fn edge_towards(level: &Level, at: Vec3, feet: Vec3) -> Option<Hold> {
-    let back = Vec2::new(feet.x - at.x, feet.z - at.z);
+    let back = flat(feet, at);
     let len = back.length();
     let step = back.normalize_or_zero() * 16.0;
     let mut p = Vec2::new(at.x, at.z);

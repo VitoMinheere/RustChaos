@@ -35,7 +35,6 @@ const GONE_ABOVE: i64 = 0x100000;
 const GRAB: i64 = 0x10000;
 /// `PCOM_get_duration(5)`: running scared this long, a holder lets go (pcom.cpp:7678).
 const SCARED: f32 = 0.5;
-pub const TICK: f32 = 1.0 / 20.0;
 
 /// `BALLOON_Balloon`.
 #[derive(Debug, Clone)]
@@ -84,13 +83,13 @@ impl Game {
             return;
         }
         self.clocks.balloon += dt;
-        while self.clocks.balloon >= TICK {
-            self.clocks.balloon -= TICK;
+        while self.clocks.balloon >= crate::TICK {
+            self.clocks.balloon -= crate::TICK;
             for b in &mut self.balloons {
                 // `set_person_dying` (Person.cpp:1120) and `PCOM_AI_SUBSTATE_LEGIT`.
                 let Some(h) = b.holder else { continue };
                 let p = &self.people[h];
-                if p.removed || p.is_down() || p.is_dead() || matches!(p.state, State::Injured)
+                if !p.on_feet() || matches!(p.state, State::Injured)
                     || p.scared.is_some_and(|s| s.time > SCARED)
                 {
                     b.holder = None;

@@ -122,15 +122,15 @@ impl Game {
     pub(crate) fn gang_slots(&mut self) {
         let tick = (self.time * 20.0) as usize;
         let quarter = |from: Vec3, to: Vec3| {
-            let v = Vec2::new(from.x - to.x, from.z - to.z);
+            let v = crate::flat(from, to);
             ((v.x.atan2(v.y) / std::f32::consts::FRAC_PI_2).round() as i32).rem_euclid(4) as u8
         };
         for i in 0..self.people.len() {
             let p = &self.people[i];
             let target = p.foe.filter(|&t| {
-                p.aggro() && !p.player && !p.weapon.is_gun() && !p.removed && !p.is_down() && !p.is_dead()
+                p.aggro() && !p.player && !p.weapon.is_gun() && p.on_feet()
                     && t < self.people.len() && !self.people[t].removed
-                    && Vec2::new(p.fig.pos.x - self.people[t].fig.pos.x, p.fig.pos.z - self.people[t].fig.pos.z).length() < 600.0
+                    && crate::flat(p.fig.pos, self.people[t].fig.pos).length() < 600.0
             });
             let held = p.slot;
             if let Some((t, _)) = held.filter(|&(t, _)| Some(t) != target) {
@@ -239,7 +239,7 @@ impl Game {
         for i in 0..self.people.len() {
             self.people[i].leap = None;
             let p = &self.people[i];
-            if p.player || p.removed || p.is_dead() || p.is_down() {
+            if p.player || !p.on_feet() {
                 self.people[i].via = None;
                 continue;
             }
@@ -272,7 +272,7 @@ impl Game {
     fn run_away(&mut self, i: usize, at: Vec3, level: &Level) -> Option<Vec3> {
         let s = self.people[i].scared?;
         let danger = s.at;
-        let arrived = s.goal.is_none_or(|g| Vec2::new(g.x - at.x, g.z - at.z).length() < 1.5 * 256.0);
+        let arrived = s.goal.is_none_or(|g| crate::flat(g, at).length() < 1.5 * 256.0);
         if !arrived {
             return self.leg(i, at, s.goal?, level);
         }
@@ -292,7 +292,7 @@ impl Game {
             self.routes.ways.remove(&i);
             let leg = self.leg(i, at, goal, level);
             let dest = leg.unwrap_or(goal);
-            let flat = |a: Vec3, b: Vec3| Vec2::new(a.x - b.x, a.z - b.z).length();
+            let flat = |a: Vec3, b: Vec3| crate::flat(a, b).length();
             pick = Some((goal, leg));
             if flat(dest, danger) >= flat(dest, at) {
                 break;
@@ -454,10 +454,10 @@ impl Game {
     pub(crate) fn follow_on_see(&mut self, level: &Level) {
         for i in 0..self.people.len() {
             let p = &self.people[i];
-            if p.mv != person::MOVE_FOLLOW_ON_SEE || p.player || p.is_dead() || p.removed {
+            if p.mv != person::MOVE_FOLLOW_ON_SEE || p.player || p.is_dead() {
                 continue;
             }
-            let j = if p.follow == 0 { self.player } else { self.by_way.get(&p.follow).copied() };
+            let j = self.way_or_player(p.follow);
             let Some(j) = j.filter(|&j| j != i) else { continue };
             if (self.people[j].fig.pos - p.fig.pos).length() < 0x200 as f32 && self.can_a_see_b(i, j, level) {
                 self.people[i].mv = person::MOVE_FOLLOW;
@@ -631,7 +631,7 @@ impl Game {
             let only_player = p.bent & person::BENT_ONLY_KILL_PLAYER != 0;
             let victim = self.people.iter().enumerate()
                 .filter(|&(j, q)| {
-                    j != i && !q.removed && !q.is_down() && !q.is_dead()
+                    j != i && q.on_feet()
                         && (q.player || (!only_player && q.ai == person::AI_CIV && q.mv == person::MOVE_WANDER))
                         && (q.fig.pos - p.fig.pos).length() < 0x600 as f32
                         && p.sees(&snaps[j], &level.ground)
@@ -666,7 +666,7 @@ impl Game {
     pub(crate) fn do_arrests(&mut self, level: &Level) {
         for v in std::mem::take(&mut self.arrest_me) {
             let p = &self.people[v];
-            if p.removed || p.is_dead() || p.kind == uc_world::character::person::TRAMP {
+            if p.is_dead() || p.kind == uc_world::character::person::TRAMP {
                 continue;
             }
             let at = p.fig.pos;
@@ -695,7 +695,7 @@ impl Game {
         for i in 0..self.people.len() {
             if let Some(v) = self.people[i].victim {
                 let q = &self.people[v];
-                if q.removed || q.is_down() || q.is_dead() {
+                if !q.on_feet() {
                     self.people[i].victim = None;
                     self.people[i].calm_down();
                 }
@@ -735,7 +735,7 @@ impl Game {
         let darci = self.player().map(|p| p.fig.pos);
         for i in 0..self.people.len() {
             let p = &self.people[i];
-            if !(tick + i).is_multiple_of(64) || p.bent & person::BENT_LAZY == 0 || p.player || p.removed || p.is_dead() || p.is_down()
+            if !(tick + i).is_multiple_of(64) || p.bent & person::BENT_LAZY == 0 || p.player || !p.on_feet()
                 || p.mv != 1 || p.aggro() || p.scared.is_some() || !matches!(p.state, State::Move)
             {
                 continue;
@@ -808,7 +808,7 @@ impl Game {
             }
             let at = p.fig.pos;
             let near = self.seats.iter()
-                .filter(|(s, _)| Vec2::new(s.x - at.x, s.z - at.z).length() < 0x60 as f32 && (s.y - at.y).abs() < 0x40 as f32)
+                .filter(|(s, _)| crate::flat(*s, at).length() < 0x60 as f32 && (s.y - at.y).abs() < 0x40 as f32)
                 .min_by(|a, b| (a.0 - at).length().total_cmp(&(b.0 - at).length()));
             let Some(&(seat, angle)) = near else { continue };
             let p = &mut self.people[pi];
@@ -849,14 +849,14 @@ impl Game {
         use uc_world::character::anim;
         let darci = self.player().map(|p| p.fig.pos);
         for (i, p) in self.people.iter_mut().enumerate() {
-            if p.player || p.removed || p.is_dead() || p.is_down() || p.aggro() || p.scared.is_some() || !matches!(p.state, State::Move) {
+            if p.player || !p.on_feet() || p.aggro() || p.scared.is_some() || !matches!(p.state, State::Move) {
                 continue;
             }
             // Within 256 of home, standing still: turned the way they started, and put back
             // if they're off it and nobody can see (`PCOM_teleport_home`, pcom.cpp:10230).
             // Their pose waits until they're there (`PCOM_ARRIVE_DIST`, 0x40).
             if let (Some((home, angle)), true) = (p.home, matches!(p.mv, 1 | 8 | 9 | 10) && !p.listening() && !(p.fights() && p.foe.is_some())) {
-                let d = Vec2::new(home.x - p.fig.pos.x, home.z - p.fig.pos.z).length();
+                let d = crate::flat(home, p.fig.pos).length();
                 if d > 256.0 || p.goal.is_some() {
                     continue;
                 }
@@ -910,7 +910,7 @@ impl Game {
             }
             let to = o.fig.pos;
             let me = &mut self.people[i];
-            me.fig.angle = uc_world::character::angle_of(Vec2::new(to.x - at.x, to.z - at.z));
+            me.fig.angle = uc_world::character::angle_of(crate::flat(to, at));
             if me.fig.restart(a, uc_world::Play::Loop) {
                 me.state = State::Pose { anim: a };
             }

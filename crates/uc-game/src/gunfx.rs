@@ -16,10 +16,9 @@
 //!
 //! Speeds are the original's units a tick at 20 ticks a second, given here a second.
 
-use crate::rand;
+use crate::{rand, TICKS};
 use glam::{vec3, Vec2, Vec3};
 
-const TICKS: f32 = 20.0;
 /// Gravity on water and sparks: 15 sixteenths of a unit a tick, every tick.
 const GRAVITY: f32 = 15.0 / 16.0 * TICKS * TICKS;
 /// The casings' heavier fall, and how much of their speed a bounce keeps.

@@ -33,7 +33,7 @@ impl Person {
         }
         let f = &mut self.fig;
         if from_standing {
-            f.angle = uc_world::character::angle_of(vec2(to.x - f.pos.x, to.z - f.pos.z));
+            f.angle = uc_world::character::angle_of(flat(to, f.pos));
         }
         let stand = f.stand_root();
         let (Some(first), Some(last)) = (f.anim_root(a, false), f.anim_root(a, true)) else { return };

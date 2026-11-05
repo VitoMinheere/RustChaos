@@ -37,7 +37,7 @@ impl Game {
                 continue;
             }
             let at = m.pos;
-            let flat = |p: Vec3| Vec2::new(p.x - at.x, p.z - at.z).length();
+            let flat = |p: Vec3| crate::flat(p, at).length();
             let player = self.player;
             let stepped = self.people.iter().any(|p| {
                 if p.removed || matches!(p.state, State::InCar { .. } | State::Flying { .. } | State::Carried { .. }) || flat(p.fig.pos) >= 0x30 as f32 {
@@ -45,7 +45,7 @@ impl Game {
                 }
                 let foot = p.fig.part_world(3).map_or(p.fig.pos.y, |(_, f)| f.y);
                 let guarding_player = p.ai == person::AI_BODYGUARD
-                    && (if p.other == 0 { player } else { self.by_way.get(&p.other).copied() }) == player
+                    && self.way_or_player(p.other) == player
                     && player.is_some();
                 foot <= at.y + 0x20 as f32 && !guarding_player
             });

@@ -80,7 +80,7 @@ impl Brain {
 type Ways = std::collections::BTreeMap<(i32, i32), (i32, i32)>;
 
 fn near_flat(a: Vec3, b: Vec3) -> f32 {
-    Vec2::new(a.x - b.x, a.z - b.z).length()
+    flat(a, b).length()
 }
 
 /// Whether `level` is a game for two players (two `create_player` points).
@@ -187,7 +187,7 @@ impl Game {
     /// picking up what's lying on the way.
     pub(crate) fn run_ctf(&mut self, dt: f32, level: &Level) {
         let Some(mut c) = self.ctf.take() else { return };
-        let near = |a: Vec3, b: Vec3, r: f32| Vec2::new(a.x - b.x, a.z - b.z).length() < r;
+        let near = |a: Vec3, b: Vec3, r: f32| flat(a, b).length() < r;
         for (seat, i) in [(&mut c.player, c.player_person), (&mut c.bot, c.bot_person)] {
             let p = &mut self.people[i];
             if !seat.has_disk && !p.is_down() && near(p.fig.pos, seat.disk, seat.reach * 0.8) {
@@ -275,7 +275,7 @@ impl Game {
             c.still += dt;
         }
         if c.still > 1.5 && c.detour.is_none() {
-            let ahead = Vec2::new(to.x - at.x, to.z - at.z).normalize_or_zero();
+            let ahead = flat(to, at).normalize_or_zero();
             let side = if c.detours.is_multiple_of(2) { Vec2::new(-ahead.y, ahead.x) } else { Vec2::new(ahead.y, -ahead.x) };
             let back = -ahead * 0.5;
             let d = (side + back).normalize_or_zero() * (2.0 + (c.detours % 3) as f32) * 256.0;
