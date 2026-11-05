@@ -85,10 +85,14 @@ fn the_clues_within_reach_are_collected() {
     }
 
     // Then just keep at it: put down whoever is carrying a clue, pick up what they drop, and
-    // talk to anyone new who turns up.
+    // talk to anyone new who turns up, till five rounds go by without another clue (it has
+    // three by the fourth round; it used to go on to forty, a minute and a half for nothing).
     let mut rounds = 0;
-    while r.clues() < 5 && r.g.outcome.is_none() && rounds < 40 {
+    let (mut best, mut stale) = (0, 0);
+    while r.clues() < 5 && r.g.outcome.is_none() && rounds < 40 && stale < 5 {
         rounds += 1;
+        let n = r.clues();
+        (best, stale) = if n > best { (n, 0) } else { (best, stale + 1) };
         // Anyone holding a clue goes down.
         for way in CLUE_HOLDERS {
             if let Some(i) = r.g.people.iter().position(|p| p.way == way && !p.is_dead() && !p.removed) {
