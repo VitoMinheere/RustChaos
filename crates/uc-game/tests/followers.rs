@@ -93,3 +93,18 @@ fn darcis_gun_doesnt_pick_her_out() {
     }
     assert_eq!(g.target, Some(h));
 }
+
+#[test]
+fn darci_drawing_her_gun_doesnt_send_her_running() {
+    let Some((level, mut g, me, h)) = freed() else { return };
+    for _ in 0..5 {
+        g.update(DT, &Controls::default(), &level);
+    }
+    g.people[me].give(Weapon::Pistol);
+    g.people[me].weapon = Weapon::Pistol;
+    for _ in 0..30 {
+        g.update(DT, &Controls::default(), &level);
+    }
+    assert!(g.people[h].scared.is_none(), "the hostage she's freed ran from Darci's gun");
+    assert_eq!(g.people[h].mv, MOVE_FOLLOW);
+}

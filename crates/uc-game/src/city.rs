@@ -306,7 +306,7 @@ impl Game {
                 let eye = Vec3::new(0.0, 140.0, 0.0);
                 for j in 0..self.people.len() {
                     let o = &self.people[j];
-                    if j != pi && (o.fig.pos - at).length() < DRAW_GUN && level.ground.line_of_sight(o.fig.pos + eye, at + eye) {
+                    if j != pi && !self.follows(j, pi) && (o.fig.pos - at).length() < DRAW_GUN && level.ground.line_of_sight(o.fig.pos + eye, at + eye) {
                         self.people[j].scare(Some(pi), at);
                     }
                 }
@@ -455,7 +455,10 @@ impl Game {
     pub(crate) fn bang(&mut self, shooter: usize, at: Vec3) {
         for j in 0..self.people.len() {
             if j != shooter && (self.people[j].fig.pos - at).length() < GUNSHOT {
-                self.people[j].scare(Some(shooter), at);
+                // (Whoever's following them keeps up: they still hear it.)
+                if !self.follows(j, shooter) {
+                    self.people[j].scare(Some(shooter), at);
+                }
                 self.people[j].hear(at);
             }
         }
