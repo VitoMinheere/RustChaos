@@ -22,7 +22,7 @@ fn start(mission: &str) -> Option<Run> {
 
 impl Run {
     /// Picks up the item point `way` puts down.
-    fn fetch(&mut self, way: usize) {
+    fn fetch_checked(&mut self, way: usize) {
         let at = self.g.items.iter().find(|it| it.way == way).unwrap_or_else(|| panic!("no item from point {way}")).pos;
         self.stand(at);
         self.play(0.5, Controls::default());
@@ -30,7 +30,7 @@ impl Run {
     }
 
     /// Stands on point `way` (the floor under it) and presses action there.
-    fn use_at(&mut self, way: usize) {
+    fn stand_and_use(&mut self, way: usize) {
         self.stand(self.point(way));
         self.play(DT, Controls { action: true, ..Default::default() });
         self.play(1.0, Controls::default());
@@ -107,7 +107,7 @@ fn radar_tower_is_won_by_sabotaging_the_system() {
     assert!(!labels(&r).iter().any(|l| l.contains("Gate switch")), "{:?}", labels(&r));
     let tower = r.g.beacons().into_iter().find(|(l, _)| l.contains("Radar tower")).expect("no beacon on the tower").1;
     assert!((tower - r.point(67)).length() < 64.0, "the beacon isn't on the console: {tower}");
-    r.use_at(67);
+    r.stand_and_use(67);
     assert!(r.said("System Sabataged"), "{:?}", r.seen);
     r.play(3.0, Controls::default());
     assert_eq!(r.g.outcome, Some(Outcome::Won), "{:?}", r.seen);
@@ -118,11 +118,11 @@ fn radar_tower_is_won_by_sabotaging_the_system() {
 #[test]
 fn early_grim_gardens_is_won_at_the_four_supplies() {
     let Some(mut r) = start("upperclass1") else { return };
-    r.fetch(129);
+    r.fetch_checked(129);
     assert!(r.said("Got crow bar."), "{:?}", r.seen);
     for way in [130, 131, 132, 133] {
         assert_eq!(r.g.outcome, None, "{:?}", r.seen);
-        r.use_at(way);
+        r.stand_and_use(way);
     }
     for n in ["Supply 1", "Supply 2", "Supply 3", "Supply 4"] {
         assert!(r.said(n), "{n} never sabotaged: {:?}", r.seen);
@@ -136,10 +136,10 @@ fn early_grim_gardens_is_won_at_the_four_supplies() {
 #[test]
 fn rooftop1_keycard_opens_the_door() {
     let Some(mut r) = start("Rooftop1") else { return };
-    r.fetch(24);
-    r.use_at(25);
+    r.fetch_checked(24);
+    r.stand_and_use(25);
     assert!(!r.said("Door opened"), "opened with one panel: {:?}", r.seen);
-    r.use_at(21);
+    r.stand_and_use(21);
     assert!(r.said("Door opened"), "{:?}", r.seen);
 }
 

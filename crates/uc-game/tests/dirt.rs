@@ -4,23 +4,9 @@
 
 use uc_game::dirt::{Kind, FOCUS_RADIUS};
 use uc_game::{Controls, Game};
-use uc_world::{Level, LoadOptions};
 
-const DT: f32 = 1.0 / 30.0;
-
-fn start(mission: &str) -> Option<(Level, Game)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, mission, &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
-    let mut g = Game::new(&level, true);
-    for _ in 0..(60.0 / DT) as usize {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-        if g.time > 1.0 && !g.in_conversation() {
-            break;
-        }
-    }
-    Some((level, g))
-}
+mod common;
+use common::DT;
 
 fn kinds(g: &Game, kind: Kind) -> usize {
     g.dirt.pieces.iter().flatten().filter(|p| p.kind == kind).count()
@@ -28,7 +14,7 @@ fn kinds(g: &Game, kind: Kind) -> usize {
 
 #[test]
 fn leaves_and_cans_round_darci() {
-    let Some((level, mut g)) = start("bankbomb1") else { return };
+    let Some((level, mut g)) = common::begin("bankbomb1") else { return };
     let me = g.player().unwrap().fig.pos;
     assert!(kinds(&g, Kind::Leaf) > 300, "{} leaves", kinds(&g, Kind::Leaf));
     assert!(kinds(&g, Kind::Can) > 0, "no cans");
@@ -49,7 +35,7 @@ fn leaves_and_cans_round_darci() {
 
 #[test]
 fn snow_in_the_snow() {
-    let Some((_, g)) = start("snow2") else { return };
+    let Some((_, g)) = common::begin("snow2") else { return };
     assert!(kinds(&g, Kind::Snow) > 300, "{} flakes", kinds(&g, Kind::Snow));
     assert_eq!(kinds(&g, Kind::Leaf) + kinds(&g, Kind::Can), 0);
 }

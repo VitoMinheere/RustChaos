@@ -12,22 +12,12 @@ use uc_game::{person, Controls, Outcome};
 use uc_world::mav::{self, CAPS_DARCI};
 
 mod common;
-use common::{Run, DT};
-
-/// A map square's middle.
-fn mid(x: f32, z: f32) -> Vec2 {
-    vec2(x, z) * 256.0
-}
+use common::{mid, Run, DT};
 
 /// The hostages' points.
 const WORKERS: [usize; 2] = [62, 63];
 
 impl Run {
-    fn at(&self) -> Vec2 {
-        let p = self.g.people[self.player()].fig.pos;
-        vec2(p.x, p.z)
-    }
-
     /// Darci heads for `to` as a player would, a frame at a time, running: straight at it
     /// if she can walk there, else along the way the navigation map has (off edges too).
     /// Fails the test if she doesn't get within `near` in `secs`.
@@ -66,24 +56,6 @@ impl Run {
         panic!("Darci got stuck at {p} on the way to {to} ({act:?}, {:?})", self.g.people[self.player()].state);
     }
 
-    /// Walks straight at each of `pts` (squares) in turn.
-    fn walk_by(&mut self, pts: &[(f32, f32)]) {
-        for &(x, z) in pts {
-            let to = mid(x, z);
-            let mut done = false;
-            for _ in 0..(8.0 / DT) as usize {
-                let d = to - self.at();
-                if d.length() < 40.0 || self.g.outcome.is_some() {
-                    done = true;
-                    break;
-                }
-                self.play(DT, Controls { wish: d.normalize(), ..Default::default() });
-            }
-            assert!(done, "Darci got stuck at {} on the way to ({x}, {z}) ({:?}; {:?})",
-                    self.g.people[self.player()].fig.pos, self.g.people[self.player()].state, self.g.outcome);
-        }
-    }
-
     /// Presses action where she stands, then waits a moment.
     fn work(&mut self) {
         self.play(DT, Controls { action: true, ..Default::default() });
@@ -109,7 +81,7 @@ impl Run {
     }
 
     /// Waits for whoever follows her to be near her: within `near` of her, on the same floor.
-    fn wait_for(&mut self, who: &[usize], near: f32, secs: f32) {
+    fn wait_for_followers(&mut self, who: &[usize], near: f32, secs: f32) {
         let me = self.player();
         let ok = |r: &Run| who.iter().all(|&w| {
             let d = r.g.people[w].fig.pos - r.g.people[me].fig.pos;
@@ -137,10 +109,6 @@ impl Run {
         }
         assert!(self.until(3.0, |r| r.g.people[w].mv == person::MOVE_FOLLOW), "{w} never followed; she's at {}",
                 self.g.people[self.player()].fig.pos);
-    }
-
-    fn beacons(&self) -> Vec<String> {
-        self.g.beacons().into_iter().map(|(l, _)| l).collect()
     }
 }
 
@@ -210,7 +178,7 @@ fn darci_brings_both_hostages_out_and_wins() {
     r.walk_by(&[(lift.x / 256.0, lift.y / 256.0)]);
     r.wait_for_lift(60, false);
     r.walk_by(&[(88.5, 81.0), (86.5, 78.0)]);
-    r.wait_for(&[two], 900.0, 30.0);
+    r.wait_for_followers(&[two], 900.0, 30.0);
 
     // The first, up the stairs at the back of the block west of his (building 57), and
     // across the moving platform (point 56) by jumping on and off it at its north end.
@@ -243,16 +211,16 @@ fn darci_brings_both_hostages_out_and_wins() {
 
     // Out with both of them: down off the roofs, to the keycard gate.
     r.go(mid(43.8, 60.4), 48.0, 180.0);
-    r.wait_for(&[one, two], 900.0, 60.0);
+    r.wait_for_followers(&[one, two], 900.0, 60.0);
     r.walk_by(&[(43.8, 60.05)]);
     r.work();
     // Through it into the yard behind the front gates, and along to the front gates' switch.
     r.walk_by(&[(40.5, 59.5), (40.5, 58.5), (42.5, 58.5), (42.5, 56.5)]);
-    r.wait_for(&[one, two], 900.0, 60.0);
+    r.wait_for_followers(&[one, two], 900.0, 60.0);
     r.go(mid(39.8, 41.5), 48.0, 60.0);
     r.walk_by(&[(39.8, 41.07)]);
     r.work();
-    r.wait_for(&[one, two], 900.0, 60.0);
+    r.wait_for_followers(&[one, two], 900.0, 60.0);
     // Out through them, to the extraction point just outside, with the hostages behind.
     r.walk_by(&[(37.0, 40.5), (37.0, 39.0), (36.8, 37.6)]);
     assert!(r.until(30.0, |r| r.said("Worker 1 rescued") && r.said("Worker 2 rescued")), "{:?}; hostages at {:?}",

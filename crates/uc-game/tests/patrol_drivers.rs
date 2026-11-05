@@ -7,14 +7,13 @@
 use std::collections::BTreeMap;
 use uc_formats::ucm::trigger;
 use uc_game::{Controls, Game, State};
-use uc_world::{Level, LoadOptions};
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 #[test]
 fn gang_order_1s_patrol_cars_drive_to_their_points_and_park() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let mut level = Level::load(&game, "Gangorder1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(mut level) = common::load("Gangorder1") else { return };
     level.mission.event_points.iter_mut().find(|e| e.index == 125).unwrap().trigger = trigger::NONE;
     let mut g = Game::new(&level, true);
     // Each patrol car, from where it was when its driver took the wheel.

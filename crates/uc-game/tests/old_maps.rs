@@ -2,7 +2,8 @@
 //! roofs are read, and Takeover1, the one mission on one of them, has floors under the
 //! people, switches and items it puts up on its buildings. Skipped without an install.
 
-use uc_world::{Level, LoadOptions};
+
+mod common;
 
 #[test]
 fn old_maps_have_walls_and_roofs() {
@@ -21,8 +22,7 @@ fn old_maps_have_walls_and_roofs() {
 
 #[test]
 fn takeover1_stands_on_its_buildings() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "Takeover1", &LoadOptions { fullbright: true, character: false, overrides: None }).unwrap();
+    let Some(level) = common::load_without_people("Takeover1") else { return };
     // The people, items and switches it puts up on its roofs (not the platforms' paths and
     // the cameras, which are in the air).
     use uc_formats::ucm::{trigger, waypoint};

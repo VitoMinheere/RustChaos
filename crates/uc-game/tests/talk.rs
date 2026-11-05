@@ -6,13 +6,13 @@ use uc_formats::ucm::trigger;
 use uc_game::talk::face;
 use uc_game::{Controls, Game};
 use uc_world::character::person;
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 fn load(mission: &str, edit: impl Fn(&mut Level)) -> Option<(Level, Game)> {
-    let game = uc_formats::default_install()?;
-    let mut level = Level::load(&game, mission, &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let mut level = common::load(mission)?;
     edit(&mut level);
     let g = Game::new(&level, true);
     Some((level, g))

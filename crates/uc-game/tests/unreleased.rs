@@ -43,13 +43,6 @@ impl Run {
             }
         }
     }
-
-    /// Kills the first civilian the script made at point `way`.
-    fn kill(&mut self, way: usize) {
-        let i = self.g.people.iter().position(|p| p.way == way).unwrap_or_else(|| panic!("nobody from point {way}"));
-        let from = self.g.people[i].fig.pos;
-        self.g.people[i].take_hit(from, 10_000, ko::FINISHERS, false, false, Weapon::None);
-    }
 }
 
 /// Every Wildcat down inside the four minutes, the hostages unhurt.
@@ -68,7 +61,7 @@ fn construction_site_siege_runs_to_a_win() {
 fn construction_site_siege_needs_the_hostages_alive() {
     let Some(mut r) = start("FreeCD1") else { return };
     r.run(3.0, false);
-    r.kill(103);
+    r.kill_point_blank(103);
     r.run(3.0, false);
     assert!(r.said("Hostage down!"), "nobody noticed: {:?}", r.seen);
     assert!(matches!(r.g.outcome, Some(Outcome::Lost(_))), "{:?}", r.g.outcome);
@@ -104,14 +97,14 @@ fn el_cossa_island_marks_every_workman() {
     let targets = |r: &Run| r.g.beacons().into_iter().filter(|(l, _)| l == "Target").map(|(_, at)| at).collect::<Vec<_>>();
     assert_eq!(targets(&r).len(), 6);
     for way in [59, 60, 61, 64] {
-        r.kill(way);
+        r.kill_point_blank(way);
     }
     r.run(2.0, false);
     let left: Vec<_> = [57, 58].iter().map(|&w| r.g.people[r.g.people.iter().position(|p| p.way == w).unwrap()].fig.pos).collect();
     assert_eq!(targets(&r), left);
     assert_eq!(r.g.outcome, None);
-    r.kill(57);
-    r.kill(58);
+    r.kill_point_blank(57);
+    r.kill_point_blank(58);
     r.run(5.0, false);
     assert!(targets(&r).is_empty());
     assert!(r.said("All Bane workers down!"), "{:?}", r.seen);
@@ -123,7 +116,7 @@ fn el_cossa_island_marks_every_workman() {
 fn el_cossa_island_needs_the_islanders_alive() {
     let Some(mut r) = start("jung3") else { return };
     r.run(3.0, false);
-    r.kill(81);
+    r.kill_point_blank(81);
     r.run(3.0, false);
     assert!(r.said("You killed a hostage!"), "nobody noticed: {:?}", r.seen);
     assert!(matches!(r.g.outcome, Some(Outcome::Lost(_))), "{:?}", r.g.outcome);

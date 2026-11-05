@@ -16,7 +16,7 @@ fn start() -> Option<Run> {
 
 impl Run {
     /// Puts the person `way` created on the ground at `p`.
-    fn put(&mut self, way: usize, p: Vec3) {
+    fn put_way(&mut self, way: usize, p: Vec3) {
         let i = self.who(way);
         let y = self.level.ground.surface(&self.level.map, p.x, p.z, p.y + 64.0);
         self.g.people[i].fig.pos = vec3(p.x, y, p.z);
@@ -30,7 +30,7 @@ fn headline_hostage_runs_to_a_win() {
     r.play(3.0, Controls::default());
     assert_eq!(r.g.outcome, None, "nothing should have been decided yet");
 
-    r.put(3, r.point(15));
+    r.put_way(3, r.point(15));
     r.play(5.0, Controls::default());
     println!("outcome {:?} at {:.1}s", r.g.outcome, r.g.time);
     assert!(r.said("You got Gordansky"), "the drop never registered: {:?}", r.seen);

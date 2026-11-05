@@ -3,20 +3,17 @@
 //! every 128 ticks. What a mission put down is left for the player. Skipped without an install.
 
 use uc_game::{Controls, Game, Item, Weapon};
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 /// Combat Silver with one of its fighters, empty-handed and far from Darci, and a pistol
 /// lying a couple of squares from him, put there by the mission (`way`) or dropped (0).
 fn setup(way: usize) -> Option<(Level, Game, usize)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, "fight1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let level = common::load("fight1")?;
     let mut g = Game::new(&level, true);
-    for _ in 0..30 {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-    }
+    common::frames(&mut g, &level, 30);
     let pi = g.player.unwrap();
     let ei = (0..g.people.len()).find(|&i| i != pi && !g.people[i].removed && g.people[i].hostile())?;
     for (i, p) in g.people.iter_mut().enumerate() {

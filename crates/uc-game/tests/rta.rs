@@ -11,13 +11,6 @@ mod common;
 use common::{Run, DT};
 
 impl Run {
-    /// Puts Darci (on foot) at `p`.
-    fn put(&mut self, p: Vec3) {
-        let pi = self.player();
-        let y = self.level.ground.surface(&self.level.map, p.x, p.z, p.y + 64.0);
-        self.g.people[pi].fig.pos = vec3(p.x, y, p.z);
-    }
-
     fn active(&self, i: usize) -> bool {
         self.g.point_active(i)
     }
@@ -36,7 +29,7 @@ fn rta_script_runs_to_a_win() {
     let badges: Vec<Vec3> = r.g.items.iter().filter(|it| (BADGE..BADGE + 4).contains(&it.kind)).map(|it| it.pos).collect();
     println!("{} badges", badges.len());
     assert!(badges.len() >= 15);
-    r.put(badges[0]);
+    r.stand(badges[0]);
     r.play(0.5, Controls::default());
     assert_eq!(r.g.badges.iter().sum::<u8>(), 1, "the badge wasn't collected");
     // RTA's goals beyond winning: 19 badges, 4 side objectives (the two extra muggers, the
@@ -58,7 +51,7 @@ fn rta_script_runs_to_a_win() {
 
     // The car crash: the cop there talks, then the beacon moves to the car's drop-off.
     let crash = r.point(150);
-    r.put(crash);
+    r.stand(crash);
     r.play(30.0, Controls::default());
     assert!(r.active(25), "no conversation at the crash");
     assert!(r.active(59), "no 'Vehicle Drop' beacon");
@@ -77,11 +70,11 @@ fn rta_script_runs_to_a_win() {
     // talks when Darci gets there.
     r.g.vehicles[car].driver = None;
     r.g.people[pi].state = State::Move;
-    r.put(drop + vec3(400.0, 0.0, 0.0));
+    r.stand(drop + vec3(400.0, 0.0, 0.0));
     r.play(10.0, Controls::default());
     assert!(r.active(38), "no homicide call");
     let witness = r.point(78);
-    r.put(witness);
+    r.stand(witness);
     r.play(40.0, Controls::default());
     assert!(r.active(81), "the witness never finished talking");
 
@@ -96,7 +89,7 @@ fn rta_script_runs_to_a_win() {
         .map(|k| body + vec3((k as f32 * 0.785).sin(), 0.0, (k as f32 * 0.785).cos()) * 60.0)
         .find(|p| (r.level.ground.surface(&r.level.map, p.x, p.z, body.y + 64.0) - body.y).abs() < 16.0)
         .expect("somewhere to stand");
-    r.put(beside);
+    r.stand(beside);
     r.play(0.2, Controls { action: true, ..Default::default() });
     r.play(6.0, Controls::default());
     let m = &r.g.people[mugger];
@@ -121,7 +114,7 @@ fn crash_cops_go_after_the_drunk_not_darci() {
     assert!(!r.g.people.iter().find(|p| p.way == 86).unwrap().is_dead(), "the drunk was shot before Darci got there");
     // ...but once she's at the crash, the cops deal with him.
     let crash = r.point(150);
-    r.put(crash);
+    r.stand(crash);
     let pi = r.player();
     let mut lowest = i32::MAX;
     for _ in 0..(15.0 / DT) as usize {
@@ -157,7 +150,7 @@ fn arrest(r: &mut Run, i: usize) -> bool {
     else {
         return false;
     };
-    r.put(beside);
+    r.stand(beside);
     r.play(0.2, Controls { action: true, ..Default::default() });
     r.play(4.0, Controls::default());
     r.g.people[i].arrested || matches!(r.g.people[i].state, State::Cuffed)
@@ -173,31 +166,31 @@ fn rta_side_objectives_can_all_be_done() {
 
     // 1. The man peeing by his van (cuboid 206): he talks, then fights; arrest him.
     let van = r.point(206);
-    r.put(van);
+    r.stand(van);
     r.play(30.0, Controls::default());
     let peeing = find(&r, 238).expect("the man at the van");
     assert!(arrest(&mut r, peeing), "couldn't arrest the man at the van");
 
     // 2. The tramp: he appears once Darci has been through the south-east (cuboid 109), and
     // talks when she sees him.
-    r.put(r.point(109));
+    r.stand(r.point(109));
     r.play(2.0, Controls::default());
     let tramp = find(&r, 194).expect("the tramp");
     let at = r.g.people[tramp].fig.pos;
-    r.put(at + vec3(0.0, 0.0, -200.0));
+    r.stand(at + vec3(0.0, 0.0, -200.0));
     let pi = r.player();
     r.g.people[pi].face_towards(at);
     r.play(40.0, Controls::default());
 
     // 3. The mugger caught in the act: there once Darci has also been to the west end of Zarb
     // Drive (cuboid 267).
-    r.put(r.point(267));
+    r.stand(r.point(267));
     r.play(3.0, Controls::default());
     let mugger = find(&r, 11).expect("the mugger in the act");
     assert!(arrest(&mut r, mugger), "couldn't arrest the mugger in the act");
 
     // 4. The rooftop Wildcat on Kleetus Avenue: there after the witness has talked.
-    r.put(r.point(78));
+    r.stand(r.point(78));
     r.play(40.0, Controls::default());
     r.play(2.0, Controls::default());
     let wildcat = find(&r, 233).expect("the rooftop Wildcat");

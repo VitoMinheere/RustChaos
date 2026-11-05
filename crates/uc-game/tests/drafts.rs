@@ -14,16 +14,6 @@ use common::{Run, DT};
 const AI_CIVILIAN: u8 = 1;
 
 impl Run {
-    /// Talks to the person made by `way` from `off` of them, facing them, then plays `secs`.
-    fn talk_to(&mut self, way: usize, off: Vec3, secs: f32) {
-        let at = self.g.people[self.who(way)].fig.pos;
-        self.stand(at + off);
-        let me = self.player();
-        self.g.people[me].fig.angle = uc_world::character::angle_of(vec2(-off.x, -off.z));
-        self.play(DT, Controls { action: true, ..Default::default() });
-        self.play(secs, Controls::default());
-    }
-
     /// Stands on point `way` and presses action there.
     fn press(&mut self, way: usize) {
         if !self.stand_at_switch(way) {
@@ -35,7 +25,7 @@ impl Run {
     }
 
     /// Picks up the item point `way` made.
-    fn fetch(&mut self, way: usize) {
+    fn pick_up_item(&mut self, way: usize) {
         let at = self.g.items.iter().find(|i| i.way == way).unwrap_or_else(|| panic!("no item from point {way}")).pos;
         self.stand(at);
         self.play(1.0, Controls::default());
@@ -101,10 +91,10 @@ fn three_balrogs() {
 fn mr_bates() {
     let Some(mut r) = common::start("gang1") else { return };
     r.play(2.0, Controls::default());
-    assert_eq!(r.labels(), ["Mr Bates."]);
+    assert_eq!(r.beacons(), ["Mr Bates."]);
     r.knock_out(113);
     assert!(r.until(5.0, |r| r.said("return to the den")), "{:?}", r.seen);
-    assert_eq!(r.labels(), ["The den"]);
+    assert_eq!(r.beacons(), ["The den"]);
     let den = r.point(116);
     r.stand(den);
     assert!(r.until(40.0, |r| r.g.outcome.is_some()));
@@ -123,7 +113,7 @@ fn trash_the_place() {
     r.talk_to(111, vec3(110.0, 0.0, 0.0), 15.0);
     r.talk_to(134, vec3(110.0, 0.0, 0.0), 30.0);
     assert!(r.said("here they are"), "{:?}", r.seen);
-    r.fetch(136);
+    r.pick_up_item(136);
     assert_eq!(beacons(&r), ["The den"]);
     assert_eq!(r.g.outcome, None, "won before getting back");
     let den = r.point(137);
@@ -159,7 +149,7 @@ fn transmitter() {
     let roper = r.g.people[r.who(138)].fig.pos;
     let item = r.g.items.iter().find(|i| i.way == 140).expect("no explosives").pos;
     assert!((item.y - roper.y).abs() < 8.0, "the explosives are at {item}, Roper at {roper}");
-    r.fetch(140);
+    r.pick_up_item(140);
     let me = r.player();
     assert_eq!(r.g.people[me].explosives, 1);
     let t = r.point(120);
@@ -183,10 +173,10 @@ fn farradays_files() {
     let gate = r.point(106);
     r.stand(gate);
     assert!(r.until(30.0, |r| r.g.items.iter().any(|i| i.way == 108)), "no disk: {:?}", r.seen);
-    r.fetch(108);
+    r.pick_up_item(108);
     r.press(110);
     assert!(r.until(30.0, |r| r.said("Files Copied")), "{:?}", r.seen);
-    r.fetch(121);
+    r.pick_up_item(121);
     let jed = r.point(118);
     r.stand(jed);
     assert!(r.until(40.0, |r| r.g.outcome.is_some()));
@@ -252,7 +242,7 @@ fn farradays_files_from_the_start() {
 
 impl Run {
     /// Knocks the person made by `way` down without hurting them, and cuffs them.
-    fn arrest(&mut self, way: usize) {
+    fn knock_down_and_cuff(&mut self, way: usize) {
         let i = self.who(way);
         let at = self.g.people[i].fig.pos;
         self.stand(at + vec3(160.0, 0.0, 0.0));
@@ -272,15 +262,11 @@ impl Run {
         self.play(4.0, Controls::default());
     }
 
-    fn labels(&self) -> Vec<String> {
-        self.g.beacons().into_iter().map(|(l, _)| l).collect()
-    }
-
     /// 24th Street Shooting up to Harley Blvd: the workman (point 58) leads Darci into an
     /// alley, where he and the brutes he springs on her (66 to 68) go down.
     fn follow_the_trail(&mut self) {
         self.play(2.0, Controls::default());
-        assert!(!self.labels().iter().any(|l| l == "The geek"), "the geek's beacon too soon");
+        assert!(!self.beacons().iter().any(|l| l == "The geek"), "the geek's beacon too soon");
         self.talk_to(58, vec3(110.0, 0.0, 0.0), 6.0);
         let (w, alley) = (self.who(58), self.point(64));
         self.g.people[w].fig.pos = alley;
@@ -291,7 +277,7 @@ impl Run {
             self.knock_out(b);
         }
         assert!(self.until(10.0, |r| r.said("Harley Blvd")), "{:?}", self.seen);
-        assert!(self.labels().iter().any(|l| l == "The geek"), "{:?}", self.labels());
+        assert!(self.beacons().iter().any(|l| l == "The geek"), "{:?}", self.beacons());
     }
 }
 
@@ -302,7 +288,7 @@ fn twenty_fourth_street_shooting() {
     let Some(mut r) = common::start("Crimescene") else { return };
     r.follow_the_trail();
     assert_eq!(r.g.outcome, None);
-    r.arrest(79);
+    r.knock_down_and_cuff(79);
     assert!(r.until(10.0, |r| r.g.outcome.is_some()));
     assert!(r.said("talk about 24th Street"), "{:?}", r.seen);
     r.won();
@@ -340,7 +326,7 @@ fn twenty_fourth_street_shooting_points_to_the_workman() {
     for beaten in [true, false] {
         let Some(mut r) = common::start("Crimescene") else { return };
         r.play(2.0, Controls::default());
-        assert!(!r.labels().iter().any(|l| l == "The workman"), "too soon: {:?}", r.labels());
+        assert!(!r.beacons().iter().any(|l| l == "The workman"), "too soon: {:?}", r.beacons());
         let roof = r.who(44);
         if beaten {
             // Half his health gone, and he talks (point 36).
@@ -351,11 +337,11 @@ fn twenty_fourth_street_shooting_points_to_the_workman() {
         } else {
             r.knock_out(44);
         }
-        assert!(r.until(30.0, |r| r.labels().iter().any(|l| l == "The workman")), "beaten {beaten}: {:?}", r.labels());
+        assert!(r.until(30.0, |r| r.beacons().iter().any(|l| l == "The workman")), "beaten {beaten}: {:?}", r.beacons());
         r.talk_to(58, vec3(110.0, 0.0, 0.0), 6.0);
         let (w, alley) = (r.who(58), r.point(64));
         r.g.people[w].fig.pos = alley;
-        assert!(r.until(5.0, |r| !r.labels().iter().any(|l| l == "The workman")), "{:?}", r.labels());
+        assert!(r.until(5.0, |r| !r.beacons().iter().any(|l| l == "The workman")), "{:?}", r.beacons());
     }
 }
 
@@ -399,7 +385,7 @@ fn twenty_fourth_street_shooting_at_harley_blvd() {
     for friend in [80, 81] {
         r.knock_out(friend);
     }
-    r.arrest(79);
+    r.knock_down_and_cuff(79);
     assert!(r.until(10.0, |r| r.g.outcome.is_some()));
     assert!(r.said("talk about 24th Street"), "{:?}", r.seen);
     r.won();
@@ -411,11 +397,11 @@ fn twenty_fourth_street_shooting_at_harley_blvd() {
 fn station_bombed() {
     let Some(mut r) = common::start("police5") else { return };
     r.play(2.0, Controls::default());
-    assert_eq!(r.labels(), ["Wildcat"; 5]);
+    assert_eq!(r.beacons(), ["Wildcat"; 5]);
     for (k, way) in [93, 94, 137, 138, 139].into_iter().enumerate() {
         assert_eq!(r.g.outcome, None, "won with {k} in");
-        r.arrest(way);
-        assert_eq!(r.labels().len(), 4 - k, "beacons after {k}");
+        r.knock_down_and_cuff(way);
+        assert_eq!(r.beacons().len(), 4 - k, "beacons after {k}");
     }
     assert!(r.until(10.0, |r| r.g.outcome.is_some()));
     assert!(r.said("That's the last of 'em"), "{:?}", r.seen);
@@ -455,7 +441,7 @@ fn the_final_reckoning() {
     }
     assert!(r.until(20.0, |r| r.said("I got them all in safely")), "{:?}", r.seen);
     assert!(r.until(10.0, |r| r.g.items.iter().any(|i| i.way == 77)), "no explosives");
-    r.fetch(77);
+    r.pick_up_item(77);
     r.press(125);
     assert!(r.said("Gate open"), "{:?}", r.seen);
     // Onto the first platform, at the edge of her roof; off it onto the second as it comes
@@ -511,14 +497,14 @@ fn officer_training_beacons_the_way_on() {
     r.play(2.0, Controls::default());
     r.talk_to(17, vec3(110.0, 0.0, 0.0), 10.0);
     assert!(r.said("Follow me"), "{:?}", r.seen);
-    assert!(r.labels().is_empty(), "{:?}", r.labels());
+    assert!(r.beacons().is_empty(), "{:?}", r.beacons());
     let jumps = r.point(107);
     r.stand(jumps);
     r.play(1.0, Controls::default());
-    assert_eq!(r.labels(), ["Lift"]);
+    assert_eq!(r.beacons(), ["Lift"]);
     r.press(81);
     assert!(r.said("Loading lift activated"), "{:?}", r.seen);
-    assert_eq!(r.labels(), ["Finish"]);
+    assert_eq!(r.beacons(), ["Finish"]);
     // On at the bottom, off at the top on the finish's side.
     let lift = |r: &Run| r.g.platforms.iter().find(|p| p.way == 70).unwrap().pos;
     assert!(r.until(30.0, |r| lift(r).y > 900.0) && r.until(30.0, |r| lift(r).y < 20.0));
@@ -558,16 +544,16 @@ impl Run {
     /// Blood (120) met, and Mcintyre (122) talked to.
     fn up_to_the_kidnap(&mut self) {
         self.play(2.0, Controls::default());
-        let mut labels = self.labels();
+        let mut labels = self.beacons();
         labels.sort();
         assert_eq!(labels, ["Bish", "Mclean"]);
         self.talk_to(10, vec3(110.0, 0.0, 0.0), 10.0);
         assert!(self.said("Go fetch hoods Bish and Mclean"), "{:?}", self.seen);
         self.talk_to(110, vec3(110.0, 0.0, 0.0), 10.0);
-        assert!(self.until(5.0, |r| r.labels() == ["Mclean"]), "{:?}", self.labels());
+        assert!(self.until(5.0, |r| r.beacons() == ["Mclean"]), "{:?}", self.beacons());
         self.talk_to(113, vec3(110.0, 0.0, 0.0), 10.0);
         assert!(self.until(10.0, |r| r.said("meet Blood")), "{:?}", self.seen);
-        assert_eq!(self.labels(), ["Blood"]);
+        assert_eq!(self.beacons(), ["Blood"]);
         // Both after Mako at once: brought to him, they keep up as he runs off.
         let (bish, mclean, me) = (self.who(110), self.who(113), self.player());
         let at = self.g.people[me].fig.pos;
@@ -586,7 +572,7 @@ impl Run {
         assert!(self.until(10.0, |r| r.g.people.iter().any(|p| p.way == 120)), "no Blood");
         self.talk_to(120, vec3(110.0, 0.0, 0.0), 40.0);
         assert!(self.said("kidnap a Mr Frazer Mcintyre"), "{:?}", self.seen);
-        assert!(self.until(5.0, |r| r.labels() == ["Kidnap"]), "{:?}", self.labels());
+        assert!(self.until(5.0, |r| r.beacons() == ["Kidnap"]), "{:?}", self.beacons());
         assert!(self.until(10.0, |r| r.g.people.iter().any(|p| p.way == 122)), "no Mcintyre");
         self.talk_to(122, vec3(110.0, 0.0, 0.0), 20.0);
         assert!(self.said("You'll have to fight me first"), "{:?}", self.seen);
@@ -605,7 +591,7 @@ fn mr_mcintyre() {
     let half = r.g.people[m].health / 2 + 1;
     r.g.people[m].take_hit(at + vec3(50.0, 0.0, 0.0), half, 0, false, false, Weapon::None);
     assert!(r.until(10.0, |r| r.said("I SURRENDER")), "{:?}", r.seen);
-    assert!(r.until(5.0, |r| r.labels() == ["The den"]), "{:?}", r.labels());
+    assert!(r.until(5.0, |r| r.beacons() == ["The den"]), "{:?}", r.beacons());
     // Another blow once he's given in doesn't send him running.
     let at = r.g.people[m].fig.pos;
     r.g.people[m].take_hit(at + vec3(50.0, 0.0, 0.0), 1, 0, false, false, Weapon::None);
@@ -629,7 +615,7 @@ fn mr_mcintyre_killed() {
     r.knock_out(122);
     assert!(r.until(10.0, |r| r.said("you killed the guy")), "{:?}", r.seen);
     assert!(!r.said("I SURRENDER"), "{:?}", r.seen);
-    assert!(r.until(5.0, |r| r.labels() == ["The den"]), "{:?}", r.labels());
+    assert!(r.until(5.0, |r| r.beacons() == ["The den"]), "{:?}", r.beacons());
     assert_eq!(r.g.outcome, None, "won before getting back");
     let den = r.point(127);
     r.stand(den);

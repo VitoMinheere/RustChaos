@@ -8,9 +8,10 @@ use glam::Vec3;
 use uc_game::person::{ko, AI_BODYGUARD};
 use uc_game::{Controls, Game, Person, State, Weapon};
 use uc_world::character::person as ptype;
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 fn run(level: &Level, g: &mut Game, secs: f32, c: Controls) {
     for _ in 0..((secs / DT) as usize).max(1) {
@@ -22,8 +23,7 @@ fn run(level: &Level, g: &mut Game, secs: f32, c: Controls) {
 }
 
 fn load(mission: &str) -> Option<(Level, Game)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, mission, &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let level = common::load(mission)?;
     let mut g = Game::new(&level, true);
     run(&level, &mut g, 1.0, Controls::default());
     Some((level, g))

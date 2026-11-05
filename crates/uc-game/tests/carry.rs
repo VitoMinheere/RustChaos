@@ -42,7 +42,7 @@ impl Run {
     }
 
     /// Presses action, once no filmed conversation is holding the player still.
-    fn press_action(&mut self) {
+    fn press_action_each_frame(&mut self) {
         for _ in 0..(60.0 / DT) as usize {
             if !self.g.in_conversation() {
                 break;
@@ -81,7 +81,7 @@ fn roper_carries_the_survivors_to_safety() {
         let s = r.who(way);
         r.beside(s, 60.0);
         r.play(0.5, Controls::default());
-        r.press_action();
+        r.press_action_each_frame();
         assert_eq!(r.carrying(), Some(s), "didn't pick up survivor {way}: {:?}", r.g.people[roper].state);
         r.play(2.5, Controls::default());
         assert!(matches!(r.g.people[s].state, State::Carried { .. }), "{:?}", r.g.people[s].state);
@@ -103,7 +103,7 @@ fn roper_carries_the_survivors_to_safety() {
             // The third: safe on arrival, and the player is Darci now.
             break;
         }
-        r.press_action();
+        r.press_action_each_frame();
         r.play(3.0, Controls::default());
         assert_eq!(r.carrying(), None, "never put survivor {way} down");
         assert!(matches!(r.g.people[s].state, State::Injured), "{:?}", r.g.people[s].state);
@@ -121,7 +121,7 @@ fn a_blow_makes_roper_drop_them() {
     let s = r.who(31);
     r.beside(s, 60.0);
     r.play(0.5, Controls::default());
-    r.press_action();
+    r.press_action_each_frame();
     r.play(2.5, Controls::default());
     assert_eq!(r.carrying(), Some(s));
     let ri = r.roper();

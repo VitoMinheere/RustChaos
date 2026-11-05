@@ -3,15 +3,14 @@
 //! foot coming down in one drips too. A dry level has none. Skipped without an install.
 
 use uc_formats::iam::flags;
-use uc_game::{Controls, Game};
-use uc_world::{Level, LoadOptions};
+use uc_game::Game;
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
 
 /// The level with its lighting, which says whether it's night (and so raining).
 fn load(mission: &str) -> Option<(Level, Game)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, mission, &LoadOptions { fullbright: false, character: true, overrides: None }).unwrap();
+    let level = common::load_lit(mission)?;
     let g = Game::new(&level, true);
     Some((level, g))
 }
@@ -35,10 +34,7 @@ fn a_rainy_night_has_puddles_on_flat_open_ground() {
 #[test]
 fn the_rain_drips_into_the_puddles_near_her() {
     let Some((level, mut g)) = load("MIB") else { return };
-    for _ in 0..30 {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-    }
+    common::frames(&mut g, &level, 30);
     assert!(!g.puddles.drips.is_empty(), "no drips");
     let me = g.people[g.player.unwrap()].fig.pos;
     for d in &g.puddles.drips {
@@ -67,9 +63,6 @@ fn a_dry_level_has_none() {
     let Some((level, mut g)) = load("police1") else { return };
     assert!(!Game::raining(&level));
     assert!(g.puddles.puddles.is_empty());
-    for _ in 0..30 {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-    }
+    common::frames(&mut g, &level, 30);
     assert!(g.puddles.drips.is_empty());
 }

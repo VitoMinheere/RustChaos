@@ -6,7 +6,7 @@ use glam::{vec3, Vec3};
 use uc_game::{Charge, Controls, Weapon};
 
 mod common;
-use common::{Run, DT};
+use common::Run;
 
 fn start(mission: &str) -> Option<Run> {
     let mut r = Run::new(common::load(mission)?);
@@ -20,19 +20,6 @@ impl Run {
     fn prop(&self, p: Vec3) -> usize {
         let d = |o: &uc_formats::iam::Object| (o.x as f32 - p.x).abs() + (o.y as f32 - p.y).abs() + (o.z as f32 - p.z).abs();
         (0..self.level.map.objects.len()).min_by(|&a, &b| d(&self.level.map.objects[a]).total_cmp(&d(&self.level.map.objects[b]))).unwrap()
-    }
-
-    /// Picks up the explosives point `way` puts down.
-    fn fetch(&mut self, way: usize) {
-        let at = self.g.items.iter().find(|it| it.way == way).expect("explosives lying about").pos;
-        self.stand(at);
-        self.play(0.5, Controls::default());
-    }
-
-    /// Takes the explosives out and sets one down where she stands.
-    fn set_charge(&mut self) {
-        self.take_out(Weapon::Explosives);
-        self.play(DT, Controls { action: true, ..Default::default() });
     }
 }
 

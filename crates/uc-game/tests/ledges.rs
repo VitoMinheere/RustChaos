@@ -7,23 +7,16 @@
 use glam::{vec2, vec3};
 use uc_game::{Controls, Game, State};
 use uc_world::mav::{self, Mav};
-use uc_world::{Level, LoadOptions};
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 #[test]
 fn darci_walks_up_a_64_high_ledge() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("police1") else { return };
     let m = Mav::new(&level);
     let mut g = Game::new(&level, true);
-    for _ in 0..(60.0 / DT) as usize {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-        if g.time > 1.0 && !g.in_conversation() {
-            break;
-        }
-    }
+    common::settle(&mut g, &level, 60.0);
     let p = g.player.unwrap();
     // Just Darci: nobody to walk into her or start a fight on the way.
     for (i, q) in g.people.iter_mut().enumerate() {

@@ -18,7 +18,7 @@ impl Run {
     }
 
     /// Stands the player, pistol drawn, a few squares from barrel `k` with a clear shot.
-    fn line_up(&mut self, k: usize) {
+    fn line_up_barrel(&mut self, k: usize) {
         let at = self.g.barrels[k].pos;
         let eye = vec3(0.0, 140.0, 0.0);
         let spot = (0..32)
@@ -61,7 +61,7 @@ fn semtex_is_won_by_shooting_the_two_drums() {
         // (`drop_current_gun`): up again first (`line_up` hands her another).
         let pi = r.g.player.unwrap();
         assert!(r.until(8.0, |r| matches!(r.g.people[pi].state, uc_game::State::Move)), "still down");
-        r.line_up(k);
+        r.line_up_barrel(k);
         r.play(0.5, Controls::default());
         assert_eq!(r.g.aiming.barrel, Some(k), "the gun isn't on drum {way}");
         assert!(r.shoot(k), "shooting drum {way} didn't blow it up");

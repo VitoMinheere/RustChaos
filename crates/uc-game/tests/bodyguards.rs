@@ -5,9 +5,10 @@
 use glam::Vec3;
 use uc_game::person::AI_BODYGUARD;
 use uc_game::{Controls, Game, Item, State, Weapon};
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 fn run(level: &Level, g: &mut Game, secs: f32) {
     for _ in 0..((secs / DT) as usize).max(1) {
@@ -21,8 +22,7 @@ fn run(level: &Level, g: &mut Game, secs: f32) {
 /// RTA, with Darci in a quiet street and a bodyguard beside her, unarmed. The others it's
 /// made by now are returned too.
 fn start() -> Option<(Level, Game, usize, Vec<usize>)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let level = common::load("police1")?;
     let mut g = Game::new(&level, true);
     run(&level, &mut g, 1.0);
     let pi = g.player.unwrap();
@@ -95,8 +95,7 @@ fn a_bodyguard_arms_himself() {
 /// punched face on by Mako.
 #[test]
 fn a_bodyguard_hit_by_the_player_fights_back() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "gang1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("gang1") else { return };
     let mut g = Game::new(&level, true);
     run(&level, &mut g, 2.0);
     let pi = g.player.unwrap();

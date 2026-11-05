@@ -2,20 +2,15 @@
 //! the player killed and arrested, and those still standing. Skipped without an install.
 
 use uc_game::person::ko;
-use uc_game::{Controls, Game, Weapon};
-use uc_world::{Level, LoadOptions};
+use uc_game::{Game, Weapon};
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
 
 #[test]
 fn killed_arrested_and_at_large() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "fight1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("fight1") else { return };
     let mut g = Game::new(&level, true);
-    for _ in 0..30 {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-    }
+    common::frames(&mut g, &level, 30);
     let thugs: Vec<usize> = (0..g.people.len()).filter(|&i| !g.people[i].removed && !g.people[i].player && g.people[i].thug()).collect();
     assert!(thugs.len() >= 2, "{} gang members", thugs.len());
     let (killed, arrested, left) = g.criminals().expect("Darci");

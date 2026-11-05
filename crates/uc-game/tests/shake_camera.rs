@@ -5,13 +5,13 @@
 
 use uc_formats::ucm::trigger;
 use uc_game::{Controls, Game};
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 fn factory(shaking: bool) -> Option<(Level, Game)> {
-    let game = uc_formats::default_install()?;
-    let mut level = Level::load(&game, "factory1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let mut level = common::load("factory1")?;
     if shaking {
         // Active from the start, while it's true.
         let ep = level.mission.event_points.iter_mut().find(|e| e.index == 479).unwrap();

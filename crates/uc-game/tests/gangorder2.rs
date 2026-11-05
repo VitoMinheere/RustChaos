@@ -9,21 +9,10 @@ use uc_game::{Controls, Outcome};
 use uc_world::character::person as ptype;
 
 mod common;
-use common::{Run, DT};
+use common::Run;
 
 fn start() -> Option<Run> {
     common::start("Gangorder2")
-}
-
-impl Run {
-    /// Walks up to the person event point `way` created, talks to them, and lets them finish.
-    fn talk_to(&mut self, way: usize, secs: f32) {
-        let i = self.who(way);
-        let at = self.g.people[i].fig.pos;
-        self.stand(at + vec3(130.0, 0.0, 0.0));
-        self.play(DT, Controls { action: true, ..Default::default() });
-        self.play(secs, Controls::default());
-    }
 }
 
 /// The Boss's errand, start to finish: round up the boys, get the job from Spiv, run the son
@@ -36,16 +25,16 @@ fn rat_catch_script_runs_to_a_win() {
     r.play(2.0, Controls::default());
 
     // The Wildcat sends him to Spiv, by way of McLean and Bish.
-    r.talk_to(10, 45.0);
+    r.walk_up_and_talk(10, 45.0);
     assert!(r.said("pick up McLean and Bish"), "no briefing: {:?}", r.seen);
-    r.talk_to(110, 25.0);
-    r.talk_to(113, 25.0);
+    r.walk_up_and_talk(110, 25.0);
+    r.walk_up_and_talk(113, 25.0);
     let (mclean, bish) = (r.who(110), r.who(113));
     assert_eq!(r.g.people[mclean].mv, 5, "McLean should fall in behind Mako");
     assert_eq!(r.g.people[bish].mv, 5, "Bish should fall in behind Mako");
 
     // Spiv names the job.
-    r.talk_to(120, 70.0);
+    r.walk_up_and_talk(120, 70.0);
     assert!(r.said("McIntyre"), "Spiv never named the job: {:?}", r.seen);
     let son = r.who(122);
 
@@ -97,10 +86,10 @@ fn rat_catch_script_runs_to_a_win() {
 fn killing_the_son_turns_into_the_boss_punishment() {
     let Some(mut r) = start() else { return };
     r.play(2.0, Controls::default());
-    r.talk_to(10, 45.0);
-    r.talk_to(110, 25.0);
-    r.talk_to(113, 25.0);
-    r.talk_to(120, 70.0);
+    r.walk_up_and_talk(10, 45.0);
+    r.walk_up_and_talk(110, 25.0);
+    r.walk_up_and_talk(113, 25.0);
+    r.walk_up_and_talk(120, 70.0);
     let son = r.who(122);
     let from = r.g.people[son].fig.pos;
     r.g.people[son].take_hit(from, 10_000, ko::FINISHERS, false, false, uc_game::Weapon::None);
@@ -109,9 +98,9 @@ fn killing_the_son_turns_into_the_boss_punishment() {
     assert_eq!(r.g.outcome, None, "the Boss punishes it rather than calling the job off");
 
     // Back to the Wildcat, then to Spiv for the punishment.
-    r.talk_to(10, 30.0);
+    r.walk_up_and_talk(10, 30.0);
     assert!(r.said("sack of shit"), "no dressing down: {:?}", r.seen);
-    r.talk_to(120, 40.0);
+    r.walk_up_and_talk(120, 40.0);
     assert!(r.said("take out at least 5 more"), "no punishment set: {:?}", r.seen);
 
     // Five dead cops puts it right.

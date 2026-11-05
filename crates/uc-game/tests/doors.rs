@@ -6,13 +6,13 @@ use glam::{vec2, Vec2, Vec3};
 use std::collections::BTreeMap;
 use uc_game::{Controls, Game};
 use uc_world::mav::{caps, Mav, GOTO};
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 fn load(mission: &str) -> Option<Level> {
-    let game = uc_formats::default_install()?;
-    Some(Level::load(&game, mission, &LoadOptions { fullbright: true, character: false, overrides: None }).unwrap())
+    common::load_without_people(mission)
 }
 
 /// Media Trouble's one `activate_prim` point opens a door, and has no trigger, so it fires as

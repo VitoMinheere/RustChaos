@@ -4,25 +4,16 @@
 
 use glam::vec3;
 use uc_game::person::{AI_CIV, AI_GANG, BENT_FIGHT_BACK};
-use uc_game::{Controls, Game, State, Weapon};
+use uc_game::{Controls, State, Weapon};
 use uc_world::character::person as ptype;
-use uc_world::{Level, LoadOptions};
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 /// Darci shooting for `secs` at one of RTA's crowd made a gang member of `skill`: whether he
 /// ever flipped.
 fn flips(skill: u8, secs: f32) -> Option<bool> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
-    let mut g = Game::new(&level, true);
-    for _ in 0..(60.0 / DT) as usize {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-        if g.time > 1.0 && !g.in_conversation() {
-            break;
-        }
-    }
+    let (level, mut g) = common::begin("police1")?;
     let p = g.player.unwrap();
     g.people[p].give(Weapon::Pistol);
     g.people[p].weapon = Weapon::Pistol;

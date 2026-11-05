@@ -19,11 +19,6 @@ impl Run {
     fn guilty(&self) -> Option<usize> {
         self.g.people.iter().position(|p| !p.player && !p.fake && p.way != 0 && !p.is_dead() && !p.is_down() && p.is_guilty())
     }
-
-    fn kill(&mut self, i: usize) {
-        let from = self.g.people[i].fig.pos + vec3(50.0, 0.0, 0.0);
-        self.g.people[i].take_hit(from, 10_000, ko::FINISHERS, false, false, Weapon::None);
-    }
 }
 
 #[test]
@@ -46,7 +41,7 @@ fn southside_offensive_is_won_by_bringing_the_crime_rate_down() {
     while r.g.outcome.is_none() {
         let i = r.guilty().unwrap_or_else(|| panic!("ran out of guilty people at {}%", r.g.crime_rate));
         let before = r.g.crime_rate;
-        r.kill(i);
+        r.kill_person(i);
         killed += 1;
         r.play(0.5, Controls::default());
         assert_eq!(r.g.crime_rate, before - 2, "kill {killed} didn't take 2 off");
@@ -91,7 +86,7 @@ fn killing_passers_by_loses_it() {
     for k in 1..=4 {
         let i = r.g.people.iter().position(|p| p.fake && p.ai == uc_game::person::AI_CIV && !p.is_dead() && !p.is_down())
             .expect("no passer-by left");
-        r.kill(i);
+        r.kill_person(i);
         r.play(0.5, Controls::default());
         assert_eq!(r.g.crime_rate, (80 + 5 * k).min(100) as u8);
     }
