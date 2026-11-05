@@ -58,8 +58,8 @@ impl Game {
             return;
         }
         self.clocks.bike += dt;
-        while self.clocks.bike >= bike::TICK {
-            self.clocks.bike -= bike::TICK;
+        while self.clocks.bike >= crate::TICK {
+            self.clocks.bike -= crate::TICK;
             let mut passes = Vec::new();
             for (k, (b, _)) in self.bikes.iter_mut().enumerate() {
                 b.tick_each(&Level2(level), |b| {

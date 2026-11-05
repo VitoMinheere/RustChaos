@@ -67,6 +67,16 @@ pub use game::mines::Mine;
 pub use game::grenades::Grenade;
 pub use game::RadarDot;
 
+/// Ticks a second of the original's game loop, which much of the game still counts in.
+pub const TICKS: f32 = 20.0;
+/// One of the original's game ticks, in seconds.
+pub const TICK: f32 = 1.0 / TICKS;
+
+/// `a - b` in the ground plane, height left out.
+pub fn flat(a: Vec3, b: Vec3) -> Vec2 {
+    vec2(a.x - b.x, a.z - b.z)
+}
+
 /// `facet_rand`'s LCG (fallen/Source/facet.cpp): the one source of chance in the game, so a
 /// run plays out the same way twice.
 pub fn rand(seed: &mut u32) -> u32 {
@@ -190,8 +200,6 @@ fn find_ob(level: &Level, pos: Vec3, range: f32, only: Option<&BTreeSet<usize>>)
         .map(|(i, _)| i)
 }
 
-/// `PCOM_AI_DRIVER`: finds a car, gets in and drives it as their move says.
-const AI_DRIVER: u8 = 9;
 /// `MISSION_FLAG_SHOW_CRIMERATE` (fallen/Headers/Mission.h).
 const MISSION_FLAG_SHOW_CRIMERATE: i32 = 1 << 1;
 /// How fast a driver goes down a clear road (`VEH_SPEED_LIMIT`, "35 mph"), world units a second.
@@ -1463,7 +1471,7 @@ impl Game {
         // From just under the pelvis, for as long as they're on their feet (the original asks
         // only that they're peeing, but its pelvis is never anywhere sensible once they're down).
         let streams: Vec<(Vec3, Vec2)> = self.people.iter()
-            .filter(|p| p.peeing && !p.removed && !p.is_down() && !p.is_dead())
+            .filter(|p| p.peeing && p.on_feet())
             .map(|p| (p.fig.hips() - Vec3::new(0.0, 16.0, 0.0), p.facing_dir()))
             .collect();
         self.drops.update(dt, &streams, |at| level.ground.surface(&level.map, at.x, at.z, at.y + 8.0));
@@ -1535,7 +1543,7 @@ impl Game {
         // whose `other` point is the player's, or none at all.
         for (s, p) in snaps.iter_mut().zip(&self.people) {
             if p.ai == person::AI_BODYGUARD {
-                let client = if p.other == 0 { player } else { self.by_way.get(&p.other).copied() };
+                let client = self.way_or_player(p.other);
                 if client.is_some() && client == player {
                     s.arrestable = false;
                 }
@@ -1563,7 +1571,7 @@ impl Game {
         // `PCOM_AI_SUICIDE`, "the easiest AI! A random death" (fallen/Source/pcom.cpp): down
         // as if shot with a pistol the first time it runs. The Fallen's bootlegger is made this
         // way on the roof once Harney has spoken, and the first clue waits on his death.
-        for p in self.people.iter_mut().filter(|p| p.ai == 15 && !p.player && !p.is_dead() && !p.is_down()) {
+        for p in self.people.iter_mut().filter(|p| p.ai == person::AI_SUICIDE && !p.player && p.on_feet()) {
             let from = p.fig.pos + Vec3::new(0.0, 0.0, 1.0);
             p.take_hit(from, 10_000, person::ko::KNOCKDOWN, false, false, Weapon::Pistol);
         }
@@ -1603,7 +1611,7 @@ impl Game {
                 // there (`PCOM_AI_SUBSTATE_CANTFIND` in `PCOM_set_person_ai_follow`) and
                 // waits until `can_a_see_b` says the way is clear again.
                 (person::AI_BODYGUARD, w) => {
-                    let client = if w == 0 { player } else { self.by_way.get(&w).copied() };
+                    let client = self.way_or_player(w);
                     let eye = Vec3::new(0.0, 140.0, 0.0);
                     // Hit by anyone but their client, they fight back (`PCOM_attack_happened`,
                     // pcom.cpp:13732: "goto fight"), the player too.
@@ -1611,7 +1619,7 @@ impl Game {
                         .filter(|&j| j != i && Some(j) != client && j < self.people.len())
                         .filter(|&j| {
                             let o = &self.people[j];
-                            !o.removed && !o.is_dead() && (o.fig.pos - p.fig.pos).length() < GUARDS * 256.0
+                            !o.is_dead() && (o.fig.pos - p.fig.pos).length() < GUARDS * 256.0
                         });
                     // Who the client is having a go at themselves (their `Target`): the one
                     // the player has their gun on, or the foe of a client of the AI's.
@@ -1652,7 +1660,7 @@ impl Game {
                     colour.and_then(|c| {
                         self.people.iter().enumerate()
                             .filter(|&(j, o)| {
-                                j != i && o.colour == c && !o.removed && !o.is_dead() && !o.fake
+                                j != i && o.colour == c && !o.is_dead() && !o.fake
                                     && (p.zone == 0 || level.mission.zones_at(o.fig.pos.x, o.fig.pos.z) & p.zone != 0)
                             })
                             .min_by(|a, b| (a.1.fig.pos - p.fig.pos).length().total_cmp(&(b.1.fig.pos - p.fig.pos).length()))
@@ -1664,7 +1672,7 @@ impl Game {
             // Twenty blocks (QDIST3) from the player they guard, a bodyguard is out of harm's
             // way; anyone else's bodyguards never are (`PCOM_AI_BODYGUARD`, pcom.cpp:11225).
             let away = p.ai == person::AI_BODYGUARD && {
-                let client = if p.other == 0 { player } else { self.by_way.get(&p.other).copied() };
+                let client = self.way_or_player(p.other);
                 client.filter(|&c| self.people[c].player).is_some_and(|c| {
                     let d = (self.people[c].fig.pos - p.fig.pos).abs();
                     d.max_element() + (d.x + d.y + d.z - d.max_element()) / 4.0 > 20.0 * 256.0
@@ -1680,7 +1688,7 @@ impl Game {
                 if self.outcome.is_some() || held || searching { Controls::default() } else { input }
             } else {
                 let mut rng = self.rngs.main;
-                let mut rand = || { rng = rng.wrapping_mul(69069).wrapping_add(1); rng >> 16 };
+                let mut rand = || crate::rand(&mut rng);
                 let c = if frozen || self.cheats.freeze { Controls::default() } else { self.people[i].think(i, &snaps, &level.ground, dt, &mut rand) };
                 self.rngs.main = rng;
                 c

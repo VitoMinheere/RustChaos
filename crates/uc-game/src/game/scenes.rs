@@ -23,7 +23,7 @@ impl Game {
             // A person's chest rather than their feet.
             Look::Thing { way, at } => self.thing(way).map_or(at, |t| t.pos + Vec3::new(0.0, 160.0, 0.0)),
             Look::Near(at) => self.people.iter()
-                .filter(|p| !p.removed && !p.is_dead() && (p.fig.pos - at).length() < 1280.0)
+                .filter(|p| !p.is_dead() && (p.fig.pos - at).length() < 1280.0)
                 .min_by(|a, b| (a.fig.pos - at).length().total_cmp(&(b.fig.pos - at).length()))
                 .map_or(at, |p| p.fig.pos),
         }
@@ -50,7 +50,7 @@ impl Game {
     /// `person_ok_for_conversation`: on their feet, not driving, climbing or in the air.
     pub(crate) fn can_talk(&self, i: usize) -> bool {
         let p = &self.people[i];
-        !p.removed && !p.is_dead() && !p.is_down()
+        p.on_feet()
             && !matches!(p.state, State::InCar { .. } | State::Flying { .. } | State::Climb { .. } | State::Mount { .. } | State::OntoLadder { .. } | State::Fall { .. } | State::Zip { .. } | State::Fence { .. } | State::PullUp { .. })
     }
 
@@ -104,7 +104,7 @@ impl Game {
                         // Two seconds, and a twenty-fifth for every letter (`EWAY_conv_timer`).
                         cv.left = 2.0 + text.chars().count() as f32 * 0.04;
                         cv.skip = 0.5;
-                        let speaker = if who == 0 { self.player } else { self.by_way.get(&who).copied() };
+                        let speaker = self.way_or_player(who);
                         // The one with the line says it, the other hears it (`EWAY_process_conversation`,
                         // eway.cpp:4681): a question if it ends with one.
                         if let Some((i, j)) = cv.pair.filter(|&(i, j)| speaker == Some(i) || speaker == Some(j)) {

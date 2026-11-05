@@ -30,7 +30,7 @@ impl Game {
             self.target?
         } else if fighting {
             self.people.iter().enumerate()
-                .filter(|(_, q)| !q.removed && !q.player && q.hostile() && !q.is_dead() && !q.is_down())
+                .filter(|(_, q)| !q.player && q.hostile() && q.on_feet())
                 .map(|(i, q)| (i, (q.fig.pos - me.fig.pos).length()))
                 .filter(|&(_, d)| d < 400.0)
                 .min_by(|a, b| a.1.total_cmp(&b.1))?.0
@@ -107,7 +107,7 @@ impl Game {
         }
         if let Some(pi) = self.player {
             let soonest = self.people.iter()
-                .filter(|q| q.foe == Some(pi) && !q.removed && !q.is_dead())
+                .filter(|q| q.foe == Some(pi) && !q.is_dead())
                 .filter_map(|q| q.about_to_shoot())
                 .min_by(|a, b| a.total_cmp(b));
             if let Some(accuracy) = soonest {

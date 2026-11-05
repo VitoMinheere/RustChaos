@@ -96,6 +96,12 @@ const CAR: &[[usize; 3]] = &[[33, 11, 34], [34, 12, 35], [35, 13, 37], [37, 15, 
 const AMBULANCE: &[[usize; 3]] = &[[61, 62, 67]];
 const JEEP: &[[usize; 3]] = &[[14, 33, 2], [2, 4, 11], [11, 30, 9], [9, 28, 19]];
 
+/// How far up a body is drawn on wheels of `radius`, so the wheels are where the original
+/// has them in it.
+pub fn body_lift(radius: f32) -> f32 {
+    radius - WHEEL_ABOVE_BODY
+}
+
 /// The radius of a wheel prim, which it rides on (38 if it's missing).
 pub fn wheel_radius(wheel: Option<&Prim>) -> f32 {
     wheel.map_or(38.0, |prim| {
@@ -291,6 +297,13 @@ impl Vehicle {
         } else if d.siren && self.has_siren() {
             self.siren = !self.siren;
         }
+    }
+
+    /// How far up its body is drawn ([`body_lift`]) on its type's wheels, from the map's item
+    /// prims.
+    pub fn lift(&self, item_prims: &std::collections::HashMap<u8, Prim>) -> f32 {
+        let (_, wheel, ..) = TYPES[self.kind as usize];
+        body_lift(wheel_radius(item_prims.get(&wheel)))
     }
 
     /// The light bar's two lights in the world, and whether the first is red (see
@@ -564,7 +577,7 @@ impl Vehicle {
     /// vans only for the PlayStation. Only the van's, the Wildcat van's and the ambulance's
     /// have edges to hang from (wmove.cpp:510).
     pub fn tops(&self, body: &Prim, wheel: f32) -> impl Iterator<Item = Wmove> + '_ {
-        let lift = wheel - WHEEL_ABOVE_BODY;
+        let lift = body_lift(wheel);
         let edges = matches!(self.kind, 0 | 4 | 8);
         let points: Vec<Vec3> = body.points.iter().map(|p| self.body_point(vec3(p[0] as f32, p[1] as f32, p[2] as f32), lift)).collect();
         TOPS[self.kind as usize].iter().filter_map(move |t| {

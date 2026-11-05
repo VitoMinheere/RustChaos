@@ -306,7 +306,7 @@ impl Beat {
 
     /// Whether `at` is clear of the incidents on and the last few.
     fn fresh(&self, at: Vec3) -> bool {
-        let far = |o: Vec3| Vec2::new(at.x - o.x, at.z - o.z).length() >= APART;
+        let far = |o: Vec3| crate::flat(at, o).length() >= APART;
         self.recent.iter().all(|&o| far(o)) && self.incidents.iter().all(|i| far(i.at))
     }
 }
@@ -344,7 +344,7 @@ impl Game {
         // Wide enough for a beat's worth of places to send her.
         let mut radius = BEAT * 256.0;
         let mut grid = game::endless::arena(level, start, radius);
-        let far = |g: &game::endless::Grid| g.values().filter(|(at, _)| Vec2::new(at.x - start.x, at.z - start.z).length() >= NOT_NEARER).count();
+        let far = |g: &game::endless::Grid| g.values().filter(|(at, _)| crate::flat(*at, start).length() >= NOT_NEARER).count();
         while far(&grid) < ROOMY && radius < WIDEST * 256.0 {
             radius += 5.0 * 256.0;
             grid = game::endless::arena(level, start, radius);
@@ -493,11 +493,11 @@ impl Game {
 
     /// Whether incident `inc` is handled (true), missed (false) or still going (None).
     fn settle(&mut self, inc: &mut Incident, dt: f32) -> Option<bool> {
-        let down = |p: &Person| p.arrested || p.knocked_out || p.is_dead() || p.removed;
+        let down = |p: &Person| p.is_dead();
         inc.arrests = inc.culprits.iter().filter(|&&i| self.people[i].arrested).count() as u32;
         let got = !inc.culprits.is_empty() && inc.culprits.iter().all(|&i| down(&self.people[i]));
         let me = self.player.filter(|&p| !self.people[p].aboard()).map(|p| self.people[p].fig.pos);
-        let beside = |at: Vec3| me.is_some_and(|m| Vec2::new(m.x - at.x, m.z - at.z).length() < BESIDE && (m.y - at.y).abs() < 128.0);
+        let beside = |at: Vec3| me.is_some_and(|m| crate::flat(m, at).length() < BESIDE && (m.y - at.y).abs() < 128.0);
         if let Some(j) = inc.jumper {
             let p = &self.people[j];
             if beside(p.fig.pos) && !down(p) {
@@ -515,7 +515,7 @@ impl Game {
         }
         if let Some(j) = inc.patient {
             let p = &self.people[j];
-            if p.is_dead() || p.removed {
+            if p.is_dead() {
                 return Some(false);
             }
             if beside(p.fig.pos) {
@@ -588,7 +588,7 @@ impl Game {
                             v.stalled = true;
                         }
                         let stopped = v.speed.abs() < 60.0;
-                        let near = me.is_some_and(|m| Vec2::new(m.x - v.pos.x, m.z - v.pos.z).length() < 3.0 * 256.0);
+                        let near = me.is_some_and(|m| crate::flat(m, v.pos).length() < 3.0 * 256.0);
                         // Out of the car: pulled over for her, or stopped with her at the door.
                         if stopped && (v.stalled || near) {
                             v.stalled = true;
@@ -683,7 +683,7 @@ impl Game {
             }
             let r = b.rand() as usize;
             let at = b.spots[r % b.spots.len()];
-            if Vec2::new(at.x - me.x, at.z - me.z).length() >= NOT_NEARER && (k >= 80 || b.fresh(at)) {
+            if crate::flat(at, me).length() >= NOT_NEARER && (k >= 80 || b.fresh(at)) {
                 return Some(at);
             }
         }
@@ -699,7 +699,7 @@ impl Game {
             let ob = *b.bins.get(r % b.bins.len().max(1))?;
             let o = &level.map.objects[ob];
             let at = Vec3::new(o.x as f32, o.y as f32, o.z as f32);
-            if Vec2::new(at.x - me.x, at.z - me.z).length() >= NOT_NEARER && (k >= 40 || b.fresh(at)) {
+            if crate::flat(at, me).length() >= NOT_NEARER && (k >= 40 || b.fresh(at)) {
                 return Some((ob, at));
             }
         }
@@ -738,7 +738,7 @@ impl Game {
                 let on = l.foot - l.out * 160.0;
                 let y = level.ground.surface(&level.map, on.x, on.y, l.top + 64.0);
                 let at = Vec3::new(on.x, y, on.y);
-                let flat = Vec2::new(at.x - me.x, at.z - me.z).length();
+                let flat = crate::flat(at, me).length();
                 ((y - l.top).abs() < 96.0 && (NOT_NEARER..b.radius).contains(&flat)).then(|| (at, l.out.x.atan2(l.out.y)))
             })
             .collect();

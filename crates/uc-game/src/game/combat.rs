@@ -377,7 +377,7 @@ impl Game {
                     self.people[victim].arrested = true;
                     // A hostage near enough to see it gloats (#486).
                     let at = self.people[victim].fig.pos;
-                    for q in self.people.iter_mut().filter(|q| q.kind == ptype::HOSTAGE && !q.removed && !q.is_dead()) {
+                    for q in self.people.iter_mut().filter(|q| q.kind == ptype::HOSTAGE && !q.is_dead()) {
                         if q.fig.pos.distance(at) < GLOAT_RANGE {
                             q.cues.push(Sfx::Bark { kind: ptype::HOSTAGE, bark: crate::Bark::Gloat });
                         }
@@ -461,7 +461,7 @@ impl Game {
                 if !solid(a) || !solid(b) || (a.fig.pos.y - b.fig.pos.y).abs() > 100.0 {
                     continue;
                 }
-                let d = vec2(b.fig.pos.x - a.fig.pos.x, b.fig.pos.z - a.fig.pos.z);
+                let d = flat(b.fig.pos, a.fig.pos);
                 let len = d.length();
                 if len >= MIN || len < 1e-3 {
                     continue;

@@ -8,8 +8,6 @@
 
 use glam::{Vec2, Vec3};
 
-pub const TICK: f32 = 1.0 / 20.0;
-
 /// `BIKE_WHEEL_SUS`, `_RADIUS`, `_APART`, `_COL`.
 const WHEEL_SUS: i64 = 0x10;
 const WHEEL_RADIUS: i64 = 0x18;
@@ -427,7 +425,7 @@ mod tests {
         let mut b = bike();
         let start = b.pos();
         let (back, front) = b.wheels();
-        let ahead = Vec2::new(front.x - back.x, front.z - back.z).normalize();
+        let ahead = crate::flat(front, back).normalize();
         for _ in 0..40 {
             b.control(1, 0, false, false);
             b.tick(&Flat);

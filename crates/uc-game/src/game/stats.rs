@@ -56,7 +56,7 @@ impl Game {
                 counts.1 += 1;
             } else if p.knocked_out && p.hurt_by == Some(me) {
                 counts.0 += 1;
-            } else if !p.removed && !p.is_dead() {
+            } else if !p.is_dead() {
                 counts.2 += 1;
             }
         }
@@ -170,7 +170,7 @@ impl Game {
         // Distance, by how she went. A jump of more than a few squares in a turn is a
         // teleport, not travel.
         if let Some(last) = t.pos {
-            let d = Vec2::new(pos.x - last.x, pos.z - last.z).length();
+            let d = flat(pos, last).length();
             if d < 3.0 * 256.0 {
                 let squares = d / 256.0;
                 match state {

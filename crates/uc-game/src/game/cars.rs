@@ -110,11 +110,11 @@ impl Game {
     pub(crate) fn hitch_rides(&mut self, level: &Level) {
         let leader = |g: &Game, i: usize| {
             let p = &g.people[i];
-            if p.follow == 0 { g.player } else { g.by_way.get(&p.follow).copied() }
+            g.way_or_player(p.follow)
         };
         for i in 0..self.people.len() {
             let p = &self.people[i];
-            if p.player || p.removed || p.is_dead() || p.mv != person::MOVE_FOLLOW {
+            if p.player || p.is_dead() || p.mv != person::MOVE_FOLLOW {
                 continue;
             }
             let theirs = leader(self, i).and_then(|j| match self.people[j].state {
@@ -156,7 +156,7 @@ impl Game {
     pub(crate) fn board_cars(&mut self, level: &Level) {
         for i in 0..self.people.len() {
             let p = &self.people[i];
-            if !p.drives() || p.player || p.removed || p.is_dead() || p.is_down() || p.aggro() || !matches!(p.state, State::Move) {
+            if !p.drives() || p.player || !p.on_feet() || p.aggro() || !matches!(p.state, State::Move) {
                 continue;
             }
             let Some(vi) = self.car_for(i) else { continue };
@@ -491,7 +491,7 @@ impl Game {
                     {
                         continue;
                     }
-                    let r = Vec2::new(p.fig.pos.x - v.pos.x, p.fig.pos.z - v.pos.z);
+                    let r = crate::flat(p.fig.pos, v.pos);
                     let (ahead, across) = (r.dot(heading), r.dot(side));
                     // Within the next second or so of the car's path.
                     if ahead > 0.0 && ahead < 400.0 + v.speed.abs() && across.abs() < 300.0 {

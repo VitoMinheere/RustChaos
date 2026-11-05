@@ -15,8 +15,9 @@
 use crate::rand;
 use glam::{vec3, Vec2, Vec3};
 
-/// The game ticks at 20 a second; the particle system counts life at 15.
-const TICKS: f32 = 20.0;
+use crate::TICKS;
+
+/// The game ticks at [`TICKS`] a second; the particle system counts life at 15.
 const PARTICLE_TICKS: f32 = 15.0;
 /// `PARTICLE_Add(..., life 100, size 40, ...)`.
 const LIFE: f32 = 100.0 / PARTICLE_TICKS;
