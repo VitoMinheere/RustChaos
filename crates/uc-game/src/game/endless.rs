@@ -463,8 +463,10 @@ impl Game {
                 p.steer = None;
                 continue;
             }
+            // (They shouted coming on, `spawn_foe`'s `go_for`: not again each time they
+            // come back to her.)
             if !p.aggro() && !p.is_down() {
-                p.go_for();
+                p.keep_after();
             }
             p.steer = match (&ways, me) {
                 (Some(ways), Some(me)) => next_step(&e.grid, ways, p.fig.pos, me, level),
