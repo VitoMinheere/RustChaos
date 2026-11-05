@@ -3,19 +3,15 @@
 //! has its own loop (`S_SEARCH_END`). Skipped without an install.
 
 use uc_game::{Controls, Game, Search, Searched, State};
-use uc_world::{Level, LoadOptions};
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 #[test]
 fn a_slide_scrapes_and_raises_dust() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "fight1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("fight1") else { return };
     let mut g = Game::new(&level, true);
-    for _ in 0..30 {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-    }
+    common::frames(&mut g, &level, 30);
     let me = g.player.unwrap();
     for (i, p) in g.people.iter_mut().enumerate() {
         if i != me {

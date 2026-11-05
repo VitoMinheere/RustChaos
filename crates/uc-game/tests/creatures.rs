@@ -5,7 +5,6 @@
 
 use glam::{vec3, Vec3};
 use uc_game::creature::{self, State as Cs};
-use uc_game::person::ko;
 use uc_game::{Controls, Outcome, State, Weapon};
 
 mod common;
@@ -30,15 +29,9 @@ impl Run {
         self.set_down(vec3(corner.x as f32, corner.y as f32, corner.z as f32));
         self.play(3.0, Controls::default());
         assert!(self.g.creatures.is_empty(), "he waits on point 42");
-        self.kill(21);
-        self.kill(22);
+        self.kill_point_blank(21);
+        self.kill_point_blank(22);
         self.play(2.0, Controls::default());
-    }
-
-    fn kill(&mut self, way: usize) {
-        let i = self.g.people.iter().position(|p| p.way == way).expect("person");
-        let from = self.g.people[i].fig.pos;
-        self.g.people[i].take_hit(from, 10_000, ko::FINISHERS, false, false, Weapon::None);
     }
 }
 

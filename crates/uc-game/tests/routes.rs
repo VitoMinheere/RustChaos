@@ -4,25 +4,18 @@
 use glam::vec3;
 use uc_game::{Controls, Game, State};
 use uc_world::mav::{self, Mav};
-use uc_world::{Level, LoadOptions};
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 /// Walking and climbing fences, as the AI gets about.
 const WALKER: u8 = mav::caps(mav::GOTO) | mav::caps(mav::CLIMB_OVER);
 
 #[test]
 fn a_follower_goes_round_a_building() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("police1") else { return };
     let m = Mav::new(&level);
     let mut g = Game::new(&level, true);
-    for _ in 0..(60.0 / DT) as usize {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-        if g.time > 1.0 && !g.in_conversation() {
-            break;
-        }
-    }
+    common::settle(&mut g, &level, 60.0);
     let p = g.player.unwrap();
     // Two squares a few blocks apart that a straight walk can't join, and the way round on
     // foot twice as far: Darci at one, the follower at the other.
@@ -87,16 +80,7 @@ fn a_follower_goes_round_a_building() {
 /// danger rather than into the nearest wall.
 #[test]
 fn a_mission_civilian_runs_from_gunfire() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
-    let mut g = Game::new(&level, true);
-    for _ in 0..(60.0 / DT) as usize {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-        if g.time > 1.0 && !g.in_conversation() {
-            break;
-        }
-    }
+    let Some((level, mut g)) = common::begin("police1") else { return };
     let Some(i) = g.people.iter().position(|q| !q.fake && q.way != 0 && q.ai == uc_game::person::AI_CIV && !q.is_dead() && matches!(q.state, State::Move))
         else { return };
     let start = g.people[i].fig.pos;

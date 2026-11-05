@@ -5,12 +5,13 @@
 
 use glam::Vec3;
 use uc_game::{Controls, Game};
-use uc_world::{reflect_page, Level, LoadOptions, MOON_PAGE, REFLECT, UNIT};
+use uc_world::{reflect_page, Level, MOON_PAGE, REFLECT, UNIT};
+
+mod common;
 
 /// The Fallen, a rainy night, with Darci stood in the middle of the puddle nearest her.
 fn in_a_puddle() -> Option<(Level, Game, f32)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, "MIB", &LoadOptions { fullbright: false, character: true, overrides: None }).unwrap();
+    let level = common::load_lit("MIB")?;
     let mut g = Game::new(&level, true);
     g.skip_cutscene();
     g.update(1.0 / 30.0, &Controls::default(), &level);

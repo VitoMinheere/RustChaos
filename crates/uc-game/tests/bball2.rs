@@ -51,18 +51,6 @@ fn gatecrasher_script_runs_to_a_win() {
     assert_eq!(r.g.outcome, Some(Outcome::Won));
 }
 
-impl Run {
-    /// Talks to the person made by `way` from `off` of them, facing them, then plays `secs`.
-    fn talk_to(&mut self, way: usize, off: glam::Vec3, secs: f32) {
-        let at = self.g.people[self.who(way)].fig.pos;
-        self.stand(at + off);
-        let me = self.player();
-        self.g.people[me].fig.angle = uc_world::character::angle_of(glam::vec2(-off.x, -off.z));
-        self.play(DT, Controls { action: true, ..Default::default() });
-        self.play(secs, Controls::default());
-    }
-}
-
 /// The club and Posheeta's have floors 256 up, under the warehouses' roofs (at 2304 and
 /// 768): everyone made on them stays on them rather than dropping through to the street
 /// level under them, as does Darci walking in.

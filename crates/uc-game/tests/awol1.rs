@@ -2,9 +2,8 @@
 //! safe zone; then Roper opens the gate (which electrifies the fences) and carries Officer
 //! Beck there. The fighting and the travelling are done by cheating. Skipped without an install.
 
-use glam::{vec2, vec3, Vec2, Vec3};
-use uc_game::person::ko;
-use uc_game::{Controls, Outcome, State, Weapon};
+use glam::{vec2, vec3, Vec2};
+use uc_game::{Controls, Outcome, State};
 use uc_world::character::person as ptype;
 
 mod common;
@@ -31,33 +30,6 @@ fn start() -> Option<Run> {
 }
 
 impl Run {
-    fn alive(&self, way: usize) -> Option<usize> {
-        self.g.people.iter().position(|p| p.way == way && !p.removed)
-    }
-
-    fn playing_as(&self, kind: u8) -> bool {
-        self.g.people[self.player()].kind == kind
-    }
-
-    /// Puts person `i` on the ground at `at`, facing along `dir`, and lets them settle.
-    fn put(&mut self, i: usize, at: Vec3, dir: Vec2) {
-        let y = self.level.ground.surface(&self.level.map, at.x, at.z, at.y + 64.0);
-        self.g.people[i].fig.pos = vec3(at.x, y, at.z);
-        self.g.people[i].fig.angle = uc_world::character::angle_of(dir);
-    }
-
-    /// Presses action once no filmed conversation is holding the player still.
-    fn press_action(&mut self) {
-        self.until(60.0, |r| !r.g.in_conversation());
-        self.play(DT, Controls { action: true, ..Default::default() });
-    }
-
-    fn kill(&mut self, way: usize) {
-        let i = self.alive(way).unwrap_or_else(|| panic!("nobody from point {way}"));
-        let from = self.g.people[i].fig.pos + vec3(50.0, 0.0, 0.0);
-        self.g.people[i].take_hit(from, 10_000, ko::FINISHERS, false, false, Weapon::None);
-    }
-
     /// The gate (point 43): "Gate Open", and the fences by Beck come on.
     fn open_the_gate(&mut self) {
         let p = self.player();

@@ -103,7 +103,7 @@ fn wrap(a: f32) -> f32 {
 /// where it meant scores; that's kept. Its check for sitting inside a prop isn't here.
 pub fn converse_camera(s: Vec3, angle: f32, l: Vec3, clear: impl Fn(Vec3, Vec3) -> bool, rand: &mut impl FnMut() -> u32) -> (Vec3, Vec3) {
     const ANGLES: usize = 16;
-    let d = Vec2::new(l.x - s.x, l.z - s.z).abs();
+    let d = crate::flat(l, s).abs();
     let dist = (d.max_element() + d.min_element() / 2.0).clamp(0x180 as f32, 0x300 as f32);
     let head = s + Vec3::new(0.0, 0x60 as f32, 0.0);
     let facing = angle * 2048.0 / std::f32::consts::TAU;
@@ -115,8 +115,8 @@ pub fn converse_camera(s: Vec3, angle: f32, l: Vec3, clear: impl Fn(Vec3, Vec3) 
             continue;
         }
         *sc += 40;
-        let a1 = calc_angle(Vec2::new(s.x - at.x, s.z - at.z));
-        let a2 = calc_angle(Vec2::new(l.x - at.x, l.z - at.z));
+        let a1 = calc_angle(crate::flat(s, at));
+        let a2 = calc_angle(crate::flat(l, at));
         if wrap(a2 - a1).abs() > 100.0 {
             *sc += 15;
         }

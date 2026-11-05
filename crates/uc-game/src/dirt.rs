@@ -8,11 +8,9 @@
 //! second; here they are in units a second.
 
 use uc_formats::units::radians;
-use crate::rand;
+use crate::{rand, TICKS};
 use glam::{vec3, Vec2, Vec3};
 
-/// Ticks a second the original's dirt moves at.
-const TICKS: f32 = 20.0;
 /// `dx = -SIN(angle) >> 13 << 4`: 128 sixteenths a tick along the facing.
 const FORWARD: f32 = 128.0 / 16.0 * TICKS;
 /// `dy = -2 << 4`: 32 sixteenths a tick down.

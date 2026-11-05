@@ -545,8 +545,7 @@ impl Script {
     }
 
     fn rand(&mut self) -> u32 {
-        self.rng = self.rng.wrapping_mul(69069).wrapping_add(1);
-        self.rng >> 16
+        crate::rand(&mut self.rng)
     }
 
     /// A cop has been killed. The original keeps the tally in counter 7, bumped wherever

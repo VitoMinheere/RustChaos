@@ -7,21 +7,13 @@ use glam::vec3;
 use uc_game::person::AI_CIV;
 use uc_game::{Controls, Game, State, Weapon};
 use uc_world::character::{anim, person as ptype};
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 fn start() -> Option<(Level, Game)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
-    let mut g = Game::new(&level, true);
-    for _ in 0..(60.0 / DT) as usize {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-        if g.time > 1.0 && !g.in_conversation() {
-            break;
-        }
-    }
+    let (level, mut g) = common::begin("police1")?;
     let p = g.player.unwrap();
     g.people[p].give(Weapon::Pistol);
     g.people[p].weapon = Weapon::Pistol;
@@ -111,13 +103,9 @@ fn fired_at_with_their_hands_up_they_get_down() {
 #[test]
 fn a_blast_kills_flat_out() {
     // Semtex's drum 324 going up beside someone.
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "semtex", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("semtex") else { return };
     let mut g = Game::new(&level, true);
-    for _ in 0..30 {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-    }
+    common::frames(&mut g, &level, 30);
     let k = g.barrels.iter().position(|b| b.way == 324).expect("drum 324");
     let at = g.barrels[k].pos;
     let i = g.people.iter().position(|q| !q.player && !q.removed && !q.is_dead()).expect("someone");

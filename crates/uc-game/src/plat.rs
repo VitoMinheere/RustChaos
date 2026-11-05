@@ -15,8 +15,6 @@
 
 use glam::{Vec2, Vec3};
 
-pub const TICK: f32 = 1.0 / 20.0;
-
 /// `LP_*` (fallen/Headers/Mission.h), as `PLAT_FLAG_*`.
 pub const LOCK_TO_AXIS: i32 = 1;
 pub const LOCK_ROTATION: i32 = 2;

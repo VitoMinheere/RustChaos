@@ -5,13 +5,13 @@
 use glam::{vec2, vec3, Vec2, Vec3};
 use uc_game::person::{ko, Controls, Person, State};
 use uc_world::character::person as ptype;
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 fn level() -> Option<Level> {
-    let game = uc_formats::default_install()?;
-    Some(Level::load(&game, "ftutor1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap())
+    common::load("ftutor1")
 }
 
 fn darci(level: &Level, pos: Vec3, facing: Vec2) -> Person {
@@ -76,8 +76,7 @@ fn low_ledges_are_jumped_onto() {
 
 #[test]
 fn high_ledges_are_grabbed_and_climbed() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "assault1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("assault1") else { return };
     // A 256-high crate at (54.0, 64.2) squares: too high to jump onto, so grab and pull up.
     let c = vec2(54.0, 64.2) * 256.0;
     let mut p = darci(&level, vec3(c.x - 230.0, 0.0, c.y), vec2(1.0, 0.0));
@@ -95,8 +94,7 @@ fn high_ledges_are_grabbed_and_climbed() {
 /// or right takes her a hand along the edge.
 #[test]
 fn hanging_from_a_ledge() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "assault1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("assault1") else { return };
     let c = vec2(54.0, 64.2) * 256.0;
     let walk = Controls { wish: vec2(1.0, 0.0), ..Default::default() };
     let grab = |level: &Level| {
@@ -142,8 +140,7 @@ fn hanging_from_a_ledge() {
 
 #[test]
 fn stairs_have_steps() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "assault1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("assault1") else { return };
     // Stair props (prim 41, steps 32 apart up to 128) at (61, 66) and (62, 66) squares.
     let mut heights = Vec::new();
     for i in 0..=40 {
@@ -179,8 +176,7 @@ fn ladder_climb_reaches_the_roof() {
 
 #[test]
 fn a_ladder_off_the_ground_is_caught_with_a_jump() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "MIB", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("MIB") else { return };
     // The way up to The Fallen's first clue: a ladder from 128 to 640 over ground at 0, out of
     // reach of anyone walking into it.
     let l = *level.ground.ladders.iter().find(|l| l.base == 128.0 && (l.foot - vec2(18048.0, 15072.0)).length() < 1.0).unwrap();
@@ -266,8 +262,7 @@ fn knocked_down_people_get_up_again() {
 
 #[test]
 fn cables_carry_you_down() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "assault1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("assault1") else { return };
     let cable = &level.ground.cables[0];
     let (high, low) = if cable.at(0.0).y > cable.at(1.0).y { (0.0, 1.0) } else { (1.0, 0.0) };
     // Jump up to the cable near its high end.
@@ -289,8 +284,7 @@ fn cables_carry_you_down() {
 
 #[test]
 fn chain_link_fences_can_be_climbed() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "assault1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("assault1") else { return };
     // A fence along z = 72 squares from x = 58 to 64, 256 high.
     let z = 72.0 * 256.0;
     let mut p = darci(&level, vec3(61.0 * 256.0, 0.0, z - 120.0), vec2(0.0, 1.0));
@@ -310,8 +304,7 @@ fn chain_link_fences_can_be_climbed() {
 /// 4134; `ACTION_DROP_DOWN`).
 #[test]
 fn fence_climbing_follows_the_stick() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "assault1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("assault1") else { return };
     let z = 72.0 * 256.0;
     let onto = |p: &mut Person| {
         let walk = Controls { wish: vec2(0.0, 1.0), ..Default::default() };

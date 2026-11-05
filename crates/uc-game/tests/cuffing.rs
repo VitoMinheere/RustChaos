@@ -9,9 +9,10 @@ use glam::{vec2, vec3, Vec3};
 use uc_game::person::{Grab, AI_GANG};
 use uc_game::{Controls, Game, State};
 use uc_world::character::anim;
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 fn step(g: &mut Game, level: &Level, c: &Controls) {
     let p = g.player.unwrap();
@@ -25,8 +26,7 @@ fn step(g: &mut Game, level: &Level, c: &Controls) {
 /// RTA, Darci on open ground facing +z, and a tough gang member a step in front of her,
 /// facing her: (level, game, Darci, him).
 fn start() -> Option<(Level, Game, usize, usize)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let level = common::load("police1")?;
     let mut g = Game::new(&level, true);
     for _ in 0..120 {
         g.skip_cutscene();

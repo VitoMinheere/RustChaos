@@ -2,11 +2,12 @@
 
 use glam::Vec3;
 use uc_game::Game;
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
+
+mod common;
 
 fn load(mission: &str) -> Option<Level> {
-    let game = uc_formats::default_install()?;
-    Some(Level::load(&game, mission, &LoadOptions { fullbright: true, character: false, overrides: None }).unwrap())
+    common::load_without_people(mission)
 }
 
 /// Rat Catch lays one sheet, with no trigger, so it is there from the start.

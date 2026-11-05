@@ -36,10 +36,10 @@ impl Game {
             return false;
         }
         let own_guard = |o: &Person| o.ai == person::AI_BODYGUARD
-            && (if o.other == 0 { self.player } else { self.by_way.get(&o.other).copied() }) == Some(pi);
+            && self.way_or_player(o.other) == Some(pi);
         self.people.iter().enumerate().any(|(j, o)| {
             let s = o.snap();
-            let d = Vec2::new(s.pos.x - p.fig.pos.x, s.pos.z - p.fig.pos.z).length();
+            let d = crate::flat(s.pos, p.fig.pos).length();
             j != pi && s.present && s.arrestable && !s.player && !own_guard(o)
                 && d < person::ARREST_RANGE && (s.pos.y - p.fig.pos.y).abs() < 64.0
         })
@@ -110,7 +110,7 @@ impl Game {
                 if let Some(ob) = find_ob(level, pos, 256.0, Some(&self.searchable)) {
                     let o = &level.map.objects[ob];
                     let at = Vec3::new(o.x as f32, pos.y, o.z as f32);
-                    let to = Vec2::new(at.x - pos.x, at.z - pos.z).normalize_or_zero();
+                    let to = crate::flat(at, pos).normalize_or_zero();
                     let p = &mut self.people[pi];
                     if to == Vec2::ZERO || p.facing_dir().dot(to) > std::f32::consts::FRAC_1_SQRT_2 {
                         if to != Vec2::ZERO {
@@ -124,7 +124,7 @@ impl Game {
                 }
                 // Search someone at her feet (`find_searchable_person`): dead, out cold or
                 // arrested, not searched yet, with their pelvis within 64 of her.
-                let flat = |h: Vec3| Vec2::new(h.x - pos.x, h.z - pos.z).length();
+                let flat = |h: Vec3| crate::flat(h, pos).length();
                 let body = self.people.iter().enumerate()
                     .filter(|&(j, o)| j != pi && !o.player && !o.removed && !o.searched
                         && (o.is_dead() || o.knocked_out || o.arrested) && !matches!(o.state, State::Carried { .. }))
@@ -198,7 +198,7 @@ impl Game {
 
     fn cop_aiming_at(&mut self, t: usize, cop: usize) {
         let q = &self.people[t];
-        if matches!(q.kind, ptype::DARCI | ptype::ROPER | ptype::COP | ptype::HOSTAGE) || q.removed || q.is_dead() || q.is_down() {
+        if matches!(q.kind, ptype::DARCI | ptype::ROPER | ptype::COP | ptype::HOSTAGE) || !q.on_feet() {
             return;
         }
         // She calls out to them (Person.cpp:18200): "Freeze!" either way one time in four,
@@ -399,15 +399,15 @@ impl Game {
             let armed = p.weapon != Weapon::None || p.knife || p.bat || p.guns != 0;
             if let Some(at) = p.fetch {
                 let lying = self.items.iter().any(|it| it.way == 0 && it.pos.distance(at) < 1.0);
-                if armed || !lying || p.is_down() || p.is_dead() || p.removed {
+                if armed || !lying || !p.on_feet() {
                     self.people[i].fetch = None;
-                } else if Vec2::new(at.x - p.fig.pos.x, at.z - p.fig.pos.z).length() < 60.0 {
+                } else if crate::flat(at, p.fig.pos).length() < 60.0 {
                     self.pick_up_for(i);
                 }
                 continue;
             }
             let every = if p.aggro() { 256 } else { 128 };
-            if !(tick + i).is_multiple_of(every) || armed || p.player || p.removed || p.is_down() || p.is_dead()
+            if !(tick + i).is_multiple_of(every) || armed || p.player || !p.on_feet()
                 || p.ai == person::AI_CIV || p.ai == person::AI_BODYGUARD || p.is_mib() || !matches!(p.state, State::Move)
                 || self.wares.under_roof(&level.map, &level.ground, p.fig.pos).is_some()
             {
@@ -535,10 +535,10 @@ impl Game {
         let Some(me) = self.player else { return };
         for i in 0..self.people.len() {
             let p = &self.people[i];
-            if p.ai != person::AI_BODYGUARD || p.player || p.removed || p.is_down() || p.is_dead() || p.aggro() || p.weapon.is_gun() {
+            if p.ai != person::AI_BODYGUARD || p.player || !p.on_feet() || p.aggro() || p.weapon.is_gun() {
                 continue;
             }
-            let client = if p.other == 0 { Some(me) } else { self.by_way.get(&p.other).copied() };
+            let client = self.way_or_player(p.other);
             if client != Some(me) {
                 continue;
             }
@@ -546,7 +546,7 @@ impl Game {
                 continue;
             }
             let at = p.fig.pos;
-            let flat = |v: Vec3| Vec2::new(v.x - at.x, v.z - at.z).length();
+            let flat = |v: Vec3| crate::flat(v, at).length();
             let near = self.items.iter()
                 .filter(|it| it.way == 0 && matches!(it.kind, 2 | 4 | 5 | 6 | 8 | SNIPER) && wanted(p, it.kind))
                 .filter(|it| (it.pos.y - at.y).abs() < 100.0 && flat(it.pos) < crate::GUARDS * 256.0)
@@ -694,7 +694,7 @@ impl Game {
         let at = me.fig.pos;
         use uc_world::character::person as ptype;
         let nearest = self.people.iter()
-            .filter(|p| !p.removed && !p.is_dead() && matches!(p.kind, ptype::THUG_RASTA | ptype::THUG_GREY | ptype::THUG_RED | ptype::TRAMP))
+            .filter(|p| !p.is_dead() && matches!(p.kind, ptype::THUG_RASTA | ptype::THUG_GREY | ptype::THUG_RED | ptype::TRAMP))
             .map(|p| (p.fig.pos - at).length())
             .filter(|&d| d < 0xc00 as f32)
             .min_by(|a, b| a.total_cmp(b));

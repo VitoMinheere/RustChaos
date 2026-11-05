@@ -50,8 +50,7 @@ fn nobody_walks_into_a_no_go_square() {
 
 #[test]
 fn nobody_wanders_onto_a_no_wander_square() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = uc_world::Level::load(&game, "police1", &uc_world::LoadOptions { fullbright: true, character: false, overrides: None }).unwrap();
+    let Some(level) = common::load_without_people("police1") else { return };
     let mut wand = Wander::new(&level.map, &level.game);
     let marked: Vec<usize> = (0..128 * 128)
         .filter(|&k| level.mission.zones[k] & zone_flags::NO_WANDER != 0 && !level.map.squares[k].has(flags::HIDDEN))

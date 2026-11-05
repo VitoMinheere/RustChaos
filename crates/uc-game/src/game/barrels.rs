@@ -24,8 +24,8 @@ impl Game {
             return;
         }
         self.clocks.barrel += dt;
-        while self.clocks.barrel >= barrel::TICK {
-            self.clocks.barrel -= barrel::TICK;
+        while self.clocks.barrel >= crate::TICK {
+            self.clocks.barrel -= crate::TICK;
             let now: Vec<Vec3> = self.people.iter()
                 .map(|p| if p.removed || p.aboard() { Vec3::NAN } else { p.fig.pos })
                 .collect();

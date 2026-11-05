@@ -5,7 +5,7 @@
 //! which needs him up the ramp to it, round the square too steep to walk up
 //! (`MAV_precalculate`). Skipped without an install.
 
-use glam::{vec2, vec3, Vec3};
+use glam::vec3;
 use uc_game::person::ko;
 use uc_game::{Controls, Outcome, State, Weapon};
 
@@ -13,20 +13,6 @@ mod common;
 use common::{Run, DT};
 
 impl Run {
-    /// Talks to the person made by `way` from `off` of them, facing them, then plays `secs`.
-    fn talk_to(&mut self, way: usize, off: Vec3, secs: f32) {
-        let at = self.g.people[self.who(way)].fig.pos;
-        self.stand(at + off);
-        let me = self.player();
-        self.g.people[me].fig.angle = uc_world::character::angle_of(vec2(-off.x, -off.z));
-        self.play(DT, Controls { action: true, ..Default::default() });
-        self.play(secs, Controls::default());
-    }
-
-    fn beacons(&self) -> Vec<String> {
-        self.g.beacons().into_iter().map(|(l, _)| l).collect()
-    }
-
     /// Meets the contact: then it's Mr X's beacon, not his.
     fn meet_the_contact(&mut self) {
         self.play(2.0, Controls::default());

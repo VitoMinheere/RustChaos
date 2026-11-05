@@ -12,21 +12,13 @@ mod common;
 use common::{Run, DT};
 
 impl Run {
-    /// Walks up to the person event point `way` created, talks to them, and lets them finish.
-    fn talk_to(&mut self, way: usize, secs: f32) {
-        let at = self.g.people[self.who(way)].fig.pos;
-        self.stand(at + vec3(130.0, 0.0, 0.0));
-        self.play(DT, Controls { action: true, ..Default::default() });
-        self.play(secs, Controls::default());
-    }
-
     /// How far person `i` is from the player.
     fn off_player(&self, i: usize) -> f32 {
         self.g.people[i].fig.pos.distance(self.g.player().unwrap().fig.pos)
     }
 
     /// The way from the player with the longest clear run, of sixteen.
-    fn open_way(&self) -> glam::Vec2 {
+    fn clearest_way(&self) -> glam::Vec2 {
         let at = self.g.player().unwrap().fig.pos + vec3(0.0, 60.0, 0.0);
         let clear = |d: glam::Vec2| self.level.ground.first_hit(at, at + vec3(d.x, 0.0, d.y) * 4000.0).unwrap_or(1.0);
         (0..16)
@@ -43,9 +35,9 @@ impl Run {
 fn rat_catch() -> Option<(Run, [usize; 2])> {
     let mut r = common::start("Gangorder2")?;
     r.play(2.0, Controls::default());
-    r.talk_to(10, 45.0);
-    r.talk_to(110, 25.0);
-    r.talk_to(113, 25.0);
+    r.walk_up_and_talk(10, 45.0);
+    r.walk_up_and_talk(110, 25.0);
+    r.walk_up_and_talk(113, 25.0);
     let boys = [r.who(110), r.who(113)];
     for &i in &boys {
         assert_eq!(r.g.people[i].ai, uc_game::person::AI_BODYGUARD);
@@ -84,7 +76,7 @@ fn both_boys_keep_up_side_by_side() {
     for &i in &boys {
         assert!(r.off_player(i) < 400.0, "point {} is {:.0} off", r.g.people[i].way, r.off_player(i));
     }
-    let way = r.open_way();
+    let way = r.clearest_way();
     for k in 0..20 {
         r.play(0.3, Controls { wish: way, run: true, sprint: k >= 10, ..Default::default() });
     }
@@ -201,7 +193,7 @@ fn the_other_boy_carries_on_when_one_is_killed() {
     r.play(2.0, Controls::default());
     assert!(r.g.people[boys[0]].is_dead());
     let other = boys[1];
-    let way = r.open_way();
+    let way = r.clearest_way();
     r.play(3.0, Controls { wish: way, run: true, ..Default::default() });
     r.play(4.0, Controls::default());
     assert!(r.off_player(other) < 300.0, "Bish stopped following: {:.0} off", r.off_player(other));

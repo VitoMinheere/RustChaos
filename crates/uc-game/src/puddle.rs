@@ -33,8 +33,6 @@ const CORNER: u8 = 2;
 const MAX_PUDDLES: usize = 255;
 /// `DRIP_MAX_DRIPS`.
 const MAX_DRIPS: usize = 1024;
-/// Ticks a second the original's drips grow and fade at.
-const TICKS: f32 = 20.0;
 /// How near the player a puddle drips, in world units.
 const NEAR: f32 = 24.0 * 256.0;
 
@@ -266,7 +264,7 @@ impl Puddles {
     /// The drips spread and fade a tick at a time (`DRIP_process`), and while it rains each
     /// puddle near `near` has an even chance a tick of one landing in it.
     pub fn update(&mut self, dt: f32, raining: bool, near: Option<Vec3>) {
-        self.clock += dt * TICKS;
+        self.clock += dt * crate::TICKS;
         while self.clock >= 1.0 {
             self.clock -= 1.0;
             for d in &mut self.drips {

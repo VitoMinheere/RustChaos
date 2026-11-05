@@ -4,7 +4,9 @@
 use glam::{vec2, Vec2, Vec3};
 use uc_game::person::{ko, Grab};
 use uc_game::{Controls, Game, Outcome, State};
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
+
+mod common;
 
 fn flat(v: Vec3) -> Vec2 {
     vec2(v.x, v.z)
@@ -245,11 +247,10 @@ impl Bot {
 
 #[test]
 fn bot_completes_the_combat_tutorial() {
-    let Some(game) = uc_formats::default_install() else {
+    let Some(level) = common::load("ftutor1") else {
         eprintln!("no Urban Chaos install found (set UC_GAME_DIR); skipping");
         return;
     };
-    let level = Level::load(&game, "ftutor1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
     let mut g = Game::new(&level, true);
     assert!(g.unsupported().is_empty(), "unsupported: {:?}", g.unsupported());
     let mut bot = Bot { frame: 0, warmup: 0, last: Vec3::ZERO, detour: (0, 0.0) };
@@ -301,8 +302,7 @@ fn bot_completes_the_combat_tutorial() {
 /// (`hardware_input_continue`, Game.cpp:2447).
 #[test]
 fn a_tutorial_message_holds_the_game_till_put_away() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "ftutor1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("ftutor1") else { return };
     let mut g = Game::new(&level, true);
     let dt = 1.0 / 30.0;
     g.update(dt, &Controls::default(), &level);

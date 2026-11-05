@@ -31,6 +31,12 @@ impl Game {
         }
     }
 
+    /// Who a waypoint names as someone's client, leader or speaker: the person point `way`
+    /// made, or the player for none (0).
+    pub(crate) fn way_or_player(&self, way: usize) -> Option<usize> {
+        if way == 0 { self.player } else { self.by_way.get(&way).copied() }
+    }
+
     pub(crate) fn run_script(&mut self, dt: f32, level: &Level) {
         let Some(mut script) = self.script.take() else { return };
         let commands = script.update(dt, &Scene { game: self, level });
@@ -593,11 +599,11 @@ impl Game {
     /// behind a low wall.
     pub(crate) fn can_a_see_b(&self, a: usize, b: usize, level: &Level) -> bool {
         let (pa, pb) = (&self.people[a], &self.people[b]);
-        if pa.removed || pb.removed || pa.is_dead() {
+        if pb.removed || pa.is_dead() {
             return false;
         }
         let (from, to) = (pa.fig.pos, self.thing_pos(b));
-        let d = Vec2::new(to.x - from.x, to.z - from.z);
+        let d = flat(to, from);
         let dist = d.length();
         if dist > 8.0 * 256.0 {
             return false;

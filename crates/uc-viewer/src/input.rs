@@ -62,6 +62,14 @@ impl Input {
     pub(crate) fn hit(&self, k: KeyCode) -> bool {
         self.pressed.contains(&k)
     }
+    /// Forgets what happened this frame (presses, typing, mouse movement), once it's been read.
+    pub(crate) fn end_frame(&mut self) {
+        self.pressed.clear();
+        self.typed.clear();
+        self.lmb_pressed = false;
+        self.mouse = Vec2::ZERO;
+        self.wheel = 0.0;
+    }
 }
 
 impl App {

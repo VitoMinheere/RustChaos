@@ -19,8 +19,8 @@ impl Game {
             }
         }
         self.clocks.creature += dt;
-        while self.clocks.creature >= creature::TICK {
-            self.clocks.creature -= creature::TICK;
+        while self.clocks.creature >= crate::TICK {
+            self.clocks.creature -= crate::TICK;
             self.creature_tick(level, frozen);
         }
     }
@@ -32,8 +32,8 @@ impl Game {
             creature::Seen {
                 pos,
                 head: Vec3::new(hips.x, pos.y + 2.0 * (hips.y - pos.y).max(40.0), hips.z),
-                alive: !p.removed && !p.is_dead() && !p.is_down(),
-                dead: p.is_dead() || p.removed,
+                alive: p.on_feet(),
+                dead: p.is_dead(),
                 player: p.player,
                 ai: p.ai,
                 up_high: pos.y - level.map.ground_height(pos.x, pos.z) > 128.0,
@@ -65,7 +65,7 @@ impl Game {
         for f in &mut self.fireballs {
             f.vel.y -= creature::Fireball::GRAVITY;
             f.pos += f.vel;
-            f.age += creature::TICK;
+            f.age += crate::TICK;
             if f.pos.y < level.ground.surface(&level.map, f.pos.x, f.pos.z, f.pos.y + 64.0) {
                 bursts.push(f.pos);
                 f.age = creature::Fireball::LIFE;

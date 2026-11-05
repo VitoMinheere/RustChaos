@@ -3,22 +3,16 @@
 
 use glam::{vec2, vec3, Vec3};
 use uc_game::{Controls, Game, Mine, Weapon};
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 fn start() -> Option<(Level, Game)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, "AWOL1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let level = common::load("AWOL1")?;
     let mut g = Game::new(&level, true);
     // Past the opening, and the talk with Roper that holds her still.
-    for _ in 0..(90.0 / DT) as usize {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-        if g.time > 1.0 && !g.in_conversation() {
-            break;
-        }
-    }
+    common::settle(&mut g, &level, 90.0);
     Some((level, g))
 }
 

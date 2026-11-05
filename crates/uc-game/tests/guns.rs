@@ -4,13 +4,13 @@
 
 use glam::{vec2, Vec2};
 use uc_game::{Controls, Game, Item, Outcome, State, Weapon};
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 fn load(mission: &str) -> Option<(Level, Game)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, mission, &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let level = common::load(mission)?;
     let g = Game::new(&level, true);
     Some((level, g))
 }
@@ -18,10 +18,7 @@ fn load(mission: &str) -> Option<(Level, Game)> {
 #[test]
 fn pick_up_guns_and_ammo_and_switch() {
     let Some((level, mut g)) = load("fight2") else { return };
-    for _ in 0..30 {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-    }
+    common::frames(&mut g, &level, 30);
     let pi = g.player.unwrap();
     let drop = |g: &mut Game, kind: u8| {
         let pos = g.people[pi].fig.pos;
@@ -68,10 +65,7 @@ fn pick_up_guns_and_ammo_and_switch() {
 #[test]
 fn bare_handed_the_best_weapon_comes_out_first() {
     let Some((level, mut g)) = load("fight2") else { return };
-    for _ in 0..30 {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-    }
+    common::frames(&mut g, &level, 30);
     let pi = g.player.unwrap();
     g.people[pi].give(Weapon::Knife);
     g.people[pi].give(Weapon::Pistol);

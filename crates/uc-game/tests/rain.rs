@@ -4,11 +4,12 @@
 use glam::vec3;
 use std::collections::BTreeMap;
 use uc_game::{Controls, Game};
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
+
+mod common;
 
 fn load(mission: &str) -> Option<(Level, Game)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, mission, &LoadOptions { fullbright: false, character: true, overrides: None }).unwrap();
+    let level = common::load_lit(mission)?;
     let g = Game::new(&level, true);
     Some((level, g))
 }

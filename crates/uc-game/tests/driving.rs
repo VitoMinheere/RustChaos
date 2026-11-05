@@ -3,14 +3,14 @@
 
 use glam::{vec2, Vec2};
 use uc_game::{Controls, Drive, Game, Outcome, State};
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 #[test]
 fn bot_drives_three_laps() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "testdrive1a", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("testdrive1a") else { return };
     let mut g = Game::new(&level, true);
     assert!(g.unsupported().is_empty(), "unsupported: {:?}", g.unsupported());
     // The road round the island, through the lap checkpoints (enemy_radius points 58..63):
@@ -107,9 +107,8 @@ fn bot_drives_three_laps() {
 
 #[test]
 fn driving_silver_and_gold_scripts_run() {
-    let Some(game) = uc_formats::default_install() else { return };
     for m in ["testdrive2", "testdrive3"] {
-        let level = Level::load(&game, m, &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+        let Some(level) = common::load(m) else { return };
         let mut g = Game::new(&level, true);
         assert!(g.unsupported().is_empty(), "{m}: unsupported {:?}", g.unsupported());
         for _ in 0..(30.0 / DT) as usize {
@@ -127,8 +126,7 @@ fn driving_silver_and_gold_scripts_run() {
 fn people_get_out_of_the_cars_way() {
     // Driving Silver lost with "the training officer has been killed" when the car mounted
     // the kerb where he stands: now he runs out of the way, as in the original.
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "testdrive2", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("testdrive2") else { return };
     let mut g = Game::new(&level, true);
     for _ in 0..(5.0 / DT) as usize {
         g.skip_cutscene();
@@ -159,8 +157,7 @@ fn people_get_out_of_the_cars_way() {
 fn driving_silver_swaps_its_instructor_without_killing_him() {
     // Passing the raised section (point 250) moves the instructor to the finish: a
     // kill_waypoint takes the first one away and a new one appears. That isn't a death.
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "testdrive2", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("testdrive2") else { return };
     let mut g = Game::new(&level, true);
     for _ in 0..(5.0 / DT) as usize {
         g.skip_cutscene();
@@ -186,8 +183,7 @@ fn driving_silver_swaps_its_instructor_without_killing_him() {
 fn the_handbrake_slides_the_car_round_corners() {
     // Flat out, then hard left: with the handbrake the car turns further and slides
     // sideways; without, it grips.
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "testdrive1a", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("testdrive1a") else { return };
     let corner = |handbrake: bool| {
         let mut v = g_car(&level);
         let go = Drive { throttle: 1.0, ..Default::default() };
@@ -213,8 +209,7 @@ fn the_handbrake_slides_the_car_round_corners() {
 fn a_handbrake_turn_swings_the_car_right_round() {
     // At a good lick, full lock and the handbrake: the car spins through 180 degrees (a
     // bootlegger turn), ready to drive off the way it came.
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "testdrive1a", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("testdrive1a") else { return };
     let mut v = g_car(&level);
     for _ in 0..(0.8 / DT) as usize {
         v.update(Drive { throttle: 1.0, ..Default::default() }, DT, &level.ground, &level.map);
@@ -233,8 +228,7 @@ fn a_handbrake_turn_swings_the_car_right_round() {
 fn only_the_foot_down_hard_spins_the_wheels() {
     // `pedals` (vehicle.cpp:3622): flat out (`VEH_FASTER`) from still spins them till 400;
     // easing away doesn't, nor does braking out of reverse until the car has stopped.
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "testdrive1a", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("testdrive1a") else { return };
     let mut v = g_car(&level);
     let drive = |v: &mut uc_game::Vehicle, d: Drive, secs: f32| {
         (0..(secs / DT) as usize).map(|_| { v.update(d, DT, &level.ground, &level.map); v.smokin }).collect::<Vec<_>>()

@@ -8,21 +8,14 @@ use std::collections::BTreeMap;
 
 /// The missions in the order the game lists them: (file name, title).
 fn missions(game: &std::path::Path) -> Vec<(String, String)> {
-    let text = uc_formats::resolve(game, "data\\urban.sty")
-        .and_then(|p| std::fs::read(p).ok())
-        .map(|b| b.iter().map(|&c| c as char).collect::<String>())
-        .unwrap_or_default();
+    let text = uc_formats::sty::read(game);
     let mut out: Vec<(String, String)> = Vec::new();
-    for line in text.lines().filter(|l| !l.trim_start().starts_with("//")) {
-        let f: Vec<&str> = line.split(" : ").map(str::trim).collect();
-        if f.len() < 9 || !f[7].to_ascii_lowercase().ends_with(".ucm") {
+    for line in uc_formats::sty::lines(&text) {
+        let (Some(name), Some(title)) = (line.mission(), line.title()) else { continue };
+        if out.iter().any(|e| e.0.eq_ignore_ascii_case(name)) {
             continue;
         }
-        let name = f[7][..f[7].len() - 4].to_string();
-        if out.iter().any(|e| e.0.eq_ignore_ascii_case(&name)) {
-            continue;
-        }
-        out.push((name, f[8].to_string()));
+        out.push((name.to_string(), title.to_string()));
     }
     out
 }

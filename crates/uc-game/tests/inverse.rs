@@ -3,29 +3,9 @@
 //! active while), which with point 5 tells him to get in; Transmission Terminated's 81 has no
 //! trigger, so inverted it never goes off. Skipped without an install.
 
-use glam::vec3;
 use uc_game::Controls;
 
 mod common;
-use common::{Run, DT};
-
-impl Run {
-    /// Gets into the car that event point `way` created, from its door.
-    fn get_in(&mut self, way: usize) -> bool {
-        let v = self.g.vehicles.iter().position(|v| v.way == way && !v.wrecked()).expect("the car is there");
-        let door = self.g.vehicles[v].door();
-        self.stand(vec3(door.x, self.g.vehicles[v].pos.y, door.y));
-        self.play(DT, Controls { action: true, ..Default::default() });
-        let i = self.g.player.unwrap();
-        for _ in 0..150 {
-            if !matches!(self.g.people[i].state, uc_game::State::Enter { .. }) {
-                break;
-            }
-            self.play(DT, Controls::default());
-        }
-        self.g.player_vehicle().is_some()
-    }
-}
 
 #[test]
 fn an_inverted_point_holds_while_its_trigger_doesnt() {

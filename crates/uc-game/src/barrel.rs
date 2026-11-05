@@ -16,8 +16,6 @@ use uc_formats::units::radians;
 use crate::Barrel;
 use glam::{Vec2, Vec3};
 
-pub const TICK: f32 = 1.0 / 20.0;
-
 /// `BARREL_HEIGHT`, `_SPHERE_RADIUS`, `_SPHERE_DIST`, `_GRAVITY`.
 pub const HEIGHT: f32 = 93.0;
 const SPHERE_RADIUS: i64 = 85;
@@ -318,7 +316,7 @@ mod tests {
 
     fn run(barrels: &mut [Barrel], turns: usize) {
         let mut seed = 5u32;
-        let mut rand = || { seed = seed.wrapping_mul(69069).wrapping_add(1); seed >> 16 };
+        let mut rand = || crate::rand(&mut seed);
         for _ in 0..turns {
             process(barrels, &Flat, &mut rand);
         }

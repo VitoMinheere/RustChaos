@@ -23,7 +23,7 @@ fn start() -> Option<Run> {
 impl Run {
     /// Puts the player on the ground at (x, z), facing along `dir`: the floor under
     /// height `y` (indoors, not on the roof).
-    fn put(&mut self, at: Vec2, y: f32, dir: Vec2) {
+    fn put_on_floor(&mut self, at: Vec2, y: f32, dir: Vec2) {
         let p = self.g.player.unwrap();
         let y = self.level.ground.surface(&self.level.map, at.x, at.y, y + 64.0);
         self.g.people[p].fig.pos = vec3(at.x, y, at.y);
@@ -46,7 +46,7 @@ impl Run {
         let y = w.y;
         let mid = (w.a + w.b) / 2.0;
         let across = (w.b - w.a).perp().normalize();
-        self.put(mid - across * back, y, across);
+        self.put_on_floor(mid - across * back, y, across);
         (mid, across)
     }
 }
@@ -91,7 +91,7 @@ fn the_security_panel_switches_the_wires_off() {
     let Some(mut r) = start() else { return };
     r.play(1.0, Controls::default());
     let e = r.level.mission.event_points.iter().find(|e| e.index == PANEL).unwrap();
-    r.put(vec2(e.x as f32, e.z as f32), e.y as f32, vec2(0.0, 1.0));
+    r.put_on_floor(vec2(e.x as f32, e.z as f32), e.y as f32, vec2(0.0, 1.0));
     r.stand_at_switch(PANEL);
     r.play(DT, Controls { action: true, ..Default::default() });
     // Pressing it takes a couple of seconds.

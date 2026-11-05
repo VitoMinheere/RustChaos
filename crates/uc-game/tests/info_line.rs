@@ -2,9 +2,10 @@
 //! seconds; a gun she has already is "Ammo". Skipped without an install.
 
 use uc_game::{Controls, Game, Item, Weapon};
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 /// Puts item `kind` at the player's feet and lets her pick it up: what the info line says.
 fn pick_up(g: &mut Game, level: &Level, kind: u8) -> Option<String> {
@@ -18,13 +19,9 @@ fn pick_up(g: &mut Game, level: &Level, kind: u8) -> Option<String> {
 
 #[test]
 fn it_says_what_she_picked_up() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "fight2", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("fight2") else { return };
     let mut g = Game::new(&level, true);
-    for _ in 0..30 {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-    }
+    common::frames(&mut g, &level, 30);
     let me = g.player.unwrap();
     g.people[me].health = 50;
     assert_eq!(pick_up(&mut g, &level, 3).as_deref(), Some("Health +50"));

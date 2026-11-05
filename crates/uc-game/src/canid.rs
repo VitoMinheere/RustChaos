@@ -28,7 +28,8 @@
 //!
 //! Like the creatures, a dog runs on the original's 20 ticks a second.
 
-use crate::creature::{Around, TICK};
+use crate::creature::Around;
+use crate::TICK;
 use crate::rand;
 use glam::{Vec2, Vec3};
 use std::f32::consts::TAU;

@@ -3,13 +3,13 @@
 
 use glam::{vec3, Vec2, Vec3};
 use uc_game::{Controls, Game};
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 fn start() -> Option<(Level, Game)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let level = common::load("police1")?;
     let g = Game::new(&level, true);
     Some((level, g))
 }

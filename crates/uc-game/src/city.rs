@@ -16,9 +16,9 @@ use glam::{vec2, Vec2, Vec3};
 use uc_world::character::person as ptype;
 use uc_world::Level;
 
-use crate::person::{AI_CIV, AI_COP, AI_GANG, BENT_FIGHT_BACK};
+use crate::person::{AI_CIV, AI_COP, AI_DRIVER, AI_GANG, BENT_FIGHT_BACK};
 use crate::vehicle::Vehicle;
-use crate::{rand, Driving, Game, Message, State, Weapon, AI_DRIVER};
+use crate::{rand, Driving, Game, Message, State, Weapon};
 
 /// `DRAW_DIST` on the PC: 22 squares, how far the original draws, so how far away the extra
 /// people have to be before they can be moved without anyone seeing.

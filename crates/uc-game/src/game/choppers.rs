@@ -93,8 +93,8 @@ impl Game {
             return;
         }
         self.clocks.chopper += dt;
-        while self.clocks.chopper >= chopper::TICK {
-            self.clocks.chopper -= chopper::TICK;
+        while self.clocks.chopper >= crate::TICK {
+            self.clocks.chopper -= crate::TICK;
             let mut choppers = std::mem::take(&mut self.choppers);
             let mut lit = Vec::new();
             {
@@ -125,7 +125,7 @@ impl Game {
             }
             self.choppers = choppers;
             for p in &mut self.people {
-                p.lit = (p.lit - chopper::TICK).max(0.0);
+                p.lit = (p.lit - crate::TICK).max(0.0);
             }
             for (pilot, spot, height) in lit {
                 self.searchlight(pilot, spot, height);
@@ -151,7 +151,7 @@ impl Game {
         for i in 0..self.people.len() {
             let p = &self.people[i];
             let off = p.fig.pos - spot;
-            if i == pilot || p.removed || p.is_dead() || p.is_down() || p.aboard() || Vec2::new(off.x, off.z).length() > reach || off.y.abs() > 200.0 {
+            if i == pilot || !p.on_feet() || p.aboard() || Vec2::new(off.x, off.z).length() > reach || off.y.abs() > 200.0 {
                 continue;
             }
             if !p.is_guilty() {
@@ -240,7 +240,7 @@ impl Game {
         let Some(start) = self.player().map(|p| p.fig.pos) else { return };
         if let Some(at) = parking(level, start) {
             // Facing away from her.
-            let away = Vec2::new(at.x - start.x, at.z - start.z);
+            let away = flat(at, start);
             let angle = (away.x.atan2(away.y) * 2048.0 / std::f32::consts::TAU) as i32;
             self.choppers.push(chopper::Chopper::parked(at, angle));
         }

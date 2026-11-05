@@ -109,7 +109,7 @@ impl Game {
         let player = Some(pi) == self.player;
         let Some(fuse) = (if player { self.primed } else { Some(FUSE) }) else { return };
         let near = self.people[pi].foe.filter(|_| !player && self.people[pi].aggro())
-            .is_some_and(|t| Vec2::new(self.people[t].fig.pos.x - self.people[pi].fig.pos.x, self.people[t].fig.pos.z - self.people[pi].fig.pos.z).length() < 0x500 as f32);
+            .is_some_and(|t| flat(self.people[t].fig.pos, self.people[pi].fig.pos).length() < 0x500 as f32);
         let p = &mut self.people[pi];
         if p.grenades == 0 {
             return;

@@ -127,19 +127,18 @@ impl Person {
     /// it comes back from nothing; bleeding (under a quarter of health) loses a point a tick
     /// down to 50 (Person.cpp:4315, 4469).
     pub(super) fn breathe(&mut self, c: &Controls, dt: f32) {
-        const TICK: f32 = 20.0;
         if !c.sprint {
             self.winded = false;
             if self.stamina < self.max_stamina {
                 let before = self.stamina;
-                self.stamina = (self.stamina + TICK * dt).min(self.max_stamina);
+                self.stamina = (self.stamina + crate::TICKS * dt).min(self.max_stamina);
                 if before < 5.0 && self.stamina >= 5.0 {
                     self.stamina = 20.0f32.min(self.max_stamina);
                 }
             }
         }
         if self.health < self.max_health / 4 && self.stamina > 50.0 {
-            self.stamina -= TICK * dt;
+            self.stamina -= crate::TICKS * dt;
         }
     }
 
@@ -275,10 +274,7 @@ impl Person {
         if self.weapon != Weapon::None || self.kind == ptype::COP {
             return;
         }
-        let mut roll = || {
-            self.fidget_roll = self.fidget_roll.wrapping_mul(69069).wrapping_add(1);
-            self.fidget_roll >> 16
-        };
+        let mut roll = || crate::rand(&mut self.fidget_roll);
         // `set_person_idle` starts the count at 400 to 911, each fidget at 400 to 655.
         let left = match self.fidget {
             Some(t) => t - dt,
@@ -802,8 +798,7 @@ impl Person {
             if let Some(t) = target {
                 self.face(snaps[t].pos);
             }
-            self.fidget_roll = self.fidget_roll.wrapping_mul(69069).wrapping_add(1);
-            let mv = if (self.fidget_roll >> 16) & 1 == 0 { Move::Whip1 } else { Move::Whip2 };
+            let mv = if crate::rand(&mut self.fidget_roll) & 1 == 0 { Move::Whip1 } else { Move::Whip2 };
             self.start_attack(me, mv, events);
             return;
         }
@@ -1019,7 +1014,7 @@ impl Person {
                 return;
             }
             // Blocked while walking into a fence: climb over. (Ledges are jumped onto.)
-            let moved = vec2(self.fig.pos.x - before.x, self.fig.pos.z - before.z).length();
+            let moved = flat(self.fig.pos, before).length();
             if moved < speed * dt * 0.5 && self.fig.facing().dot(dir) > 0.7 {
                 // The player running into a wall half a storey (128) high gets up onto it
                 // (`is_facet_half_step`, Person.cpp:11281; `set_person_climb_half`).

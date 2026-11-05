@@ -3,12 +3,12 @@
 //! pumps, blows up the fuel reservoir and gets back to where she started. The fighting and
 //! the travelling are done by cheating. Skipped without an install.
 
-use glam::{vec2, vec3, Vec2, Vec3};
+use glam::{vec2, vec3};
 use uc_game::{Charge, Controls, Outcome, State};
 use uc_world::character::person as ptype;
 
 mod common;
-use common::{Run, DT};
+use common::Run;
 
 fn start() -> Option<Run> {
     let mut r = common::start("Finale1")?;
@@ -28,18 +28,6 @@ fn start() -> Option<Run> {
 }
 
 impl Run {
-    /// Puts person `i` on the floor under `at` (on the roof, as `at` is), facing along `dir`.
-    fn put(&mut self, i: usize, at: Vec3, dir: Vec2) {
-        let y = self.level.ground.surface(&self.level.map, at.x, at.z, at.y + 64.0);
-        self.g.people[i].fig.pos = vec3(at.x, y, at.z);
-        self.g.people[i].fig.angle = uc_world::character::angle_of(dir);
-    }
-
-    fn press_action(&mut self) {
-        self.until(60.0, |r| !r.g.in_conversation());
-        self.play(DT, Controls { action: true, ..Default::default() });
-    }
-
     /// The player at point `way`, pressing action there (a `player_uses_radius` switch).
     fn use_at(&mut self, way: usize) {
         let (p, at) = (self.player(), self.point(way));

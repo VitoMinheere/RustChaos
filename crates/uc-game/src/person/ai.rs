@@ -6,7 +6,7 @@ impl Person {
     /// A noise at `at` (`PCOM_oscillate_tympanum`): anyone hostile who isn't already after the
     /// player turns to look (`PCOM_set_person_ai_investigate`).
     pub fn hear(&mut self, at: Vec3) {
-        if self.hostile() && !self.aggro && !self.removed && !self.is_dead() && !self.is_down() {
+        if self.hostile() && !self.aggro && self.on_feet() {
             if self.heard.is_none() && self.ai == AI_GUARD {
                 self.cues.push(Sfx::Curious { kind: self.kind });
             }
@@ -86,7 +86,7 @@ impl Person {
     /// gang members and fight-test dummies who are going about their business, home or
     /// looking round, to `PCOM_set_person_ai_navtokill`).
     pub(crate) fn called_in(&mut self) {
-        if self.player || self.removed || self.is_down() || self.is_dead() || self.aggro || self.truce || self.scared.is_some()
+        if self.player || !self.on_feet() || self.aggro || self.truce || self.scared.is_some()
             || !matches!(self.ai, AI_MIB | AI_GUARD | AI_GANG | AI_FIGHT_TEST)
         {
             return;
@@ -108,7 +108,7 @@ impl Person {
     /// sees it running (those that can), and the gang and cops who can't go to look; a car
     /// coming fast sends civilians running from where it's headed.
     pub(crate) fn hear_noise(&mut self, noise: Noise, at: Vec3, by: Option<usize>, seen: bool) {
-        if self.player || self.removed || self.is_dead() || self.is_down() {
+        if self.player || !self.on_feet() {
             return;
         }
         match noise {
@@ -144,7 +144,7 @@ impl Person {
     /// `PCOM_alert_my_gang_to_a_fight` (pcom.cpp:1781) asks nothing more of them than that
     /// they're going about their business.
     pub(crate) fn join_fight(&mut self, victim: usize) {
-        if self.player || self.removed || self.is_down() || self.is_dead() || self.truce || self.scared.is_some() {
+        if self.player || !self.on_feet() || self.truce || self.scared.is_some() {
             return;
         }
         if self.ai == AI_CIV && self.bent & BENT_ROBOT == 0 {
@@ -159,7 +159,7 @@ impl Person {
     /// anyway goes for them (`PCOM_attack_happened`'s `goto fight`, pcom.cpp:13636, to
     /// `PCOM_set_person_ai_kill_person`), knocked down or not. Whether they did.
     pub(crate) fn fight_back(&mut self, by: usize) -> bool {
-        if self.player || self.bent & (BENT_FIGHT_BACK | BENT_ROBOT) != BENT_FIGHT_BACK || self.fights() || self.removed || self.is_dead()
+        if self.player || self.bent & (BENT_FIGHT_BACK | BENT_ROBOT) != BENT_FIGHT_BACK || self.fights() || self.is_dead()
             || matches!(self.state, State::Cuffed)
         {
             return false;
@@ -680,7 +680,7 @@ impl Person {
     pub fn scare(&mut self, by: Option<usize>, at: Vec3) {
         // Drivers too: `PCOM_set_person_ai_flee_person` has them leave their car first
         // (`PCOM_EXCAR_FLEE_PERSON`). Cop drivers don't run.
-        if self.player || !matches!(self.ai, AI_CIV | AI_DRIVER) || self.bent & BENT_FIGHT_BACK != 0 || self.removed || self.is_dead() {
+        if self.player || !matches!(self.ai, AI_CIV | AI_DRIVER) || self.bent & BENT_FIGHT_BACK != 0 || self.is_dead() {
             return;
         }
         self.annoyed = true;
