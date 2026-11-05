@@ -4,23 +4,11 @@
 //! it to the hideout in the north-west wins half a minute later. The walking and driving are
 //! done by putting Mako and the van where they have to be. Skipped without an install.
 
-use glam::{vec2, vec3, Vec3};
+use glam::vec3;
 use uc_game::{Controls, Outcome, State};
 
 mod common;
-use common::{Run, DT};
-
-impl Run {
-    /// Talks to the person made by `way` from `off` of them, facing them, then plays `secs`.
-    fn talk_to(&mut self, way: usize, off: Vec3, secs: f32) {
-        let at = self.g.people[self.who(way)].fig.pos;
-        self.stand(at + off);
-        let me = self.player();
-        self.g.people[me].fig.angle = uc_world::character::angle_of(vec2(-off.x, -off.z));
-        self.play(DT, Controls { action: true, ..Default::default() });
-        self.play(secs, Controls::default());
-    }
-}
+use common::DT;
 
 #[test]
 fn mako_gets_the_files_to_the_getaway_van() {

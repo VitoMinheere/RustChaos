@@ -5,7 +5,7 @@
 
 use glam::vec3;
 use uc_game::person::ko;
-use uc_game::{Charge, Controls, Outcome, Weapon};
+use uc_game::{Controls, Outcome, Weapon};
 
 mod common;
 use common::{Run, DT};
@@ -14,31 +14,6 @@ fn start(mission: &str) -> Option<Run> {
     let mut r = Run::new(common::load(mission)?);
     r.play(1.0, Controls::default());
     Some(r)
-}
-
-impl Run {
-    /// Picks up the explosives point `way` puts down.
-    fn fetch(&mut self, way: usize) {
-        let at = self.g.items.iter().find(|it| it.way == way).expect("explosives lying about").pos;
-        self.stand(at);
-        self.play(0.5, Controls::default());
-    }
-
-    /// Takes the explosives out and sets one down where she stands.
-    fn set_charge(&mut self) {
-        self.take_out(Weapon::Explosives);
-        self.play(DT, Controls { action: true, ..Default::default() });
-    }
-}
-
-impl Run {
-    /// Sets a charge beside what point `way` watches and waits, well clear, for it to go up.
-    fn blow_up(&mut self, way: usize) {
-        self.stand(self.point(way) + vec3(150.0, 0.0, 0.0));
-        self.set_charge();
-        self.stand(self.point(way) + vec3(0.0, 0.0, 2500.0));
-        self.play(Charge::FUSE + 1.5, Controls::default());
-    }
 }
 
 /// The transmitter (point 288 watches it) goes up and colour 2 is wiped out; the hostages

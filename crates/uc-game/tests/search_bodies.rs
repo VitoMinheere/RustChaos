@@ -11,7 +11,7 @@ use common::{Run, DT};
 impl Run {
     /// Stands the player on person `i`'s pelvis and holds action for `secs` (the viewer
     /// passes action held on as `sprint`, the first frame too).
-    fn search(&mut self, i: usize, secs: f32) {
+    fn search_body(&mut self, i: usize, secs: f32) {
         let at = self.g.people[i].fig.hips();
         self.stand(at);
         self.play(DT, Controls { action: true, sprint: true, ..Default::default() });
@@ -54,12 +54,12 @@ fn check(r: &mut Run, i: usize) {
     assert_eq!(r.g.people[i].weapon, Weapon::Pistol, "he keeps it until searched");
 
     // Too short a search finds nothing...
-    r.search(i, 0.5);
+    r.search_body(i, 0.5);
     assert!(!r.items_by(i, 200.0).contains(&2), "half a second's search shouldn't find it");
     // ...the whole of one does (the bar fills in 3.2 s).
     r.play(0.5, Controls::default());
     let rounds = r.g.player().unwrap().ammo[Weapon::Pistol.slot().unwrap()];
-    r.search(i, 3.5);
+    r.search_body(i, 3.5);
     assert!(r.g.people[i].searched, "he should be searched");
     // It lands by her feet, and she walks over it: on the ground still, or picked up.
     let took = r.g.player().unwrap().ammo[Weapon::Pistol.slot().unwrap()] > rounds;
@@ -73,7 +73,7 @@ fn nobody_on_their_feet_is_searched() {
     let Some(mut r) = common::start("police3") else { return };
     r.play(1.0, Controls::default());
     let i = r.g.people.iter().position(|p| p.way == 153).expect("Deeks");
-    r.search(i, 0.5);
+    r.search_body(i, 0.5);
     assert!(r.g.search.is_none(), "Deeks is on his feet: nothing to search");
 }
 

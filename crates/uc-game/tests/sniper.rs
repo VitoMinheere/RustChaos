@@ -4,22 +4,14 @@
 
 use glam::{vec2, vec3, Vec3};
 use uc_game::{Controls, Drive, Game, Item, State, Weapon, SNIPER};
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 /// RTA, with Darci out on open ground (as the route tests find it), facing +z.
 fn start() -> Option<(Level, Game, usize)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
-    let mut g = Game::new(&level, true);
-    for _ in 0..(60.0 / DT) as usize {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-        if g.time > 1.0 && !g.in_conversation() {
-            break;
-        }
-    }
+    let (level, mut g) = common::begin("police1")?;
     let p = g.player.unwrap();
     let at = vec3(66.0 * 256.0, 0.0, 74.0 * 256.0);
     let y = level.ground.surface(&level.map, at.x, at.z, 1.0e4);
@@ -114,9 +106,8 @@ fn a_shot_through_the_scope() {
 /// the start, to try it out.
 #[test]
 fn lying_by_the_start() {
-    let Some(game) = uc_formats::default_install() else { return };
     for m in ["train11", "police1", "police2", "Stealtst1", "Gangorder1", "MIB"] {
-        let level = Level::load(&game, m, &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+        let Some(level) = common::load(m) else { return };
         let mut g = Game::new(&level, true);
         g.update(DT, &Controls::default(), &level);
         let me = g.people[g.player.unwrap()].fig.pos;

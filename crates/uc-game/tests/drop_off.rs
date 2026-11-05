@@ -3,11 +3,12 @@
 //! without an install.
 
 use glam::{vec2, vec3, Vec3};
-use uc_game::{Controls, Game, State};
+use uc_game::{Controls, State};
 use uc_world::character::person as ptype;
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 /// A spot standing at least a storey above the square next to it, with walkable ground
 /// below: (up there, down here).
@@ -33,16 +34,7 @@ fn ledge(level: &Level) -> Option<(Vec3, Vec3)> {
 
 #[test]
 fn down_off_a_ledge_after_her() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
-    let mut g = Game::new(&level, true);
-    for _ in 0..(60.0 / DT) as usize {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-        if g.time > 1.0 && !g.in_conversation() {
-            break;
-        }
-    }
+    let Some((level, mut g)) = common::begin("police1") else { return };
     let (up, down) = ledge(&level).expect("no ledge in RTA");
     println!("up {up:?} down {down:?}");
     let p = g.player.unwrap();

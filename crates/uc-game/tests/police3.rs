@@ -8,7 +8,7 @@ use uc_game::person::ko;
 use uc_game::{Controls, Outcome};
 
 mod common;
-use common::{Run, DT};
+use common::Run;
 
 fn start() -> Option<Run> {
     let mut r = common::start("police3")?;
@@ -17,13 +17,8 @@ fn start() -> Option<Run> {
 }
 
 impl Run {
-    /// Presses action for one frame.
-    fn tap_action(&mut self) {
-        self.play(DT, Controls { action: true, ..Default::default() });
-    }
-
     /// Walks up to the person event point `way` created and talks to them.
-    fn talk_to(&mut self, way: usize) {
+    fn talk_to_close(&mut self, way: usize) {
         let i = self.g.people.iter().position(|p| p.way == way).expect("they should be here");
         let at = self.g.people[i].fig.pos;
         self.stand(at + vec3(120.0, 0.0, 0.0));
@@ -40,7 +35,7 @@ fn gun_hunt_script_runs_to_a_win() {
     assert!(r.said("Deeks is in the park"), "no briefing: {:?}", r.seen);
 
     // Deeks is a tramp in the park, dropped at one of a few spots (`move_thing` on `random`).
-    r.talk_to(153);
+    r.talk_to_close(153);
     r.play(40.0, Controls::default());
     assert!(r.said("behind some skips"), "Deeks never said where it was: {:?}", r.seen);
     assert_eq!(r.g.outcome, None, "talking to Deeks shouldn't end the mission");

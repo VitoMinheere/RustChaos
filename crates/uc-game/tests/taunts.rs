@@ -8,23 +8,10 @@ use glam::{vec2, vec3};
 use uc_game::person::{Grab, Taunt, AI_GANG};
 use uc_game::{Controls, Game, State, Weapon};
 use uc_world::character::anim;
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
-
-fn load(name: &str) -> Option<(Level, Game)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, name, &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
-    let mut g = Game::new(&level, true);
-    for _ in 0..(60.0 / DT) as usize {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-        if g.time > 1.0 && !g.in_conversation() {
-            break;
-        }
-    }
-    Some((level, g))
-}
+mod common;
+use common::DT;
 
 fn run(g: &mut Game, level: &Level, secs: f32, c: &Controls) {
     for _ in 0..(secs / DT).max(1.0) as usize {
@@ -56,7 +43,7 @@ fn face_off(g: &mut Game, level: &Level, i: usize, dist: f32) {
 
 /// RTA, Darci out on open ground, and someone of the crowd made a gang member.
 fn rta_gang() -> Option<(Level, Game, usize)> {
-    let (level, mut g) = load("police1")?;
+    let (level, mut g) = common::begin("police1")?;
     let p = g.player.unwrap();
     let at = vec3(66.0 * 256.0, 0.0, 74.0 * 256.0);
     let y = level.ground.surface(&level.map, at.x, at.z, 1.0e4);
@@ -137,7 +124,7 @@ fn nobody_fist_fights_a_car() {
 
 /// Day Of Reckoning: Roper, and one of Bane's men in front of him.
 fn roper_and(dist: f32) -> Option<(Level, Game, usize)> {
-    let (level, mut g) = load("Finale1")?;
+    let (level, mut g) = common::begin("Finale1")?;
     let p = g.player.unwrap();
     assert_eq!(g.people[p].kind, uc_world::character::person::ROPER);
     let i = g.people.iter().position(|q| q.hostile() && !q.removed && !q.is_dead()).expect("nobody to fight");

@@ -5,13 +5,13 @@
 
 use glam::{vec3, Vec3};
 use uc_game::{Controls, Game, Outcome};
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 fn start() -> Option<(Level, Game)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, "police2", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let level = common::load("police2")?;
     let mut g = Game::new(&level, true);
     assert!(g.unsupported().len() <= 2, "unsupported: {:?}", g.unsupported());
     for _ in 0..(5.0 / DT) as usize {
@@ -116,8 +116,7 @@ fn the_zip_line_drops_darci_behind_barnaby() {
 
 #[test]
 fn the_jump_side_objectives_say_what_to_do() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "police2", &LoadOptions { fullbright: true, character: false, overrides: None }).unwrap();
+    let Some(level) = common::load_without_people("police2") else { return };
     let goals = uc_game::goals::goals(&level.mission);
     let labels: Vec<&str> = goals.sides.iter().map(|s| s.label.as_str()).collect();
     println!("{labels:?}");

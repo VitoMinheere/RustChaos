@@ -11,7 +11,7 @@ use common::{Run, DT};
 
 impl Run {
     /// One of the level's people made to follow the player, two squares behind her.
-    fn follower(&mut self) -> usize {
+    fn follower_behind(&mut self) -> usize {
         let pi = self.player();
         let me = self.g.people[pi].fig.pos;
         let i = self.g.people.iter().position(|q| !q.player && !q.removed && !q.is_dead() && !matches!(q.state, State::InCar { .. })).expect("someone");
@@ -32,7 +32,7 @@ fn a_follower_rides_along() {
     let v = r.g.vehicles.iter().position(|v| v.way == 2).expect("the car bomb");
     let door = r.g.vehicles[v].door();
     r.stand(vec3(door.x, r.g.vehicles[v].pos.y, door.y));
-    let i = r.follower();
+    let i = r.follower_behind();
     r.play(DT, Controls { action: true, ..Default::default() });
     assert!(r.until(5.0, |r| r.g.player_vehicle().is_some()), "Mako should get in");
     assert!(r.until(10.0, |r| matches!(r.g.people[i].state, State::InCar { vehicle } if vehicle == v)), "the follower never got in: {:?}", r.g.people[i].state);
@@ -47,7 +47,7 @@ fn a_follower_rides_along() {
 fn a_follower_crawls_when_she_does() {
     let Some(mut r) = common::start("police1") else { return };
     r.play(1.0, Controls::default());
-    let i = r.follower();
+    let i = r.follower_behind();
     // Darci crawls off, away from them.
     let crawl = Controls { crouch: true, wish: vec2(1.0, 0.0), ..Default::default() };
     let mut crouched = false;

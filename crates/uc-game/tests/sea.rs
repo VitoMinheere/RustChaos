@@ -5,12 +5,12 @@
 use std::collections::BTreeMap;
 use uc_game::{Controls, Game};
 use uc_world::level::WATER_PAGE;
-use uc_world::{Level, LoadOptions};
+
+mod common;
 
 #[test]
 fn el_cossa_island_s_sea_moves() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "jung3", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("jung3") else { return };
     let sea = level.sea();
     assert!(sea.len() > 1000, "only {} sea squares", sea.len());
     assert!(sea.iter().any(|s| s.page == WATER_PAGE as u32));
@@ -39,7 +39,6 @@ fn el_cossa_island_s_sea_moves() {
 /// A city with no sea has nothing left out of its floor.
 #[test]
 fn no_sea_in_the_city() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: false, overrides: None }).unwrap();
+    let Some(level) = common::load_without_people("police1") else { return };
     assert!(level.sea().is_empty());
 }

@@ -3,19 +3,16 @@
 //! second. Skipped without an install.
 
 use uc_game::{Controls, Game, Item};
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 /// The level with its lighting, which says whether it's night.
 fn load(mission: &str) -> Option<(Level, Game)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, mission, &LoadOptions { fullbright: false, character: true, overrides: None }).unwrap();
+    let level = common::load_lit(mission)?;
     let mut g = Game::new(&level, true);
-    for _ in 0..10 {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-    }
+    common::frames(&mut g, &level, 10);
     Some((level, g))
 }
 

@@ -4,7 +4,9 @@
 
 use glam::Vec3;
 use uc_game::{Controls, Game};
-use uc_world::{Level, LoadOptions, GLOW};
+use uc_world::{Level, GLOW};
+
+mod common;
 
 /// The glows' vertices with the camera `ahead` of car 0, and whether it's being driven.
 fn glows(level: &Level, g: &mut Game, driven: bool, ahead: f32) -> usize {
@@ -16,8 +18,7 @@ fn glows(level: &Level, g: &mut Game, driven: bool, ahead: f32) -> usize {
 }
 
 fn game(mission: &str) -> Option<(Level, Game)> {
-    let install = uc_formats::default_install()?;
-    let level = Level::load(&install, mission, &LoadOptions { fullbright: false, character: true, overrides: None }).unwrap();
+    let level = common::load_lit(mission)?;
     let mut g = Game::new(&level, true);
     for _ in 0..10 {
         g.skip_cutscene();

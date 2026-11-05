@@ -5,24 +5,17 @@
 use glam::{vec3, Vec3};
 use uc_game::{Controls, Game, State};
 use uc_world::mav::Mav;
-use uc_world::{Level, LoadOptions};
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 #[test]
 fn people_after_darci_go_round_corners() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("police1") else { return };
     let m = Mav::new(&level);
     let start = || {
         let mut g = Game::new(&level, true);
-        for _ in 0..(60.0 / DT) as usize {
-            g.skip_cutscene();
-            g.update(DT, &Controls::default(), &level);
-            if g.time > 1.0 && !g.in_conversation() {
-                break;
-            }
-        }
+        common::settle(&mut g, &level, 60.0);
         g
     };
     let inside = |x: i32, z: i32| level.map.square(x as usize, z as usize).has(uc_formats::iam::flags::HIDDEN);

@@ -2,26 +2,14 @@
 //! with the walking done by putting people where they have to be and the fighting by knocking
 //! them down, as the other mission tests do. Skipped without an install.
 
-use glam::vec3;
 use uc_game::person::ko;
 use uc_game::{Controls, Outcome};
 
 mod common;
-use common::{Run, DT};
+use common::Run;
 
 fn start() -> Option<Run> {
     common::start("Gangorder1")
-}
-
-impl Run {
-    /// Walks up to the person event point `way` created, talks to them, and lets them finish.
-    fn talk_to(&mut self, way: usize, secs: f32) {
-        let i = self.who(way);
-        let at = self.g.people[i].fig.pos;
-        self.stand(at + vec3(130.0, 0.0, 0.0));
-        self.play(DT, Controls { action: true, ..Default::default() });
-        self.play(secs, Controls::default());
-    }
 }
 
 /// Radar gives the job, Corrola goes down, and Mako gets back to the hideout.
@@ -31,7 +19,7 @@ fn assassin_script_runs_to_a_win() {
     r.play(2.0, Controls::default());
 
     // Radar, up on his roof, points Mako at Corrola.
-    r.talk_to(177, 70.0);
+    r.walk_up_and_talk(177, 70.0);
     assert!(r.g.point_active(179), "Radar never gave the job: {:?}", r.seen);
 
     // Corrola and his bodyguards turn up; put him down for good.

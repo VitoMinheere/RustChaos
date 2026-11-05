@@ -6,19 +6,15 @@
 use glam::{vec2, Vec3};
 use uc_game::dirt::Kind;
 use uc_game::{Controls, Game, State};
-use uc_world::{Level, LoadOptions};
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 #[test]
 fn a_can_picked_up_and_thrown_draws_a_guard() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "Stealtst1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("Stealtst1") else { return };
     let mut g = Game::new(&level, true);
-    for _ in 0..60 {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-    }
+    common::frames(&mut g, &level, 60);
     let pi = g.player.unwrap();
     // A guard who'll hear it, everyone else gone.
     let gi = (0..g.people.len()).find(|&i| i != pi && !g.people[i].removed && g.people[i].hostile() && !g.people[i].aggro()).expect("a guard");

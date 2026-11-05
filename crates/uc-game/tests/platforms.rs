@@ -4,14 +4,13 @@
 use glam::vec3;
 use uc_game::plat::State;
 use uc_game::{Controls, Game};
-use uc_world::{Level, LoadOptions};
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 #[test]
 fn grim_gardens_platform_moves_and_carries() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let level = Level::load(&game, "botanicc", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(level) = common::load("botanicc") else { return };
     assert!(!level.platforms.is_empty(), "the mission has platforms");
     let mut g = Game::new(&level, true);
     let k = g.platforms.iter().position(|p| p.way == 15).expect("point 15's platform");

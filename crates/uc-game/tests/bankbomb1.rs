@@ -20,11 +20,6 @@ fn start() -> Option<Run> {
 }
 
 impl Run {
-    /// The vehicle the event point `way` created, if it is still about.
-    fn car(&self, way: usize) -> Option<usize> {
-        self.g.vehicles.iter().position(|v| v.way == way && !v.wrecked())
-    }
-
     /// Plays `secs` seconds and returns the fastest person `i` ever moved, in world units a
     /// second: what they manage when nothing is in the way.
     fn top_speed(&mut self, i: usize, secs: f32, c: Controls) -> f32 {
@@ -35,29 +30,6 @@ impl Run {
             best = best.max((self.g.people[i].fig.pos - before).length() / DT);
         }
         best
-    }
-
-    /// Presses action for one frame (holding it would get into a car and straight back out).
-    fn tap_action(&mut self) {
-        self.play(DT, Controls { action: true, ..Default::default() });
-    }
-
-    /// Gets into the car that event point `way` created, by standing at its door and pressing
-    /// action. Returns false if it wouldn't open (a locked car).
-    fn get_in(&mut self, way: usize) -> bool {
-        let v = self.car(way).expect("the car is there");
-        let door = self.g.vehicles[v].door();
-        self.stand(vec3(door.x, self.g.vehicles[v].pos.y, door.y));
-        self.tap_action();
-        // Getting in takes as long as the animation (`ANIM_ENTER_CAR`).
-        let i = self.g.player.unwrap();
-        for _ in 0..150 {
-            if !matches!(self.g.people[i].state, uc_game::State::Enter { .. }) {
-                break;
-            }
-            self.play(DT, Controls::default());
-        }
-        self.g.player_vehicle().is_some()
     }
 
     /// Puts the car Mako is driving at `p` (the driving itself is `driving.rs`'s job).

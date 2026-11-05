@@ -6,22 +6,16 @@
 use glam::Vec3;
 use uc_game::{Controls, Game, State};
 use uc_world::character::anim;
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 fn load() -> Option<(Level, Game, usize)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, "testdrive1a", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let level = common::load("testdrive1a")?;
     let mut g = Game::new(&level, true);
     g.view_dist = f32::MAX;
-    for _ in 0..(120.0 / DT) as usize {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-        if g.time > 1.0 && !g.in_conversation() && g.cutscene.is_none() {
-            break;
-        }
-    }
+    common::settle_past_cutscenes(&mut g, &level, 120.0);
     let vi = g.vehicles.iter().position(|v| v.way == 2)?;
     Some((level, g, vi))
 }

@@ -6,23 +6,15 @@
 use glam::{vec2, vec3};
 use uc_game::person::{Grab, AI_GANG};
 use uc_game::{Controls, Game, State};
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
+mod common;
+use common::DT;
 
 /// RTA, Darci on open ground facing +z, and a gang member from the crowd `dist` in front of
 /// her, facing the way given (`away`: his back to her).
 fn start(dist: f32, away: bool) -> Option<(Level, Game, usize, usize)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, "police1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
-    let mut g = Game::new(&level, true);
-    for _ in 0..(60.0 / DT) as usize {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-        if g.time > 1.0 && !g.in_conversation() {
-            break;
-        }
-    }
+    let (level, mut g) = common::begin("police1")?;
     let p = g.player.unwrap();
     let at = vec3(66.0 * 256.0, 0.0, 74.0 * 256.0);
     let y = level.ground.surface(&level.map, at.x, at.z, 1.0e4);

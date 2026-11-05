@@ -7,23 +7,10 @@ use glam::vec3;
 use uc_game::person::{AI_CIV, AI_GANG};
 use uc_game::{Controls, Game};
 use uc_world::character::person as ptype;
-use uc_world::{Level, LoadOptions};
+use uc_world::Level;
 
-const DT: f32 = 1.0 / 30.0;
-
-fn start(mission: &str) -> Option<(Level, Game)> {
-    let game = uc_formats::default_install()?;
-    let level = Level::load(&game, mission, &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
-    let mut g = Game::new(&level, true);
-    for _ in 0..(60.0 / DT) as usize {
-        g.skip_cutscene();
-        g.update(DT, &Controls::default(), &level);
-        if g.time > 1.0 && !g.in_conversation() {
-            break;
-        }
-    }
-    Some((level, g))
-}
+mod common;
+use common::DT;
 
 fn run(g: &mut Game, level: &Level, secs: f32) {
     for _ in 0..(secs / DT).max(1.0) as usize {
@@ -67,7 +54,7 @@ fn send_away(g: &mut Game) -> usize {
 
 #[test]
 fn a_bored_city_sends_a_thug() {
-    let Some((level, mut g)) = start("wstores1") else { return };
+    let Some((level, mut g)) = common::begin("wstores1") else { return };
     g.bored = 30.0;
     let i = send_away(&mut g);
     brought_back(&mut g, &level, i);
@@ -80,7 +67,7 @@ fn a_bored_city_sends_a_thug() {
 
 #[test]
 fn not_before_the_mission_s_boredom_rate() {
-    let Some((level, mut g)) = start("wstores1") else { return };
+    let Some((level, mut g)) = common::begin("wstores1") else { return };
     g.bored = 10.0;
     let i = send_away(&mut g);
     brought_back(&mut g, &level, i);
@@ -90,8 +77,7 @@ fn not_before_the_mission_s_boredom_rate() {
 /// A rate of 255 is never (as RTA's is): the same mission with its rate set so.
 #[test]
 fn never_where_the_rate_is_255() {
-    let Some(game) = uc_formats::default_install() else { return };
-    let mut level = Level::load(&game, "wstores1", &LoadOptions { fullbright: true, character: true, overrides: None }).unwrap();
+    let Some(mut level) = common::load("wstores1") else { return };
     level.mission.boredom_rate = 255;
     let mut g = Game::new(&level, true);
     // Past the opening talk, which holds the crowd still.
@@ -110,7 +96,7 @@ fn never_where_the_rate_is_255() {
 /// While a real thug is near her the fake one keeps clear; once there's none, it comes in.
 #[test]
 fn a_fake_thug_waits_for_the_real_ones() {
-    let Some((level, mut g)) = start("wstores1") else { return };
+    let Some((level, mut g)) = common::begin("wstores1") else { return };
     g.bored = 30.0;
     let i = send_away(&mut g);
     brought_back(&mut g, &level, i);

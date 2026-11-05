@@ -4,24 +4,12 @@
 //! 75) down and one of them arrested. The walking is done by putting Darci where she has to
 //! be and the fighting by knocking people down. Skipped without an install.
 
-use glam::{vec2, vec3, Vec3};
+use glam::vec3;
 use uc_game::person::ko;
 use uc_game::{Controls, Outcome, State, Weapon};
 
 mod common;
-use common::{Run, DT};
-
-impl Run {
-    /// Talks to the person made by `way` from `off` of them, facing them, then plays `secs`.
-    fn talk_to(&mut self, way: usize, off: Vec3, secs: f32) {
-        let at = self.g.people[self.who(way)].fig.pos;
-        self.stand(at + off);
-        let me = self.player();
-        self.g.people[me].fig.angle = uc_world::character::angle_of(vec2(-off.x, -off.z));
-        self.play(DT, Controls { action: true, ..Default::default() });
-        self.play(secs, Controls::default());
-    }
-}
+use common::DT;
 
 #[test]
 fn big_joe_and_wild_bill_let_her_in_and_the_bosses_go_down() {

@@ -13,22 +13,12 @@ use uc_game::{Controls, Outcome, State};
 use uc_world::mav;
 
 mod common;
-use common::{Run, DT};
-
-/// A map square's middle.
-fn mid(x: f32, z: f32) -> Vec2 {
-    vec2(x, z) * 256.0
-}
+use common::{mid, Run, DT};
 
 /// The dock operator's point.
 const OPERATOR: usize = 37;
 
 impl Run {
-    fn at(&self) -> Vec2 {
-        let p = self.g.people[self.player()].fig.pos;
-        vec2(p.x, p.z)
-    }
-
     fn y(&self) -> f32 {
         self.g.people[self.player()].fig.pos.y
     }
@@ -37,7 +27,7 @@ impl Run {
     /// shortest way the navigation map has on foot (walking, and dropping off edges), cutting
     /// across where it can be walked straight. Fails the test if she doesn't get within
     /// `near` in `secs`.
-    fn go(&mut self, to: Vec2, near: f32, secs: f32) {
+    fn go_shortest(&mut self, to: Vec2, near: f32, secs: f32) {
         let nav = mav::Mav::new(&self.level);
         let sq = |v: Vec2| ((v.x / 256.0).clamp(0.0, 127.0) as i32, (v.y / 256.0).clamp(0.0, 127.0) as i32);
         let middle = |s: (i32, i32)| vec2(s.0 as f32 + 0.5, s.1 as f32 + 0.5) * 256.0;
@@ -84,24 +74,6 @@ impl Run {
         panic!("Darci got stuck at {} on the way to {to}", self.g.people[self.player()].fig.pos);
     }
 
-    /// Walks straight at each of `pts` (squares) in turn.
-    fn walk_by(&mut self, pts: &[(f32, f32)]) {
-        for &(x, z) in pts {
-            let to = mid(x, z);
-            let mut done = false;
-            for _ in 0..(8.0 / DT) as usize {
-                let d = to - self.at();
-                if d.length() < 40.0 || self.g.outcome.is_some() {
-                    done = true;
-                    break;
-                }
-                self.play(DT, Controls { wish: d.normalize(), ..Default::default() });
-            }
-            assert!(done, "Darci got stuck at {} on the way to ({x}, {z}) ({:?})",
-                    self.g.people[self.player()].fig.pos, self.g.people[self.player()].state);
-        }
-    }
-
     /// Holds the way `dir` for `secs`, jumping first if `jump`.
     fn push(&mut self, dir: Vec2, jump: bool, secs: f32) {
         if jump {
@@ -119,10 +91,6 @@ impl Run {
             self.play(DT, Controls { wish: dir, ..Default::default() });
         }
         panic!("not up the ladder to {top}: at {} ({:?})", self.g.people[self.player()].fig.pos, self.g.people[self.player()].state);
-    }
-
-    fn beacons(&self) -> Vec<String> {
-        self.g.beacons().into_iter().map(|(l, _)| l).collect()
     }
 }
 
@@ -150,7 +118,7 @@ fn up_to_the_operator(r: &mut Run) {
     r.play(2.0, Controls::default());
     // Across the docks to the street west of the corridor below his block.
     assert!(r.y() < 500.0, "still up on the roof: {}", r.g.people[r.player()].fig.pos);
-    r.go(mid(104.5, 77.5), 48.0, 120.0);
+    r.go_shortest(mid(104.5, 77.5), 48.0, 120.0);
     // Over its fence.
     r.push(vec2(1.0, 0.0), false, 8.0);
     assert!(r.at().x > 106.2 * 256.0, "didn't get over the fence: she's at {}", r.g.people[r.player()].fig.pos);
@@ -210,7 +178,7 @@ fn the_operator_down_and_darci_at_the_chopper_wins() {
     r.push(vec2(-1.0, 0.0), false, 8.0);
     assert!(r.at().x < 105.8 * 256.0, "didn't get back over the fence: she's at {}", r.g.people[r.player()].fig.pos);
     // South to the yard by building 66.
-    r.go(mid(80.0, 109.6), 48.0, 120.0);
+    r.go_shortest(mid(80.0, 109.6), 48.0, 120.0);
     // Over its fence, to the ladder, and up it.
     r.push(vec2(1.0, 0.0), false, 8.0);
     assert!(r.at().x > 81.2 * 256.0, "didn't get over the fence: she's at {}", r.g.people[r.player()].fig.pos);
