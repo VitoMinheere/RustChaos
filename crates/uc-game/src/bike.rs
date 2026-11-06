@@ -14,6 +14,10 @@ const WHEEL_RADIUS: i64 = 0x18;
 const WHEEL_APART: i64 = 0xa0;
 /// The radius the wheels collide with walls at.
 pub const WHEEL_COL: f32 = 0x50 as f32;
+/// How much harder the back wheel is driven than in bike.cpp, as a fraction: there it tops
+/// out near 1700 world units a second, well short of the police car's 3000; with this, about
+/// as fast. (Not in the original, whose bikes were left out of the game and never tuned.)
+const DRIVE: (i64, i64) = (13, 8);
 /// `BIKE_GRAVITY`.
 const GRAVITY: i64 = -0xc0;
 
@@ -30,10 +34,12 @@ pub enum Mode {
 
 /// What the bike needs to know about the world.
 pub trait Road {
-    /// `PAP_calc_map_height_at`, world units.
-    fn height(&self, x: f32, z: f32) -> f32;
-    /// `BIKE_collide_sphere`: a wheel moved from `from` to `to` (world xz), kept out of walls
-    /// and fences; where it ends up, and whether it hit anything.
+    /// `PAP_calc_map_height_at`, world units: the ground or roof under (x, z) a wheel whose
+    /// bottom is at `y` can be on (the original's bikes are kept off anything higher by
+    /// `BIKE_collide_sphere`'s map-square edges).
+    fn height(&self, x: f32, z: f32, y: f32) -> f32;
+    /// `BIKE_collide_sphere`: a wheel whose bottom is at `y` moved from `from` to `to` (world
+    /// xz), kept out of walls, fences and cars; where it ends up, and whether it hit anything.
     fn collide(&self, from: Vec2, to: Vec2, y: f32) -> (Vec2, bool);
     /// `BIKE_get_ground_friction`: 256 is all grip (tarmac 200, grass and dirt 80, slippery
     /// ground 32).
@@ -96,15 +102,18 @@ pub struct Bike {
     pub driver: Option<usize>,
     /// What's on the back tyre, and how fresh (`tyrelast`, [`crate::tracks`]).
     pub tyre_last: u16,
+    /// The throttle held since the last turn (not in the original: see [`Bike::pass`]).
+    held: bool,
     /// Its two exhaust ribbons (`ribbon`, `ribbon2`, [`crate::ribbon`]).
     pub exhaust: [Option<usize>; 2],
 }
 
 impl Bike {
-    /// `BIKE_create`: parked at (x, z), facing `yaw` (2048ths of a turn).
-    pub fn new(way: usize, x: f32, z: f32, yaw: i64, road: &impl Road) -> Bike {
+    /// `BIKE_create`: parked at (x, z) on the ground or roof nearest `y`, facing `yaw`
+    /// (2048ths of a turn).
+    pub fn new(way: usize, x: f32, y: f32, z: f32, yaw: i64, road: &impl Road) -> Bike {
         let (x, z) = (x as i64, z as i64);
-        let ground = |x: i64, z: i64| road.height(x as f32, z as f32) as i64;
+        let ground = |x: i64, z: i64| road.height(x as f32, z as f32, y) as i64;
         let back = [x << 8, (ground(x, z) + WHEEL_RADIUS + WHEEL_SUS) << 8, z << 8];
         let (fx, fz) = (x + ((sin(yaw) * WHEEL_APART) >> 16), z + ((cos(yaw) * WHEEL_APART) >> 16));
         let front = [fx << 8, (ground(fx, fz) + WHEEL_RADIUS + WHEEL_SUS) << 8, fz << 8];
@@ -112,7 +121,7 @@ impl Bike {
             way, yaw: yaw & 2047, pitch: 0, mode: Mode::Parked, on_ground_front: true, on_ground_back: true,
             accel: 0, steer: 0, back, back_d: [0; 3], front, front_dy: 0,
             wheel_y_back: back[1] - (WHEEL_SUS << 8), wheel_y_front: front[1] - (WHEEL_SUS << 8),
-            wheel_dy_back: 0, wheel_dy_front: 0, wheel_rot_front: 0, wheel_rot_back: 0, slide: 0, driver: None, tyre_last: 0,
+            wheel_dy_back: 0, wheel_dy_front: 0, wheel_rot_front: 0, wheel_rot_back: 0, slide: 0, driver: None, tyre_last: 0, held: false,
             exhaust: [None; 2],
         }
     }
@@ -135,6 +144,13 @@ impl Bike {
         qdist2(self.back_d[0].abs() >> 8, self.back_d[2].abs() >> 8)
     }
 
+    /// How fast it's going in world units a second, as a car's speed is: [`Bike::speed`] a
+    /// pass, two passes a turn while ridden, twenty turns a second.
+    pub fn speed_per_second(&self) -> f32 {
+        let passes = if self.mode == Mode::Driving { 2.0 } else { 1.0 };
+        self.speed() as f32 * passes * crate::TICKS
+    }
+
     /// `BIKE_get_roll`: leaning into the turn.
     pub fn roll(&self) -> i64 {
         (-self.steer << 2).clamp(-0x140, 0x140) & 2047
@@ -151,6 +167,7 @@ impl Bike {
         a = if wheelie { a.clamp(0, 127) } else { a.clamp(-40, 50) };
         self.accel = a;
         self.steer = s;
+        self.held |= accel > 0;
         if (accel < 0 || brake) && speed > 3 {
             self.slide = 1000;
         }
@@ -171,6 +188,7 @@ impl Bike {
             self.pass(road);
             each(self);
         }
+        self.held = false;
     }
 
     /// The back wheel (world units), and how far it went in the last pass (`back_dx >> 8`).
@@ -197,6 +215,11 @@ impl Bike {
         [[at(0.0) - up, at(0.0) + up], [at(-30.0), at(30.0)]]
     }
 
+    /// The bottom of a wheel whose middle is at `wheel_y` (256ths), world units.
+    fn bottom(&self, wheel_y: i64) -> f32 {
+        ((wheel_y >> 8) - WHEEL_RADIUS) as f32
+    }
+
     fn pass(&mut self, road: &impl Road) {
         let front_old = (self.front[0], self.front[2]);
         let heading = self.yaw + 1024;
@@ -212,8 +235,8 @@ impl Bike {
                 self.back_d[2] = 0;
             } else {
                 // Drive the back wheel, and stop it sliding sideways over the ground.
-                self.back_d[0] += (((self.accel * vx) >> 8) * (friction + 256)) >> 13;
-                self.back_d[2] += (((self.accel * vz) >> 8) * (friction + 256)) >> 13;
+                self.back_d[0] += ((((self.accel * vx) >> 8) * (friction + 256)) >> 13) * DRIVE.0 / DRIVE.1;
+                self.back_d[2] += ((((self.accel * vz) >> 8) * (friction + 256)) >> 13) * DRIVE.0 / DRIVE.1;
                 let (radx, radz) = (-vz, vx);
                 let dprod = ((mul64(radx, self.back_d[0]) + mul64(radz, self.back_d[2])) * friction) >> 8;
                 self.back_d[0] -= (radx * dprod) >> 16;
@@ -223,7 +246,7 @@ impl Bike {
         // Move the back wheel, out of any wall.
         let old_back = (self.back[0], self.back[2]);
         let to = Vec2::new((self.back[0] + self.back_d[0]) as f32, (self.back[2] + self.back_d[2]) as f32) / 256.0;
-        let (at, hit) = road.collide(Vec2::new(old_back.0 as f32, old_back.1 as f32) / 256.0, to, self.back[1] as f32 / 256.0);
+        let (at, hit) = road.collide(Vec2::new(old_back.0 as f32, old_back.1 as f32) / 256.0, to, self.bottom(self.wheel_y_back));
         (self.back[0], self.back[2]) = ((at.x * 256.0) as i64, (at.y * 256.0) as i64);
         if hit {
             self.accel >>= 1;
@@ -233,8 +256,10 @@ impl Bike {
         if self.steer.abs() < 4 {
             self.steer = 0;
         }
+        // (With the throttle let go, rounded up here: bike.cpp's `accel / 16` leaves anything
+        // under 16, so it never stops, coasting on at a fifth of its top speed.)
         if (self.on_ground_front || self.on_ground_back) && self.slide == 0 {
-            self.accel -= self.accel / 16;
+            self.accel -= if self.accel > 0 && !self.held { (self.accel + 15) / 16 } else { self.accel / 16 };
         }
         // Bikes can't go backwards!
         if self.accel > 0 {
@@ -261,7 +286,7 @@ impl Bike {
         self.front[0] -= dx * along / ((dist >> 4) + 1);
         self.front[2] -= dz * along / ((dist >> 4) + 1);
         let before = Vec2::new(self.front[0] as f32, self.front[2] as f32) / 256.0;
-        let (at, col) = road.collide(Vec2::new(front_old.0 as f32, front_old.1 as f32) / 256.0, before, self.front[1] as f32 / 256.0);
+        let (at, col) = road.collide(Vec2::new(front_old.0 as f32, front_old.1 as f32) / 256.0, before, self.bottom(self.wheel_y_front));
         (self.front[0], self.front[2]) = ((at.x * 256.0) as i64, (at.y * 256.0) as i64);
         if col {
             if self.accel > 12 {
@@ -288,7 +313,7 @@ impl Bike {
         self.front[2] += mul64(along, sz);
         // Up a step too high: not allowed; bounce back if going fast.
         if col {
-            let dy = (road.height(self.front[0] as f32 / 256.0, self.front[2] as f32 / 256.0) as i64) - (self.back[1] >> 8);
+            let dy = (road.height(self.front[0] as f32 / 256.0, self.front[2] as f32 / 256.0, self.bottom(self.wheel_y_front)) as i64) - (self.back[1] >> 8);
             if dy.abs() >= 0x40 {
                 (self.back[0], self.back[2]) = old_back;
                 (self.front[0], self.front[2]) = front_old;
@@ -308,10 +333,10 @@ impl Bike {
             }
         }
         // The suspension, front and back.
-        let ground = |x: i64, z: i64| (road.height(x as f32 / 256.0, z as f32 / 256.0) as i64) << 8;
-        let g = ground(self.front[0], self.front[2]);
+        let ground = |x: i64, z: i64, y: f32| (road.height(x as f32 / 256.0, z as f32 / 256.0, y) as i64) << 8;
+        let g = ground(self.front[0], self.front[2], self.bottom(self.wheel_y_front));
         self.on_ground_front = suspension(g, &mut self.front[1], &mut self.front_dy, &mut self.wheel_y_front, &mut self.wheel_dy_front);
-        let g = ground(self.back[0], self.back[2]);
+        let g = ground(self.back[0], self.back[2], self.bottom(self.wheel_y_back));
         self.on_ground_back = suspension(g, &mut self.back[1], &mut self.back_d[1], &mut self.wheel_y_back, &mut self.wheel_dy_back);
         if self.on_ground_back && !self.on_ground_front {
             self.front_dy -= GRAVITY / 2;
@@ -388,7 +413,7 @@ mod tests {
     struct Flat;
 
     impl Road for Flat {
-        fn height(&self, _: f32, _: f32) -> f32 {
+        fn height(&self, _: f32, _: f32, _: f32) -> f32 {
             0.0
         }
         fn collide(&self, from: Vec2, to: Vec2, _: f32) -> (Vec2, bool) {
@@ -402,14 +427,14 @@ mod tests {
     }
 
     fn bike() -> Bike {
-        let mut b = Bike::new(1, 20.0 * 256.0, 20.0 * 256.0, 0, &Flat);
+        let mut b = Bike::new(1, 20.0 * 256.0, 0.0, 20.0 * 256.0, 0, &Flat);
         b.mode = Mode::Driving;
         b
     }
 
     #[test]
     fn parked_it_settles_on_its_springs_and_stays_put() {
-        let mut b = Bike::new(1, 20.0 * 256.0, 20.0 * 256.0, 0, &Flat);
+        let mut b = Bike::new(1, 20.0 * 256.0, 0.0, 20.0 * 256.0, 0, &Flat);
         let start = b.pos();
         for _ in 0..200 {
             b.control(1, 0, false, false);
@@ -442,13 +467,31 @@ mod tests {
     fn steering_turns_it() {
         let mut b = bike();
         let yaw = b.yaw;
+        let (mut turned, mut was) = (0, yaw);
         for _ in 0..40 {
             b.control(1, 1, false, false);
             b.tick(&Flat);
+            turned += ((b.yaw - was + 1024) & 2047) - 1024;
+            was = b.yaw;
         }
-        let turned = ((b.yaw - yaw + 1024) & 2047) - 1024;
         assert!(turned.abs() > 128, "turned only {turned}");
         assert!(b.roll() != 0);
+    }
+
+    /// Let go of the throttle, it slows to a stop (not in the original, where it coasts on).
+    #[test]
+    fn let_go_it_stops() {
+        let mut b = bike();
+        for _ in 0..30 {
+            b.control(1, 0, false, false);
+            b.tick(&Flat);
+        }
+        assert!(b.speed() > 10);
+        for _ in 0..60 {
+            b.tick(&Flat);
+        }
+        // (Its throttle never quite goes: bike.cpp nudges an idle one up to 1, a creep.)
+        assert!(b.speed() <= 1, "still going {}", b.speed());
     }
 
     /// "Bikes can't go backwards!": held in reverse it only creeps.

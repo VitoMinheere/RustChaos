@@ -265,6 +265,13 @@ impl World {
             }
         }
 
+        // Riding: the bike's speed, as a car's (it has no damage).
+        if let Some(b) = self.game.riding() {
+            let mph = (b.speed_per_second() / 256.0 * 2.0 * 2.237) as u32;
+            let text = format!("{mph} MPH");
+            let big = s * 2.0;
+            o.text(w - Overlay::text_width(&text, big) - 14.0 * s, h - 30.0 * s, big, white, &text);
+        }
         // Driving: speed and the car's damage.
         if let Some(v) = self.game.player_vehicle() {
             let mph = (v.speed.abs() / 256.0 * 2.0 * 2.237) as u32;

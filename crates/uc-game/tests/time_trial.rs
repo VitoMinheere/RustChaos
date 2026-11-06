@@ -62,7 +62,9 @@ fn steer(g: &Game, bot: &mut Bot) -> Controls {
     let target = if f.dot(want) < 0.7 { 900.0 } else if dist < 2500.0 { 3000.0 - bend * 2000.0 } else { 3000.0 };
     // Braking a bike at speed slides it round (`BIKE_control_set`): it coasts instead.
     let throttle = if speed <= target + 100.0 { 1.0 } else if bike { 0.0 } else { -1.0 };
-    stuck.0 = if speed.abs() < 60.0 && stuck.1 <= 0.0 { stuck.0 + DT } else { 0.0 };
+    // (A bike against a wall scrapes along it at a crawl, rather than stopping.)
+    let crawl = if bike { 300.0 } else { 60.0 };
+    stuck.0 = if speed.abs() < crawl && stuck.1 <= 0.0 { stuck.0 + DT } else { 0.0 };
     if stuck.0 > 0.5 {
         *stuck = (0.0, 1.0);
     }
@@ -324,3 +326,44 @@ fn backing_out_of_a_dead_end_isnt_a_miss() {
     assert_eq!(g.trial().unwrap().resets, resets + 1);
 }
 
+
+/// Ridden off the road at full throttle, every way from the start of West District, the bike
+/// stays on the ground, or a step up at most (on its springs): walls stop it, and it can't
+/// climb onto a roof or the top of a wall.
+#[test]
+fn the_bike_stays_off_walls_and_roofs() {
+    let Some((level, _)) = trial("westblock", Car::Bike, false) else { return };
+    for k in 0..10 {
+        let mut g = Game::new_trial(&level, course_index("westblock").unwrap(), Car::Bike, false);
+        let mut t = 0.0;
+        while t < 7.0 {
+            // A turn on the spot first, a little more each time, then flat out.
+            let turning = t < k as f32 * 0.25;
+            let drive = Drive { throttle: if turning { 0.5 } else { 1.0 }, steer: if turning { 1.0 } else { 0.0 }, ..Default::default() };
+            g.update(DT, &Controls { drive, ..Default::default() }, &level);
+            t += DT;
+            let p = g.riding().unwrap().pos();
+            let above = p.y - level.map.ground_height(p.x, p.z);
+            assert!(above < 130.0, "turn {k}: {above} up at ({}, {}) after {t:.2}s", p.x, p.z);
+        }
+    }
+}
+
+/// A car parked in its way stops the bike, which doesn't ride through it; and its speed is up
+/// with the police car's on the way.
+#[test]
+fn the_bike_cant_ride_through_a_car() {
+    let Some((level, mut g)) = trial("westblock", Car::Bike, false) else { return };
+    let start = g.riding().unwrap().pos();
+    let at = vec3(start.x + 2500.0, start.y - 40.0, start.z);
+    g.vehicles.push(uc_game::vehicle::Vehicle::new(0, 0, at, std::f32::consts::FRAC_PI_2, uc_game::vehicle::Key::None));
+    let mut fastest: f32 = 0.0;
+    for _ in 0..(4.0 / DT) as usize {
+        let drive = Drive { throttle: 1.0, ..Default::default() };
+        g.update(DT, &Controls { drive, ..Default::default() }, &level);
+        fastest = fastest.max(g.riding().unwrap().speed_per_second());
+    }
+    let p = g.riding().unwrap().pos();
+    assert!(p.x < at.x - 150.0, "the bike at {} went into the car at {}", p.x, at.x);
+    assert!(fastest > 2000.0, "only {fastest} a second");
+}

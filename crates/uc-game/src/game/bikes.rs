@@ -7,16 +7,32 @@ use crate::*;
 /// `anim_chunk[9]`: the bike on its own (parked, and being got on and off).
 pub(crate) const BIKE_CHUNK: &str = "data\\anim009.all";
 
-/// What a bike sees of the level.
-struct Level2<'a>(&'a Level);
+/// What a bike sees of the level, and the cars on it.
+struct Level2<'a>(&'a Level, &'a [crate::vehicle::Vehicle]);
 
 impl Road for Level2<'_> {
-    fn height(&self, x: f32, z: f32) -> f32 {
-        self.0.ground.surface(&self.0.map, x, z, f32::MAX / 2.0)
+    /// A step up at most from the wheel's bottom: the original keeps a bike off anything
+    /// higher with the map squares' edges (`BIKE_collide_sphere`), as the walls do here.
+    fn height(&self, x: f32, z: f32, y: f32) -> f32 {
+        self.0.ground.road(&self.0.map, x, z, y)
     }
 
+    /// The walls stop the wheel from its bottom up (only those a step high or less can be
+    /// ridden over), a few steps at a time so that a fast wheel can't get past one. The cars
+    /// round it are boxes it can't get into (`VEH_collide_find_things`): moving further in
+    /// is undone.
     fn collide(&self, from: Vec2, to: Vec2, y: f32) -> (Vec2, bool) {
-        let at = self.0.ground.slide(from, y, to - from, WHEEL_COL / 2.0);
+        let steps = ((to - from).length() / (WHEEL_COL / 4.0)).ceil().max(1.0);
+        let mut at = from;
+        for _ in 0..steps as usize {
+            at = self.0.ground.slide(at, y, (to - from) / steps, WHEEL_COL / 2.0);
+        }
+        for car in self.1 {
+            let mid = Vec2::new(car.pos.x, car.pos.z);
+            if (car.pos.y - y).abs() < 150.0 && car.covers(at, WHEEL_COL / 4.0) && at.distance(mid) < from.distance(mid) {
+                at = from;
+            }
+        }
         (at, (at - to).length() > 0.5)
     }
 
@@ -38,7 +54,7 @@ impl Game {
     /// `BIKE_create` for a `VT_BIKE` point: parked where it is, facing its way.
     pub(crate) fn add_bike(&mut self, level: &Level, way: usize, pos: Vec3, angle: f32) {
         let yaw = (angle * 2048.0 / std::f32::consts::TAU) as i64;
-        let mut bike = Bike::new(way, pos.x, pos.z, yaw, &Level2(level));
+        let mut bike = Bike::new(way, pos.x, pos.y, pos.z, yaw, &Level2(level, &self.vehicles));
         // Two strips of smoke to thicken out the exhaust (bike.cpp:1621): ten points each,
         // fading in over eight from the oldest, grey, sliding 5 to 12 64ths a turn. The
         // original's `rand()` for the slide is the bike's own here, so as not to take a
@@ -62,7 +78,7 @@ impl Game {
             self.clocks.bike -= crate::TICK;
             let mut passes = Vec::new();
             for (k, (b, _)) in self.bikes.iter_mut().enumerate() {
-                b.tick_each(&Level2(level), |b| {
+                b.tick_each(&Level2(level, &self.vehicles), |b| {
                     let (at, d) = b.tyre();
                     passes.push((k, at, d, b.exhaust, b.exhaust_points()));
                 });
@@ -145,8 +161,9 @@ impl Game {
     /// checkpoint (#519; not in the original).
     pub(crate) fn place_on_bike(&mut self, level: &Level, k: usize, pi: usize, at: Vec2, heading: f32) {
         let yaw = (heading * 2048.0 / std::f32::consts::TAU).round() as i64;
+        let y = level.map.ground_height(at.x, at.y);
         let (b, fig) = &mut self.bikes[k];
-        let mut fresh = Bike::new(b.way, at.x, at.y, yaw, &Level2(level));
+        let mut fresh = Bike::new(b.way, at.x, y, at.y, yaw, &Level2(level, &self.vehicles));
         (fresh.exhaust, fresh.tyre_last) = (b.exhaust, b.tyre_last);
         fresh.mode = bike::Mode::Driving;
         fresh.driver = Some(pi);
