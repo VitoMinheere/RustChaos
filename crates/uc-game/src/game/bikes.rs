@@ -140,6 +140,31 @@ impl Game {
         true
     }
 
+    /// Bike `k` stood still on the road at `at`, facing `heading` (its nose along (sin, cos)),
+    /// with person `pi` already riding it: a time trial's start, or its reset to the last
+    /// checkpoint (#519; not in the original).
+    pub(crate) fn place_on_bike(&mut self, level: &Level, k: usize, pi: usize, at: Vec2, heading: f32) {
+        let yaw = (heading * 2048.0 / std::f32::consts::TAU).round() as i64;
+        let (b, fig) = &mut self.bikes[k];
+        let mut fresh = Bike::new(b.way, at.x, at.y, yaw, &Level2(level));
+        (fresh.exhaust, fresh.tyre_last) = (b.exhaust, b.tyre_last);
+        fresh.mode = bike::Mode::Driving;
+        fresh.driver = Some(pi);
+        *b = fresh;
+        if let Some(f) = fig {
+            f.restart_now(1, uc_world::character::Play::Loop);
+        }
+        self.entering.retain(|&(i, _)| i != pi);
+        let p = &mut self.people[pi];
+        (p.knocked_out, p.out_cold, p.health) = (false, false, p.max_health);
+        p.stand_still();
+        // Sat on it as getting on leaves her (see [`Game::ride`]).
+        p.fig.restart_now(uc_world::character::anim::ENTER_CAR, uc_world::character::Play::Once);
+        let frames = p.fig.frames();
+        p.fig.skip_keyframes(frames);
+        p.state = State::Bike { bike: k, phase: 1 };
+    }
+
     /// `set_person_dismount_bike`: the bike plays its getting-off (`anim_chunk[9]`'s 5) and
     /// she `ANIM_BIKE_DISMOUNT`.
     pub(crate) fn dismount(&mut self, pi: usize, k: usize) {

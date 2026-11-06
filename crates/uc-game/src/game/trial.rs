@@ -22,7 +22,7 @@ pub struct Course {
     /// Where the car starts, and its heading (its nose along (sin, cos)).
     pub start: Vec2,
     pub heading: f32,
-    /// How near a checkpoint counts.
+    /// How near a checkpoint counts, unless it has its own ([`Course::radius_of`]).
     pub radius: f32,
     /// The cars on the roads with traffic on.
     pub traffic: u8,
@@ -30,6 +30,16 @@ pub struct Course {
     pub medals: [f32; 3],
     /// The checkpoints in order, the first the start and finish.
     pub checkpoints: Vec<Vec2>,
+    /// Each checkpoint's own radius, where it has one (a tight turn, a dead end to back
+    /// out of).
+    pub radii: Vec<Option<f32>>,
+}
+
+impl Course {
+    /// How near checkpoint `k` counts.
+    pub fn radius_of(&self, k: usize) -> f32 {
+        self.radii.get(k).copied().flatten().unwrap_or(self.radius)
+    }
 }
 
 /// The courses, in the order the file has them.
@@ -62,7 +72,7 @@ pub fn parse(text: &str) -> Result<Vec<Course>, String> {
             let name = f.collect::<Vec<_>>().join(" ");
             out.push(Course {
                 id: id.to_string(), name, mission: mission.to_string(), laps, start: Vec2::ZERO, heading: 0.0, radius: 4.0 * 256.0,
-                traffic: 0, medals: [0.0; 3], checkpoints: Vec::new(),
+                traffic: 0, medals: [0.0; 3], checkpoints: Vec::new(), radii: Vec::new(),
             });
             continue;
         }
@@ -85,8 +95,11 @@ pub fn parse(text: &str) -> Result<Vec<Course>, String> {
                 c.medals = [nums[0], nums[1], nums[2]];
             }
             "cp" => {
-                want(2)?;
+                if !(2..=3).contains(&nums.len()) {
+                    return Err(bad("wants 2 or 3 numbers"));
+                }
                 c.checkpoints.push(vec2(nums[0], nums[1]) * 256.0);
+                c.radii.push(nums.get(2).map(|r| r * 256.0));
             }
             _ => return Err(bad("unknown")),
         }
@@ -97,24 +110,27 @@ pub fn parse(text: &str) -> Result<Vec<Course>, String> {
     }
 }
 
-/// The cars to choose from.
+/// What to race in: a car, or the motorbike.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Car {
     Police,
     Sports,
     Van,
+    Bike,
 }
 
 impl Car {
-    pub const ALL: [Car; 3] = [Car::Police, Car::Sports, Car::Van];
+    pub const ALL: [Car; 4] = [Car::Police, Car::Sports, Car::Van, Car::Bike];
 
     /// Its `VEH_TYPE_*` (fallen/Headers/vehicle.h): the police car, the car (`ENGINE_CAR`,
-    /// a little slower than a cop car but lighter on its feet) and the van.
-    pub fn kind(self) -> u8 {
+    /// a little slower than a cop car but lighter on its feet) and the van. None for the
+    /// bike, which isn't one of the vehicles (`BIKE_create`).
+    pub fn kind(self) -> Option<u8> {
         match self {
-            Car::Police => 3,
-            Car::Sports => 1,
-            Car::Van => 0,
+            Car::Police => Some(3),
+            Car::Sports => Some(1),
+            Car::Van => Some(0),
+            Car::Bike => None,
         }
     }
 
@@ -123,6 +139,7 @@ impl Car {
             Car::Police => "Police car",
             Car::Sports => "Sports car",
             Car::Van => "Van",
+            Car::Bike => "Motorbike",
         }
     }
 
@@ -132,6 +149,7 @@ impl Car {
             Car::Police => "police",
             Car::Sports => "sports",
             Car::Van => "van",
+            Car::Bike => "bike",
         }
     }
 
@@ -162,7 +180,7 @@ pub struct Trial {
     pub course: usize,
     pub car: Car,
     pub traffic: bool,
-    /// The car's place in the game's vehicles (always the first).
+    /// The car's place in the game's vehicles (always the first), or the bike's in its bikes.
     pub vehicle: usize,
     /// The checkpoint to reach next.
     pub next: usize,
@@ -240,11 +258,24 @@ impl Game {
         let at = c.start;
         // The car first: the ghost of a lap is drawn from the car it was driven in.
         let y = ground(level, at);
-        g.vehicles.push(Vehicle::new(0, car.kind(), Vec3::new(at.x, y, at.y), c.heading, crate::vehicle::Key::None));
-        let vehicle = g.vehicles.len() - 1;
-        if let Some(pi) = g.player {
-            g.seat_in(pi, vehicle);
-        }
+        let vehicle = match car.kind() {
+            Some(kind) => {
+                g.vehicles.push(Vehicle::new(0, kind, Vec3::new(at.x, y, at.y), c.heading, crate::vehicle::Key::None));
+                let v = g.vehicles.len() - 1;
+                if let Some(pi) = g.player {
+                    g.seat_in(pi, v);
+                }
+                v
+            }
+            None => {
+                g.add_bike(level, 0, Vec3::new(at.x, y, at.y), c.heading);
+                let k = g.bikes.len() - 1;
+                if let Some(pi) = g.player {
+                    g.place_on_bike(level, k, pi, at, c.heading);
+                }
+                k
+            }
+        };
         if traffic {
             g.add_civs(level);
             g.add_traffic(level, c.traffic);
@@ -312,16 +343,14 @@ impl Game {
         let n = c.checkpoints.len();
         // This turn ends on the next.
         let now = self.turns + 1;
-        let in_car = matches!(self.people[pi].state, State::InCar { vehicle } if vehicle == t.vehicle) && !self.vehicles[t.vehicle].wrecked();
-        if !in_car {
+        let Some(at) = self.trial_aboard(t, pi) else {
             self.trial_reset(t, level, "Back to the last checkpoint");
             return;
-        }
-        let v = &self.vehicles[t.vehicle];
-        let at = vec2(v.pos.x, v.pos.z);
+        };
         let was = std::mem::replace(&mut t.was, at);
         let cp = c.checkpoints[t.next];
-        if at.distance(cp) < c.radius {
+        let r = c.radius_of(t.next);
+        if at.distance(cp) < r {
             self.trial_passed(t, now);
             return;
         }
@@ -329,13 +358,24 @@ impl Game {
         let along = (c.checkpoints[(t.next + 1) % n] - c.checkpoints[(t.next + n - 1) % n]).normalize_or_zero();
         let crossed = (was - cp).dot(along) < 0.0 && (at - cp).dot(along) >= 0.0;
         let wide = (at - cp).perp_dot(along).abs();
-        let past = crossed && wide >= c.radius && wide < c.radius * MISS_WIDTH;
-        // Or through another checkpoint, once under way.
-        let other = t.lap_from.is_some()
-            && c.checkpoints.iter().enumerate().any(|(k, &p)| k != t.next && Some(k) != t.last && at.distance(p) < c.radius);
+        let past = crossed && wide >= r && wide < r * MISS_WIDTH;
+        // Or through a checkpoint further on, once under way. Not one already passed: backing
+        // out of a dead end (the Advanced Circuit's) goes back past them.
+        let other = t.lap_from.is_some() && t.next != 0
+            && (t.next + 1..n).any(|k| at.distance(c.checkpoints[k]) < c.radius_of(k));
         if past || other {
             self.trial_reset(t, level, "Missed a checkpoint");
         }
+    }
+
+    /// Where the player's car or bike is, if she's still on it and it's whole.
+    fn trial_aboard(&self, t: &Trial, pi: usize) -> Option<Vec2> {
+        let pos = match self.people[pi].state {
+            State::InCar { vehicle } if t.car != Car::Bike && vehicle == t.vehicle && !self.vehicles[vehicle].wrecked() => self.vehicles[vehicle].pos,
+            State::Bike { bike, phase: 0 | 1 } if t.car == Car::Bike && bike == t.vehicle => self.bikes[bike].0.pos(),
+            _ => return None,
+        };
+        Some(vec2(pos.x, pos.z))
     }
 
     /// Checkpoint `t.next` reached at turn `now`.
@@ -367,13 +407,17 @@ impl Game {
     fn trial_reset(&mut self, t: &mut Trial, level: &Level, why: &str) {
         let Some(pi) = self.player else { return };
         let (at, yaw) = t.back_to;
-        let y = ground(level, at);
-        let v = &mut self.vehicles[t.vehicle];
-        v.reset(Vec3::new(at.x, y, at.y), yaw);
-        (v.health, v.stalled, v.hurt_by, v.door_swing) = (300, false, None, None);
-        // Whole again, it can be wrecked again.
-        self.tally.blown.remove(&t.vehicle);
-        self.seat_in(pi, t.vehicle);
+        if t.car == Car::Bike {
+            self.place_on_bike(level, t.vehicle, pi, at, yaw);
+        } else {
+            let y = ground(level, at);
+            let v = &mut self.vehicles[t.vehicle];
+            v.reset(Vec3::new(at.x, y, at.y), yaw);
+            (v.health, v.stalled, v.hurt_by, v.door_swing) = (300, false, None, None);
+            // Whole again, it can be wrecked again.
+            self.tally.blown.remove(&t.vehicle);
+            self.seat_in(pi, t.vehicle);
+        }
         t.was = at;
         t.resets += 1;
         t.notice = Some((why.to_string(), NOTICE));
@@ -423,6 +467,16 @@ mod tests {
         let e = parse("course a m 2 A\nstart 1 2\n").unwrap_err();
         assert!(e.contains("line 2") && e.contains("3 numbers"), "{e}");
         assert!(parse("course a m 2 A\ncp 1 2\n").unwrap_err().contains("fewer than two"));
+        assert!(parse("course a m 2 A\ncp 1 2 3 4\n").unwrap_err().contains("2 or 3 numbers"));
+    }
+
+    #[test]
+    fn a_checkpoint_can_have_its_own_radius() {
+        let c = &parse("course a m 2 A\nradius 4\ncp 1 2\ncp 3 4 2.5\n").unwrap()[0];
+        assert_eq!((c.radius_of(0), c.radius_of(1)), (4.0 * 256.0, 2.5 * 256.0));
+        // The Advanced Circuit's dead ends are tighter than the rest.
+        let silver = &courses()[course_index("silver").unwrap()];
+        assert_eq!(silver.radius_of(8), 2.0 * 256.0);
     }
 
     #[test]

@@ -19,8 +19,9 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --shift MINUTES  the shift's length (default 10), or endless for an open-ended one
   --arena X,Z,R     the endless arena: its middle in squares and its radius (default: 10 round the start)
   --time T          light the map for day, dusk, night or dawn (default: the mission's own lighting)
-  --trial COURSE    a time trial on a course (oval, westblock), in --car police, sports or van, with
-                    --traffic on the roads or not
+  --trial COURSE    a time trial on a course (oval, westblock, silver, gold, gangland, riocanal,
+                    southside), in --car police, sports, van or bike, with --traffic on the roads
+                    or not
   --windowed        in a window (default: full screen; F11 or Alt+Enter switches)
   --weapon W        start holding a weapon (knife, bat, pistol, shotgun, ak)
   --dogs N          let N dogs loose round the start (unreleased: the original never shipped them)
@@ -264,7 +265,7 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             }
             "--car" => {
                 let id = value()?;
-                let car = uc_game::game::trial::Car::from_id(&id).ok_or(format!("--car: no car {id} (police, sports, van)"))?;
+                let car = uc_game::game::trial::Car::from_id(&id).ok_or(format!("--car: no car {id} (police, sports, van, bike)"))?;
                 let (course, _, traffic) = a.trial.unwrap_or((0, car, false));
                 a.trial = Some((course, car, traffic));
             }
