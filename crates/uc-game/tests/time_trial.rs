@@ -8,7 +8,7 @@ use uc_game::game::trial::{course_index, courses, Car};
 use uc_game::{Controls, Drive, Game, Outcome, State};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// A time trial on course `id` in `car`, with its map loaded.
