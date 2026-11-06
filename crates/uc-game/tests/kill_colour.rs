@@ -5,7 +5,7 @@
 use uc_game::person::AI_KILL_COLOUR;
 use uc_game::Controls;
 
-mod common;
+use crate::common;
 
 #[test]
 fn it_goes_for_the_nearest_of_its_colour() {

@@ -5,7 +5,7 @@
 use glam::{vec2, vec3, Vec2};
 use uc_game::{Controls, State};
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 /// RTA with Darci 150 in front of a low fence standing on open ground, facing it. Returns the

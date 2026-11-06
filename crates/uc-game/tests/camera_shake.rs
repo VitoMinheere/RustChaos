@@ -5,7 +5,7 @@
 use glam::vec3;
 use uc_game::Controls;
 
-mod common;
+use crate::common;
 use common::Run;
 
 /// Blows up Semtex's drum 324 with the player `dist` from it, and returns how hard the

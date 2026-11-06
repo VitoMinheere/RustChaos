@@ -10,7 +10,7 @@ use glam::{vec3, Vec3};
 use uc_game::person::ko;
 use uc_game::Controls;
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 /// The points that create the five people carrying a clue.

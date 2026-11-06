@@ -6,7 +6,7 @@
 use uc_game::{Controls, Outcome};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 
 #[test]
 fn the_world_ends_when_day_of_reckoning_runs_out_of_time() {

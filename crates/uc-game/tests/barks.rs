@@ -6,7 +6,7 @@ use uc_game::person::ko;
 use uc_game::{Bark, Controls, Sfx, State, Weapon};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 impl Run {

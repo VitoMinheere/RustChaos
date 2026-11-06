@@ -7,7 +7,7 @@ use glam::Vec3;
 use uc_game::Controls;
 use uc_world::character::anim;
 
-mod common;
+use crate::common;
 
 #[test]
 fn nobody_walks_on_the_spot() {

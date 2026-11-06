@@ -5,7 +5,7 @@
 
 use uc_game::Controls;
 
-mod common;
+use crate::common;
 use common::Run;
 
 /// The inputs at second `t`: walking about, running, fighting, crouching, a shot or two.

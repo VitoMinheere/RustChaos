@@ -6,7 +6,7 @@ use glam::{vec3, Vec3};
 use uc_game::{Controls, Game, State};
 use uc_world::mav::Mav;
 
-mod common;
+use crate::common;
 use common::DT;
 
 #[test]

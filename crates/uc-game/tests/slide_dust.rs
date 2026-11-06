@@ -4,7 +4,7 @@
 
 use uc_game::{Controls, Game, Search, Searched, State};
 
-mod common;
+use crate::common;
 use common::DT;
 
 #[test]

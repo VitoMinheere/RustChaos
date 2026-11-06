@@ -6,7 +6,7 @@ use glam::vec3;
 use uc_formats::iam::flags;
 use uc_game::{Controls, State};
 
-mod common;
+use crate::common;
 use common::DT;
 
 #[test]

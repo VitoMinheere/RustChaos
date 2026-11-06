@@ -7,7 +7,7 @@ use uc_game::person::AI_GANG;
 use uc_game::{Controls, Weapon};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 
 #[test]
 fn police2_has_grenadiers() {

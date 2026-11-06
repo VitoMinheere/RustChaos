@@ -5,7 +5,7 @@ use glam::vec2;
 use uc_game::steps::{Steps, ROAD};
 use uc_game::{Controls, Sfx};
 
-mod common;
+use crate::common;
 
 /// The footstep sounds while she walks round in a slow circle for `secs`.
 fn steps_heard(r: &mut common::Run, secs: f32) -> Vec<(usize, usize)> {

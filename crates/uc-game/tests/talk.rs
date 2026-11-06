@@ -8,7 +8,7 @@ use uc_game::{Controls, Game};
 use uc_world::character::person;
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn load(mission: &str, edit: impl Fn(&mut Level)) -> Option<(Level, Game)> {

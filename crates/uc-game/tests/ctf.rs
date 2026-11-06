@@ -5,7 +5,7 @@
 use glam::Vec3;
 use uc_game::{Controls, Outcome};
 
-mod common;
+use crate::common;
 
 #[test]
 fn capflag_loads_with_roper_as_the_bot() {

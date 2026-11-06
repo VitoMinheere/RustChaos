@@ -6,7 +6,7 @@ use glam::{vec3, Vec3};
 use uc_game::Controls;
 use uc_world::mav::{caps, Mav, DIRS, GOTO, JUMPPULL, LADDER_UP, PULLUP};
 
-mod common;
+use crate::common;
 use common::Run;
 
 impl Run {

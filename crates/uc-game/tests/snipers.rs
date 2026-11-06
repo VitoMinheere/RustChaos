@@ -7,7 +7,7 @@ use uc_game::person::AI_CIV;
 use uc_game::{Controls, Weapon};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 use common::Run;
 
 /// RTA with a still assassin `dist` in front of Darci, facing her, marked on her, with a

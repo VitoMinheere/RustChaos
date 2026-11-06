@@ -8,7 +8,7 @@ use uc_game::chopper::{State as Heli, Stick};
 use uc_game::person::State;
 use uc_game::{Controls, Game};
 
-mod common;
+use crate::common;
 
 fn explore(mission: &str) -> Option<common::Run> {
     let level = common::load(mission)?;

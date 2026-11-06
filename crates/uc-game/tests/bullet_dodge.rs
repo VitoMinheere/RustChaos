@@ -7,7 +7,7 @@ use uc_game::person::{AI_CIV, AI_GANG, BENT_FIGHT_BACK};
 use uc_game::{Controls, State, Weapon};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// Darci shooting for `secs` at one of RTA's crowd made a gang member of `skill`: whether he

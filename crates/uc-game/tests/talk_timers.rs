@@ -1,6 +1,6 @@
 //! Mission timers stop while a conversation is being said (#258, eway.cpp:2569).
 
-mod common;
+use crate::common;
 
 use glam::Vec3;
 use uc_formats::ucm::trigger;

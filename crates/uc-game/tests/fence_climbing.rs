@@ -7,7 +7,7 @@
 use glam::{vec3, Vec2};
 use uc_game::{Controls, State};
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 /// Darci a little way in front of the middle of the `nth` fence `pick` likes, facing it;

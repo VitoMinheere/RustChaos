@@ -7,7 +7,7 @@ use uc_game::game::hook::Hold;
 use uc_game::{Controls, Game, State, Weapon};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn start() -> Option<(Level, Game)> {

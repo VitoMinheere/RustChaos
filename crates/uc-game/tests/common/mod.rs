@@ -1,7 +1,8 @@
 //! What the mission tests share: loading a mission, playing it a turn at a time with the
 //! cutscenes skipped and the player kept whole, the messages seen on the way, and putting
-//! people where a test wants them. Each test file has `mod common;` and adds its own
-//! helpers in an `impl Run` of its own.
+//! people where a test wants them. Each test file has `use crate::common;` and adds its
+//! own helpers in an `impl Run` of its own; as they're all one test program (`tests/main.rs`),
+//! no two files can give `Run` methods of the same name.
 
 // Not every test file uses every helper.
 #![allow(dead_code)]

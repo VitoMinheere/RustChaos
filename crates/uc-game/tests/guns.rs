@@ -6,7 +6,7 @@ use glam::{vec2, Vec2};
 use uc_game::{Controls, Game, Item, Outcome, State, Weapon};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn load(mission: &str) -> Option<(Level, Game)> {

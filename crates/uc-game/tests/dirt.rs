@@ -5,7 +5,7 @@
 use uc_game::dirt::{Kind, FOCUS_RADIUS};
 use uc_game::{Controls, Game};
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn kinds(g: &Game, kind: Kind) -> usize {

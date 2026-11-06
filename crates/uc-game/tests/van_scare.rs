@@ -5,7 +5,7 @@ use glam::vec3;
 use uc_game::person::AI_CIV;
 use uc_game::Controls;
 
-mod common;
+use crate::common;
 
 fn scared_by(speed: f32) -> Option<bool> {
     let mut r = common::start("police1")?;
