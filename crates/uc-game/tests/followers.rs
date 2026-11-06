@@ -3,8 +3,9 @@
 //! way she went; and isn't someone Darci's gun picks out. Skipped without an install.
 
 use glam::{Vec2, Vec3};
-use uc_game::person::{Weapon, MOVE_FOLLOW};
-use uc_game::{Controls, Game};
+use uc_game::person::{Weapon, AI_GANG, MOVE_FOLLOW};
+use uc_game::{Controls, Game, Sfx};
+use uc_world::character::person as ptype;
 use uc_world::{Level, LoadOptions};
 
 const DT: f32 = 1.0 / 30.0;
@@ -106,5 +107,32 @@ fn darci_drawing_her_gun_doesnt_send_her_running() {
         g.update(DT, &Controls::default(), &level);
     }
     assert!(g.people[h].scared.is_none(), "the hostage she's freed ran from Darci's gun");
+    assert_eq!(g.people[h].mv, MOVE_FOLLOW);
+}
+
+#[test]
+fn a_thug_shooting_at_darci_doesnt_send_her_running() {
+    let Some((level, mut g, me, h)) = freed() else { return };
+    // A thug with a pistol, 4 squares the other side of Darci from her, coming for Darci.
+    let at = g.people[me].fig.pos;
+    let away = (at - g.people[h].fig.pos).with_y(0.0).normalize_or_zero();
+    let i = (0..g.people.len()).find(|&i| i != me && i != h && g.people[i].health > 0).expect("nobody");
+    let q = &mut g.people[i];
+    q.removed = false;
+    (q.ai, q.kind, q.mv, q.fake, q.bent, q.weapon, q.skill) = (AI_GANG, ptype::THUG_RED, 1, false, 0, Weapon::Pistol, 10);
+    q.give(Weapon::Pistol);
+    q.fig.pos = at + away * 400.0;
+    q.foe = Some(me);
+    q.go_for();
+    g.take_sounds();
+    let mut shots = 0;
+    for _ in 0..10 * 30 {
+        g.people[me].health = g.people[me].max_health;
+        g.people[i].fig.pos = at + away * 400.0;
+        g.update(DT, &Controls::default(), &level);
+        shots += g.take_sounds().iter().filter(|(s, _)| matches!(s, Sfx::Shot(_))).count();
+        assert!(g.people[h].scared.is_none(), "the hostage she's freed ran from the thug's shot");
+    }
+    assert!(shots > 0, "the thug never fired");
     assert_eq!(g.people[h].mv, MOVE_FOLLOW);
 }

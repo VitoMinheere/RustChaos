@@ -499,12 +499,21 @@ impl Game {
     }
 
     /// Whether person `i` is following `by` and means them no harm: a freed hostage, a
-    /// witness being taken in. They aren't frightened by `by` drawing a gun or firing it,
-    /// nor picked out by their aim (not in the original, which sends a following civilian
-    /// running like any other, and off from the one they were to keep up with).
+    /// witness being taken in. They aren't frightened by `by` drawing a gun, nor by anyone
+    /// firing one ([`Game::escorted`]), nor picked out by `by`'s aim (not in the original,
+    /// which sends a following civilian running like any other, and off from the one they
+    /// were to keep up with).
     pub(crate) fn follows(&self, i: usize, by: usize) -> bool {
         let p = &self.people[i];
         p.mv == person::MOVE_FOLLOW && !p.hostile() && self.leader(i) == Some(by)
+    }
+
+    /// Whether person `i` is following anyone who they mean no harm ([`Game::follows`]).
+    /// Nobody's gunfire sends them running: a hostage Darci has freed sticks with her through
+    /// a shoot-out with the thugs who held her (not in the original, where any shot within
+    /// earshot scares a following civilian off).
+    pub(crate) fn escorted(&self, i: usize) -> bool {
+        self.leader(i).is_some_and(|by| self.follows(i, by))
     }
 
     /// Followers keep to the way whoever they follow went (not in the original, whose
