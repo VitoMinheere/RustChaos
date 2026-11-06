@@ -7,7 +7,7 @@ use glam::{vec2, Vec3};
 use uc_game::dirt::Kind;
 use uc_game::{Controls, Game, State};
 
-mod common;
+use crate::common;
 use common::DT;
 
 #[test]

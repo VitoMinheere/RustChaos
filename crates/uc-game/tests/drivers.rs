@@ -8,7 +8,7 @@ use glam::{vec2, vec3};
 use uc_game::{Controls, Game, State, Weapon};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn run(g: &mut Game, level: &Level, secs: f32, c: Controls) {

@@ -8,7 +8,7 @@ use uc_game::vehicle::{self, Key, Vehicle};
 use uc_game::{Controls, Drive, Game};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn load() -> Option<(Level, Game, usize)> {

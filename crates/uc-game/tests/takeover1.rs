@@ -11,7 +11,7 @@ use glam::{vec2, vec3, Vec2};
 use uc_game::{person, Controls, Outcome};
 use uc_world::mav::{self, CAPS_DARCI};
 
-mod common;
+use crate::common;
 use common::{mid, Run, DT};
 
 /// The hostages' points.

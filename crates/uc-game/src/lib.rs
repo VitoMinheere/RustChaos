@@ -51,6 +51,7 @@ pub mod trip;
 pub mod vehicle;
 pub mod wand;
 pub mod ware;
+pub mod wet;
 
 use uc_formats::units::radians;
 use glam::{vec2, Vec2, Vec3};
@@ -621,6 +622,8 @@ pub struct Game {
     difficulty: Difficulty,
     /// Capture the flag against a bot (#133), when this is a game of it.
     ctf: Option<game::ctf::Ctf>,
+    /// A time trial (#519), if this is one.
+    trial: Option<game::trial::Trial>,
     /// The console's switches (#147).
     pub cheats: game::cheats::Cheats,
     /// What the player's done this mission (#132).
@@ -776,6 +779,8 @@ pub struct Game {
     pub gunfx: gunfx::GunFx,
     /// The puddles a rainy level has, and the drips in them.
     pub puddles: puddle::Puddles,
+    /// How wet the roads are (#522).
+    pub wet: wet::Wetness,
     /// What footsteps sound like on each floor texture.
     steps: steps::Steps,
     /// It's night (`NIGHT_FLAG_DAYTIME` clear): the cars have their lights on.
@@ -874,6 +879,12 @@ impl Game {
     /// Starts a level. With `scripted`, the mission's event points run (spawning the player,
     /// enemies, messages...); otherwise Darci just stands at the player start.
     pub fn new(level: &Level, scripted: bool) -> Game {
+        Game::build(level, scripted, true)
+    }
+
+    /// As [`Game::new`]; with `extras`, the mission's extra people and traffic, and (with no
+    /// script) the chopper parked near the start.
+    pub(crate) fn build(level: &Level, scripted: bool, extras: bool) -> Game {
         let script = scripted.then(|| {
             let mut s = Script::new(&level.mission);
             let switches: Vec<(usize, Vec3)> = level.map.objects.iter().enumerate()
@@ -906,6 +917,7 @@ impl Game {
             beat: None,
             difficulty: Difficulty::Normal,
             ctf: None,
+            trial: None,
             cheats: Default::default(),
             record: Default::default(),
             stats_track: Default::default(),
@@ -990,6 +1002,7 @@ impl Game {
             drops: dirt::Drops::default(),
             gunfx: gunfx::GunFx::default(),
             puddles: puddle::Puddles::default(),
+            wet: wet::Wetness::new(Self::raining(level)),
             steps: steps::Steps::load(&level.game, level.map.texture_set),
             night: Self::raining(level),
             fighting: Vec::new(),
@@ -1038,10 +1051,12 @@ impl Game {
         if g.player.is_none() {
             g.spawn_player(level, level.spawn.0, level.spawn.1, 0, ptype::DARCI, 0);
         }
-        g.populate(level);
-        // Explore and Beat Cop: a police chopper parked near the start, to fly (#465).
-        if !scripted {
-            g.park_chopper(level);
+        if extras {
+            g.populate(level);
+            // Explore and Beat Cop: a police chopper parked near the start, to fly (#465).
+            if !scripted {
+                g.park_chopper(level);
+            }
         }
         // Every map's barrel props become barrels (`OB_convert_dustbins_to_barrels`).
         for &ob in &level.barrel_props {
@@ -1492,6 +1507,7 @@ impl Game {
         self.gunfx.update(dt, |at| level.ground.surface(&level.map, at.x, at.z, at.y + 8.0));
         let near = self.player().map(|p| p.fig.pos);
         self.puddles.update(dt, Self::raining(level) && self.indoors.is_none(), near);
+        self.wet.update(dt, Self::raining(level));
         let frozen = self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player);
         // A filmed conversation holds the player still too (`EWAY_cam_freeze`), but not
         // everyone else as a fly-by does.
@@ -1573,6 +1589,7 @@ impl Game {
         self.lay_trails();
         self.walk_goals();
         self.run_ctf(dt, level);
+        self.run_trial(dt, level);
         self.arm_bodyguards(level);
         self.fetch_weapons(level);
         self.bonus_items(level);

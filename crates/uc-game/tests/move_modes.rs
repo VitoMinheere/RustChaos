@@ -7,7 +7,7 @@ use uc_game::person::{AI_CIV, MOVE_WARM_HANDS};
 use uc_game::{Controls, State, Weapon};
 use uc_world::character::anim;
 
-mod common;
+use crate::common;
 
 #[test]
 fn the_dancers_dance() {

@@ -6,7 +6,7 @@ use glam::{vec2, vec3, Vec3};
 use uc_game::person::AI_CIV;
 use uc_game::{Controls, Weapon};
 
-mod common;
+use crate::common;
 
 /// Darci aiming at one of RTA's crowd `deg` degrees round from straight ahead: her right
 /// hand's place, and how far she turned.

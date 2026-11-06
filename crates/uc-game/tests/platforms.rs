@@ -5,7 +5,7 @@ use glam::vec3;
 use uc_game::plat::State;
 use uc_game::{Controls, Game};
 
-mod common;
+use crate::common;
 use common::DT;
 
 #[test]

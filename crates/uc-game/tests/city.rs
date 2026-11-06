@@ -8,7 +8,7 @@ use uc_game::wand::Wander;
 use uc_game::{Controls, Game, State, Weapon};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn load(mission: &str) -> Option<(Level, Game)> {

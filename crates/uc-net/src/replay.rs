@@ -50,6 +50,9 @@ pub enum Mode {
     Beat { seed: u32, centre: Option<[f32; 2]>, shift: Option<u32> },
     /// The mission in co-op, Roper next to Darci.
     Coop,
+    /// A time trial (#519): the course's place in `uc_game::game::trial::courses`, the car's
+    /// in `Car::ALL`, and whether there's traffic.
+    Trial { course: u8, car: u8, traffic: bool },
 }
 
 /// How a game started: everything that changes it before turn 0. [`Start::game`] makes it,
@@ -100,6 +103,9 @@ impl Start {
             Mode::Explore => Game::new(level, false),
             Mode::Endless { seed, centre: c, radius } => Game::new_endless(level, seed, centre(c), radius),
             Mode::Beat { seed, centre: c, shift } => Game::new_beat(level, seed, centre(c), shift),
+            Mode::Trial { course, car, traffic } => {
+                Game::new_trial(level, course as usize, uc_game::game::trial::Car::from_index(car), traffic)
+            }
         };
         if let Some(d) = self.view_dist {
             g.view_dist = g.view_dist.max(d);
@@ -141,7 +147,8 @@ pub struct Tally {
     /// The mission's badges found and side objectives done in this run.
     pub badges: u8,
     pub sides: u8,
-    /// An endless run's or Beat Cop shift's score, and the wave reached or incidents handled.
+    /// An endless run's or Beat Cop shift's score, and the wave reached or incidents handled;
+    /// a time trial's race time in milliseconds, and the laps done.
     pub score: i64,
     pub count: u32,
 }
@@ -202,6 +209,12 @@ impl Replay {
                 o.u32(shift.map_or(0, |m| m + 1));
             }
             Mode::Coop => o.u8(4),
+            Mode::Trial { course, car, traffic } => {
+                o.u8(5);
+                o.u8(course);
+                o.u8(car);
+                o.u8(traffic as u8);
+            }
         }
         o.u8(s.difficulty);
         o.0.extend_from_slice(&s.stats);
@@ -265,6 +278,7 @@ impl Replay {
             2 => Mode::Endless { seed: i.u32()?, centre: centre(&mut i)?, radius: i.f32()? },
             3 => Mode::Beat { seed: i.u32()?, centre: centre(&mut i)?, shift: i.u32()?.checked_sub(1) },
             4 => Mode::Coop,
+            5 => Mode::Trial { course: i.u8()?, car: i.u8()?, traffic: i.u8()? != 0 },
             _ => return Err(bad("unknown kind of game")),
         };
         let difficulty = i.u8()?;
@@ -371,6 +385,11 @@ impl Recorder {
         }
         if let Some(b) = game.beat() {
             (r.tally.score, r.tally.count) = (b.score, b.handled);
+        }
+        // A time trial: the race's time in milliseconds (none till it's over), and the laps.
+        if let Some(t) = game.trial() {
+            let ms = t.total().map_or(0, |s| (s * 1000.0).round() as i64);
+            (r.tally.score, r.tally.count) = (ms, t.laps.len() as u32);
         }
         r
     }
@@ -497,7 +516,7 @@ mod tests {
     #[test]
     fn every_mode_round_trips() {
         for mode in [Mode::Mission, Mode::Explore, Mode::Coop, Mode::Endless { seed: 1, centre: None, radius: 10.0 },
-                     Mode::Beat { seed: 2, centre: None, shift: Some(10) }] {
+                     Mode::Beat { seed: 2, centre: None, shift: Some(10) }, Mode::Trial { course: 1, car: 2, traffic: true }] {
             let mut r = Replay::from_bytes(&empty()).unwrap();
             r.start.mode = mode;
             assert_eq!(Replay::from_bytes(&r.to_bytes()).unwrap().start.mode, mode);

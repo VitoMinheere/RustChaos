@@ -6,7 +6,7 @@ use glam::{vec3, Vec2};
 use uc_game::{Controls, Outcome, State, Weapon};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 
 const MIB: [u8; 3] = [ptype::MIB1, ptype::MIB2, ptype::MIB3];
 

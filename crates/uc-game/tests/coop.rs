@@ -8,7 +8,7 @@ use uc_formats::ucm::trigger;
 use uc_game::{Controls, Game};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 use common::Run;
 
 impl Run {

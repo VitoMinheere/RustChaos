@@ -54,6 +54,10 @@ pub struct Progress {
     time: Option<uc_world::TimeOfDay>,
     /// Racing the best run's ghost on the missions that have one (#186): on unless switched off.
     ghosts: bool,
+    /// The time trials (#519), by [`trial_key`]: the best race and the best lap.
+    trials: BTreeMap<String, (Option<f32>, Option<f32>)>,
+    /// Traffic on the roads in a time trial: off unless switched on.
+    traffic: bool,
     /// Everything done, over all play (#132).
     pub totals: uc_game::game::stats::Stats,
     /// The achievements earned, by id.
@@ -69,6 +73,11 @@ fn key(map: &str) -> String {
 /// The key a Beat Cop shift's best score is kept under: one per map and shift length.
 pub fn beat_key(label: &str, minutes: Option<u32>) -> String {
     format!("beat{}:{label}", minutes.map_or("open".to_string(), |m| m.to_string()))
+}
+
+/// The key a time trial's bests are kept under: one per course and car.
+pub fn trial_key(course: &str, car: uc_game::game::trial::Car) -> String {
+    format!("{}:{}", key(course), car.id())
 }
 
 fn list(s: &str) -> BTreeSet<usize> {
@@ -142,7 +151,13 @@ impl Progress {
         }
         let achieved = text.lines().filter_map(|l| Some(l.strip_prefix("@ach ")?.trim().to_string())).collect();
         let ghosts = !text.lines().any(|l| l.trim() == "@ghosts off");
-        Progress { done, civ_warnings, endless, difficulty, shift, time, ghosts, totals: stats, achieved, path }
+        let secs = |f: Option<&str>| f.and_then(|t| t.parse::<f32>().ok());
+        let trials = text.lines().filter_map(|l| {
+            let mut f = l.strip_prefix("@trial ")?.split_whitespace();
+            Some((f.next()?.to_string(), (secs(f.next()), secs(f.next()))))
+        }).collect();
+        let traffic = text.lines().any(|l| l.trim() == "@traffic on");
+        Progress { done, civ_warnings, endless, difficulty, shift, time, ghosts, trials, traffic, totals: stats, achieved, path }
     }
 
     pub fn ghosts(&self) -> bool {
@@ -152,6 +167,42 @@ impl Progress {
     pub fn set_ghosts(&mut self, on: bool) {
         self.ghosts = on;
         self.save();
+    }
+
+    pub fn traffic(&self) -> bool {
+        self.traffic
+    }
+
+    pub fn set_traffic(&mut self, on: bool) {
+        self.traffic = on;
+        self.save();
+    }
+
+    /// The best race and the best lap of time trial `key` ([`trial_key`]).
+    pub fn best_trial(&self, key: &str) -> (Option<f32>, Option<f32>) {
+        self.trials.get(key).copied().unwrap_or_default()
+    }
+
+    /// Records a lap of time trial `key`; whether it's the best.
+    pub fn record_lap(&mut self, key: &str, secs: f32) -> bool {
+        let e = self.trials.entry(key.to_string()).or_default();
+        let best = e.1.is_none_or(|b| secs < b);
+        if best {
+            e.1 = Some(secs);
+            self.save();
+        }
+        best
+    }
+
+    /// Records a whole race of time trial `key`; whether it's the best.
+    pub fn record_race(&mut self, key: &str, secs: f32) -> bool {
+        let e = self.trials.entry(key.to_string()).or_default();
+        let best = e.0.is_none_or(|b| secs < b);
+        if best {
+            e.0 = Some(secs);
+            self.save();
+        }
+        best
     }
 
     /// Another mission ended with too many civilian casualties: the chief's warnings before
@@ -321,6 +372,11 @@ impl Progress {
             .chain(self.time.map(|t| format!("@time {}\n", t.name())))
             .chain(self.totals.fields().into_iter().filter(|(_, v)| *v != 0.0).map(|(n, v)| format!("@stat {n} {v}\n")))
             .chain(self.achieved.iter().map(|a| format!("@ach {a}\n")))
+            .chain(self.trials.iter().map(|(k, (race, lap))| {
+                let t = |x: &Option<f32>| x.map_or("-".to_string(), |s| format!("{s:.2}"));
+                format!("@trial {k} {} {}\n", t(race), t(lap))
+            }))
+            .chain(self.traffic.then(|| "@traffic on\n".to_string()))
             .chain((!self.ghosts).then(|| "@ghosts off\n".to_string()))
             .chain((self.difficulty != uc_game::Difficulty::Normal).then(|| {
                 let n = uc_game::Difficulty::ALL.iter().position(|&d| d == self.difficulty).unwrap_or(1);
@@ -338,6 +394,12 @@ impl Progress {
 pub fn clock(secs: f32) -> String {
     let s = secs.round() as u32;
     format!("{}:{:02}", s / 60, s % 60)
+}
+
+/// A time to the hundredth, for the time trials: `1:02.35`.
+pub fn fine_clock(secs: f32) -> String {
+    let h = (secs.max(0.0) * 100.0).round() as u32;
+    format!("{}:{:02}.{:02}", h / 6000, h / 100 % 60, h % 100)
 }
 
 #[cfg(test)]
@@ -408,6 +470,29 @@ mod tests {
         // Missions without medals are saved as they were before there were any.
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("police1 70.0 b=23 s= d=1 m=311\n") && text.contains("fight1 30.0 b= s= d=0\n"), "{text}");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// A time trial's best race and lap are kept for each course and car, only ever lowered,
+    /// and loaded back; so is traffic switched on.
+    #[test]
+    fn trial_bests_round_trip() {
+        use uc_game::game::trial::Car;
+        let path = scratch("trials");
+        let mut p = Progress::load_from(Some(path.clone()));
+        let (oval, van) = (trial_key("oval", Car::Police), trial_key("oval", Car::Van));
+        assert!(p.record_lap(&oval, 21.5));
+        assert!(!p.record_lap(&oval, 22.0));
+        assert!(p.record_lap(&oval, 20.25));
+        assert!(p.record_race(&oval, 64.0));
+        assert!(p.record_lap(&van, 30.0));
+        p.set_traffic(true);
+        let q = Progress::load_from(Some(path.clone()));
+        assert_eq!(q.best_trial(&oval), (Some(64.0), Some(20.25)));
+        assert_eq!(q.best_trial(&van), (None, Some(30.0)));
+        assert_eq!(q.best_trial(&trial_key("oval", Car::Sports)), (None, None));
+        assert!(q.traffic());
+        assert_eq!(fine_clock(62.346), "1:02.35");
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 

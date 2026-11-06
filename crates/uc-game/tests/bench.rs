@@ -7,7 +7,7 @@ use glam::{vec2, vec3};
 use uc_game::{Controls, State};
 use uc_world::character::anim;
 
-mod common;
+use crate::common;
 use common::Run;
 
 /// RTA with Darci at a park bench (`PRIM_OBJ_PARK_BENCH`), hurt.

@@ -8,7 +8,7 @@ use uc_game::person::{AI_BULLY, AI_CIV, BENT_ONLY_KILL_PLAYER, MOVE_WANDER};
 use uc_game::Controls;
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 use common::Run;
 
 /// RTA with a bully and a passer-by four squares in front of him, where he can see them, and

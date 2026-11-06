@@ -6,7 +6,7 @@ use uc_game::game::stats::Stats;
 use uc_game::{Controls, Game};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// An endless run in RTA's park with the first of the wave in front of Darci, everyone else

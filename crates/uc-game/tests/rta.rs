@@ -7,7 +7,7 @@ use glam::{vec3, Vec3};
 use uc_game::person::ko;
 use uc_game::{Controls, Outcome, State, Weapon, BADGE};
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 impl Run {

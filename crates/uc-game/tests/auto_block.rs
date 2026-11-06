@@ -7,7 +7,7 @@ use uc_game::person::Move;
 use uc_game::{Controls, Game, State};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// Combat Silver with one of its fighters squared up to Darci, everyone else gone.

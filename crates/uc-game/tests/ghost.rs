@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use uc_game::game::ghost::{Pose, Track};
 use uc_game::{Controls, Drive, State};
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 /// Runs `secs` straight ahead from the start of `mission`, once its opening talk lets the

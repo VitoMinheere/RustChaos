@@ -3,7 +3,7 @@
 
 use uc_game::{Controls, Game};
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// Smoke puffs by a parked car of `health` over three seconds.

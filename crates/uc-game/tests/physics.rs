@@ -5,7 +5,7 @@
 use glam::vec2;
 use uc_game::{dike, Controls};
 
-mod common;
+use crate::common;
 
 #[test]
 fn the_extras_rest_on_the_floor_indoors() {

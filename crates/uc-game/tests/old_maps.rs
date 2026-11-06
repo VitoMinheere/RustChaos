@@ -3,7 +3,7 @@
 //! people, switches and items it puts up on its buildings. Skipped without an install.
 
 
-mod common;
+use crate::common;
 
 #[test]
 fn old_maps_have_walls_and_roofs() {

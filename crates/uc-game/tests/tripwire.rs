@@ -5,7 +5,7 @@
 use glam::{vec2, vec3, Vec2};
 use uc_game::Controls;
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 /// A guard the alarm of the tripwire at point 46 (by the house's east side) brings out.

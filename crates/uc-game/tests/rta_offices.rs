@@ -7,7 +7,7 @@
 use glam::{vec2, Vec2};
 use uc_game::{Controls, State};
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 /// Up a storey: the offices' floors.

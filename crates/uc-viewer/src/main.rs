@@ -183,7 +183,7 @@ impl App {
             }
         }
         // B: the ghost on or off, on the missions raced against one (#186), and remembered.
-        if inp.own(KeyCode::KeyB) && w.race.is_some() {
+        if inp.own(KeyCode::KeyB) && (w.race.is_some() || w.lap_race.is_some()) {
             w.ghost_on = !w.ghost_on;
             progress::Progress::load().set_ghosts(w.ghost_on);
         }
@@ -638,12 +638,14 @@ impl App {
             self.args.endless = false;
             self.args.beat = false;
             self.args.time = menu::mission_time(&m.progress, &name, m.mission_time);
+            self.args.trial = None;
             self.play(&name);
             self.input.pressed.clear();
             return;
         }
         if let Some(i) = m.loading_edit.take() {
             let name = m.entries[i].mission.clone();
+            self.args.trial = None;
             self.edit(&name, None);
             self.input.pressed.clear();
             return;
@@ -665,7 +667,19 @@ impl App {
             self.args.endless = false;
             self.args.beat = false;
             self.args.time = None;
+            self.args.trial = None;
             self.play("Capflag1");
+            self.input.pressed.clear();
+            return;
+        }
+        // A time trial (#519): the course's map, the car and traffic as chosen.
+        if let Some(i) = m.loading_trial {
+            let course = &uc_game::game::trial::courses()[i];
+            self.args.endless = false;
+            self.args.beat = false;
+            self.args.trial = Some((i, m.trial_car(), m.progress.traffic()));
+            self.args.time = None;
+            self.play(&course.mission);
             self.input.pressed.clear();
             return;
         }
@@ -674,6 +688,7 @@ impl App {
             let beat = m.for_beat;
             self.args.endless = !beat;
             self.args.beat = beat;
+            self.args.trial = None;
             self.args.shift = m.progress.shift();
             self.args.time = m.progress.time();
             let label = if beat { progress::beat_key(&label, self.args.shift) } else { label };
@@ -724,6 +739,7 @@ impl App {
                             m.screen = menu::Screen::Endless;
                         }
                         "CAPTURE THE FLAG" => m.loading_ctf = true,
+                        "TIME TRIAL" => m.screen = menu::Screen::Trial,
                         "STATS" => m.screen = menu::Screen::Stats,
                         "REPLAYS" => m.show_replays(),
                         "OPTIONS" => (m.screen, m.options, m.option_row) = (menu::Screen::Options, options::Options::load(), 0),
@@ -906,6 +922,32 @@ impl App {
                 }
                 if go && !m.replays.is_empty() {
                     m.loading_replay = Some(m.replay_selected);
+                }
+            }
+            menu::Screen::Trial => {
+                if back {
+                    m.screen = menu::Screen::Main;
+                }
+                // Left and right pick the car, T switches traffic.
+                let left = inp.hit(KeyCode::ArrowLeft) || inp.hit(KeyCode::KeyA) || inp.pad.hit(Button::DPadLeft);
+                let right = inp.hit(KeyCode::ArrowRight) || inp.hit(KeyCode::KeyD) || inp.pad.hit(Button::DPadRight);
+                let n = uc_game::game::trial::Car::ALL.len();
+                if left || right {
+                    m.trial_car = (m.trial_car + if right { 1 } else { n - 1 }) % n;
+                }
+                if inp.hit(KeyCode::KeyT) || inp.pad.hit(Button::North) {
+                    let on = !m.progress.traffic();
+                    m.progress.set_traffic(on);
+                }
+                let courses = uc_game::game::trial::courses().len().max(1);
+                if up {
+                    m.trial_course = (m.trial_course + courses - 1) % courses;
+                }
+                if down {
+                    m.trial_course = (m.trial_course + 1) % courses;
+                }
+                if go {
+                    m.loading_trial = Some(m.trial_course);
                 }
             }
             menu::Screen::Endless => {
@@ -1092,7 +1134,7 @@ impl App {
             return;
         }
         let won = self.world.as_ref().is_some_and(|w| w.game.outcome == Some(Outcome::Won));
-        let shift = self.world.as_ref().is_some_and(|w| w.game.beat().is_some());
+        let shift = self.world.as_ref().is_some_and(|w| w.game.beat().is_some() || w.game.trial().is_some());
         let watching = self.world.as_ref().is_some_and(|w| !w.counts());
         if won && !shift && !watching && (self.input.hit(KeyCode::Enter) || self.input.pad.hit(Button::Start)) {
             let current = self.world.as_ref().unwrap().level.name.clone();
@@ -1120,13 +1162,16 @@ impl App {
         if let Some(r) = world.race.as_mut() {
             r.update(&world.game, dt);
         }
+        if let Some(r) = world.lap_race.as_mut() {
+            r.update(&world.game, dt);
+        }
         // Remember a win (once) for the menu.
         // Won as Darci with more than one innocent dead: the chief's warning, and at the
         // fourth her badge, which loses the mission (Game.cpp:2783, `X_CIVSDEAD_WARNING_*`).
         let darci = world.game.player().is_some_and(|p| p.kind == uc_world::character::person::DARCI);
         // (Not in co-op: the warnings counted are this player's own, and the loss would be on
         // this machine only.)
-        if world.game.outcome == Some(Outcome::Won) && world.result.is_none() && world.civ_warning.is_none() && darci && world.game.red_marks > 1 && world.seat.is_none()
+        if world.game.outcome == Some(Outcome::Won) && world.result.is_none() && world.civ_warning.is_none() && darci && world.game.red_marks > 1 && world.seat.is_none() && world.game.trial().is_none()
             && world.counts() {
             let n = progress::Progress::load().warn();
             world.civ_warning = Some(civ_warning(&world.args.game, n));
@@ -1154,7 +1199,9 @@ impl App {
             let best = p.record_endless(&key, e.score, e.wave);
             world.endless_recorded = Some((best, before));
         }
-        if world.game.outcome == Some(Outcome::Won) && world.result.is_none() && world.game.beat().is_none() && counts {
+        // (A time trial's times are the lap race's.)
+        let trial = world.game.trial().is_some();
+        if world.game.outcome == Some(Outcome::Won) && world.result.is_none() && world.game.beat().is_none() && !trial && counts {
             let mut p = progress::Progress::load();
             let before = p.best_time(&world.level.name);
             let sides = world.game.sides_done(&world.goals);
@@ -1403,6 +1450,10 @@ fn headless_screenshot(mut world: World, path: &Path) -> Result<(), String> {
     save_png(path, size, &img)?;
     println!("saved {} ({}/{} chunks drawn, {} draw calls, {} triangles)", path.display(),
              r.stats.chunks_drawn, r.stats.chunks_total, r.stats.draw_calls, r.stats.triangles);
+    if world.args.bench > 0 {
+        let (mean, best) = r.time_frames(size, &cam, &world.settings(), &world.dynamic(), &hud, world.args.bench);
+        println!("{} frames: {mean:.2} ms a frame on average, {best:.2} ms the fastest", world.args.bench);
+    }
     Ok(())
 }
 

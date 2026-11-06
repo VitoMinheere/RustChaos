@@ -149,6 +149,8 @@ pub enum Screen {
     Missions,
     /// Endless mode's maps.
     Endless,
+    /// The time trials' courses (#519), and the car.
+    Trial,
     /// The stats and achievements (#132).
     Stats,
     /// Co-op (#182): host, or join by address.
@@ -179,7 +181,7 @@ pub const COOP: [&str; 2] = ["HOST", "JOIN"];
 
 /// The main menu's items (`raw_menu_data`, frontend.cpp:376): the ones there's something
 /// behind here.
-pub const MAIN: [&str; 11] = ["START", "CO-OP", "ENDLESS", "BEAT COP", "CAPTURE THE FLAG", "DIFFICULTY", "STATS", "REPLAYS", "OPTIONS", "CREDITS", "EXIT"];
+pub const MAIN: [&str; 12] = ["START", "CO-OP", "ENDLESS", "BEAT COP", "CAPTURE THE FLAG", "TIME TRIAL", "DIFFICULTY", "STATS", "REPLAYS", "OPTIONS", "CREDITS", "EXIT"];
 
 /// The menus' look, by how far through the game (`menu_theme`, set in
 /// `FRONTEND_MissionHierarchy`, frontend.cpp:3337): leaves for the first eight missions done,
@@ -240,6 +242,11 @@ pub struct Menu {
     /// The time of day to replay a won mission at (#515), none for its own lighting. Only
     /// while the menu's up: each replay at another time is chosen afresh.
     pub mission_time: Option<uc_world::TimeOfDay>,
+    /// The time trial's course and car chosen (their places in `courses()` and `Car::ALL`),
+    /// and a course to load on the next frame.
+    pub trial_course: usize,
+    pub trial_car: usize,
+    pub loading_trial: Option<usize>,
     /// Missions completed so far.
     pub progress: Progress,
     /// The co-op screen's choice, the address to join, and what went wrong last.
@@ -361,6 +368,7 @@ impl Menu {
             .map(|&(m, name)| (m.to_string(), name.to_string(), None, 10.0))
             .collect();
         let mut m = Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, briefed: None, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false, mission_time: None,
+               trial_course: 0, trial_car: 0, loading_trial: None,
                coop: 0, address: "127.0.0.1".into(), status: String::new(), for_coop: false, lobby: None,
                replays: Vec::new(), replay_selected: 0, loading_replay: None, loading_edit: None, idle: 0.0, loading_demo: false,
                pins, pin: 0, on_map: true, credits: Credits::default(), options: Options::load(), option_row: 0,
@@ -381,7 +389,7 @@ impl Menu {
         let w = self.theme.word();
         match self.screen {
             Screen::Title | Screen::Main | Screen::Credits => format!("data\\TITLE {}1.TGA", w.to_ascii_uppercase()),
-            Screen::Missions | Screen::Endless | Screen::Stats | Screen::Coop | Screen::Lobby | Screen::Replays | Screen::Options | Screen::Controls => format!("data\\map {w} darci.tga"),
+            Screen::Missions | Screen::Endless | Screen::Trial | Screen::Stats | Screen::Coop | Screen::Lobby | Screen::Replays | Screen::Options | Screen::Controls => format!("data\\map {w} darci.tga"),
         }
     }
 
@@ -662,6 +670,58 @@ impl Menu {
                 let tag = if self.for_beat { format!("BEST {score} ({wave} HANDLED)") } else { format!("BEST {score} (WAVE {wave})") };
                 o.text(w * 0.55 - Overlay::text_width(&tag, s) - 16.0 * s, y, s, gold, &tag);
             }
+        }
+    }
+
+    /// The car chosen for a time trial.
+    pub fn trial_car(&self) -> uc_game::game::trial::Car {
+        uc_game::game::trial::Car::ALL[self.trial_car % uc_game::game::trial::Car::ALL.len()]
+    }
+
+    /// The time trials (#519): the courses, the car and traffic, and the bests and medal
+    /// times for the course and car chosen.
+    fn trial_overlay(&self, o: &mut Overlay, w: f32, h: f32, s: f32) {
+        use uc_game::game::trial::courses;
+        o.backdrop(0.0, 0.0, w, h, [255, 255, 255, 255]);
+        self.kibble(o, w, h, s);
+        o.rect(0.0, 0.0, w * 0.55, h, [0, 0, 0, 170]);
+        let (white, gold, dim) = ([235, 235, 225, 255], [255, 210, 70, 255], [200, 200, 190, 220]);
+        let x = 20.0 * s;
+        o.text(x, 16.0 * s, s * 3.0, gold, "TIME TRIAL");
+        o.text(x, 44.0 * s, s, dim, "Laps against the clock and your best lap's ghost.   Up/Down course   Left/Right car   T traffic   Enter race   Esc back");
+        if let Some(i) = self.loading_trial {
+            let text = format!("LOADING {}...", courses()[i].name.to_uppercase());
+            o.text(w / 2.0 - Overlay::text_width(&text, s * 2.0) / 2.0, h * 0.5, s * 2.0, white, &text);
+            return;
+        }
+        let car = self.trial_car();
+        let traffic = if self.progress.traffic() { "ON" } else { "OFF" };
+        o.text(x, 58.0 * s, s * 1.5, white, &format!("CAR: < {} >   TRAFFIC: {traffic}", car.name().to_uppercase()));
+        let line = 11.0 * s;
+        let top = 78.0 * s;
+        for (k, c) in courses().iter().enumerate() {
+            let y = top + k as f32 * line;
+            if k == self.trial_course {
+                o.rect(x - 4.0 * s, y - 2.0 * s, w * 0.55 - x - 8.0 * s, line, [200, 150, 40, 200]);
+            }
+            o.text(x, y, s, white, &format!("{} ({} laps)", c.name, c.laps));
+            let (race, _) = self.progress.best_trial(&progress::trial_key(&c.id, car));
+            if let Some(t) = race {
+                let tag = format!("BEST {}", progress::fine_clock(t));
+                o.text(w * 0.55 - Overlay::text_width(&tag, s) - 16.0 * s, y, s, gold, &tag);
+            }
+        }
+        // The course chosen: its bests in this car and the medal times.
+        let Some(c) = courses().get(self.trial_course) else { return };
+        let (race, lap) = self.progress.best_trial(&progress::trial_key(&c.id, car));
+        let best = |t: Option<f32>| t.map_or("-".to_string(), progress::fine_clock);
+        let y = top + (courses().len() as f32 + 1.0) * line;
+        let rows = [
+            format!("Best race {}   Best lap {}", best(race), best(lap)),
+            format!("Gold {}   Silver {}   Bronze {}", progress::clock(c.medals[0]), progress::clock(c.medals[1]), progress::clock(c.medals[2])),
+        ];
+        for (k, r) in rows.iter().enumerate() {
+            o.text(x, y + k as f32 * line, s, if k == 0 { gold } else { dim }, r);
         }
     }
 
@@ -955,12 +1015,19 @@ impl Menu {
             Mode::Coop => "Co-op, with Roper".to_string(),
             Mode::Endless { seed, .. } => format!("Endless (seed {seed})"),
             Mode::Beat { shift, .. } => format!("Beat Cop: {} shift", shift.map_or("open-ended".into(), |m| format!("{m}-minute"))),
+            Mode::Trial { course, car, traffic } => {
+                let name = uc_game::game::trial::courses().get(course as usize).map_or("?", |c| c.name.as_str());
+                let car = uc_game::game::trial::Car::from_index(car).name();
+                format!("Time trial: {name}, {car}{}", if traffic { ", with traffic" } else { "" })
+            }
         };
         rows.push((format!("{mode} on {}", r.start.difficulty().name()), white));
         let entry = self.entries.iter().find(|e| e.mission.eq_ignore_ascii_case(&r.start.mission));
         match (r.start.mode, entry) {
             (Mode::Endless { .. }, _) => rows.push((format!("Score {}, wave {}", r.tally.score, r.tally.count), white)),
             (Mode::Beat { .. }, _) => rows.push((format!("Score {}, {} handled", r.tally.score, r.tally.count), white)),
+            (Mode::Trial { .. }, _) if r.tally.score > 0 => rows.push((format!("Race {}", progress::fine_clock(r.tally.score as f32 / 1000.0)), white)),
+            (Mode::Trial { .. }, _) => rows.push((format!("{} laps done", r.tally.count), white)),
             (_, Some(e)) if !e.goals.badges.is_empty() || !e.goals.sides.is_empty() => rows.push((
                 format!("Badges {}/{}, side objectives {}/{}", r.tally.badges, e.goals.badges.len(), r.tally.sides, e.goals.sides.len()), white)),
             _ => {}
@@ -1026,6 +1093,10 @@ impl Menu {
         let s = (h / 360.0).round().max(1.0);
         if self.screen == Screen::Endless {
             self.endless_overlay(&mut o, w, h, s);
+            return o;
+        }
+        if self.screen == Screen::Trial {
+            self.trial_overlay(&mut o, w, h, s);
             return o;
         }
         if self.screen == Screen::Stats {
