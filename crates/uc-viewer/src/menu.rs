@@ -237,6 +237,9 @@ pub struct Menu {
     pub loading_ctf: bool,
     /// The arena list is for a Beat Cop shift, not an endless run.
     pub for_beat: bool,
+    /// The time of day to replay a won mission at (#515), none for its own lighting. Only
+    /// while the menu's up: each replay at another time is chosen afresh.
+    pub mission_time: Option<uc_world::TimeOfDay>,
     /// Missions completed so far.
     pub progress: Progress,
     /// The co-op screen's choice, the address to join, and what went wrong last.
@@ -357,7 +360,7 @@ impl Menu {
             .filter(|(m, _)| entries.iter().any(|e| e.mission.eq_ignore_ascii_case(m)))
             .map(|&(m, name)| (m.to_string(), name.to_string(), None, 10.0))
             .collect();
-        let mut m = Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, briefed: None, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false,
+        let mut m = Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, briefed: None, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false, mission_time: None,
                coop: 0, address: "127.0.0.1".into(), status: String::new(), for_coop: false, lobby: None,
                replays: Vec::new(), replay_selected: 0, loading_replay: None, loading_edit: None, idle: 0.0, loading_demo: false,
                pins, pin: 0, on_map: true, credits: Credits::default(), options: Options::load(), option_row: 0,
@@ -627,11 +630,14 @@ impl Menu {
             ("ENDLESS", "Waves of thugs until you drop.", "map")
         };
         o.text(x, 16.0 * s, s * 3.0, gold, title);
-        o.text(x, 44.0 * s, s, [200, 200, 190, 220], &format!("{what}   Up/Down choose a {pick}   Enter play   Esc back"));
+        o.text(x, 44.0 * s, s, [200, 200, 190, 220], &format!("{what}   Up/Down choose a {pick}   T time of day   Enter play   Esc back"));
+        let mut tx = x + Overlay::text_width(title, s * 3.0) + 16.0 * s;
         if self.for_beat {
             let len = format!("SHIFT: < {} >", uc_game::game::beat::shift_name(self.progress.shift()));
-            o.text(x + Overlay::text_width(title, s * 3.0) + 16.0 * s, 24.0 * s, s * 1.5, white, &len);
+            o.text(tx, 24.0 * s, s * 1.5, white, &len);
+            tx += Overlay::text_width(&len, s * 1.5) + 16.0 * s;
         }
+        o.text(tx, 24.0 * s, s * 1.5, white, &format!("TIME: {}", time_name(self.progress.time())));
         if let Some(i) = self.loading_endless {
             let text = format!("LOADING {}...", self.arenas()[i].1.to_uppercase());
             o.text(w / 2.0 - Overlay::text_width(&text, s * 2.0) / 2.0, h * 0.5, s * 2.0, white, &text);
@@ -1065,7 +1071,7 @@ impl Menu {
         let gold = [255, 210, 70, 255];
         let x = 20.0 * s;
         o.text(x, 16.0 * s, s * 3.0, gold, "URBAN CHAOS");
-        let keys = if self.for_coop { "CO-OP: choose the mission to play together.   Up/Down choose   Enter play   Tab map   Esc back" } else { "Up/Down choose   Enter play   E edit   Tab map   Esc back" };
+        let keys = if self.for_coop { "CO-OP: choose the mission to play together.   Up/Down choose   Enter play   Tab map   Esc back" } else { "Up/Down choose   Enter play   E edit   T time (won missions)   Tab map   Esc back" };
         o.text(x, 44.0 * s, s, [200, 200, 190, 220], keys);
         // How far through the missions.
         let done = self.entries.iter().filter(|e| self.progress.completed(&e.mission)).count();
@@ -1146,6 +1152,11 @@ impl Menu {
             o.rect(px, py, pw, ph, [0, 0, 0, 180]);
             o.text(px + 12.0 * s, py + 10.0 * s, s * 2.0, gold, &fit(&e.title, bw, s * 2.0));
             o.text(px + 12.0 * s, py + 30.0 * s, s, best_col, &fit(&best, bw, s));
+            // A won mission's replay at another time of day (#515).
+            if kept.is_some() && self.mission_time.is_some() {
+                let t = format!("AT {}", time_name(self.mission_time));
+                o.text(px + pw - 12.0 * s - Overlay::text_width(&t, s), py + 10.0 * s, s, gold, &t);
+            }
             let mut y = py + 46.0 * s;
             for parts in targets.iter().flatten().filter(|l| !l.is_empty()) {
                 medals::draw_line(&mut o, px + 12.0 * s, y - 4.0 * s, s, parts);
@@ -1161,6 +1172,17 @@ impl Menu {
 }
 
 /// Entry `e` has badges or side objectives to do (so a thorough medal to win).
+/// How a time of day shows in the menu: none is the map's own lighting.
+fn time_name(t: Option<uc_world::TimeOfDay>) -> String {
+    t.map_or("MAP'S OWN".to_string(), |t| t.name().to_uppercase())
+}
+
+/// The mission `mission` is played at with the mission list's `time` (#515): its own lighting
+/// unless it's been won, a story mission's time being for its replays only.
+pub fn mission_time(progress: &Progress, mission: &str, time: Option<uc_world::TimeOfDay>) -> Option<uc_world::TimeOfDay> {
+    time.filter(|_| progress.completed(mission))
+}
+
 fn has_extras(e: &Entry) -> bool {
     !e.goals.badges.is_empty() || !e.goals.sides.is_empty()
 }

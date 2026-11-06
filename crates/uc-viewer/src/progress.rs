@@ -49,6 +49,9 @@ pub struct Progress {
     difficulty: uc_game::Difficulty,
     /// The Beat Cop shift length chosen in the menu, in minutes (`None` open-ended).
     shift: Option<u32>,
+    /// The time of day chosen for Endless and Beat Cop in the menu (#515), none for the
+    /// map's own lighting.
+    time: Option<uc_world::TimeOfDay>,
     /// Racing the best run's ghost on the missions that have one (#186): on unless switched off.
     ghosts: bool,
     /// Everything done, over all play (#132).
@@ -129,6 +132,7 @@ impl Progress {
             .and_then(|n| uc_game::Difficulty::ALL.get(n).copied()).unwrap_or_default();
         let shift = text.lines().find_map(|l| l.strip_prefix("@shift ")?.trim().parse::<u32>().ok())
             .map_or(uc_game::game::beat::DEFAULT_SHIFT, |m| (m > 0).then_some(m));
+        let time = text.lines().find_map(|l| uc_world::TimeOfDay::named(l.strip_prefix("@time ")?.trim()));
         let mut stats = uc_game::game::stats::Stats::default();
         for l in text.lines().filter_map(|l| l.strip_prefix("@stat ")) {
             let mut f = l.split_whitespace();
@@ -138,7 +142,7 @@ impl Progress {
         }
         let achieved = text.lines().filter_map(|l| Some(l.strip_prefix("@ach ")?.trim().to_string())).collect();
         let ghosts = !text.lines().any(|l| l.trim() == "@ghosts off");
-        Progress { done, civ_warnings, endless, difficulty, shift, ghosts, totals: stats, achieved, path }
+        Progress { done, civ_warnings, endless, difficulty, shift, time, ghosts, totals: stats, achieved, path }
     }
 
     pub fn ghosts(&self) -> bool {
@@ -174,6 +178,15 @@ impl Progress {
 
     pub fn set_shift(&mut self, minutes: Option<u32>) {
         self.shift = minutes;
+        self.save();
+    }
+
+    pub fn time(&self) -> Option<uc_world::TimeOfDay> {
+        self.time
+    }
+
+    pub fn set_time(&mut self, time: Option<uc_world::TimeOfDay>) {
+        self.time = time;
         self.save();
     }
 
@@ -305,6 +318,7 @@ impl Progress {
             .chain((self.civ_warnings > 0).then(|| format!("@civ_warnings {}\n", self.civ_warnings)))
             .chain(self.endless.iter().map(|(m, (s, w))| format!("@endless {m} {s} {w}\n")))
             .chain((self.shift != uc_game::game::beat::DEFAULT_SHIFT).then(|| format!("@shift {}\n", self.shift.unwrap_or(0))))
+            .chain(self.time.map(|t| format!("@time {}\n", t.name())))
             .chain(self.totals.fields().into_iter().filter(|(_, v)| *v != 0.0).map(|(n, v)| format!("@stat {n} {v}\n")))
             .chain(self.achieved.iter().map(|a| format!("@ach {a}\n")))
             .chain((!self.ghosts).then(|| "@ghosts off\n".to_string()))

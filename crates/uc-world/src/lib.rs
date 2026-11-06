@@ -12,9 +12,11 @@ pub mod rewall;
 pub mod roofs;
 pub mod rooftiles;
 pub mod mav;
+pub mod time;
 
 pub use character::{Figure, Model, People, Play};
 pub use crinkle::Relief;
 pub use ground::Ground;
 pub use geometry::{ghost_page, reflect_page, smap_slot, Batch, Chunk, Layer, SelfLit, Vertex, WorldGeometry, ADDITIVE_PAGES, DECAL_PAGES, EXPLODE_PAGE, GHOST, GLOW, MIST, MOON_PAGE, REFLECT, SHADOW, SMAP, SKY_PAGE, UNIT, UNTEXTURED};
 pub use level::{Level, LoadOptions};
+pub use time::TimeOfDay;

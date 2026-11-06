@@ -1091,6 +1091,20 @@ impl Game {
         self.messages.push(Message { text, left, face: Some(talk::face::RADIO), filmed: false });
     }
 
+    /// The level's lighting changed under a game being played (the console's `time`, #515):
+    /// the cars' lights, and the puddles there are while it rains. Not in the original.
+    pub fn relight(&mut self, level: &Level) {
+        let was = self.night;
+        self.night = Self::raining(level);
+        if self.night != was {
+            self.puddles = if self.night {
+                puddle::Puddles::precalculate(&level.map, |x, z| self.routes.mav.height(x, z) as i32)
+            } else {
+                puddle::Puddles::default()
+            };
+        }
+    }
+
     /// A hash of the state that matters to how the game plays on: the time, the outcome, the
     /// dice, and where everyone and everything is and what they're doing. Two runs given the
     /// same inputs must agree on it every frame (what lockstep multiplayer and replays need,

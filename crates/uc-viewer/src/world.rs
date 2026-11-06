@@ -26,8 +26,16 @@ fn start(args: &Args) -> Start {
         weapon: args.weapon,
         dogs: args.dogs as u32,
         view_dist: args.fog.map(|(_, end)| end * 256.0),
+        time: args.time,
         ..Start::new(&args.mission, mode, p.difficulty(), p.stats())
     }
+}
+
+/// The key an endless run's or a Beat Cop shift's best is kept under: the arena's name in
+/// the menu (a shift's with its length, [`progress::beat_key`]), else the mission's. The time
+/// of day isn't in it (#515): a run at night goes for the same best as one by day.
+pub(crate) fn best_key(args: &Args, mission: &str) -> String {
+    args.arena_name.clone().unwrap_or_else(|| if args.beat { progress::beat_key(mission, args.shift) } else { mission.to_string() })
 }
 
 /// A new game for `args`, and how it started.
@@ -144,7 +152,7 @@ impl World {
             None => editor::saved(&args.mission).map(|d| editor::Editor::with(&args.mission, d)),
         };
         let mission = ed.as_ref().and_then(|e| e.mission().ok());
-        let mut w = World::load_with(Args { cam: None, ..args }, None, None, mission, new_game)?;
+        let mut w = World::load_with(Args { cam: None, time: None, ..args }, None, None, mission, new_game)?;
         let ed = ed.take().unwrap_or_else(|| editor::Editor::new(&w.args.mission, &w.level.mission));
         w.editor = Some(ed);
         w.third_person = false;
@@ -156,7 +164,7 @@ impl World {
 
     /// `mission`, an edit of `args.mission`, played.
     pub(crate) fn load_edited(args: Args, mission: uc_formats::ucm::Mission) -> Result<World, String> {
-        let args = Args { explore: false, endless: false, beat: false, cam: None, ..args };
+        let args = Args { explore: false, endless: false, beat: false, cam: None, time: None, ..args };
         let mut w = World::load_with(args, None, None, Some(mission), new_game)?;
         w.edited = true;
         w.recorder = None;
@@ -175,7 +183,7 @@ impl World {
         let start = replay.start.clone();
         let args = Args {
             mission: start.mission.clone(), explore: start.mode == Mode::Explore, endless: matches!(start.mode, Mode::Endless { .. }),
-            beat: matches!(start.mode, Mode::Beat { .. }), dogs: start.dogs as usize, weapon: start.weapon, cam: None,
+            beat: matches!(start.mode, Mode::Beat { .. }), dogs: start.dogs as usize, weapon: start.weapon, cam: None, time: start.time,
             no_character: false, ..args
         };
         World::load_with(args, None, Some(replay), None, |level, _| (start.game(level), start.clone()))
@@ -184,7 +192,7 @@ impl World {
     /// A co-op game's mission, as `setup` has it, played from `seat`. Nothing here may
     /// change the game but `setup`: every player's machine has to start the same one.
     pub(crate) fn load_coop(args: Args, setup: &uc_net::Setup, seat: usize) -> Result<World, String> {
-        let args = Args { mission: setup.mission.clone(), explore: false, endless: false, beat: false, dogs: 0, weapon: uc_game::Weapon::None, cam: None, ..args };
+        let args = Args { mission: setup.mission.clone(), explore: false, endless: false, beat: false, dogs: 0, weapon: uc_game::Weapon::None, cam: None, time: None, ..args };
         World::load_with(args, Some(seat), None, None, |level, _| {
             let mut game = setup.game(level);
             game.focus(seat);
@@ -197,10 +205,11 @@ impl World {
     fn load_with(args: Args, seat: Option<usize>, replay: Option<Replay>, mission: Option<uc_formats::ucm::Mission>,
                  make: impl FnOnce(&Level, &Args) -> (Game, Start)) -> Result<World, String> {
         let opt = LoadOptions { fullbright: args.fullbright, character: !args.no_character, overrides: args.overrides.clone() };
-        let level = match mission {
+        let mut level = match mission {
             Some(m) => Level::load_with_mission(&args.game, &args.mission, m, &opt)?,
             None => Level::load(&args.game, &args.mission, &opt)?,
         };
+        level.set_time(args.time);
         let (mut game, how) = make(&level, &args);
         if !game.unsupported().is_empty() {
             println!("{}: {} event points aren't supported yet and do nothing: {}", level.name,
@@ -558,4 +567,32 @@ impl World {
         );
     }
 
+}
+
+#[cfg(test)]
+mod best_tests {
+    use super::*;
+    use uc_world::TimeOfDay;
+
+    /// Endless and Beat Cop bests don't depend on the time of day (#515): every time keeps
+    /// its record under the one key, so a run at night beats or doesn't beat the day's best.
+    /// Endless and Beat Cop still keep theirs apart.
+    #[test]
+    fn bests_are_kept_whatever_the_time() {
+        for (endless, beat, arena) in [(true, false, Some("Gangland".to_string())), (false, true, None), (true, false, None)] {
+            let keys: Vec<String> = [None].into_iter().chain(TimeOfDay::ALL.map(Some))
+                .map(|time| best_key(&Args { endless, beat, arena_name: arena.clone(), time, ..Default::default() }, "gang1"))
+                .collect();
+            assert!(keys.iter().all(|k| *k == keys[0]), "{keys:?}");
+        }
+        let night = |endless, beat| best_key(&Args { endless, beat, time: Some(TimeOfDay::Night), ..Default::default() }, "gang1");
+        let (endless, beat) = (night(true, false), night(false, true));
+        assert_ne!(endless, beat);
+        let mut p = progress::Progress::default();
+        p.record_endless(&endless, 900, 6);
+        let day = best_key(&Args { endless: true, time: Some(TimeOfDay::Day), ..Default::default() }, "gang1");
+        assert!(!p.record_endless(&day, 500, 4), "the night's 900 is the day's best too");
+        assert_eq!(p.best_endless(&day), Some((900, 6)));
+        assert_eq!(p.best_endless(&beat), None);
+    }
 }
