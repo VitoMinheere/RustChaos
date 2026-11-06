@@ -16,7 +16,7 @@ const CHANGES: [&str; 22] = [
 ];
 
 const HELP: &str = "telw N (to event point N)  tels / telr (store / return)  wpt (nearest point)  \
-win  lose  restart  roper  darci  kit  boo  pow  pos  god  ammo  freeze  give WHAT  kill [near]  \ncrime N  time X  wave N  bonus  telb N  car  dog  call WHAT  autopilot  crinkles  textures  relief  bloom  sm  dike  flag  hm";
+win  lose  restart  roper  darci  kit  boo  pow  pos  god  ammo  freeze  give WHAT  kill [near]  \ncrime N  time X|day|dusk|night|dawn|own  wave N  bonus  telb N  car  dog  call WHAT  autopilot  crinkles  textures  relief  bloom  sm  dike  flag  hm";
 
 #[derive(Default)]
 pub(crate) struct Console {
@@ -203,12 +203,17 @@ impl World {
                 (_, None) => self.console.say("wave N: only in an endless run"),
                 _ => self.console.say("wave N: jump to wave N"),
             },
+            // The time of day (#515), not in the original: the map lit again and rebuilt.
+            "time" if arg.is_some_and(|a| a.eq_ignore_ascii_case("own") || uc_world::TimeOfDay::named(a).is_some()) => {
+                let time = arg.and_then(uc_world::TimeOfDay::named);
+                self.set_time(time);
+            }
             "time" => match arg.and_then(|a| a.parse::<f32>().ok()) {
                 Some(x) => {
                     self.console.time_scale = Some(x.clamp(0.1, 4.0)).filter(|&x| x != 1.0);
                     self.console.say(format!("Time x{:.2}", x.clamp(0.1, 4.0)));
                 }
-                None => self.console.say("time X: game speed, 0.1 to 4 (1 is normal)"),
+                None => self.console.say("time X: game speed, 0.1 to 4 (1 is normal); time day|dusk|night|dawn|own: the time of day"),
             },
             "bonus" => {
                 self.console.show_bonus = !self.console.show_bonus;
@@ -291,6 +296,24 @@ impl World {
             }
             _ => self.console.say(format!("Unknown command '{name}': try help")),
         }
+    }
+
+    /// The console's `time day|dusk|night|dawn|own` (#515): the level lit for it, the game
+    /// told (the cars' lights, the rain's puddles), and the level built again. A restart keeps
+    /// it.
+    pub(crate) fn set_time(&mut self, time: Option<uc_world::TimeOfDay>) {
+        if self.level.lighting.is_none() {
+            self.console.say("Full bright: no time of day");
+            return;
+        }
+        self.level.set_time(time);
+        self.args.time = time;
+        self.game.relight(&self.level);
+        self.reupload = true;
+        self.console.say(match time {
+            Some(t) => format!("Time of day: {}...", t.name()),
+            None => "The mission's own lighting...".to_string(),
+        });
     }
 
     /// The bonus objectives still open, for `bonus` and `telb`: the side objectives not yet

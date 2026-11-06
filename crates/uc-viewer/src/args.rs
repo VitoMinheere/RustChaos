@@ -18,6 +18,7 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --beat           a Beat Cop shift on the mission's map: incidents over the radio (--seed, --arena too)
   --shift MINUTES  the shift's length (default 10), or endless for an open-ended one
   --arena X,Z,R     the endless arena: its middle in squares and its radius (default: 10 round the start)
+  --time T          light the map for day, dusk, night or dawn (default: the mission's own lighting)
   --trial COURSE    a time trial on a course (oval, westblock), in --car police, sports or van, with
                     --traffic on the roads or not
   --windowed        in a window (default: full screen; F11 or Alt+Enter switches)
@@ -114,6 +115,8 @@ pub(crate) struct Args {
     pub(crate) seed: Option<u32>,
     /// The endless arena: its middle in squares (the start if none) and its radius.
     pub(crate) arena: (Option<(f32, f32)>, f32),
+    /// The time of day the map's lit for (#515); none for the mission's own lighting.
+    pub(crate) time: Option<uc_world::TimeOfDay>,
     /// The arena's name in the menu, which its best run is kept under.
     pub(crate) arena_name: Option<String>,
     /// A time trial (#519): the course (its place in the list), the car, and traffic.
@@ -179,6 +182,7 @@ impl Default for Args {
             seed: None,
             arena: (None, 10.0),
             arena_name: None,
+            time: None,
             trial: None,
             windowed: false,
             weapon: uc_game::Weapon::None,
@@ -247,6 +251,10 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             "--arena" => {
                 let v = parse_floats(&value()?, 3, "--arena")?;
                 a.arena = (Some((v[0], v[1])), v[2]);
+            }
+            "--time" => {
+                let v = value()?;
+                a.time = Some(uc_world::TimeOfDay::named(&v).ok_or(format!("--time: {v}? (day, dusk, night or dawn)"))?);
             }
             "--trial" => {
                 let id = value()?;

@@ -53,6 +53,8 @@ pub struct Level {
     /// Darci's start: feet position in world units and angle in radians (facing (-sin, -cos)).
     pub spawn: (Vec3, f32),
     pub sky: [u8; 3],
+    /// The time of day chosen in place of the mission's own lighting ([`Level::set_time`]).
+    pub time: Option<crate::TimeOfDay>,
     pub people: Option<People>,
     /// Prims for items and barrels that missions place (`ITEM_PRIMS`).
     pub item_prims: HashMap<u8, Prim>,
@@ -1279,7 +1281,7 @@ impl Level {
         let wall_pages = crate::rewall::REWALL.iter().find(|(m, _)| m.eq_ignore_ascii_case(&mission.map)).map_or(&[][..], |&(_, p)| p);
         Ok(Level {
             game: game.to_path_buf(), name: mission_name.to_string(), mission, map, clump, styles, lighting,
-            ground, spawn, sky, people, overrides: opt.overrides.clone(), platforms, barrel_props, stand_in_pages, self_lit, page_donors,
+            ground, spawn, sky, time: None, people, overrides: opt.overrides.clone(), platforms, barrel_props, stand_in_pages, self_lit, page_donors,
             wall_pages,
             see_through_prims: resolve(game, "server\\textures\\shared\\prims\\textype.txt")
                 .and_then(|p| std::fs::read_to_string(p).ok())
@@ -1288,6 +1290,29 @@ impl Level {
                 .filter_map(|id| Some((id, load_prim(game, id)?))).collect(),
             weapon_prims: (256..=263).filter_map(|id| Some((id, load_prim(game, id)?))).collect(),
         })
+    }
+
+    /// Lights the level for `time` (#515), or with the mission's own lighting again for none:
+    /// the variant the game shipped for the map, else one derived from the mission's own
+    /// ([`crate::time::source`]). The sky and fog go with it, the haze rule still applying.
+    /// Nothing changes for a level loaded full bright. Not in the original.
+    pub fn set_time(&mut self, time: Option<crate::TimeOfDay>) {
+        if self.lighting.is_none() {
+            return;
+        }
+        let load = |path: &str| read(&self.game, path).ok().and_then(|b| Lighting::parse(&b).ok());
+        let own = &self.mission.lighting;
+        let Some(base) = load(own) else { return };
+        let daytime = base.flags & uc_formats::lgt::FLAG_DAYTIME != 0;
+        let (lighting, file) = match time.map(|t| (t, crate::time::source(own, daytime, t))) {
+            None => (Some(base), own.clone()),
+            Some((_, crate::time::Source::File(f))) => (load(&f), f),
+            Some((t, crate::time::Source::Derived(f))) => (load(&f).map(|l| crate::time::derive(&l, t)), String::new()),
+        };
+        let Some(lighting) = lighting else { return };
+        self.sky = haze(&file).unwrap_or(lighting.sky);
+        self.lighting = Some(lighting);
+        self.time = time;
     }
 
     pub fn lighter(&self) -> Option<Lighter<'_>> {

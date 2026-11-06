@@ -637,6 +637,7 @@ impl App {
             let name = m.entries[i].mission.clone();
             self.args.endless = false;
             self.args.beat = false;
+            self.args.time = menu::mission_time(&m.progress, &name, m.mission_time);
             self.args.trial = None;
             self.play(&name);
             self.input.pressed.clear();
@@ -665,6 +666,7 @@ impl App {
         if m.loading_ctf {
             self.args.endless = false;
             self.args.beat = false;
+            self.args.time = None;
             self.args.trial = None;
             self.play("Capflag1");
             self.input.pressed.clear();
@@ -676,6 +678,7 @@ impl App {
             self.args.endless = false;
             self.args.beat = false;
             self.args.trial = Some((i, m.trial_car(), m.progress.traffic()));
+            self.args.time = None;
             self.play(&course.mission);
             self.input.pressed.clear();
             return;
@@ -687,6 +690,7 @@ impl App {
             self.args.beat = beat;
             self.args.trial = None;
             self.args.shift = m.progress.shift();
+            self.args.time = m.progress.time();
             let label = if beat { progress::beat_key(&label, self.args.shift) } else { label };
             self.args.arena = (centre, radius);
             self.args.arena_name = Some(label);
@@ -814,6 +818,10 @@ impl App {
                 }
                 if inp.hit(KeyCode::KeyE) && !m.entries.is_empty() {
                     m.loading_edit = Some(m.selected);
+                }
+                // T the time of day to replay a won mission at (#515).
+                if inp.hit(KeyCode::KeyT) || inp.pad.hit(Button::West) {
+                    m.mission_time = uc_world::TimeOfDay::cycle(m.mission_time);
                 }
             }
             menu::Screen::Stats => {
@@ -954,6 +962,10 @@ impl App {
                     let now = all.iter().position(|&s| s == m.progress.shift()).unwrap_or(1);
                     let step = if right { 1 } else { all.len() - 1 };
                     m.progress.set_shift(all[(now + step) % all.len()]);
+                }
+                // T the time of day (#515): the map's own, day, dusk, night, dawn.
+                if inp.hit(KeyCode::KeyT) || inp.pad.hit(Button::West) {
+                    m.progress.set_time(uc_world::TimeOfDay::cycle(m.progress.time()));
                 }
                 if up {
                     m.map_up();
@@ -1135,6 +1147,7 @@ impl App {
                     Some(c) if c.is_host() => c.choose(&name),
                     Some(_) => {}
                     None => {
+                        self.args.time = None;
                         self.play(&name);
                         return;
                     }
@@ -1174,14 +1187,14 @@ impl App {
         let counts = world.counts();
         if let (Some(b), Some(_), None, true) = (world.game.beat(), &world.game.outcome, world.endless_recorded, counts) {
             let mut p = progress::Progress::load();
-            let key = world.args.arena_name.clone().unwrap_or_else(|| progress::beat_key(&world.level.name, world.args.shift));
+            let key = best_key(&world.args, &world.level.name);
             let before = p.best_endless(&key);
             let best = p.record_endless(&key, b.score, b.handled);
             world.endless_recorded = Some((best, before));
         }
         if let (Some(e), Some(Outcome::Lost(_)), None, true) = (world.game.endless(), &world.game.outcome, world.endless_recorded, counts) {
             let mut p = progress::Progress::load();
-            let key = world.args.arena_name.clone().unwrap_or_else(|| world.level.name.clone());
+            let key = best_key(&world.args, &world.level.name);
             let before = p.best_endless(&key);
             let best = p.record_endless(&key, e.score, e.wave);
             world.endless_recorded = Some((best, before));
