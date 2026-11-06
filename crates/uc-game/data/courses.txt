@@ -9,8 +9,11 @@
 #   radius <r>                how near a checkpoint the car has to come
 #   traffic <n>               the cars on the roads with traffic on
 #   medals <gold> <silver> <bronze>   times for the whole race, in seconds (set from the
-#                             tests' bot: about silver in the police car)
-#   cp <x> <z>                the checkpoints, in order; the first is the start and finish
+#                             tests' bot: gold a little under its time in the police car,
+#                             bronze a little over the van's; on the Advanced Circuit, the
+#                             oval's share of the original's time limit)
+#   cp <x> <z> [<r>]          the checkpoints, in order; the first is the start and finish.
+#                             A third number is that checkpoint's own radius
 
 # Driving Bronze's track: the car where the mission parks it, the lap checkpoints of its
 # script (points 58 to 60, 62 and 63), and two in each bend where its point 61 is: up the
@@ -45,3 +48,105 @@ cp 90.0 104.5
 cp 53.0 104.5
 cp 24.0 104.5
 cp 12.5 89.5
+
+# The Advanced Circuit's silver course (Driving Silver, `testdrive2`): the car where the
+# mission parks it, and the lap checkpoints of its script with their radii (points 215 to 236).
+# Point 231 is at the end of a dead end, to be backed out of. The medals are the oval's share
+# of its time limit (90 s for three laps; gold 50 s) of this course's: 120 s for two laps.
+course silver testdrive2 2 Advanced Circuit: silver
+start 95.9 93.1 180
+radius 4.0
+traffic 0
+medals 67 75 88
+cp 96.0 82.8 3.25
+cp 96.1 56.7 3.5
+cp 92.2 16.3 4.5
+cp 47.4 41.0 4.5
+cp 66.6 63.2 3.9
+cp 76.1 53.2 5.0
+cp 80.3 63.6 4.4
+cp 57.4 89.2 4.4
+cp 37.4 88.9 2.0
+cp 74.8 88.4 4.5
+cp 95.4 87.6 3.9
+
+# The gold course (Driving Gold, `testdrive3`): points 237 to 261. Points 255 and 259 are
+# at the ends of dead ends. The medals as silver's, of a 140 s limit.
+course gold testdrive3 2 Advanced Circuit: gold
+start 95.9 92.9 180
+radius 4.0
+traffic 0
+medals 78 87 102
+cp 96.1 84.5 3.5
+cp 96.1 45.2 3.5
+cp 90.8 17.2 4.5
+cp 39.5 21.1 3.5
+cp 13.0 23.7 4.0
+cp 26.8 41.3 7.5
+cp 20.8 69.7 5.0
+cp 21.7 102.1 6.5
+cp 69.8 105.4 4.5
+cp 106.7 104.5 4.25
+cp 72.1 96.5 3.5
+cp 37.8 89.1 3.0
+cp 91.8 88.4 4.5
+
+# City courses: long loops of the road graph (`ROAD_wander_calc`) with the most turns, a
+# checkpoint at each junction on the way.
+course gangland Gangorder1 2 Gangland: the long way round
+start 37.5 22.5 180
+radius 4.0
+traffic 7
+medals 65 73 86
+cp 37.5 17.5
+cp 70.5 17.5
+cp 70.5 60.5
+cp 96.5 60.5
+cp 96.5 100.5
+cp 66.5 100.5
+cp 66.5 80.5
+cp 37.5 80.5
+cp 37.5 60.5
+
+course riocanal wstores1 2 Rio Canal: back streets
+start 22.5 35.5 270
+radius 4.0
+traffic 6
+medals 91 103 121
+cp 17.5 35.5
+cp 17.5 56.5
+cp 38.5 56.5
+cp 38.5 83.5
+cp 80.5 83.5
+cp 107.5 83.5
+cp 107.5 61.5
+cp 80.5 61.5
+cp 80.5 33.5
+cp 97.5 33.5
+cp 97.5 21.5
+cp 81.5 21.5
+cp 81.5 12.5
+cp 38.5 12.5
+cp 38.5 35.5
+
+course southside e3 2 Southside Beach: shore to shore
+start 12.5 12.5 270
+radius 4.0
+traffic 7
+medals 98 110 130
+cp 7.5 12.5
+cp 7.5 78.5
+cp 57.5 78.5
+cp 57.5 92.5
+cp 92.5 92.5
+cp 92.5 76.5
+cp 111.5 76.5
+cp 111.5 50.5
+cp 111.5 30.5
+cp 105.5 30.5
+cp 105.5 12.5
+cp 77.5 12.5
+cp 41.5 12.5
+cp 41.5 30.5
+cp 28.5 30.5
+cp 28.5 12.5

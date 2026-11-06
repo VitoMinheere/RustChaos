@@ -22,6 +22,9 @@ pub enum Pose {
     Foot { pos: Vec3, angle: f32, cur: u32, next: u32, tween: f32 },
     /// Driving car `vehicle` (its index in the mission's vehicles).
     Car { vehicle: u32, pos: Vec3, yaw: f32, pitch: f32, roll: f32, steer: f32, spin: f32 },
+    /// Riding bike `bike` (its index in the mission's bikes): the bike where it's drawn, its
+    /// heading, and the rider as [`Pose::Foot`] has them.
+    Bike { bike: u32, pos: Vec3, yaw: f32, rider: Vec3, angle: f32, cur: u32, next: u32, tween: f32 },
 }
 
 /// A recorded run.
@@ -62,6 +65,13 @@ impl Track {
                     roll: roll + (r2 - roll) * f, steer: steer + (s2 - steer) * f, spin: turn(spin, w2, f),
                 }
             }
+            (Pose::Bike { bike, pos, yaw, rider, angle, cur, next, tween }, Pose::Bike { bike: b2, pos: p2, yaw: y2, rider: r2, angle: a2, .. }) if bike == b2 => {
+                // A reset (more than two squares) isn't blended.
+                if pos.distance(p2) > 512.0 {
+                    return a;
+                }
+                Pose::Bike { bike, pos: pos.lerp(p2, f), yaw: turn(yaw, y2, f), rider: rider.lerp(r2, f), angle: turn(angle, a2, f), cur, next, tween }
+            }
             _ => a,
         }
     }
@@ -98,6 +108,16 @@ impl Track {
                         f(&mut out, x);
                     }
                 }
+                Pose::Bike { bike, pos, yaw, rider, angle, cur, next, tween } => {
+                    out.push(3);
+                    u(&mut out, bike);
+                    for x in [pos.x, pos.y, pos.z, yaw, rider.x, rider.y, rider.z, angle] {
+                        f(&mut out, x);
+                    }
+                    u(&mut out, cur);
+                    u(&mut out, next);
+                    f(&mut out, tween);
+                }
             }
         }
         u(&mut out, self.splits.len() as u32);
@@ -125,6 +145,12 @@ impl Track {
                     let vehicle = r.u()?;
                     let (x, y, z) = (r.f()?, r.f()?, r.f()?);
                     Pose::Car { vehicle, pos: Vec3::new(x, y, z), yaw: r.f()?, pitch: r.f()?, roll: r.f()?, steer: r.f()?, spin: r.f()? }
+                }
+                3 => {
+                    let bike = r.u()?;
+                    let (x, y, z, yaw) = (r.f()?, r.f()?, r.f()?, r.f()?);
+                    let (rx, ry, rz, angle) = (r.f()?, r.f()?, r.f()?, r.f()?);
+                    Pose::Bike { bike, pos: Vec3::new(x, y, z), yaw, rider: Vec3::new(rx, ry, rz), angle, cur: r.u()?, next: r.u()?, tween: r.f()? }
                 }
                 _ => return None,
             });
@@ -187,6 +213,12 @@ impl Game {
             };
         }
         let (cur, next, tween) = p.fig.keyframes();
+        if let State::Bike { bike, .. } = p.state {
+            if let Some((b, _)) = self.bikes.get(bike) {
+                let yaw = uc_formats::units::radians(b.yaw as f32);
+                return Pose::Bike { bike: bike as u32, pos: b.pos(), yaw, rider: p.fig.drawn_pos(), angle: p.fig.angle, cur: cur as u32, next: next as u32, tween };
+            }
+        }
         Pose::Foot { pos: p.fig.drawn_pos(), angle: p.fig.angle, cur: cur as u32, next: next as u32, tween }
     }
 
@@ -231,6 +263,20 @@ impl Game {
                 let mut v = v.clone();
                 (v.pos, v.yaw, v.pitch, v.roll, v.steer, v.wheel_spin) = (pos, yaw, pitch, roll, steer, spin);
                 super::draw::car(&v, level, lighter.as_ref(), &mut mine);
+                pos
+            }
+            Pose::Bike { bike, pos, yaw, rider, angle, cur, next, tween } => {
+                // The bike as `run_bikes` draws it, and her on it.
+                if let Some(mut f) = self.bikes.get(bike as usize).and_then(|(_, f)| f.clone()) {
+                    (f.pos, f.angle) = (pos - Vec3::new(0.0, (0x18 + 0x10) as f32, 0.0), yaw);
+                    f.append_batches(&mut mine, lighter.as_ref());
+                }
+                if let Some(p) = self.player() {
+                    let mut fig = p.fig.clone();
+                    (fig.pos, fig.angle, fig.lift, fig.cancel_rise, fig.pin_root) = (rider, angle, 0.0, false, false);
+                    fig.show_keyframes(cur as usize, next as usize, tween);
+                    fig.append_batches(&mut mine, lighter.as_ref());
+                }
                 pos
             }
         };
@@ -280,6 +326,24 @@ mod tests {
         assert_eq!(Track::from_bytes(&bytes[..bytes.len() - 1]), None);
         assert_eq!(Track::from_bytes(b"UCG2\0\0\0\0"), None);
         assert_eq!(Track::from_bytes(&[]), None);
+    }
+
+    /// On the bike (a time trial's, #519): the bike and its rider, read back as written, and
+    /// blended between turns.
+    #[test]
+    fn a_ride_on_the_bike_reads_back_and_blends() {
+        let bike = |x: f32, yaw: f32| Pose::Bike { bike: 0, pos: Vec3::new(x, 5.0, 6.0), yaw, rider: Vec3::new(x, 1.0, 6.0), angle: -0.1, cur: 9, next: 10, tween: 64.0 };
+        let t = Track { time: 3.0, poses: vec![bike(0.0, 1.0), bike(100.0, 2.0), bike(2000.0, 2.0)], splits: Vec::new() };
+        assert_eq!(Track::from_bytes(&t.to_bytes()), Some(t.clone()));
+        match t.pose_at(0.5) {
+            Pose::Bike { pos, yaw, rider, .. } => {
+                assert!((pos.x - 50.0).abs() < 1e-3 && (rider.x - 50.0).abs() < 1e-3, "{pos} {rider}");
+                assert!((yaw - 1.5).abs() < 1e-3, "{yaw}");
+            }
+            p => panic!("{p:?}"),
+        }
+        // Sent back to a checkpoint: not blended across the jump.
+        assert_eq!(t.pose_at(1.5), t.poses[1]);
     }
 
     #[test]

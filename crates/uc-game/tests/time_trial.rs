@@ -19,26 +19,50 @@ fn trial(id: &str, car: Car, traffic: bool) -> Option<(Level, Game)> {
     Some((level, g))
 }
 
-/// The controls that steer the car at the next checkpoint, slowing for the bend after it,
-/// and back away from whatever it's stuck against. `stuck` is the seconds stuck so far and
-/// the seconds left of backing away.
-fn steer(g: &Game, stuck: &mut (f32, f32)) -> Controls {
+/// Where the player's car or bike is, which way it points, and how fast it's going (world
+/// units a second). The bike's speed is how far it went since `was`, a frame ago.
+fn ride(g: &Game, was: &mut Option<Vec2>) -> (Vec2, Vec2, f32) {
+    if let Some(car) = g.player_vehicle() {
+        return (vec2(car.pos.x, car.pos.z), car.forward(), car.speed);
+    }
+    let b = g.riding().expect("neither driving nor riding");
+    let at = vec2(b.pos().x, b.pos().z);
+    // The bike's yaw is half a turn from the way it goes (as `mount_near` has it).
+    let yaw = b.yaw as f32 * std::f32::consts::TAU / 2048.0;
+    let speed = was.map_or(0.0, |w| w.distance(at) / DT);
+    *was = Some(at);
+    (at, -vec2(yaw.sin(), yaw.cos()), speed)
+}
+
+/// The bot's memory: the seconds stuck so far, the seconds left of backing away, and where the
+/// bike was last frame.
+#[derive(Default)]
+struct Bot {
+    stuck: (f32, f32),
+    was: Option<Vec2>,
+}
+
+/// The controls that steer the car (or bike) at the next checkpoint, slowing for the bend
+/// after it, and back away from whatever it's stuck against.
+fn steer(g: &Game, bot: &mut Bot) -> Controls {
     let t = g.trial().unwrap();
     let c = t.course();
     let n = c.checkpoints.len();
-    let car = g.player_vehicle().unwrap();
-    let at = vec2(car.pos.x, car.pos.z);
+    let (at, f, speed) = ride(g, &mut bot.was);
+    let stuck = &mut bot.stuck;
     let (to, after) = (c.checkpoints[t.next], c.checkpoints[(t.next + 1) % n]);
     let want = (to - at).normalize();
-    let f = car.forward();
     // Positive cross: the checkpoint is to the right (steer +1 turns right).
     let cross = f.x * want.y - f.y * want.x;
-    let steer = (cross * 3.0).clamp(-1.0, 1.0);
+    let bike = g.riding().is_some();
+    // Facing away from it, the cross is no help: a full turn, whichever way it leans.
+    let steer = if bike && f.dot(want) < 0.0 { if cross < 0.0 { -1.0 } else { 1.0 } } else { (cross * 3.0).clamp(-1.0, 1.0) };
     let bend = 1.0 - want.dot((after - to).normalize()).max(0.0);
     let dist = (to - at).length();
     let target = if f.dot(want) < 0.7 { 900.0 } else if dist < 2500.0 { 3000.0 - bend * 2000.0 } else { 3000.0 };
-    let throttle = if car.speed > target + 100.0 { -1.0 } else { 1.0 };
-    stuck.0 = if car.speed.abs() < 60.0 && stuck.1 <= 0.0 { stuck.0 + DT } else { 0.0 };
+    // Braking a bike at speed slides it round (`BIKE_control_set`): it coasts instead.
+    let throttle = if speed <= target + 100.0 { 1.0 } else if bike { 0.0 } else { -1.0 };
+    stuck.0 = if speed.abs() < 60.0 && stuck.1 <= 0.0 { stuck.0 + DT } else { 0.0 };
     if stuck.0 > 0.5 {
         *stuck = (0.0, 1.0);
     }
@@ -53,12 +77,12 @@ fn steer(g: &Game, stuck: &mut (f32, f32)) -> Controls {
 
 /// Drives for up to `secs`, until `done`; whether it was.
 fn drive(g: &mut Game, level: &Level, secs: f32, done: impl Fn(&Game) -> bool) -> bool {
-    let mut stuck = (0.0, 0.0);
+    let mut bot = Bot::default();
     for _ in 0..(secs / DT) as usize {
         if done(g) {
             return true;
         }
-        let c = steer(g, &mut stuck);
+        let c = steer(g, &mut bot);
         g.update(DT, &c, level);
     }
     done(g)
@@ -81,10 +105,10 @@ fn the_oval_is_driven_lap_by_lap_through_its_checkpoints() {
     let n = g.trial().unwrap().course().checkpoints.len();
     // The checkpoints passed, as they're passed.
     let mut order = Vec::new();
-    let mut stuck = (0.0, 0.0);
+    let mut bot = Bot::default();
     for _ in 0..(240.0 / DT) as usize {
         let before = (g.trial().unwrap().next, g.trial().unwrap().laps.len());
-        let c = steer(&g, &mut stuck);
+        let c = steer(&g, &mut bot);
         g.update(DT, &c, &level);
         let t = g.trial().unwrap();
         if (t.next, t.laps.len()) != before {
@@ -147,7 +171,7 @@ fn missing_a_checkpoint_sends_the_car_back_to_the_last() {
 #[test]
 fn getting_out_sends_her_back_to_the_last_checkpoint() {
     let Some((level, mut g)) = trial("oval", Car::Van, false) else { return };
-    assert_eq!(g.vehicles[0].kind, Car::Van.kind());
+    assert_eq!(Some(g.vehicles[0].kind), Car::Van.kind());
     assert!(drive(&mut g, &level, 30.0, |g| g.trial().unwrap().next == 2), "never passed the first checkpoint");
     // Stopped, and out.
     for _ in 0..(5.0 / DT) as usize {
@@ -210,3 +234,93 @@ fn traffic_comes_and_goes_with_the_option() {
     assert!(on.people.len() > on.vehicles.len(), "no one on the pavements");
     assert_eq!(on.vehicles[0].driver, on.player);
 }
+
+/// The race on `id` in `car`, driven to the end: its time and how often it was sent back, or
+/// None if it couldn't be finished in `secs`.
+fn race(id: &str, car: Car, traffic: bool, secs: f32) -> Option<(f32, u32)> {
+    let (level, mut g) = trial(id, car, traffic)?;
+    let done = drive(&mut g, &level, secs, |g| g.outcome.is_some());
+    let t = g.trial().unwrap();
+    println!("{id} {car:?}: laps {:?}, race {:?}, resets {}, next {}", t.lap_times(), t.total(), t.resets, t.next);
+    if !done {
+        return None;
+    }
+    assert_eq!(g.outcome, Some(Outcome::Won));
+    Some((t.total().unwrap(), t.resets))
+}
+
+/// Every course on roads can be driven round in the police car, and the bot's time is no
+/// better than gold: the medals are there to be beaten by a player, not given away. Not the
+/// Advanced Circuit's, whose checkpoints (the original's) are too far apart for the bot to
+/// find its way between round the blocks.
+#[test]
+fn every_course_can_be_driven() {
+    if common::load("testdrive1a").is_none() {
+        return;
+    }
+    for c in courses().iter().filter(|c| !["silver", "gold"].contains(&c.id.as_str())) {
+        let Some((time, resets)) = race(&c.id, Car::Police, false, 600.0) else { panic!("{}: not finished", c.id) };
+        assert!(resets <= 2, "{}: sent back {resets} times", c.id);
+        assert!(time > c.medals[0] * 0.9, "{}: {time:.1} s against gold's {}", c.id, c.medals[0]);
+        assert!(time < c.medals[2], "{}: {time:.1} s, no bronze at {}", c.id, c.medals[2]);
+    }
+}
+
+/// On the motorbike: she starts on it, rides the oval round, and gets back on it at the last
+/// checkpoint if she gets off.
+#[test]
+fn the_bike_rides_the_oval() {
+    let Some((level, mut g)) = trial("oval", Car::Bike, false) else { return };
+    let pi = g.player.unwrap();
+    assert!(matches!(g.people[pi].state, State::Bike { bike: 0, phase: 1 }), "not on the bike: {:?}", g.people[pi].state);
+    assert!(g.vehicles.is_empty(), "a car with the bike");
+    g.record_ghost();
+    assert!(drive(&mut g, &level, 120.0, |g| g.trial().unwrap().laps.len() == 1), "no lap done");
+    let lap = g.trial_lap(0).unwrap();
+    assert!(lap.poses.iter().all(|p| matches!(p, uc_game::game::ghost::Pose::Bike { bike: 0, .. })), "the ghost isn't on the bike");
+    // Off it, and straight back on at the last checkpoint.
+    for _ in 0..(5.0 / DT) as usize {
+        if g.riding().is_some_and(|b| b.speed() <= 2) {
+            break;
+        }
+        g.update(DT, &Controls { drive: Drive { throttle: -1.0, ..Default::default() }, ..Default::default() }, &level);
+    }
+    let resets = g.trial().unwrap().resets;
+    for _ in 0..10 {
+        g.update(DT, &Controls { action: true, ..Default::default() }, &level);
+        if g.trial().unwrap().resets > resets {
+            break;
+        }
+    }
+    let t = g.trial().unwrap();
+    assert_eq!(t.resets, resets + 1, "not sent back: {:?}", g.people[pi].state);
+    assert!(matches!(g.people[pi].state, State::Bike { bike: 0, phase: 1 }), "{:?}", g.people[pi].state);
+    let at = g.bikes[0].0.pos();
+    // (Its middle is a little off where it's put: between the wheels, less a quarter of them.)
+    assert!(vec2(at.x, at.z).distance(t.course().checkpoints[t.last.unwrap()]) < 64.0, "{at:?}");
+    assert!(drive(&mut g, &level, 120.0, |g| g.outcome.is_some()), "couldn't carry on");
+}
+
+/// Backing out of the Advanced Circuit's dead ends goes back past checkpoints already passed:
+/// that isn't a miss.
+#[test]
+fn backing_out_of_a_dead_end_isnt_a_miss() {
+    let Some((level, mut g)) = trial("silver", Car::Police, false) else { return };
+    let c = courses()[course_index("silver").unwrap()].clone();
+    // Put on each checkpoint in turn up to the dead end (checkpoint 8), then back on
+    // checkpoint 7 on the way out to 9.
+    for k in 0..=8 {
+        put_car(&mut g, &level, c.checkpoints[k], 0.0);
+        g.update(DT, &Controls::default(), &level);
+    }
+    assert_eq!(g.trial().unwrap().next, 9, "never reached the dead end");
+    let resets = g.trial().unwrap().resets;
+    put_car(&mut g, &level, c.checkpoints[7], 0.0);
+    g.update(DT, &Controls::default(), &level);
+    assert_eq!(g.trial().unwrap().resets, resets, "sent back for passing a checkpoint already passed");
+    // Further on than the next, still is.
+    put_car(&mut g, &level, c.checkpoints[10], 0.0);
+    g.update(DT, &Controls::default(), &level);
+    assert_eq!(g.trial().unwrap().resets, resets + 1);
+}
+
