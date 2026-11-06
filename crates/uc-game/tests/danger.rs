@@ -6,7 +6,7 @@ use glam::vec3;
 use uc_game::{Controls, Sfx};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 
 /// The danger stings heard over `secs`.
 fn stings(r: &mut common::Run, secs: f32) -> Vec<bool> {

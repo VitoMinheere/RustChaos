@@ -7,7 +7,7 @@ use uc_game::person::running_anim;
 use uc_game::{Controls, Game, State, Weapon};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// Combat Silver, Darci armed with `w` and running, one of its fighters off to the side.

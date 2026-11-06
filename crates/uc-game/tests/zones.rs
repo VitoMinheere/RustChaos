@@ -8,7 +8,7 @@ use uc_formats::ucm::zone_flags;
 use uc_game::wand::Wander;
 use uc_game::Controls;
 
-mod common;
+use crate::common;
 use common::Run;
 
 #[test]

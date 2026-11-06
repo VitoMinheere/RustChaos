@@ -7,7 +7,7 @@
 use glam::vec3;
 use uc_game::{Controls, Outcome};
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 /// Every mission in the install older than version 6.

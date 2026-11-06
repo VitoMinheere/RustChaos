@@ -6,7 +6,7 @@ use uc_game::person::ko;
 use uc_game::{Controls, Game, State, Weapon};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// Combat Silver with Darci and one of its fighters, everyone else gone.

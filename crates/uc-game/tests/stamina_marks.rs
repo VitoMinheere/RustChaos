@@ -3,7 +3,7 @@
 
 use uc_game::{Controls, Game};
 
-mod common;
+use crate::common;
 use common::DT;
 
 #[test]

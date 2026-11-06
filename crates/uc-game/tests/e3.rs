@@ -7,7 +7,7 @@ use glam::vec3;
 use uc_game::person::ko;
 use uc_game::{Controls, Outcome};
 
-mod common;
+use crate::common;
 use common::Run;
 
 fn start() -> Option<Run> {

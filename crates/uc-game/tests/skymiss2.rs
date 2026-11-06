@@ -6,7 +6,7 @@
 use glam::{vec2, vec3, Vec3};
 use uc_game::{Controls, Outcome, Weapon};
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 /// Whose deaths the script counts: the two groups holding hostages, then the Men In Black.

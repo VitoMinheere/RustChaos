@@ -8,7 +8,7 @@ use uc_game::person::{Investigate, AI_CIV, AI_GUARD};
 use uc_game::{Controls, Sfx};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 
 fn guard() -> Option<(common::Run, usize)> {
     let mut r = common::start("police1")?;

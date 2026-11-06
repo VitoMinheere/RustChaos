@@ -8,7 +8,7 @@ use uc_game::person::ko;
 use uc_game::{Controls, Outcome, State};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 fn start() -> Option<Run> {

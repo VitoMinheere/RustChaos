@@ -9,7 +9,7 @@ use uc_game::{Controls, Game, State, Weapon};
 use uc_world::character::{anim, person as ptype};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn start() -> Option<(Level, Game)> {

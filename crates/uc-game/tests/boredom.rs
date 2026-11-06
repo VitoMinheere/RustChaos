@@ -9,7 +9,7 @@ use uc_game::{Controls, Game};
 use uc_world::character::person as ptype;
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn run(g: &mut Game, level: &Level, secs: f32) {

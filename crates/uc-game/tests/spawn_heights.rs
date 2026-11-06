@@ -3,7 +3,7 @@
 //! above it, or the ground within 0x50; with neither, in the air, to fall. Skipped without
 //! an install.
 
-mod common;
+use crate::common;
 
 use common::Run;
 use uc_game::State;

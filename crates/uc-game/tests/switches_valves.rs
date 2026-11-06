@@ -7,7 +7,7 @@ use glam::{vec2, Vec3};
 use uc_game::{Controls, State};
 use uc_world::character::anim;
 
-mod common;
+use crate::common;
 
 #[test]
 fn she_turns_a_valve_she_stands_at() {

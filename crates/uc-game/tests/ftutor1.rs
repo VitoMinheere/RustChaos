@@ -6,7 +6,7 @@ use uc_game::person::{ko, Grab};
 use uc_game::{Controls, Game, Outcome, State};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 
 fn flat(v: Vec3) -> Vec2 {
     vec2(v.x, v.z)

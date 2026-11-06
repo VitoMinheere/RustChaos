@@ -7,7 +7,7 @@ use uc_formats::ucm::trigger;
 use uc_game::{Controls, Game};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn factory(shaking: bool) -> Option<(Level, Game)> {

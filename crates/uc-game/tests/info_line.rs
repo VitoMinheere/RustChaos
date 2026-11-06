@@ -4,7 +4,7 @@
 use uc_game::{Controls, Game, Item, Weapon};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// Puts item `kind` at the player's feet and lets her pick it up: what the info line says.

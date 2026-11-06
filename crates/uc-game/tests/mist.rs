@@ -4,7 +4,7 @@ use glam::Vec3;
 use uc_game::Game;
 use uc_world::Level;
 
-mod common;
+use crate::common;
 
 fn load(mission: &str) -> Option<Level> {
     common::load_without_people(mission)

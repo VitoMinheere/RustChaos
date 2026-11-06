@@ -6,7 +6,7 @@ use glam::{vec2, vec3, Vec2, Vec3};
 use uc_game::canid::{self, State as Ds};
 use uc_game::{Controls, Sfx};
 
-mod common;
+use crate::common;
 use common::Run;
 
 /// Psycho Park, with everyone but Darci taken off, so only she is about for the dogs.

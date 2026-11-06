@@ -5,7 +5,7 @@
 use glam::{vec3, Vec3};
 use uc_game::pow::{self, Pow};
 
-mod common;
+use crate::common;
 
 /// Turns of `POW_process`, 20 a second.
 fn turns(p: &mut Pow, n: usize) {

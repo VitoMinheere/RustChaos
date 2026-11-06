@@ -2,7 +2,7 @@
 //! cast their shapes onto the ground round them, fading out by 256 off them, in place of the
 //! round blobs. Skipped without an install.
 
-mod common;
+use crate::common;
 
 use glam::Vec3;
 use uc_game::smap;

@@ -3,7 +3,7 @@
 
 use uc_game::{Controls, Game, Weapon};
 
-mod common;
+use crate::common;
 
 /// Puts weapon `w` at `at`: a copy of one of the level's items, so it's been there since
 /// the start.

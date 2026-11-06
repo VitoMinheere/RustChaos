@@ -5,7 +5,7 @@
 use glam::vec3;
 use uc_game::{Controls, Weapon};
 
-mod common;
+use crate::common;
 
 #[test]
 fn she_turns_with_the_view() {

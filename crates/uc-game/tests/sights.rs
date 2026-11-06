@@ -8,7 +8,7 @@ use uc_game::{Controls, Game, State, Weapon};
 use uc_world::character::person as ptype;
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn start(dist: f32) -> Option<(Level, Game, usize, usize)> {

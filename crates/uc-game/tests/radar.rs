@@ -6,7 +6,7 @@ use glam::vec3;
 use uc_game::Controls;
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 
 #[test]
 fn gang_and_mib_whatever_they_are_doing() {

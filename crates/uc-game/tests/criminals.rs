@@ -4,7 +4,7 @@
 use uc_game::person::ko;
 use uc_game::{Game, Weapon};
 
-mod common;
+use crate::common;
 
 #[test]
 fn killed_arrested_and_at_large() {

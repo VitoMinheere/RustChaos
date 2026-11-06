@@ -7,7 +7,7 @@ use uc_game::{Controls, State};
 use uc_world::character::person as ptype;
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// A spot standing at least a storey above the square next to it, with walkable ground

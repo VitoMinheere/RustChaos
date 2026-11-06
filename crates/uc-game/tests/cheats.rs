@@ -6,7 +6,7 @@ use glam::vec3;
 use uc_game::{Controls, Game, Outcome, State, Weapon};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 
 /// `telw`: to an event point, standing; `wpt` then names it.
 #[test]

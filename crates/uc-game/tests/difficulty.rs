@@ -4,7 +4,7 @@
 use uc_game::{Controls, Difficulty, Game};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn start(mission: &str, d: Difficulty) -> Option<(Level, Game)> {
