@@ -51,6 +51,7 @@ pub mod trip;
 pub mod vehicle;
 pub mod wand;
 pub mod ware;
+pub mod wet;
 
 use uc_formats::units::radians;
 use glam::{vec2, Vec2, Vec3};
@@ -776,6 +777,8 @@ pub struct Game {
     pub gunfx: gunfx::GunFx,
     /// The puddles a rainy level has, and the drips in them.
     pub puddles: puddle::Puddles,
+    /// How wet the roads are (#522).
+    pub wet: wet::Wetness,
     /// What footsteps sound like on each floor texture.
     steps: steps::Steps,
     /// It's night (`NIGHT_FLAG_DAYTIME` clear): the cars have their lights on.
@@ -990,6 +993,7 @@ impl Game {
             drops: dirt::Drops::default(),
             gunfx: gunfx::GunFx::default(),
             puddles: puddle::Puddles::default(),
+            wet: wet::Wetness::new(Self::raining(level)),
             steps: steps::Steps::load(&level.game, level.map.texture_set),
             night: Self::raining(level),
             fighting: Vec::new(),
@@ -1478,6 +1482,7 @@ impl Game {
         self.gunfx.update(dt, |at| level.ground.surface(&level.map, at.x, at.z, at.y + 8.0));
         let near = self.player().map(|p| p.fig.pos);
         self.puddles.update(dt, Self::raining(level) && self.indoors.is_none(), near);
+        self.wet.update(dt, Self::raining(level));
         let frozen = self.cutscene.as_ref().is_some_and(|c| c.shot.lock_player);
         // A filmed conversation holds the player still too (`EWAY_cam_freeze`), but not
         // everyone else as a fly-by does.

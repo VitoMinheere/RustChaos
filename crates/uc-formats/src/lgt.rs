@@ -130,6 +130,12 @@ impl<'a> Lighter<'a> {
         self.lighting.sky
     }
 
+    /// The lampposts' lights (world units) and their colour as [`Lighter::sources`] has it.
+    pub fn lamps(&self) -> (&[[f32; 3]], [f32; 3]) {
+        let rgb = self.lighting.lampost_rgb.map(|v| v as f32 * 128.0 / 256.0 * 4.0 / 255.0);
+        (&self.lamps, rgb)
+    }
+
     /// Every static light and lamppost light as [`Lighter::light`] adds it: where it is and
     /// how far it reaches (world units), and what it adds to the vertex colour (0..1 a
     /// channel) at its middle, falling off evenly to nothing at its edge.

@@ -100,6 +100,8 @@ pub(crate) struct World {
     /// What the relief (#474: the normal maps, not the crinkles) is lit by, from the last
     /// upload.
     pub(crate) relief_lit: uc_render::Relief,
+    /// The level's lampposts, whose streaks show on wet ground (#522), from the last upload.
+    pub(crate) wet_lamps: Vec<uc_render::Glint>,
     /// From the last upload: the level's textures, and how many of them came from the
     /// override folder.
     pub(crate) textures: (usize, usize),
@@ -261,6 +263,7 @@ impl World {
             crinkles,
             reupload: false,
             relief_lit: uc_render::Relief::default(),
+            wet_lamps: Vec::new(),
             textures: (0, 0),
             seat,
             race,
@@ -377,7 +380,19 @@ impl World {
             .collect();
         let shadows = self.game.shadow_maps();
         let relief = (self.args.relief > 0.0).then(|| self.relief_lit.clone());
-        Settings { sky: self.level.sky, fog: self.args.fog, layers, crinkles, lights, shadows, relief, bloom: self.args.bloom }
+        Settings { sky: self.level.sky, fog: self.args.fog, layers, crinkles, lights, shadows, relief, bloom: self.args.bloom, wet: self.wet() }
+    }
+
+    /// The roads wet (#522), out of doors on a rainy night with them on: with the lamps' and
+    /// the headlights' streaks.
+    fn wet(&self) -> Option<uc_render::Wet> {
+        let amount = self.game.wet.amount;
+        if !self.args.wet || amount <= 0.0 || self.game.indoors().is_some() {
+            return None;
+        }
+        let headlights = self.game.headlight_glints(&self.level).into_iter()
+            .map(|g| uc_render::Glint { pos: g.pos / uc_world::UNIT, rgb: g.rgb, facing: g.facing });
+        Some(uc_render::Wet { amount, glints: self.wet_lamps.iter().copied().chain(headlights).collect() })
     }
 
     pub(crate) fn eye(&self) -> Option<Vec3> {
@@ -516,6 +531,12 @@ impl World {
                 .map(|(pos, r, rgb)| uc_render::Light { pos: Vec3::from(pos) / uc_world::UNIT, radius: r / uc_world::UNIT, rgb })
                 .collect(),
         });
+        // The lampposts, no brighter than white. Not the level's other lights: most aren't
+        // anything to be seen.
+        self.wet_lamps = self.level.lighter().map_or_else(Vec::new, |l| {
+            let (lamps, rgb) = l.lamps();
+            lamps.iter().map(|&p| uc_render::Glint { pos: Vec3::from(p) / uc_world::UNIT, rgb: rgb.map(|c| c.min(1.0)), facing: Vec3::ZERO }).collect()
+        });
         self.textures = (textures, overridden);
         // The minimap: the whole city from straight above (8 pixels a square), north up.
         let n = 1024;
@@ -527,7 +548,7 @@ impl World {
         let mut sea = BTreeMap::new();
         self.game.draw_sea(&mut sea);
         let shot = |r: &mut Renderer, cam: &Camera| {
-            r.render_to_image((n, n), cam, &Settings { sky: self.level.sky, fog: None, layers: layers.clone(), crinkles: false, lights: Vec::new(), shadows: Vec::new(), relief: None, bloom: 0.0 }, &sea, &Overlay::new())
+            r.render_to_image((n, n), cam, &Settings { sky: self.level.sky, fog: None, layers: layers.clone(), crinkles: false, lights: Vec::new(), shadows: Vec::new(), relief: None, bloom: 0.0, wet: None }, &sea, &Overlay::new())
         };
         let mut rgba = shot(r, &top);
         // Warehouse roofs (and some ceilings) are black from above, as on PC: there, show the
