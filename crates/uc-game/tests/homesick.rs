@@ -6,7 +6,7 @@
 use glam::vec3;
 use uc_game::{Controls, State};
 
-mod common;
+use crate::common;
 
 #[test]
 fn the_hostage_goes_back_to_her_spot() {

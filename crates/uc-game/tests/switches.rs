@@ -7,7 +7,7 @@
 use glam::vec3;
 use uc_game::Controls;
 
-mod common;
+use crate::common;
 use common::Run;
 
 #[test]

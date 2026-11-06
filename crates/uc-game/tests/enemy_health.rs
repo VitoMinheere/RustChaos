@@ -2,7 +2,7 @@
 //! with her gun on someone, their health against their type's; with nothing drawn and no fight,
 //! none. Skipped without an install.
 
-mod common;
+use crate::common;
 
 use glam::vec3;
 use uc_game::{Controls, Weapon};

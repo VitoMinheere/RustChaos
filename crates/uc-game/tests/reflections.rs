@@ -7,7 +7,7 @@ use glam::Vec3;
 use uc_game::{Controls, Game};
 use uc_world::{reflect_page, Level, MOON_PAGE, REFLECT, UNIT};
 
-mod common;
+use crate::common;
 
 /// The Fallen, a rainy night, with Darci stood in the middle of the puddle nearest her.
 fn in_a_puddle() -> Option<(Level, Game, f32)> {

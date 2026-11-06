@@ -7,7 +7,7 @@ use uc_game::Controls;
 use uc_world::level::prim_damage::{CRUMPLE, EXPLODES, LEAN};
 use uc_world::Batch;
 
-mod common;
+use crate::common;
 
 /// Every vertex the bendable props are drawn with, in order.
 fn drawn(r: &common::Run) -> Vec<Vec3> {

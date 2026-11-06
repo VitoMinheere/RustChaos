@@ -7,7 +7,7 @@ use glam::{vec2, vec3};
 use uc_game::{Charge, Controls, Outcome, State};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 use common::Run;
 
 fn start() -> Option<Run> {

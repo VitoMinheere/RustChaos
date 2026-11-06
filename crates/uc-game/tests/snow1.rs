@@ -6,7 +6,7 @@
 
 use uc_game::{Controls, Outcome};
 
-mod common;
+use crate::common;
 
 /// A beacon on each missile and on the explosives by the bikes; three charges from there,
 /// one by each missile (points 43, 46 and 48 watch them), and it's won.

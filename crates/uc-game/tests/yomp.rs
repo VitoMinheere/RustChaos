@@ -2,7 +2,7 @@
 //! (`ANIM_YOMP`), and sprinting is the run (`ANIM_RUN`); with a bat both are the bat's own
 //! (Person.cpp:7947, `get_yomp_anim`). Skipped without an install.
 
-mod common;
+use crate::common;
 
 use glam::Vec2;
 use uc_game::{Controls, Weapon};

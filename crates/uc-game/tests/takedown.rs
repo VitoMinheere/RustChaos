@@ -8,7 +8,7 @@ use uc_game::person::{Grab, AI_GANG};
 use uc_game::{Controls, Game, State};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// RTA, Darci on open ground facing +z, and a gang member from the crowd `dist` in front of

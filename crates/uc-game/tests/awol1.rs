@@ -6,7 +6,7 @@ use glam::{vec2, vec3, Vec2};
 use uc_game::{Controls, Outcome, State};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 /// Johnson's four guards, whose deaths the rescue waits on.

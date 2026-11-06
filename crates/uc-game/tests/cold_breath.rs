@@ -1,7 +1,7 @@
 //! Breath in the cold (#307, Person.cpp:11791): on snow, people standing about breathe out a
 //! puff from their head once a breath; elsewhere they don't. Skipped without an install.
 
-mod common;
+use crate::common;
 
 use uc_game::Controls;
 

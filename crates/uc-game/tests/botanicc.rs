@@ -5,7 +5,7 @@
 
 use uc_game::{Controls, Outcome};
 
-mod common;
+use crate::common;
 use common::Run;
 
 fn start(mission: &str) -> Option<Run> {

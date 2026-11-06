@@ -7,7 +7,7 @@ use uc_game::person::{AI_CIV, AI_GANG};
 use uc_game::{Controls, Weapon};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 
 /// Six of RTA's crowd made gang members in a line in front of her, all coming for her.
 fn line_up(r: &mut common::Run, gun: bool) -> Vec<usize> {

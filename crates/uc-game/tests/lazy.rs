@@ -7,7 +7,7 @@ use uc_game::person::{AI_CIV, BENT_LAZY};
 use uc_game::{Controls, State};
 use uc_world::character::anim;
 
-mod common;
+use crate::common;
 use common::Run;
 
 /// RTA with one of its crowd standing still beside a park bench (`PRIM_OBJ_PARK_BENCH`), with

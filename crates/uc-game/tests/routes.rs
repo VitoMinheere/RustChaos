@@ -5,7 +5,7 @@ use glam::vec3;
 use uc_game::{Controls, Game, State};
 use uc_world::mav::{self, Mav};
 
-mod common;
+use crate::common;
 use common::DT;
 /// Walking and climbing fences, as the AI gets about.
 const WALKER: u8 = mav::caps(mav::GOTO) | mav::caps(mav::CLIMB_OVER);

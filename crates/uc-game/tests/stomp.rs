@@ -8,7 +8,7 @@ use uc_game::{Controls, Game, State, Weapon};
 use uc_world::character::anim;
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// An endless run in RTA's park, the first of the wave knocked down with `health` left and

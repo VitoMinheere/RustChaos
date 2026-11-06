@@ -5,7 +5,7 @@
 use glam::vec3;
 use uc_game::{Controls, Outcome, Search};
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 /// Both bomb cars in and both bombers cuffed, as in Car Bomb.

@@ -6,7 +6,7 @@ use uc_formats::iam::flags;
 use uc_game::Game;
 use uc_world::Level;
 
-mod common;
+use crate::common;
 
 /// The level with its lighting, which says whether it's night (and so raining).
 fn load(mission: &str) -> Option<(Level, Game)> {

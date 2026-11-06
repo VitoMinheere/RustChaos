@@ -8,7 +8,7 @@ use glam::vec3;
 use uc_game::person::ko;
 use uc_game::{Controls, Outcome, State, Weapon};
 
-mod common;
+use crate::common;
 use common::DT;
 
 #[test]

@@ -7,7 +7,7 @@ use uc_game::person::AI_GANG;
 use uc_game::{Controls, Sfx, Weapon};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 
 /// Someone in the fight school made a gang member with `w`, coming for her from 500 off:
 /// the shots fired in a minute and a half, and what's in their hand at the end.

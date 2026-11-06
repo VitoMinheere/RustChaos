@@ -12,7 +12,7 @@ use glam::{vec2, Vec2};
 use uc_game::{Controls, Outcome, State};
 use uc_world::mav;
 
-mod common;
+use crate::common;
 use common::{mid, Run, DT};
 
 /// The dock operator's point.

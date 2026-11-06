@@ -8,7 +8,7 @@ use uc_game::vehicle::Key;
 use uc_game::{Controls, Game, Item, State};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn load(mission: &str) -> Option<(Level, Game)> {
