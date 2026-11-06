@@ -185,6 +185,15 @@ impl Game {
         if level.people.is_none() || !self.streets.wand.any() {
             return;
         }
+        self.add_civs(level);
+        self.add_traffic(level, level.mission.fake_cars);
+    }
+
+    /// The mission's extra civilians (`fake_civs`), all over the map.
+    pub(crate) fn add_civs(&mut self, level: &Level) {
+        if level.people.is_none() || !self.streets.wand.any() {
+            return;
+        }
         for _ in 0..level.mission.fake_civs {
             // Somewhere at random, well in from the edges.
             let mut at = None;
@@ -204,10 +213,14 @@ impl Game {
             let p = &mut self.people[i];
             (p.ai, p.mv, p.fake, p.unseen) = (AI_CIV, 4, true, unseen);
         }
-        if self.streets.roads.nodes.len() < 2 {
+    }
+
+    /// `cars` cars driving the roads, all over the map.
+    pub(crate) fn add_traffic(&mut self, level: &Level, cars: u8) {
+        if level.people.is_none() || self.streets.roads.nodes.len() < 2 {
             return;
         }
-        for _ in 0..level.mission.fake_cars {
+        for _ in 0..cars {
             let Some((at, yaw)) = (0..16).find_map(|_| self.car_start(level, true)) else { continue };
             let kind = VEHICLE_RANDOM[((self.city_rand() >> 4) & 15) as usize];
             let y = street_height(level, at);

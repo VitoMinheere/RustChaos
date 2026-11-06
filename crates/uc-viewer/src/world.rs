@@ -8,7 +8,9 @@ use uc_net::replay::{Mode, Recorder, Replay, Start};
 /// difficulty, the weapon asked for, how far the camera sees (beyond which the city's extra
 /// people can come and go), and any dogs asked for.
 fn start(args: &Args) -> Start {
-    let mode = if args.endless || args.beat {
+    let mode = if let Some((course, car, traffic)) = args.trial {
+        Mode::Trial { course: course as u8, car: car.index(), traffic }
+    } else if args.endless || args.beat {
         let seed = args.seed.unwrap_or_else(|| {
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos() ^ d.as_secs() as u32)
         });
@@ -107,6 +109,8 @@ pub(crate) struct World {
     pub(crate) seat: Option<usize>,
     /// The race against the best run's ghost, on the missions that have one (#186).
     pub(crate) race: Option<ghosts::Race>,
+    /// A time trial's race against its best lap (#519).
+    pub(crate) lap_race: Option<ghosts::LapRace>,
     /// The ghost is shown (B switches it, and it's remembered).
     pub(crate) ghost_on: bool,
     /// This run, kept for a replay (#184) until it's saved, or until the console changes it.
@@ -127,7 +131,7 @@ pub(crate) struct World {
 /// The ghost race for a new game of `level`, if it's one of the missions raced (and played
 /// as the mission, not explored or as an endless run).
 fn race(game: &mut Game, level: &Level, args: &Args) -> Option<ghosts::Race> {
-    (ghosts::raced(&level.name) && !args.explore && !args.endless && !args.beat).then(|| ghosts::Race::start(game, &level.name))
+    (ghosts::raced(&level.name) && !args.explore && !args.endless && !args.beat && args.trial.is_none()).then(|| ghosts::Race::start(game, &level.name))
 }
 
 impl World {
@@ -150,17 +154,19 @@ impl World {
         w.third_person = false;
         w.recorder = None;
         w.race = None;
+        w.lap_race = None;
         w.help = false;
         Ok(w)
     }
 
     /// `mission`, an edit of `args.mission`, played.
     pub(crate) fn load_edited(args: Args, mission: uc_formats::ucm::Mission) -> Result<World, String> {
-        let args = Args { explore: false, endless: false, beat: false, cam: None, ..args };
+        let args = Args { explore: false, endless: false, beat: false, trial: None, cam: None, ..args };
         let mut w = World::load_with(args, None, None, Some(mission), new_game)?;
         w.edited = true;
         w.recorder = None;
         w.race = None;
+        w.lap_race = None;
         Ok(w)
     }
 
@@ -175,7 +181,12 @@ impl World {
         let start = replay.start.clone();
         let args = Args {
             mission: start.mission.clone(), explore: start.mode == Mode::Explore, endless: matches!(start.mode, Mode::Endless { .. }),
-            beat: matches!(start.mode, Mode::Beat { .. }), dogs: start.dogs as usize, weapon: start.weapon, cam: None,
+            beat: matches!(start.mode, Mode::Beat { .. }),
+            trial: match start.mode {
+                Mode::Trial { course, car, traffic } => Some((course as usize, uc_game::game::trial::Car::from_index(car), traffic)),
+                _ => None,
+            },
+            dogs: start.dogs as usize, weapon: start.weapon, cam: None,
             no_character: false, ..args
         };
         World::load_with(args, None, Some(replay), None, |level, _| (start.game(level), start.clone()))
@@ -184,7 +195,7 @@ impl World {
     /// A co-op game's mission, as `setup` has it, played from `seat`. Nothing here may
     /// change the game but `setup`: every player's machine has to start the same one.
     pub(crate) fn load_coop(args: Args, setup: &uc_net::Setup, seat: usize) -> Result<World, String> {
-        let args = Args { mission: setup.mission.clone(), explore: false, endless: false, beat: false, dogs: 0, weapon: uc_game::Weapon::None, cam: None, ..args };
+        let args = Args { mission: setup.mission.clone(), explore: false, endless: false, beat: false, trial: None, dogs: 0, weapon: uc_game::Weapon::None, cam: None, ..args };
         World::load_with(args, Some(seat), None, None, |level, _| {
             let mut game = setup.game(level);
             game.focus(seat);
@@ -225,6 +236,7 @@ impl World {
         let crinkles = args.crinkles;
         // A co-op run isn't a solo one to race or keep as the best.
         let race = if seat.is_none() && replay.is_none() { race(&mut game, &level, &args) } else { None };
+        let lap_race = if seat.is_none() && replay.is_none() { ghosts::LapRace::start(&mut game) } else { None };
         // Kept from turn 0 (not without the people: that's for looking at the level).
         let recorder = (replay.is_none() && !args.no_character).then(|| Recorder::new(&mut game, how));
         let replay = replay.map(replays::Viewing::new);
@@ -264,6 +276,7 @@ impl World {
             textures: (0, 0),
             seat,
             race,
+            lap_race,
             ghost_on: progress::Progress::load().ghosts(),
             recorder,
             replay_saved: None,
@@ -362,6 +375,7 @@ impl World {
         self.recorder = (counts && !self.args.no_character).then(|| Recorder::new(&mut self.game, start));
         self.replay_saved = None;
         self.race = if counts { race(&mut self.game, &self.level, &self.args) } else { None };
+        self.lap_race = if counts { ghosts::LapRace::start(&mut self.game) } else { None };
         self.endless_recorded = None;
     }
 
@@ -496,6 +510,9 @@ impl World {
         }
         if let (true, Some(best)) = (self.ghost_on, self.race.as_ref().and_then(|r| r.best.as_ref())) {
             self.game.ghost_batches(best, &self.level, &mut out);
+        }
+        if let (true, Some(best)) = (self.ghost_on, self.lap_race.as_ref().and_then(|r| r.best.as_ref())) {
+            self.game.ghost_batches_from(best, self.game.trial_ghost_from(), &self.level, &mut out);
         }
         out
     }

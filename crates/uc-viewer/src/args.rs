@@ -18,6 +18,8 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --beat           a Beat Cop shift on the mission's map: incidents over the radio (--seed, --arena too)
   --shift MINUTES  the shift's length (default 10), or endless for an open-ended one
   --arena X,Z,R     the endless arena: its middle in squares and its radius (default: 10 round the start)
+  --trial COURSE    a time trial on a course (oval, westblock), in --car police, sports or van, with
+                    --traffic on the roads or not
   --windowed        in a window (default: full screen; F11 or Alt+Enter switches)
   --weapon W        start holding a weapon (knife, bat, pistol, shotgun, ak)
   --dogs N          let N dogs loose round the start (unreleased: the original never shipped them)
@@ -111,6 +113,8 @@ pub(crate) struct Args {
     pub(crate) arena: (Option<(f32, f32)>, f32),
     /// The arena's name in the menu, which its best run is kept under.
     pub(crate) arena_name: Option<String>,
+    /// A time trial (#519): the course (its place in the list), the car, and traffic.
+    pub(crate) trial: Option<(usize, uc_game::game::trial::Car, bool)>,
     /// In a window rather than full screen.
     pub(crate) windowed: bool,
     pub(crate) weapon: uc_game::Weapon,
@@ -168,6 +172,7 @@ impl Default for Args {
             seed: None,
             arena: (None, 10.0),
             arena_name: None,
+            trial: None,
             windowed: false,
             weapon: uc_game::Weapon::None,
             dogs: 0,
@@ -234,6 +239,22 @@ pub(crate) fn parse_args() -> Result<Args, String> {
                 let v = parse_floats(&value()?, 3, "--arena")?;
                 a.arena = (Some((v[0], v[1])), v[2]);
             }
+            "--trial" => {
+                let id = value()?;
+                let course = uc_game::game::trial::course_index(&id).ok_or(format!("--trial: no course {id}"))?;
+                let (_, car, traffic) = a.trial.unwrap_or((0, uc_game::game::trial::Car::Police, false));
+                a.trial = Some((course, car, traffic));
+            }
+            "--car" => {
+                let id = value()?;
+                let car = uc_game::game::trial::Car::from_id(&id).ok_or(format!("--car: no car {id} (police, sports, van)"))?;
+                let (course, _, traffic) = a.trial.unwrap_or((0, car, false));
+                a.trial = Some((course, car, traffic));
+            }
+            "--traffic" => {
+                let (course, car, _) = a.trial.unwrap_or((0, uc_game::game::trial::Car::Police, true));
+                a.trial = Some((course, car, true));
+            }
             "--seed" => a.seed = Some(value()?.parse().map_err(|e| format!("--seed: {e}"))?),
             "--windowed" => a.windowed = true,
             "--weapon" => {
@@ -282,6 +303,11 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             "-h" | "--help" => return Err(USAGE.into()),
             other => return Err(format!("unknown argument {other}\n\n{USAGE}")),
         }
+    }
+    // A time trial is on its course's map.
+    if let Some((course, ..)) = a.trial {
+        a.mission = uc_game::game::trial::courses()[course].mission.clone();
+        a.mission_given = true;
     }
     if !a.game.exists() {
         return Err(format!("Urban Chaos install not found; pass --game DIR or set UC_GAME_DIR\n\n{USAGE}"));
