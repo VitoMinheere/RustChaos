@@ -10,6 +10,7 @@
 
 mod bloom;
 mod overlay;
+pub mod wet;
 
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
@@ -20,6 +21,7 @@ use uc_world::geometry::PUDDLE_PAGE;
 use wgpu::util::DeviceExt;
 
 pub use overlay::Overlay;
+pub use wet::{Glint, Wet};
 pub use wgpu;
 
 const SAMPLES: u32 = 4;
@@ -41,6 +43,10 @@ struct Globals {
     lamps: [[f32; 4]; MAX_LIGHTS],
     lamp_rgb: [[f32; 4]; MAX_LIGHTS],
     lamp_count: [f32; 4],
+    wet: [f32; 4],
+    glints: [[f32; 4]; wet::GLINTS],
+    glint_rgb: [[f32; 4]; wet::GLINTS],
+    glint_dir: [[f32; 4]; wet::GLINTS],
 }
 
 /// How many dynamic lights the shader takes: the nearest to the camera.
@@ -108,6 +114,8 @@ pub struct Settings {
     /// How strongly what lights itself glows (#523): 0 for none, 1 for as bright again at
     /// night.
     pub bloom: f32,
+    /// The ground wet (#522), if it is.
+    pub wet: Option<Wet>,
 }
 
 /// What the relief is lit by (#474): see `fs_relief`.
@@ -175,6 +183,11 @@ pub struct Renderer {
     relief_pipeline: wgpu::RenderPipeline,
     normals: HashMap<u32, wgpu::BindGroup>,
     windows_pipeline: wgpu::RenderPipeline,
+    /// Wet floors (#522); the lit windows and whatever else lights itself that shine in
+    /// them, from the last upload; and the glow of each page of those.
+    wet_pipeline: wgpu::RenderPipeline,
+    windows: Vec<Glint>,
+    window_glow: HashMap<u32, [f32; 3]>,
     /// The level's pages that light themselves, from the last [`Renderer::upload_world`].
     self_lit: SelfLit,
     sky_pipeline: wgpu::RenderPipeline,
@@ -303,6 +316,7 @@ impl Renderer {
             immediate_size: 0,
         });
         let relief_pipeline = make_pipeline(&device, &PipelineDesc { label: "relief pipeline", layout: &relief_layout, fragment: "fs_relief", ..base.clone() });
+        let wet_pipeline = make_pipeline(&device, &PipelineDesc { label: "wet pipeline", fragment: "fs_wet", ..base.clone() });
         let globals_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("globals"),
             size: std::mem::size_of::<Globals>() as u64,
@@ -439,7 +453,7 @@ impl Renderer {
         let bloom = bloom::Bloom::new(&device, &shader, &layout, &tex_layout, format);
         Renderer {
             device, queue, format, pipeline, globals_buf, globals_bg, tex_layout, sampler,
-            textures: HashMap::new(), white, shadow_pipeline, decal_pipeline, glow_pipeline, additive_pipeline, sprite_pipeline, ghost_depth_pipeline, ghost_pipeline, unlit_pipeline, relief_pipeline, normals: HashMap::new(), windows_pipeline, self_lit: SelfLit::default(), sky_pipeline, moon_pipeline, puddle_mask_pipeline, reflect_pipeline, moon_reflect_pipeline, smap_pipeline, shadow_tex, mist_tex,
+            textures: HashMap::new(), white, shadow_pipeline, decal_pipeline, glow_pipeline, additive_pipeline, sprite_pipeline, ghost_depth_pipeline, ghost_pipeline, unlit_pipeline, relief_pipeline, normals: HashMap::new(), windows_pipeline, wet_pipeline, windows: Vec::new(), window_glow: HashMap::new(), self_lit: SelfLit::default(), sky_pipeline, moon_pipeline, puddle_mask_pipeline, reflect_pipeline, moon_reflect_pipeline, smap_pipeline, shadow_tex, mist_tex,
             statics: None, chunks: Vec::new(), dynamic: None, targets: None,
             overlay_pipeline, screen_buf, screen_bg, font, overlay_buf: None, backdrop: None, minimap: None, faces: [None, None], bloom, stats: Stats::default(),
         }
@@ -511,6 +525,13 @@ impl Renderer {
                 continue;
             }
             if let Some((t, over)) = texture(page) {
+                // The lit windows are a few panes on a wall: twice as bright as their share
+                // of it. A page that lights itself is lit all over: two thirds of it.
+                if self.self_lit.two_pass.iter().any(|&p| self.self_lit.overlay(p) == Some(page)) {
+                    self.window_glow.insert(page, wet::window_glow(&t, 2.0));
+                } else if self.self_lit.unlit.contains(&page) {
+                    self.window_glow.insert(page, wet::window_glow(&t, 0.66));
+                }
                 let bg = self.make_texture(&t);
                 self.textures.insert(page, bg);
                 loaded += 1;
@@ -521,6 +542,7 @@ impl Renderer {
                 self.normals.insert(page, bg);
             }
         }
+        self.windows = wet::windows(geo, &self.self_lit, &self.window_glow);
         (loaded, overridden)
     }
 
@@ -685,6 +707,7 @@ impl Renderer {
     pub fn clear_textures(&mut self) {
         self.textures.clear();
         self.normals.clear();
+        self.window_glow.clear();
     }
 
     /// How many of the level's pages have a normal map.
@@ -809,6 +832,23 @@ impl Renderer {
             }
             lamp_count = near.len();
         }
+        // The streaks on wet ground (#522): half the lamps' and headlights', half the lit
+        // windows'.
+        let mut glints = [[0.0; 4]; wet::GLINTS];
+        let mut glint_rgb = [[0.0; 4]; wet::GLINTS];
+        let mut glint_dir = [[0.0; 4]; wet::GLINTS];
+        let mut glint_count = 0;
+        if let Some(w) = &s.wet {
+            let look = cam.target - cam.pos;
+            let lamps = wet::pick(&w.glints, cam.pos, look, wet::GLINTS / 2);
+            let windows = wet::pick(&self.windows, cam.pos, look, wet::GLINTS - lamps.len());
+            for (k, (g, show)) in lamps.into_iter().chain(windows).enumerate() {
+                glints[k] = [g.pos.x, g.pos.y, g.pos.z, show];
+                glint_rgb[k] = [g.rgb[0], g.rgb[1], g.rgb[2], 0.0];
+                glint_dir[k] = [g.facing.x, g.facing.y, g.facing.z, 0.0];
+                glint_count = k + 1;
+            }
+        }
         let globals = Globals {
             view_proj: vp.to_cols_array_2d(),
             cam_pos: [cam.pos.x, cam.pos.y, cam.pos.z, 1.0],
@@ -822,6 +862,10 @@ impl Renderer {
             lamps,
             lamp_rgb,
             lamp_count: [lamp_count as f32, 0.0, 0.0, 0.0],
+            wet: [s.wet.as_ref().map_or(0.0, |w| w.amount), glint_count as f32, 0.0, 0.0],
+            glints,
+            glint_rgb,
+            glint_dir,
         };
         self.queue.write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
         let dyn_ranges = if s.layers.contains(&Layer::Character) { self.upload_dynamic(dynamic) } else { Vec::new() };
@@ -885,6 +929,9 @@ impl Renderer {
                 }
             }
             pass.set_pipeline(&self.pipeline);
+            let wet = s.wet.as_ref().is_some_and(|w| w.amount > 0.0);
+            // The wet floors, drawn after the rest so the pipeline's set once.
+            let mut wet_floors = Vec::new();
             if let Some((vb, ib)) = &self.statics {
                 pass.set_vertex_buffer(0, vb.slice(..));
                 pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
@@ -899,6 +946,12 @@ impl Renderer {
                             continue;
                         }
                         let bg = if r.page == UNTEXTURED { &self.white } else { self.textures.get(&r.page).unwrap_or(&self.white) };
+                        // Wet ground (#522), but for a floor that lights itself. Its normal
+                        // map isn't used: the water on it evens it out.
+                        if wet && r.layer == Layer::Floor && !self.self_lit.unlit.contains(&r.page) && self.self_lit.overlay(r.page).is_none() {
+                            wet_floors.push((bg, r.first..r.first + r.count));
+                            continue;
+                        }
                         // A wall, floor or roof whose page has a normal map, lit by it.
                         let normal = self.relief_map(s, r.page)
                             .filter(|_| matches!(r.layer, Layer::Floor | Layer::Walls | Layer::Roofs));
@@ -914,6 +967,16 @@ impl Renderer {
                         }
                         self.draw_page(&mut pass, &mut stats, r.page, bg, r.first..r.first + r.count);
                     }
+                }
+                if !wet_floors.is_empty() {
+                    pass.set_pipeline(&self.wet_pipeline);
+                    for (bg, range) in wet_floors {
+                        pass.set_bind_group(1, bg, &[]);
+                        stats.draw_calls += 1;
+                        stats.triangles += range.len() / 3;
+                        pass.draw_indexed(range, 0, 0..1);
+                    }
+                    pass.set_pipeline(&self.pipeline);
                 }
             }
             if let (Some((vb, ib, _, _)), false) = (&self.dynamic, dyn_ranges.is_empty()) {
@@ -1056,6 +1119,33 @@ impl Renderer {
     pub fn render_to_image(&mut self, size: (u32, u32), cam: &Camera, s: &Settings,
                            dynamic: &BTreeMap<u32, Batch>, overlay: &Overlay) -> Vec<u8> {
         self.capture(size, |r, view| r.render(view, size, cam, s, dynamic, overlay))
+    }
+
+    /// Renders `n` frames offscreen, waiting for each to finish, and returns the mean and
+    /// the fastest frame's time in milliseconds, for measuring what a setting costs.
+    pub fn time_frames(&mut self, size: (u32, u32), cam: &Camera, s: &Settings, dynamic: &BTreeMap<u32, Batch>,
+                       overlay: &Overlay, n: usize) -> (f32, f32) {
+        let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("timed"),
+            size: wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = tex.create_view(&Default::default());
+        let (mut total, mut best) = (0.0, f32::MAX);
+        for _ in 0..n.max(1) {
+            let t = std::time::Instant::now();
+            self.render(&view, size, cam, s, dynamic, overlay);
+            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            let ms = t.elapsed().as_secs_f32() * 1000.0;
+            total += ms;
+            best = best.min(ms);
+        }
+        (total / n.max(1) as f32, best)
     }
 
     /// Like `render_2d`, offscreen: RGBA8 rows, top row first.

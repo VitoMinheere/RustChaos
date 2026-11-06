@@ -2,7 +2,7 @@
 //! splashes of blood by their feet now and then, the more often the less they have left;
 //! the healthy don't. Skipped without an install.
 
-mod common;
+use crate::common;
 
 use uc_game::Controls;
 use uc_world::geometry::BLOODSPLAT_PAGE;

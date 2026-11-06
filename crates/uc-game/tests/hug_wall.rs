@@ -7,7 +7,7 @@ use uc_game::person::Hug;
 use uc_game::{Controls, Game, State};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// A building wall in police1 she can put her back to: (where to stand, facing the wall,

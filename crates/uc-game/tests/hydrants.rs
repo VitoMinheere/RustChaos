@@ -4,7 +4,7 @@
 use glam::Vec3;
 use uc_game::Controls;
 
-mod common;
+use crate::common;
 
 #[test]
 fn a_broken_hydrant_gushes_then_dries_up() {

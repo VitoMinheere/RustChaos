@@ -8,7 +8,7 @@ use uc_game::{Controls, Game};
 use uc_world::character::anim;
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// An endless run in RTA's park, with the first of the wave stood just in front of Darci.

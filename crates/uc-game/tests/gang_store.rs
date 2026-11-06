@@ -5,7 +5,7 @@
 use glam::{vec2, vec3, Vec3};
 use uc_game::Controls;
 
-mod common;
+use crate::common;
 
 /// The store's door, a square of its front wall at the back of the porch (`open_the_store`
 /// in uc_world::level): from (110,65) to (110,66), 256 up.

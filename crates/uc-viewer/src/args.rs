@@ -3,9 +3,9 @@
 use crate::*;
 
 pub(crate) const USAGE: &str = "\
-uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DIR] [--relief] [--bloom] [--linear] [--fullbright]
+uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DIR] [--relief] [--bloom] [--no-wet] [--linear] [--fullbright]
           [--fog START,END | --no-fog] [--no-crinkles] [--no-character] [--cam X,Y,Z,YAW,PITCH] [--dogs N]
-          [--screenshot FILE [--size WxH] [--sim-walk SECS | --sim-run SECS | --sim SECS]]
+          [--screenshot FILE [--size WxH] [--sim-walk SECS | --sim-run SECS | --sim SECS] [--bench N]]
           [--dump-pages DIR] [--host [PORT] | --join HOST[:PORT]] [--name NAME] [--replay FILE] [--edit NAME]
 
   --game DIR        Urban Chaos install (default: $UC_GAME_DIR, then the GOG location)
@@ -18,6 +18,8 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --beat           a Beat Cop shift on the mission's map: incidents over the radio (--seed, --arena too)
   --shift MINUTES  the shift's length (default 10), or endless for an open-ended one
   --arena X,Z,R     the endless arena: its middle in squares and its radius (default: 10 round the start)
+  --trial COURSE    a time trial on a course (oval, westblock), in --car police, sports or van, with
+                    --traffic on the roads or not
   --windowed        in a window (default: full screen; F11 or Alt+Enter switches)
   --weapon W        start holding a weapon (knife, bat, pistol, shotgun, ak)
   --dogs N          let N dogs loose round the start (unreleased: the original never shipped them)
@@ -28,6 +30,7 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --linear          smooth texture magnification (default: crisp nearest-neighbour)
   --relief          light the world, people and cars by their upscaled pages' normal maps, strongly
   --bloom           make lit windows, lamps, headlights and fire glow, strongly
+  --no-wet          dry roads on a rainy night (default: wet, with streaks of light in them)
   --fullbright      ignore the level's baked lighting
   --fog START,END   distance fog in map squares (default 20,40); --no-fog disables it
   --no-crinkles     flat walls up close (default: walls with a crinkle stand out in relief,
@@ -36,6 +39,8 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --cam ...         start in the free camera: position in map squares, yaw/pitch in degrees
   --screenshot FILE render one frame offscreen to FILE (PNG) and exit, without a window
   --size WxH        screenshot size (default 1280x720)
+  --bench N         after the screenshot, draw the same frame N more times and print how long
+                    a frame takes, waiting for each to finish (for what a setting costs)
   --sim SECS        before the screenshot, run the game for SECS seconds (skipping fly-bys),
                     punching twice and kicking twice first (testing)
   --sim-walk SECS   the same, walking Darci forward; --sim-run SECS running
@@ -111,6 +116,8 @@ pub(crate) struct Args {
     pub(crate) arena: (Option<(f32, f32)>, f32),
     /// The arena's name in the menu, which its best run is kept under.
     pub(crate) arena_name: Option<String>,
+    /// A time trial (#519): the course (its place in the list), the car, and traffic.
+    pub(crate) trial: Option<(usize, uc_game::game::trial::Car, bool)>,
     /// In a window rather than full screen.
     pub(crate) windowed: bool,
     pub(crate) weapon: uc_game::Weapon,
@@ -123,6 +130,10 @@ pub(crate) struct Args {
     pub(crate) relief: f32,
     /// How strongly what lights itself glows (#523): 0 for none.
     pub(crate) bloom: f32,
+    /// `--bench N`: frames to time after a screenshot.
+    pub(crate) bench: usize,
+    /// The roads wet on a rainy night (#522).
+    pub(crate) wet: bool,
     pub(crate) fullbright: bool,
     pub(crate) fog: Option<(f32, f32)>,
     /// Walls with a crinkle stand out in relief up close (#113).
@@ -168,6 +179,7 @@ impl Default for Args {
             seed: None,
             arena: (None, 10.0),
             arena_name: None,
+            trial: None,
             windowed: false,
             weapon: uc_game::Weapon::None,
             dogs: 0,
@@ -175,6 +187,8 @@ impl Default for Args {
             linear: false,
             relief: 0.0,
             bloom: 0.0,
+            bench: 0,
+            wet: true,
             fullbright: false,
             fog: Some((20.0, 40.0)),
             crinkles: true,
@@ -234,6 +248,22 @@ pub(crate) fn parse_args() -> Result<Args, String> {
                 let v = parse_floats(&value()?, 3, "--arena")?;
                 a.arena = (Some((v[0], v[1])), v[2]);
             }
+            "--trial" => {
+                let id = value()?;
+                let course = uc_game::game::trial::course_index(&id).ok_or(format!("--trial: no course {id}"))?;
+                let (_, car, traffic) = a.trial.unwrap_or((0, uc_game::game::trial::Car::Police, false));
+                a.trial = Some((course, car, traffic));
+            }
+            "--car" => {
+                let id = value()?;
+                let car = uc_game::game::trial::Car::from_id(&id).ok_or(format!("--car: no car {id} (police, sports, van)"))?;
+                let (course, _, traffic) = a.trial.unwrap_or((0, car, false));
+                a.trial = Some((course, car, traffic));
+            }
+            "--traffic" => {
+                let (course, car, _) = a.trial.unwrap_or((0, uc_game::game::trial::Car::Police, true));
+                a.trial = Some((course, car, true));
+            }
             "--seed" => a.seed = Some(value()?.parse().map_err(|e| format!("--seed: {e}"))?),
             "--windowed" => a.windowed = true,
             "--weapon" => {
@@ -252,6 +282,8 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             "--linear" => a.linear = true,
             "--relief" => a.relief = crate::options::RELIEF[2],
             "--bloom" => a.bloom = crate::options::BLOOM[2],
+            "--no-wet" => a.wet = false,
+            "--bench" => a.bench = value()?.parse().map_err(|e| format!("--bench: {e}"))?,
             "--fullbright" => a.fullbright = true,
             "--no-fog" => a.fog = None,
             "--fog" => {
@@ -282,6 +314,11 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             "-h" | "--help" => return Err(USAGE.into()),
             other => return Err(format!("unknown argument {other}\n\n{USAGE}")),
         }
+    }
+    // A time trial is on its course's map.
+    if let Some((course, ..)) = a.trial {
+        a.mission = uc_game::game::trial::courses()[course].mission.clone();
+        a.mission_given = true;
     }
     if !a.game.exists() {
         return Err(format!("Urban Chaos install not found; pass --game DIR or set UC_GAME_DIR\n\n{USAGE}"));

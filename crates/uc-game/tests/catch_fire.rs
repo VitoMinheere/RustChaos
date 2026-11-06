@@ -6,7 +6,7 @@ use glam::vec3;
 use uc_game::person::AI_CIV;
 use uc_game::Controls;
 
-mod common;
+use crate::common;
 
 #[test]
 fn standing_in_a_fire_burns_to_death() {

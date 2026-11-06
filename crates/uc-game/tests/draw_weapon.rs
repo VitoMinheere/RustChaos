@@ -2,7 +2,7 @@
 //! draws it (`ANIM_PISTOL_DRAW`, `_SHOTGUN_DRAW`, `_KNIFE_DRAW`, `_BAT_DRAW`), in hand from
 //! the fourth frame; putting it away is at once. Skipped without an install.
 
-mod common;
+use crate::common;
 
 use uc_game::person::State;
 use uc_game::{Controls, Weapon};

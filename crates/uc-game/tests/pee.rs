@@ -5,7 +5,7 @@
 use uc_game::{Controls, Game};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn load(mission: &str) -> Option<(Level, Game)> {

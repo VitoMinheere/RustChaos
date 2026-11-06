@@ -5,7 +5,7 @@
 use glam::vec3;
 use uc_game::Controls;
 
-mod common;
+use crate::common;
 
 const POINT: usize = 12;
 

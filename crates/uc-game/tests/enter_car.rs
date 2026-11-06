@@ -8,7 +8,7 @@ use uc_game::{Controls, Game, State};
 use uc_world::character::anim;
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn load() -> Option<(Level, Game, usize)> {

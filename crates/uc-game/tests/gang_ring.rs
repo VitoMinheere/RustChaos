@@ -7,7 +7,7 @@ use uc_game::person::{AI_CIV, AI_GANG};
 use uc_game::Controls;
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 
 #[test]
 fn a_gang_spreads_round_her() {

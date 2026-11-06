@@ -4,7 +4,7 @@
 
 use uc_game::Controls;
 
-mod common;
+use crate::common;
 use common::Run;
 
 fn briefed(mission: &str) -> Option<Run> {

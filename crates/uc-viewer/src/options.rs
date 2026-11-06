@@ -31,6 +31,8 @@ pub(crate) struct Options {
     pub(crate) relief: u8,
     /// What lights itself glowing (#523): off, soft or strong ([`BLOOM`]), on the spot.
     pub(crate) bloom: u8,
+    /// The roads wet on a rainy night (#522), on the spot.
+    pub(crate) wet: bool,
     /// `--overrides DIR`: the textures for this run, whatever's set here. Not saved.
     pub(crate) forced: Option<PathBuf>,
 }
@@ -52,17 +54,18 @@ impl Default for Options {
     fn default() -> Options {
         Options {
             master: 10, effects: 10, music: 10, shadows: true, dirt: true, mist: true, rain: true, skyline: true, moon: true,
-            crinkles: true, fog: true, linear: false, upscaled: false, textures_dir: None, relief: 0, bloom: 0, forced: None,
+            crinkles: true, fog: true, linear: false, upscaled: false, textures_dir: None, relief: 0, bloom: 0, wet: true, forced: None,
         }
     }
 }
 
 /// The rows of the screen, top to bottom: the settings, then the controls' page and back.
-pub(crate) const ROWS: usize = 17;
+pub(crate) const ROWS: usize = 18;
 pub(crate) const TEXTURES_ROW: usize = 12;
 pub(crate) const RELIEF_ROW: usize = 13;
 pub(crate) const BLOOM_ROW: usize = 14;
-pub(crate) const CONTROLS_ROW: usize = 15;
+pub(crate) const WET_ROW: usize = 15;
+pub(crate) const CONTROLS_ROW: usize = 16;
 
 /// The effects and music at full volume before these were here (`Audio`'s defaults).
 const EFFECTS: f32 = 0.8;
@@ -101,6 +104,7 @@ impl Options {
                 "textures" => o.upscaled = value == "upscaled",
                 "relief" => o.relief = RELIEF_NAMES.iter().position(|&n| n == value).unwrap_or(0) as u8,
                 "bloom" => o.bloom = RELIEF_NAMES.iter().position(|&n| n == value).unwrap_or(0) as u8,
+                "wet" => o.wet = on,
                 "textures_dir" if !value.is_empty() => o.textures_dir = Some(PathBuf::from(value)),
                 _ => {}
             }
@@ -121,11 +125,11 @@ impl Options {
         let on = |b: bool| if b { "on" } else { "off" };
         let dir = self.textures_dir.as_ref().map_or(String::new(), |d| format!("textures_dir={}\n", d.display()));
         format!(
-            "master={}\neffects={}\nmusic={}\nshadows={}\ndirt={}\nmist={}\nrain={}\nskyline={}\nmoon={}\ncrinkles={}\nfog={}\nfiltering={}\ntextures={}\nrelief={}\nbloom={}\n{dir}",
+            "master={}\neffects={}\nmusic={}\nshadows={}\ndirt={}\nmist={}\nrain={}\nskyline={}\nmoon={}\ncrinkles={}\nfog={}\nfiltering={}\ntextures={}\nrelief={}\nbloom={}\nwet={}\n{dir}",
             self.master, self.effects, self.music, on(self.shadows), on(self.dirt), on(self.mist), on(self.rain),
             on(self.skyline), on(self.moon), on(self.crinkles), on(self.fog), if self.linear { "smooth" } else { "crisp" },
             if self.upscaled { "upscaled" } else { "original" }, RELIEF_NAMES[self.relief as usize % 3],
-            RELIEF_NAMES[self.bloom as usize % 3],
+            RELIEF_NAMES[self.bloom as usize % 3], on(self.wet),
         )
     }
 
@@ -168,6 +172,7 @@ impl Options {
                 _ => "STRONG (UPSCALED TEXTURES, NEXT LEVEL)".into(),
             }),
             BLOOM_ROW => ("BLOOM", ["OFF", "SOFT", "STRONG"][self.bloom as usize % 3].into()),
+            WET_ROW => ("WET ROADS", on(self.wet)),
             CONTROLS_ROW => ("CONTROLS", String::new()),
             _ => ("BACK", String::new()),
         }
@@ -192,6 +197,7 @@ impl Options {
             TEXTURES_ROW => self.upscaled = !self.upscaled,
             RELIEF_ROW => self.relief = (self.relief as i8 + by).rem_euclid(3) as u8,
             BLOOM_ROW => self.bloom = (self.bloom as i8 + by).rem_euclid(3) as u8,
+            WET_ROW => self.wet = !self.wet,
             _ => {}
         }
     }
@@ -234,6 +240,7 @@ impl Options {
         args.overrides = self.overrides();
         args.relief = RELIEF[self.relief as usize % 3];
         args.bloom = BLOOM[self.bloom as usize % 3];
+        args.wet = self.wet;
         args.crinkles = self.crinkles;
         args.fog = if self.fog { fog } else { None };
         args.rain = self.rain;
@@ -242,11 +249,12 @@ impl Options {
     }
 
     /// The command line's switches win for the run they're given on: `--no-crinkles`,
-    /// `--no-fog`, `--linear`, `--relief`, `--bloom` and `--overrides` (`--mute` silences everything
+    /// `--no-fog`, `--linear`, `--relief`, `--bloom`, `--no-wet` and `--overrides` (`--mute` silences everything
     /// anyway).
     pub(crate) fn with_args(mut self, args: &Args) -> Options {
         self.crinkles &= args.crinkles;
         self.fog &= args.fog.is_some();
+        self.wet &= args.wet;
         self.linear |= args.linear;
         if args.relief > 0.0 {
             self.relief = 2;
@@ -284,7 +292,7 @@ mod tests {
     #[test]
     fn saved_and_read_back_the_same() {
         let mut o = Options::default();
-        for k in [1, 1, 2, 4, 9, 11] {
+        for k in [1, 1, 2, 4, 9, 11, WET_ROW] {
             o.change(k, -1);
         }
         assert_eq!(Options::parse(&o.text()), o);

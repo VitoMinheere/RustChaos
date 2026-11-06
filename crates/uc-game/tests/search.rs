@@ -7,7 +7,7 @@ use glam::{vec3, Vec3};
 use uc_formats::ucm::trigger;
 use uc_game::{Controls, Search};
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 /// Auto-Destruct with the video stashed from the start: point 181 waits on the bombers being

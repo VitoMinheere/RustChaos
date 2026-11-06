@@ -6,7 +6,7 @@ use glam::{vec2, Vec3};
 use uc_game::tracks::{FOOTPRINT_PAGE, TYREMARK_PAGE, TYRETRACK_PAGE};
 use uc_game::{Controls, Drive, State};
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 impl Run {

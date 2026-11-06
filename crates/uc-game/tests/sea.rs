@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use uc_game::{Controls, Game};
 use uc_world::level::WATER_PAGE;
 
-mod common;
+use crate::common;
 
 #[test]
 fn el_cossa_island_s_sea_moves() {

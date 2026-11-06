@@ -5,7 +5,7 @@ use glam::{vec2, vec3};
 use uc_game::{Controls, State};
 use uc_world::character::person as ptype;
 
-mod common;
+use crate::common;
 
 #[test]
 fn a_hunter_slides_into_her_as_she_runs() {

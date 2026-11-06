@@ -7,7 +7,7 @@ use uc_game::person::AI_BODYGUARD;
 use uc_game::{Controls, Game, Item, State, Weapon};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn run(level: &Level, g: &mut Game, secs: f32) {

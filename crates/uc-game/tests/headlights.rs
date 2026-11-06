@@ -6,7 +6,7 @@ use glam::Vec3;
 use uc_game::{Controls, Game};
 use uc_world::{Level, GLOW};
 
-mod common;
+use crate::common;
 
 /// The glows' vertices with the camera `ahead` of car 0, and whether it's being driven.
 fn glows(level: &Level, g: &mut Game, driven: bool, ahead: f32) -> usize {

@@ -5,7 +5,7 @@
 
 use uc_game::Controls;
 
-mod common;
+use crate::common;
 
 #[test]
 fn an_inverted_point_holds_while_its_trigger_doesnt() {

@@ -206,7 +206,13 @@ impl Game {
     /// else is drawn), see-through: drawn from the player's own figure, or from the car it
     /// drove. It fades out as the player comes close, so it doesn't get in the way.
     pub fn ghost_batches(&self, track: &Track, level: &Level, out: &mut BTreeMap<u32, Batch>) {
-        let t = (self.turns as f32 - 1.0 + self.between()).max(0.0);
+        self.ghost_batches_from(track, 0, level, out);
+    }
+
+    /// As [`Game::ghost_batches`], with the track raced from turn `from` of this run: a time
+    /// trial's best lap, from the start of the lap under way (#519).
+    pub fn ghost_batches_from(&self, track: &Track, from: u64, level: &Level, out: &mut BTreeMap<u32, Batch>) {
+        let t = (self.turns.saturating_sub(from) as f32 - 1.0 + self.between()).max(0.0);
         let pose = track.pose_at(t);
         let mut mine = BTreeMap::new();
         let lighter = level.lighter();

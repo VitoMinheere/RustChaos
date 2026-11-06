@@ -5,7 +5,7 @@
 use glam::{vec3, Vec3};
 use uc_game::{Charge, Controls, Outcome, Weapon};
 
-mod common;
+use crate::common;
 use common::{Run, DT};
 
 fn start(mission: &str) -> Option<Run> {

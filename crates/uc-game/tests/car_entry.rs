@@ -8,7 +8,7 @@ use uc_game::vehicle::Key;
 use uc_game::{Controls, Game, State, Vehicle};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 /// Rio Canal with a car of `kind` in an open spot, and her at door `door`: (level, game, car).

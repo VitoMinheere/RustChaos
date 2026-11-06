@@ -20,6 +20,13 @@ struct Globals {
     lamps: array<vec4<f32>, 16>,
     lamp_rgb: array<vec4<f32>, 16>,
     lamp_count: vec4<f32>,
+    // Wet ground (#522): x how wet (0 to 1), y how many glints. Each glint is a bright light
+    // whose streak shows in it: xyz where, w how much it shows; its colour; and the way it
+    // shines (xyz, zero for every way).
+    wet: vec4<f32>,
+    glints: array<vec4<f32>, 32>,
+    glint_rgb: array<vec4<f32>, 32>,
+    glint_dir: array<vec4<f32>, 32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -312,4 +319,83 @@ fn fs_sprite_emit(in: VOut) -> @location(0) vec4<f32> {
     let d = distance(in.world, g.cam_pos.xyz);
     let f = clamp((d - g.fog.x) / max(g.fog.y - g.fog.x, 0.001), 0.0, 1.0) * g.fog.z;
     return vec4<f32>(t.rgb * t.a * (1.0 - f), t.a);
+}
+
+// Wet ground (#522; not in the original, which has only its puddles): how wide a streak is
+// along the ground towards the camera and across it, as the slopes of the water's ripples
+// (Ward's roughness), and how bright its middle is.
+const STREAK_ALONG: f32 = 0.11;
+const STREAK_ACROSS: f32 = 0.04;
+const STREAK: f32 = 0.7;
+
+// The colour `c` of the ground at `p`, facing `n`, made wet: darker, as water in its pores
+// keeps light in; the sky in it, the more at a glancing look (Schlick's, water's 0.02
+// head-on); a sheen where the dynamic lights (headlights on the road) reach; and each
+// glint's streak. Only where it's flat: kerbs' sides stay as they are.
+fn wet_ground(c: vec3<f32>, p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+    let w = g.wet.x * smoothstep(0.9, 0.98, n.y);
+    if (w <= 0.0) {
+        return c;
+    }
+    let v = normalize(g.cam_pos.xyz - p);
+    var out = c * (1.0 - 0.45 * w);
+    let fresnel = 0.02 + 0.98 * pow(1.0 - clamp(v.y, 0.0, 1.0), 5.0);
+    out = out + g.fog_color.rgb * fresnel * 0.5 * w;
+    for (var i = 0u; i < u32(g.light_count.x); i = i + 1u) {
+        let l = g.lights[i];
+        let r = reach(l, p);
+        if (r <= 0.0) {
+            continue;
+        }
+        let h = normalize(normalize(l.xyz - p) + v);
+        out = out + g.light_rgb[i].rgb * r * pow(max(h.y, 0.0), 60.0) * 1.5 * w;
+    }
+    // The streaks lie along the ground towards the camera.
+    let flat = vec2<f32>(v.x, v.z);
+    var ahead = vec2<f32>(0.0, 1.0);
+    if (dot(flat, flat) > 1e-8) {
+        ahead = normalize(flat);
+    }
+    let side = vec2<f32>(-ahead.y, ahead.x);
+    for (var i = 0u; i < u32(g.wet.y); i = i + 1u) {
+        let gl = g.glints[i];
+        // A light at the ground or below it has nothing to show in it.
+        let up = gl.y - p.y;
+        if (gl.w <= 0.0 || up <= 0.05) {
+            continue;
+        }
+        let to = normalize(gl.xyz - p);
+        let dir = g.glint_dir[i].xyz;
+        var front = 1.0;
+        if (dot(dir, dir) > 0.01) {
+            front = smoothstep(0.0, 0.3, dot(dir, -to));
+        }
+        // The half-way vector's slope along and across, against the roughness (a slope
+        // needs no normalising).
+        let h = to + v;
+        let a = dot(h.xz, ahead) / (h.y * STREAK_ALONG);
+        let b = dot(h.xz, side) / (h.y * STREAK_ACROSS);
+        let s = exp(-(a * a + b * b));
+        out = out + g.glint_rgb[i].rgb * s * front * gl.w * min(up * 2.0, 1.0) * STREAK * w;
+    }
+    return out;
+}
+
+// A floor on a wet night (#522): lit as `fs_main`, then made wet.
+@fragment
+fn fs_wet(in: VOut) -> @location(0) vec4<f32> {
+    let t = textureSample(tex, samp, in.uv);
+    var n = normalize(cross(dpdx(in.world), dpdy(in.world)));
+    if (behind(in) || t.a < 0.5) {
+        discard;
+    }
+    if (n.y < 0.0) {
+        n = -n;
+    }
+    var c = t.rgb * min(in.color.rgb + dynamic_light(in.world), vec3<f32>(1.0));
+    c = wet_ground(c, in.world, n);
+    let d = distance(in.world, g.cam_pos.xyz);
+    let f = clamp((d - g.fog.x) / max(g.fog.y - g.fog.x, 0.001), 0.0, 1.0) * g.fog.z;
+    c = mix(c, g.fog_color.rgb, f);
+    return vec4<f32>(c, 1.0);
 }

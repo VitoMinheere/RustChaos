@@ -7,7 +7,7 @@ use uc_game::person::ko;
 use uc_game::{Controls, Game, Outcome, Weapon};
 use uc_world::Level;
 
-mod common;
+use crate::common;
 use common::DT;
 
 fn load(mission: &str) -> Option<(Level, Game)> {

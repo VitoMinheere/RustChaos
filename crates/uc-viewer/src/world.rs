@@ -8,7 +8,9 @@ use uc_net::replay::{Mode, Recorder, Replay, Start};
 /// difficulty, the weapon asked for, how far the camera sees (beyond which the city's extra
 /// people can come and go), and any dogs asked for.
 fn start(args: &Args) -> Start {
-    let mode = if args.endless || args.beat {
+    let mode = if let Some((course, car, traffic)) = args.trial {
+        Mode::Trial { course: course as u8, car: car.index(), traffic }
+    } else if args.endless || args.beat {
         let seed = args.seed.unwrap_or_else(|| {
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos() ^ d.as_secs() as u32)
         });
@@ -100,6 +102,8 @@ pub(crate) struct World {
     /// What the relief (#474: the normal maps, not the crinkles) is lit by, from the last
     /// upload.
     pub(crate) relief_lit: uc_render::Relief,
+    /// The level's lampposts, whose streaks show on wet ground (#522), from the last upload.
+    pub(crate) wet_lamps: Vec<uc_render::Glint>,
     /// From the last upload: the level's textures, and how many of them came from the
     /// override folder.
     pub(crate) textures: (usize, usize),
@@ -107,6 +111,8 @@ pub(crate) struct World {
     pub(crate) seat: Option<usize>,
     /// The race against the best run's ghost, on the missions that have one (#186).
     pub(crate) race: Option<ghosts::Race>,
+    /// A time trial's race against its best lap (#519).
+    pub(crate) lap_race: Option<ghosts::LapRace>,
     /// The ghost is shown (B switches it, and it's remembered).
     pub(crate) ghost_on: bool,
     /// This run, kept for a replay (#184) until it's saved, or until the console changes it.
@@ -127,7 +133,7 @@ pub(crate) struct World {
 /// The ghost race for a new game of `level`, if it's one of the missions raced (and played
 /// as the mission, not explored or as an endless run).
 fn race(game: &mut Game, level: &Level, args: &Args) -> Option<ghosts::Race> {
-    (ghosts::raced(&level.name) && !args.explore && !args.endless && !args.beat).then(|| ghosts::Race::start(game, &level.name))
+    (ghosts::raced(&level.name) && !args.explore && !args.endless && !args.beat && args.trial.is_none()).then(|| ghosts::Race::start(game, &level.name))
 }
 
 impl World {
@@ -150,17 +156,19 @@ impl World {
         w.third_person = false;
         w.recorder = None;
         w.race = None;
+        w.lap_race = None;
         w.help = false;
         Ok(w)
     }
 
     /// `mission`, an edit of `args.mission`, played.
     pub(crate) fn load_edited(args: Args, mission: uc_formats::ucm::Mission) -> Result<World, String> {
-        let args = Args { explore: false, endless: false, beat: false, cam: None, ..args };
+        let args = Args { explore: false, endless: false, beat: false, trial: None, cam: None, ..args };
         let mut w = World::load_with(args, None, None, Some(mission), new_game)?;
         w.edited = true;
         w.recorder = None;
         w.race = None;
+        w.lap_race = None;
         Ok(w)
     }
 
@@ -175,7 +183,12 @@ impl World {
         let start = replay.start.clone();
         let args = Args {
             mission: start.mission.clone(), explore: start.mode == Mode::Explore, endless: matches!(start.mode, Mode::Endless { .. }),
-            beat: matches!(start.mode, Mode::Beat { .. }), dogs: start.dogs as usize, weapon: start.weapon, cam: None,
+            beat: matches!(start.mode, Mode::Beat { .. }),
+            trial: match start.mode {
+                Mode::Trial { course, car, traffic } => Some((course as usize, uc_game::game::trial::Car::from_index(car), traffic)),
+                _ => None,
+            },
+            dogs: start.dogs as usize, weapon: start.weapon, cam: None,
             no_character: false, ..args
         };
         World::load_with(args, None, Some(replay), None, |level, _| (start.game(level), start.clone()))
@@ -184,7 +197,7 @@ impl World {
     /// A co-op game's mission, as `setup` has it, played from `seat`. Nothing here may
     /// change the game but `setup`: every player's machine has to start the same one.
     pub(crate) fn load_coop(args: Args, setup: &uc_net::Setup, seat: usize) -> Result<World, String> {
-        let args = Args { mission: setup.mission.clone(), explore: false, endless: false, beat: false, dogs: 0, weapon: uc_game::Weapon::None, cam: None, ..args };
+        let args = Args { mission: setup.mission.clone(), explore: false, endless: false, beat: false, trial: None, dogs: 0, weapon: uc_game::Weapon::None, cam: None, ..args };
         World::load_with(args, Some(seat), None, None, |level, _| {
             let mut game = setup.game(level);
             game.focus(seat);
@@ -225,6 +238,7 @@ impl World {
         let crinkles = args.crinkles;
         // A co-op run isn't a solo one to race or keep as the best.
         let race = if seat.is_none() && replay.is_none() { race(&mut game, &level, &args) } else { None };
+        let lap_race = if seat.is_none() && replay.is_none() { ghosts::LapRace::start(&mut game) } else { None };
         // Kept from turn 0 (not without the people: that's for looking at the level).
         let recorder = (replay.is_none() && !args.no_character).then(|| Recorder::new(&mut game, how));
         let replay = replay.map(replays::Viewing::new);
@@ -261,9 +275,11 @@ impl World {
             crinkles,
             reupload: false,
             relief_lit: uc_render::Relief::default(),
+            wet_lamps: Vec::new(),
             textures: (0, 0),
             seat,
             race,
+            lap_race,
             ghost_on: progress::Progress::load().ghosts(),
             recorder,
             replay_saved: None,
@@ -362,6 +378,7 @@ impl World {
         self.recorder = (counts && !self.args.no_character).then(|| Recorder::new(&mut self.game, start));
         self.replay_saved = None;
         self.race = if counts { race(&mut self.game, &self.level, &self.args) } else { None };
+        self.lap_race = if counts { ghosts::LapRace::start(&mut self.game) } else { None };
         self.endless_recorded = None;
     }
 
@@ -377,7 +394,19 @@ impl World {
             .collect();
         let shadows = self.game.shadow_maps();
         let relief = (self.args.relief > 0.0).then(|| self.relief_lit.clone());
-        Settings { sky: self.level.sky, fog: self.args.fog, layers, crinkles, lights, shadows, relief, bloom: self.args.bloom }
+        Settings { sky: self.level.sky, fog: self.args.fog, layers, crinkles, lights, shadows, relief, bloom: self.args.bloom, wet: self.wet() }
+    }
+
+    /// The roads wet (#522), out of doors on a rainy night with them on: with the lamps' and
+    /// the headlights' streaks.
+    fn wet(&self) -> Option<uc_render::Wet> {
+        let amount = self.game.wet.amount;
+        if !self.args.wet || amount <= 0.0 || self.game.indoors().is_some() {
+            return None;
+        }
+        let headlights = self.game.headlight_glints(&self.level).into_iter()
+            .map(|g| uc_render::Glint { pos: g.pos / uc_world::UNIT, rgb: g.rgb, facing: g.facing });
+        Some(uc_render::Wet { amount, glints: self.wet_lamps.iter().copied().chain(headlights).collect() })
     }
 
     pub(crate) fn eye(&self) -> Option<Vec3> {
@@ -497,6 +526,9 @@ impl World {
         if let (true, Some(best)) = (self.ghost_on, self.race.as_ref().and_then(|r| r.best.as_ref())) {
             self.game.ghost_batches(best, &self.level, &mut out);
         }
+        if let (true, Some(best)) = (self.ghost_on, self.lap_race.as_ref().and_then(|r| r.best.as_ref())) {
+            self.game.ghost_batches_from(best, self.game.trial_ghost_from(), &self.level, &mut out);
+        }
         out
     }
 
@@ -516,6 +548,12 @@ impl World {
                 .map(|(pos, r, rgb)| uc_render::Light { pos: Vec3::from(pos) / uc_world::UNIT, radius: r / uc_world::UNIT, rgb })
                 .collect(),
         });
+        // The lampposts, no brighter than white. Not the level's other lights: most aren't
+        // anything to be seen.
+        self.wet_lamps = self.level.lighter().map_or_else(Vec::new, |l| {
+            let (lamps, rgb) = l.lamps();
+            lamps.iter().map(|&p| uc_render::Glint { pos: Vec3::from(p) / uc_world::UNIT, rgb: rgb.map(|c| c.min(1.0)), facing: Vec3::ZERO }).collect()
+        });
         self.textures = (textures, overridden);
         // The minimap: the whole city from straight above (8 pixels a square), north up.
         let n = 1024;
@@ -527,7 +565,7 @@ impl World {
         let mut sea = BTreeMap::new();
         self.game.draw_sea(&mut sea);
         let shot = |r: &mut Renderer, cam: &Camera| {
-            r.render_to_image((n, n), cam, &Settings { sky: self.level.sky, fog: None, layers: layers.clone(), crinkles: false, lights: Vec::new(), shadows: Vec::new(), relief: None, bloom: 0.0 }, &sea, &Overlay::new())
+            r.render_to_image((n, n), cam, &Settings { sky: self.level.sky, fog: None, layers: layers.clone(), crinkles: false, lights: Vec::new(), shadows: Vec::new(), relief: None, bloom: 0.0, wet: None }, &sea, &Overlay::new())
         };
         let mut rgba = shot(r, &top);
         // Warehouse roofs (and some ceilings) are black from above, as on PC: there, show the

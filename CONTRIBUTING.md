@@ -11,11 +11,12 @@ CI fails on any Clippy warning. It can't run the tests that need the game's data
 
 The install is found from `UC_GAME_DIR`, or the default GOG location.
 
-`cargo test` runs `uc-game`'s ~200 test files one after another, nine minutes or so with an install. [cargo-nextest](https://nexte.st) (`cargo install cargo-nextest --locked`) runs every test at once across the cores, about two and a half minutes:
+`uc-game`'s integration tests are one test program (`tests/main.rs`, with each file a module of it), so `cargo test` runs them all at once across the cores: about 35 seconds with an install. A new file in `tests/` has to be added to the list in `tests/main.rs`; `every_test_file_is_listed` fails until it is. To run one file's tests, or with [cargo-nextest](https://nexte.st):
 
 ```
+cargo test -p uc-game followers::               # just one file's tests
 cargo nextest run --workspace
-cargo nextest run -p uc-game -E 'binary(followers)'   # just one file's tests
+cargo nextest run -p uc-game -E 'test(/^followers::/)'
 ```
 
 ## Mission tests
