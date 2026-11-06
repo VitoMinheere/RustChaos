@@ -43,11 +43,64 @@ impl Road for Level2<'_> {
     }
 }
 
-/// The bike's anim prim, if the install has it.
+/// The bike's anim prim, if the install has it, in the cars' textures ([`car_textures`]).
 pub(crate) fn bike_chunk(level: &Level) -> Option<std::sync::Arc<uc_formats::all::AnimChunk>> {
     let path = uc_formats::resolve(&level.game, BIKE_CHUNK)?;
-    let chunk = uc_formats::all::AnimChunk::parse(&std::fs::read(path).ok()?).ok()?;
+    let mut chunk = uc_formats::all::AnimChunk::parse(&std::fs::read(path).ok()?).ok()?;
+    for body in &mut chunk.bodies {
+        for part in &mut body.parts {
+            car_textures(part);
+        }
+    }
     Some(std::sync::Arc::new(chunk))
+}
+
+/// The car wheel's side, hub and tyre (`Cylinder01`, prim 220's two flat faces).
+const WHEEL_PAGE: u32 = 705;
+/// Brushed panelling off the police car (prim 150), for the bike's coloured faces.
+const PANEL_PAGE: u32 = 975;
+/// The cars' dark underside and tread (prims 108 and 150), for its black faces and round
+/// its wheels. (The car tyre's own tread, a patch of page 800, comes out olive.)
+const DARK_PAGE: u32 = 801;
+
+/// Retextures a part of the bike with the cars' pages. Every face of `anim009.all`'s bike is
+/// on page 576, which in the shipped clumps is a black 32 by 32: the bike's own texture went
+/// with the bikes, out of the game. Its wheels take the car wheel's side across them and the
+/// dark tread round them; the rest is panelling where it's coloured and the dark underside where
+/// it's black, each face spanning its page. (Not in the original.)
+fn car_textures(part: &mut uc_formats::prm::Prim) {
+    let pts: Vec<glam::Vec3> = part.points.iter().map(|p| glam::Vec3::new(p[0] as f32, p[1] as f32, p[2] as f32)).collect();
+    if pts.is_empty() {
+        return;
+    }
+    let lo = pts.iter().copied().fold(glam::Vec3::splat(f32::MAX), glam::Vec3::min);
+    let hi = pts.iter().copied().fold(glam::Vec3::splat(f32::MIN), glam::Vec3::max);
+    let wheel = part.name.to_ascii_lowercase().contains("wheel");
+    // A wheel's axle is along its thinnest side.
+    let size = hi - lo;
+    let axle = if size.x <= size.y && size.x <= size.z { 0 } else if size.y <= size.z { 1 } else { 2 };
+    for f in &mut part.faces {
+        let corners: Vec<glam::Vec3> = f.points.iter().map(|&i| pts[i as usize]).collect();
+        if corners.len() < 3 {
+            continue;
+        }
+        let normal = (corners[1] - corners[0]).cross(corners[2] - corners[0]).normalize_or_zero().abs();
+        let side = wheel && normal[axle] >= 0.7;
+        // Flat on the plane across the normal's biggest part: across the axle for a wheel's
+        // side, the whole wheel's picture over the whole wheel.
+        let along = if side { axle } else if normal.x >= normal.y && normal.x >= normal.z { 0 } else if normal.y >= normal.z { 1 } else { 2 };
+        let (a, b) = ((along + 1) % 3, (along + 2) % 3);
+        let (flo, fhi) = if side {
+            (lo, hi)
+        } else {
+            let flo = corners.iter().copied().fold(glam::Vec3::splat(f32::MAX), glam::Vec3::min);
+            (flo, corners.iter().copied().fold(glam::Vec3::splat(f32::MIN), glam::Vec3::max))
+        };
+        let span = |k: usize, t: f32| if fhi[k] > flo[k] { (t - flo[k]) / (fhi[k] - flo[k]) } else { 0.5 };
+        let uv: Vec<[f32; 2]> = corners.iter().map(|c| [span(a, c[a]), 1.0 - span(b, c[b])]).collect();
+        let page = if side { WHEEL_PAGE } else if wheel || f.colour == 0 { DARK_PAGE } else { PANEL_PAGE };
+        f.set_texture(page, &uv);
+    }
 }
 
 impl Game {
@@ -100,7 +153,9 @@ impl Game {
         }
         for (b, fig) in &mut self.bikes {
             if let Some(f) = fig {
-                f.pos = b.pos() - Vec3::new(0.0, (0x18 + 0x10) as f32, 0.0);
+                // Drawn where the bike is (`ANIM_obj_draw` at its `WorldPos`, aeng.cpp:10470): the
+                // wheels' bottoms are the frame's middle less their radius and springs.
+                f.pos = b.pos();
                 f.angle = radians(b.yaw as f32);
                 f.advance(dt);
             }
@@ -230,7 +285,7 @@ impl Game {
                     // legs out along her left a little way off: turned a quarter, as when
                     // getting on, her legs lie along the bike, and her hips go on the seat.
                     p.fig.angle = radians((yaw - 512) as f32);
-                    p.fig.pos = pos - Vec3::new(0.0, 40.0, 0.0);
+                    p.fig.pos = pos;
                     if let Some((_, hips)) = p.fig.part_world(0) {
                         p.fig.pos += Vec3::new(pos.x - hips.x, 0.0, pos.z - hips.z);
                     }

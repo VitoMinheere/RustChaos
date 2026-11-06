@@ -63,6 +63,21 @@ impl Face {
         let page = av_u + av_v * 8 + self.texture_page as i32 * 64;
         (page.max(0) as u32, uv)
     }
+
+    /// Gives the face texture `page` (one of the faces' pages, from `FACE_PAGE_OFFSET` on)
+    /// with `uv` (0 to 1, one per point, in 32nds), as [`Face::texture`] reads it back: a
+    /// fixed face, its page's top two bits in the first u's (`TEXTURE_fix_prim_textures`'
+    /// encoding, texture.cpp:2481). Not in the original, which never retextures a prim.
+    pub fn set_texture(&mut self, page: u32, uv: &[[f32; 2]]) {
+        let p = page - FACE_PAGE_OFFSET;
+        assert!(p < 1024 && uv.len() == self.points.len(), "page {page}, {} uvs for {} points", uv.len(), self.points.len());
+        let at = |t: f32| (t.clamp(0.0, 1.0) * 32.0).round() as u8;
+        self.uv = uv.iter().map(|&[u, v]| [at(u), at(v)]).collect();
+        self.uv[0][0] |= ((p >> 8) as u8) << 6;
+        self.texture_page = p as u8;
+        self.face_flags |= FACE_FLAG_FIXED;
+        self.draw_flags |= 2;
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -147,4 +162,21 @@ pub(crate) fn face(r: &mut Reader, n: usize, start_point: u16) -> Result<Face> {
     let face_flags = r.u16()?;
     r.skip(2)?; // Type, ID
     Ok(Face { points, uv, texture_page, draw_flags, face_flags, colour })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A face given a page and uvs reads them back, whatever page it had.
+    #[test]
+    fn a_retextured_face_reads_back() {
+        for page in [512, 705, 800, 975, 1535] {
+            let mut f = Face { points: vec![0, 1, 2, 3], uv: vec![[200, 17]; 4], texture_page: 9, draw_flags: 0, face_flags: 0, colour: 186 };
+            let uv = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [0.5, 0.75]];
+            f.set_texture(page, &uv);
+            assert!(f.textured());
+            assert_eq!(f.texture(), (page, uv.to_vec()), "page {page}");
+        }
+    }
 }

@@ -268,7 +268,7 @@ impl Game {
             Pose::Bike { bike, pos, yaw, rider, angle, cur, next, tween } => {
                 // The bike as `run_bikes` draws it, and her on it.
                 if let Some(mut f) = self.bikes.get(bike as usize).and_then(|(_, f)| f.clone()) {
-                    (f.pos, f.angle) = (pos - Vec3::new(0.0, (0x18 + 0x10) as f32, 0.0), yaw);
+                    (f.pos, f.angle) = (pos, yaw);
                     f.append_batches(&mut mine, lighter.as_ref());
                 }
                 if let Some(p) = self.player() {
