@@ -3,9 +3,9 @@
 use crate::*;
 
 pub(crate) const USAGE: &str = "\
-uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DIR] [--relief] [--bloom] [--linear] [--fullbright]
+uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DIR] [--relief] [--bloom] [--no-wet] [--linear] [--fullbright]
           [--fog START,END | --no-fog] [--no-crinkles] [--no-character] [--cam X,Y,Z,YAW,PITCH] [--dogs N]
-          [--screenshot FILE [--size WxH] [--sim-walk SECS | --sim-run SECS | --sim SECS]]
+          [--screenshot FILE [--size WxH] [--sim-walk SECS | --sim-run SECS | --sim SECS] [--bench N]]
           [--dump-pages DIR] [--host [PORT] | --join HOST[:PORT]] [--name NAME] [--replay FILE] [--edit NAME]
 
   --game DIR        Urban Chaos install (default: $UC_GAME_DIR, then the GOG location)
@@ -30,6 +30,7 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --linear          smooth texture magnification (default: crisp nearest-neighbour)
   --relief          light the world, people and cars by their upscaled pages' normal maps, strongly
   --bloom           make lit windows, lamps, headlights and fire glow, strongly
+  --no-wet          dry roads on a rainy night (default: wet, with streaks of light in them)
   --fullbright      ignore the level's baked lighting
   --fog START,END   distance fog in map squares (default 20,40); --no-fog disables it
   --no-crinkles     flat walls up close (default: walls with a crinkle stand out in relief,
@@ -38,6 +39,8 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --cam ...         start in the free camera: position in map squares, yaw/pitch in degrees
   --screenshot FILE render one frame offscreen to FILE (PNG) and exit, without a window
   --size WxH        screenshot size (default 1280x720)
+  --bench N         after the screenshot, draw the same frame N more times and print how long
+                    a frame takes, waiting for each to finish (for what a setting costs)
   --sim SECS        before the screenshot, run the game for SECS seconds (skipping fly-bys),
                     punching twice and kicking twice first (testing)
   --sim-walk SECS   the same, walking Darci forward; --sim-run SECS running
@@ -127,6 +130,10 @@ pub(crate) struct Args {
     pub(crate) relief: f32,
     /// How strongly what lights itself glows (#523): 0 for none.
     pub(crate) bloom: f32,
+    /// `--bench N`: frames to time after a screenshot.
+    pub(crate) bench: usize,
+    /// The roads wet on a rainy night (#522).
+    pub(crate) wet: bool,
     pub(crate) fullbright: bool,
     pub(crate) fog: Option<(f32, f32)>,
     /// Walls with a crinkle stand out in relief up close (#113).
@@ -180,6 +187,8 @@ impl Default for Args {
             linear: false,
             relief: 0.0,
             bloom: 0.0,
+            bench: 0,
+            wet: true,
             fullbright: false,
             fog: Some((20.0, 40.0)),
             crinkles: true,
@@ -273,6 +282,8 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             "--linear" => a.linear = true,
             "--relief" => a.relief = crate::options::RELIEF[2],
             "--bloom" => a.bloom = crate::options::BLOOM[2],
+            "--no-wet" => a.wet = false,
+            "--bench" => a.bench = value()?.parse().map_err(|e| format!("--bench: {e}"))?,
             "--fullbright" => a.fullbright = true,
             "--no-fog" => a.fog = None,
             "--fog" => {

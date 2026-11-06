@@ -1437,6 +1437,10 @@ fn headless_screenshot(mut world: World, path: &Path) -> Result<(), String> {
     save_png(path, size, &img)?;
     println!("saved {} ({}/{} chunks drawn, {} draw calls, {} triangles)", path.display(),
              r.stats.chunks_drawn, r.stats.chunks_total, r.stats.draw_calls, r.stats.triangles);
+    if world.args.bench > 0 {
+        let (mean, best) = r.time_frames(size, &cam, &world.settings(), &world.dynamic(), &hud, world.args.bench);
+        println!("{} frames: {mean:.2} ms a frame on average, {best:.2} ms the fastest", world.args.bench);
+    }
     Ok(())
 }
 

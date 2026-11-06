@@ -20,7 +20,7 @@ fn shot(level: &Level, bloom: f32) -> Option<Vec<u8>> {
     let glows = BTreeMap::from([(GLOW, b)]);
     let s = Settings {
         sky: level.sky, fog: None, layers: vec![Layer::Floor, Layer::Walls, Layer::Roofs, Layer::Character],
-        crinkles: false, lights: Vec::new(), shadows: Vec::new(), relief: None, bloom,
+        crinkles: false, lights: Vec::new(), shadows: Vec::new(), relief: None, bloom, wet: None,
     };
     Some(r.render_to_image((320, 240), &cam, &s, &glows, &Overlay::new()))
 }
