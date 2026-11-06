@@ -59,6 +59,23 @@ fn gets_in(level: &Level, g: &mut Game, vi: usize, side: f32, expect: usize) {
 fn in_at_the_driver_s_door() {
     let Some((level, mut g, vi)) = load() else { return };
     gets_in(&level, &mut g, vi, 200.0, anim::ENTER_CAR);
+    // Her own squad car isn't stolen (#517).
+    assert_eq!((g.vehicles[vi].kind, g.record.cars_stolen), (3, 0));
+}
+
+/// Any other car is stolen, counted once however often she gets in (#517).
+#[test]
+fn another_car_is_stolen_once() {
+    let Some((level, mut g, vi)) = load() else { return };
+    // The mission has no other car to get into: the squad car made an ordinary one.
+    g.vehicles[vi].kind = 1;
+    gets_in(&level, &mut g, vi, 200.0, anim::ENTER_CAR);
+    assert_eq!(g.record.cars_stolen, 1);
+    let pi = g.player.unwrap();
+    g.vehicles[vi].driver = None;
+    g.people[pi].state = State::Move;
+    gets_in(&level, &mut g, vi, 200.0, anim::ENTER_CAR);
+    assert_eq!(g.record.cars_stolen, 1);
 }
 
 #[test]

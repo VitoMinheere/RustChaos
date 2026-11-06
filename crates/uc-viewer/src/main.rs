@@ -741,6 +741,7 @@ impl App {
                         "CAPTURE THE FLAG" => m.loading_ctf = true,
                         "TIME TRIAL" => m.screen = menu::Screen::Trial,
                         "STATS" => m.screen = menu::Screen::Stats,
+                        "ACHIEVEMENTS" => (m.screen, m.ach_row) = (menu::Screen::Achievements, 0),
                         "REPLAYS" => m.show_replays(),
                         "OPTIONS" => (m.screen, m.options, m.option_row) = (menu::Screen::Options, options::Options::load(), 0),
                         "CREDITS" => m.show_credits(),
@@ -827,6 +828,18 @@ impl App {
             menu::Screen::Stats => {
                 if back || go {
                     m.screen = menu::Screen::Main;
+                }
+            }
+            menu::Screen::Achievements => {
+                if back || go {
+                    m.screen = menu::Screen::Main;
+                }
+                let n = achievements::groups().len();
+                if up {
+                    m.ach_row = m.ach_row.saturating_sub(1);
+                }
+                if down {
+                    m.ach_row = (m.ach_row + 1).min(n - 1);
                 }
             }
             menu::Screen::Options => {
@@ -1224,6 +1237,10 @@ impl App {
             let s = &mut world.game.record;
             if s.arrests > 0 && s.shots == 0 && world.game.red_marks == 0 {
                 s.by_the_book += 1;
+            }
+            // Sharpshooter: 20 shots or more, and three in four of them hits.
+            if s.shots >= 20 && s.hits * 4 >= s.shots * 3 {
+                s.marksman += 1;
             }
             if world.thorough() {
                 world.game.record.perfect += 1;

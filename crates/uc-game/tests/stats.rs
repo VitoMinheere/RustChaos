@@ -77,6 +77,11 @@ fn stats_add_up() {
     let b = Stats { arrests: 1, longest_zip: 7.0, on_foot: 1.0, ..Default::default() };
     let t = a.plus(&b);
     assert_eq!((t.arrests, t.longest_zip, t.on_foot), (3, 12.0, 4.5));
+    // The new counts add up, and the bests are kept as bests (#517).
+    let a = Stats { stomps: 2, cars_stolen: 1, furthest_wave: 12, best_shift: 900, ..Default::default() };
+    let b = Stats { stomps: 3, cars_stolen: 4, furthest_wave: 8, best_shift: 2500, ..Default::default() };
+    let t = a.plus(&b).plus(&t);
+    assert_eq!((t.stomps, t.cars_stolen, t.furthest_wave, t.best_shift, t.arrests), (5, 5, 12, 2500, 3));
     let mut back = Stats::default();
     for (n, v) in t.fields() {
         back.set(n, v);

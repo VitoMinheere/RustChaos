@@ -11,6 +11,11 @@
 use crate::*;
 use uc_world::character::person as ptype;
 
+/// A shift this long (seconds) ended with the crime rate under [`QUIET_RATE`] counts in
+/// the stats. Not in the original, as none of Beat Cop is.
+const QUIET_SHIFT: f32 = 20.0 * 60.0;
+const QUIET_RATE: u8 = 20;
+
 /// The shift lengths on offer, in minutes; `None` is open-ended, until the player drops.
 pub const SHIFTS: [Option<u32>; 5] = [Some(5), Some(10), Some(15), Some(20), None];
 /// The shift length a new player gets.
@@ -415,6 +420,10 @@ impl Game {
             *left -= dt;
         }
         if b.shift.is_some_and(|left| left <= 0.0) {
+            // A 20-minute shift (or longer) with the city quiet at the end, for the stats.
+            if b.on >= QUIET_SHIFT - 1.0 && self.crime_rate < QUIET_RATE {
+                self.record.quiet_shifts += 1;
+            }
             self.messages.push(Message { text: summary(b), left: 10.0, face: Some(talk::face::RADIO), filmed: false });
             self.voice(Despatch::ShiftOver);
             self.finish(Outcome::Won);

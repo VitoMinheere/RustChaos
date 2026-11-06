@@ -307,3 +307,37 @@ fn a_wave_doesnt_shout_while_darci_is_down() {
     assert!(!g.people[me].is_down(), "Darci didn't get up");
     assert_eq!(shouts, 0, "the wave shouted {shouts} times while Darci was down and getting up");
 }
+
+/// Clears the wave on: knocks them down as they come, at most `secs`. Darci's health is
+/// left as it is.
+fn clear_wave(g: &mut Game, level: &Level, secs: f32) {
+    for _ in 0..(secs / 0.5) as usize {
+        if matches!(g.endless().unwrap().phase, Phase::Breather(_)) {
+            return;
+        }
+        knock_out_the_wave(g);
+        for _ in 0..(0.5 / DT) as usize {
+            g.update(DT, &Controls::default(), level);
+        }
+    }
+}
+
+/// A boss wave cleared without Darci losing any health counts in the stats (#517); one where
+/// she's hurt doesn't. The wave reached counts as soon as it comes.
+#[test]
+fn a_boss_wave_cleared_unhurt_counts() {
+    let Some((level, mut g)) = start(7) else { return };
+    skip_to_wave(&mut g, &level, 10);
+    assert_eq!(g.record.furthest_wave, 10);
+    clear_wave(&mut g, &level, 60.0);
+    assert!(matches!(g.endless().unwrap().phase, Phase::Breather(_)), "wave ten wasn't cleared");
+    assert_eq!(g.record.boss_unhurt, 1);
+    // Hurt this time.
+    let Some((level, mut g)) = start(7) else { return };
+    skip_to_wave(&mut g, &level, 10);
+    let p = g.player.unwrap();
+    g.people[p].health -= 10;
+    clear_wave(&mut g, &level, 60.0);
+    assert!(matches!(g.endless().unwrap().phase, Phase::Breather(_)), "wave ten wasn't cleared");
+    assert_eq!(g.record.boss_unhurt, 0);
+}

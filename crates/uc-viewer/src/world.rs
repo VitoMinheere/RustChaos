@@ -357,7 +357,7 @@ impl World {
         for a in achievements::newly(&self.known, &totals) {
             self.known.achieved.insert(a.id.to_string());
             progress::Progress::load().achieve(a.id);
-            self.popups.push((format!("ACHIEVEMENT: {}  ({})", a.name.to_uppercase(), a.text), 6.0));
+            self.popups.push((format!("ACHIEVEMENT: {}  ({})", a.title().to_uppercase(), a.text), 6.0));
         }
     }
 
