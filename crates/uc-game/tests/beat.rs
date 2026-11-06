@@ -484,3 +484,19 @@ fn never_the_same_kind_twice_running() {
     assert!(kinds.len() >= 8, "too few calls: {kinds:?}");
     assert!(kinds.windows(2).all(|w| w[0] != w[1]), "{kinds:?}");
 }
+
+/// A 20-minute shift ended with the crime rate under 20 counts in the stats (#517); one with
+/// it higher, or a shorter shift, doesn't.
+#[test]
+fn a_quiet_shift_counts() {
+    for (on, rate, quiet) in [(1198.0, 10, 1), (1198.0, 25, 0), (500.0, 10, 0)] {
+        let Some((level, mut g)) = start(11) else { return };
+        let b = g.beat_mut().unwrap();
+        (b.shift, b.on) = (Some(2.0), on);
+        g.crime_rate = rate;
+        run(&mut g, &level, 3.0);
+        assert_eq!(g.outcome, Some(Outcome::Won));
+        assert_eq!(g.record.quiet_shifts, quiet, "{on}s on, crime rate {rate}");
+        assert!(g.record.best_shift as i64 >= g.beat().unwrap().score.max(0));
+    }
+}

@@ -36,7 +36,28 @@ pub struct Stats {
     /// Missions won with every badge and side objective in them done (counted by the
     /// viewer too).
     pub perfect: u32,
+    /// Stamps on someone lying down, and kicks between the legs that doubled someone over.
+    pub stomps: u32,
+    pub nad_kicks: u32,
+    /// Grenades thrown.
+    pub grenades: u32,
+    /// Cars other than police cars got into, each once a game.
+    pub cars_stolen: u32,
+    /// Missions won with at least 20 shots fired and three in four of them hits (counted by
+    /// the viewer).
+    pub marksman: u32,
+    /// Endless boss waves cleared without the player losing any health.
+    pub boss_unhurt: u32,
+    /// Beat Cop shifts of 20 minutes finished with the crime rate under 20.
+    pub quiet_shifts: u32,
+    /// The furthest endless wave reached, and the best Beat Cop score. Kept as bests, not
+    /// added up.
+    pub furthest_wave: u32,
+    pub best_shift: u32,
 }
+
+/// The counts that are bests, kept as the higher of two when added.
+const BESTS: [&str; 3] = ["longest_zip", "furthest_wave", "best_shift"];
 
 impl Game {
     /// The win screen's criminals (`ScoresDraw`, Attract.cpp:684): the gangs and the Men in
@@ -87,6 +108,15 @@ impl Stats {
             ("roofs", self.roofs as f64),
             ("by_the_book", self.by_the_book as f64),
             ("perfect", self.perfect as f64),
+            ("stomps", self.stomps as f64),
+            ("nad_kicks", self.nad_kicks as f64),
+            ("grenades", self.grenades as f64),
+            ("cars_stolen", self.cars_stolen as f64),
+            ("marksman", self.marksman as f64),
+            ("boss_unhurt", self.boss_unhurt as f64),
+            ("quiet_shifts", self.quiet_shifts as f64),
+            ("furthest_wave", self.furthest_wave as f64),
+            ("best_shift", self.best_shift as f64),
         ]
     }
 
@@ -115,16 +145,26 @@ impl Stats {
             "roofs" => self.roofs = n,
             "by_the_book" => self.by_the_book = n,
             "perfect" => self.perfect = n,
+            "stomps" => self.stomps = n,
+            "nad_kicks" => self.nad_kicks = n,
+            "grenades" => self.grenades = n,
+            "cars_stolen" => self.cars_stolen = n,
+            "marksman" => self.marksman = n,
+            "boss_unhurt" => self.boss_unhurt = n,
+            "quiet_shifts" => self.quiet_shifts = n,
+            "furthest_wave" => self.furthest_wave = n,
+            "best_shift" => self.best_shift = n,
             _ => {}
         }
     }
 
-    /// These and `other` together: counts added, the longest ride the longer.
+    /// These and `other` together: counts added, the bests (the longest ride, the furthest
+    /// wave, the best shift) the better.
     pub fn plus(&self, other: &Stats) -> Stats {
         let mut out = Stats::default();
         let theirs = other.fields();
         for ((name, a), (_, b)) in self.fields().into_iter().zip(theirs) {
-            out.set(name, if name == "longest_zip" { a.max(b) } else { a + b });
+            out.set(name, if BESTS.contains(&name) { a.max(b) } else { a + b });
         }
         out
     }
@@ -145,6 +185,8 @@ pub(crate) struct Track {
     ridden: f32,
     climbing: bool,
     pulling_up: bool,
+    /// The cars she's got into this game, counted as stolen.
+    cars: Vec<usize>,
 }
 
 impl Game {
@@ -160,9 +202,27 @@ impl Game {
         }
     }
 
+    /// The player got into car `vi`: stolen, unless it's a police car (`VEH_TYPE_POLICE`)
+    /// or one she's had already this game. Not in the original.
+    pub(crate) fn count_car(&mut self, driver: usize, vi: usize) {
+        const POLICE: u8 = 3;
+        if Some(driver) != self.player || self.vehicles[vi].kind == POLICE || self.stats_track.cars.contains(&vi) {
+            return;
+        }
+        self.stats_track.cars.push(vi);
+        self.record.cars_stolen += 1;
+    }
+
     /// Every turn: how far the player went and how, and what she climbed, rode and fell.
     pub(crate) fn run_stats(&mut self, level: &Level) {
         self.record.red_marks = self.red_marks as u32;
+        // The endless wave reached and the shift's score so far, as bests.
+        if let Some(e) = &self.endless {
+            self.record.furthest_wave = self.record.furthest_wave.max(e.wave);
+        }
+        if let Some(b) = &self.beat {
+            self.record.best_shift = self.record.best_shift.max(b.score.max(0) as u32);
+        }
         let Some(p) = self.player() else { return };
         let (pos, state) = (p.fig.pos, p.state.clone());
         let alive = !p.is_dead() && p.health > 0;

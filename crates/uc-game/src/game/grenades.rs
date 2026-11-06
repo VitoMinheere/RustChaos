@@ -126,6 +126,7 @@ impl Game {
         }
         if player {
             self.primed = None;
+            self.record.grenades += 1;
         }
         self.grenades.push(Grenade { owner: pi, pos: hand, vel, fuse, pitch: 0.0, warn: 0.0 });
     }

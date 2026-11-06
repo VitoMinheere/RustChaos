@@ -215,6 +215,9 @@ pub struct Endless {
     talk_rng: u32,
     /// The last few lines said, not to be said again straight away.
     heard: Vec<Riot>,
+    /// The player's health last turn, and whether she's lost any this wave.
+    my_health: i32,
+    hurt: bool,
 }
 
 impl Endless {
@@ -288,6 +291,7 @@ impl Game {
             rng: seed | 1, centre, spots, grid, to_come: 0, foes: Vec::new(), red_marks: 0, crime_clock: 0.0,
             idle: 0.0, wave_health: 0, side: SIDES, side_beacon: 0.0, boss_due: false,
             talk_rng: (seed ^ 0x2545_f491).wrapping_mul(0x9e37_79b9), heard: Vec::new(),
+            my_health: 0, hurt: false,
         });
         g
     }
@@ -386,6 +390,8 @@ impl Game {
                 e.idle = 0.0;
                 e.wave_health = 0;
                 e.boss_due = e.wave.is_multiple_of(BOSS_EVERY);
+                e.hurt = false;
+                e.my_health = self.player().map_or(0, |p| p.health);
                 // A side it didn't come from last time.
                 let last = e.side;
                 let sides: Vec<u32> = (0..SIDES).filter(|&s| s != last && e.side_middle(s).is_some()).collect();
@@ -403,6 +409,10 @@ impl Game {
             Phase::Wave => {}
         }
         e.side_beacon = (e.side_beacon - dt).max(0.0);
+        // Any health the player's lost this wave (for the stats: a boss wave cleared unhurt).
+        let health = self.player().map_or(0, |p| p.health);
+        e.hurt |= health < e.my_health;
+        e.my_health = health;
         // Count those who've gone down: an arrest is worth more than a knockout.
         let mult = e.wave as i64;
         for f in e.foes.iter_mut().filter(|f| !f.counted) {
@@ -514,6 +524,9 @@ impl Game {
         if e.to_come == 0 && e.foes.iter().all(|f| f.counted) {
             e.score += 250 * mult;
             e.phase = Phase::Breather(BREATHER);
+            if e.wave.is_multiple_of(BOSS_EVERY) && !e.hurt {
+                self.record.boss_unhurt += 1;
+            }
             self.messages.push(Message { text: format!("Wave {} cleared", e.wave), left: 3.0, face: None, filmed: false });
             // A milestone's own line, a boss's, or one of the takes.
             let line = match MILESTONES.iter().position(|&m| m == e.wave) {

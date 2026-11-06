@@ -46,6 +46,7 @@ impl Game {
     /// passenger's, with the door's slam. The car is theirs from now on; they're in it when
     /// the animation ends ([`Game::finish_entering`]).
     pub(crate) fn enter_car(&mut self, i: usize, vi: usize, level: &Level) {
+        self.count_car(i, vi);
         let v = &mut self.vehicles[vi];
         v.driver = Some(i);
         let pos = self.people[i].fig.pos;

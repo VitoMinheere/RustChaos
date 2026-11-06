@@ -412,6 +412,28 @@ mod tests {
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
+    /// A file from before the counts added for #517 loads its stats and achievements as
+    /// they were, the new counts at nought; saved again, the new counts go in with the old,
+    /// and an unknown count (from a later version) is skipped.
+    #[test]
+    fn old_stats_load_and_new_ones_save() {
+        let path = scratch("stats");
+        std::fs::write(&path, "police1 600.0 b= s= d=1\n@stat arrests 12\n@stat longest_zip 21.5\n@stat perfect 1\n@stat from_the_future 3\n@ach rookie\n@ach high_wire\n").unwrap();
+        let mut p = Progress::load_from(Some(path.clone()));
+        let t = &p.totals;
+        assert_eq!((t.arrests, t.longest_zip, t.perfect), (12, 21.5, 1));
+        assert_eq!((t.stomps, t.nad_kicks, t.grenades, t.cars_stolen, t.marksman, t.boss_unhurt, t.quiet_shifts, t.furthest_wave, t.best_shift), (0, 0, 0, 0, 0, 0, 0, 0, 0));
+        assert_eq!(p.achieved, ["high_wire".to_string(), "rookie".to_string()].into());
+        // Those the old counts reach are there to be earned: Lawman's bronze is new.
+        assert_eq!(crate::achievements::newly(&p, &p.totals).iter().map(|a| a.id).collect::<Vec<_>>(), ["thorough", "lawman_1"]);
+        p.add_stats(&uc_game::game::stats::Stats { stomps: 3, furthest_wave: 11, best_shift: 2600, ..Default::default() });
+        p.achieve("lawman_1");
+        let q = Progress::load_from(Some(path.clone()));
+        assert_eq!((q.totals.arrests, q.totals.stomps, q.totals.furthest_wave, q.totals.best_shift), (12, 3, 11, 2600));
+        assert!(q.achieved.contains("lawman_1") && q.achieved.contains("rookie"));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
     /// Beat Cop bests are kept per shift length, and a map label with spaces in is one key.
     #[test]
     fn shift_bests_are_kept_apart() {

@@ -149,8 +149,10 @@ pub enum Screen {
     Missions,
     /// Endless mode's maps.
     Endless,
-    /// The stats and achievements (#132).
+    /// The stats (#132).
     Stats,
+    /// The achievements, with how far along each is (#517).
+    Achievements,
     /// Co-op (#182): host, or join by address.
     Coop,
     /// Co-op: in a game, waiting for the other player or the host's choice.
@@ -179,7 +181,7 @@ pub const COOP: [&str; 2] = ["HOST", "JOIN"];
 
 /// The main menu's items (`raw_menu_data`, frontend.cpp:376): the ones there's something
 /// behind here.
-pub const MAIN: [&str; 11] = ["START", "CO-OP", "ENDLESS", "BEAT COP", "CAPTURE THE FLAG", "DIFFICULTY", "STATS", "REPLAYS", "OPTIONS", "CREDITS", "EXIT"];
+pub const MAIN: [&str; 12] = ["START", "CO-OP", "ENDLESS", "BEAT COP", "CAPTURE THE FLAG", "DIFFICULTY", "STATS", "ACHIEVEMENTS", "REPLAYS", "OPTIONS", "CREDITS", "EXIT"];
 
 /// The menus' look, by how far through the game (`menu_theme`, set in
 /// `FRONTEND_MissionHierarchy`, frontend.cpp:3337): leaves for the first eight missions done,
@@ -250,6 +252,8 @@ pub struct Menu {
     /// The saved replays, newest first, as they were when the list was shown.
     pub replays: Vec<replays::Listed>,
     pub replay_selected: usize,
+    /// The achievement chosen on their screen, which scrolls the list.
+    pub ach_row: usize,
     /// A replay chosen, to load on the next frame.
     pub loading_replay: Option<usize>,
     /// The mission to open in the editor (#185), by its place in the list.
@@ -359,7 +363,7 @@ impl Menu {
             .collect();
         let mut m = Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, briefed: None, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false,
                coop: 0, address: "127.0.0.1".into(), status: String::new(), for_coop: false, lobby: None,
-               replays: Vec::new(), replay_selected: 0, loading_replay: None, loading_edit: None, idle: 0.0, loading_demo: false,
+               replays: Vec::new(), replay_selected: 0, ach_row: 0, loading_replay: None, loading_edit: None, idle: 0.0, loading_demo: false,
                pins, pin: 0, on_map: true, credits: Credits::default(), options: Options::load(), option_row: 0,
                bindings: Bindings::default(), bind_row: 0, binding: false };
         m.show_map();
@@ -378,7 +382,7 @@ impl Menu {
         let w = self.theme.word();
         match self.screen {
             Screen::Title | Screen::Main | Screen::Credits => format!("data\\TITLE {}1.TGA", w.to_ascii_uppercase()),
-            Screen::Missions | Screen::Endless | Screen::Stats | Screen::Coop | Screen::Lobby | Screen::Replays | Screen::Options | Screen::Controls => format!("data\\map {w} darci.tga"),
+            Screen::Missions | Screen::Endless | Screen::Stats | Screen::Achievements | Screen::Coop | Screen::Lobby | Screen::Replays | Screen::Options | Screen::Controls => format!("data\\map {w} darci.tga"),
         }
     }
 
@@ -708,21 +712,91 @@ impl Menu {
             }
             y += line;
         }
-        // The achievements, on the right.
+        // More, on the right, and how many achievements are earned (they have their own
+        // screen).
+        let earned = crate::achievements::ALL.iter().filter(|a| a.earned(p, t)).count();
+        let more = [
+            ("ROUGH STUFF", String::new()),
+            ("Stamped on", t.stomps.to_string()),
+            ("Kicks between the legs", t.nad_kicks.to_string()),
+            ("Grenades thrown", t.grenades.to_string()),
+            ("Cars stolen", t.cars_stolen.to_string()),
+            ("MARKS OF DISTINCTION", String::new()),
+            ("Missions by the book", t.by_the_book.to_string()),
+            ("Missions with everything done", t.perfect.to_string()),
+            ("Sharpshooting missions", t.marksman.to_string()),
+            ("Boss waves cleared unhurt", t.boss_unhurt.to_string()),
+            ("Quiet 20-minute shifts", t.quiet_shifts.to_string()),
+            ("ACHIEVEMENTS", String::new()),
+            ("Earned", format!("{earned} of {}", crate::achievements::ALL.len())),
+        ];
         let ax = w * 0.5;
-        let mut y = 64.0 * s + line * 0.4;
-        o.text(ax, y, s, gold, "ACHIEVEMENTS");
-        y += line * 1.4;
-        for a in &crate::achievements::ALL {
-            let earned = a.earned(p, t);
-            let (have, goal) = a.progress(p, t);
-            let col = if earned { gold } else { white };
-            o.text(ax, y, s, col, a.name);
-            let tag = if earned { "EARNED".to_string() } else if goal > 1 { format!("{have}/{goal}") } else { String::new() };
-            o.text(w - Overlay::text_width(&tag, s) - 20.0 * s, y, s, col, &tag);
+        let mut y = 64.0 * s;
+        for (label, value) in more {
+            if value.is_empty() {
+                y += line * 0.4;
+                o.text(ax, y, s, gold, label);
+            } else {
+                o.text(ax + 8.0 * s, y, s, white, label);
+                o.text(ax + 170.0 * s, y, s, white, &value);
+            }
             y += line;
-            o.text(ax + 8.0 * s, y, s, dim, a.text);
-            y += line * 1.4;
+        }
+        o.text(ax + 8.0 * s, y + line * 0.4, s, dim, "See ACHIEVEMENTS in the main menu");
+    }
+
+    /// The achievements (#517), a row each with a bar for how far along it is. A tiered one
+    /// shows its next tier, with a mark for each tier earned. Up and down scroll the list.
+    fn achievements_overlay(&self, o: &mut Overlay, w: f32, h: f32, s: f32) {
+        use crate::achievements::{groups, showing};
+        use crate::medals::Tier;
+        o.backdrop(0.0, 0.0, w, h, [255, 255, 255, 255]);
+        self.kibble(o, w, h, s);
+        o.rect(0.0, 0.0, w, h, [0, 0, 0, 170]);
+        let (white, gold, dim) = ([235, 235, 225, 255], [255, 210, 70, 255], [150, 150, 145, 255]);
+        let p = &self.progress;
+        let t = &p.totals;
+        let x = 20.0 * s;
+        let all = &crate::achievements::ALL;
+        let earned = all.iter().filter(|a| a.earned(p, t)).count();
+        o.text(x, 16.0 * s, s * 3.0, gold, "ACHIEVEMENTS");
+        o.text(x, 44.0 * s, s, [200, 200, 190, 220], &format!("{earned} of {} earned   Up/Down scroll   Esc back", all.len()));
+        let groups = groups();
+        let row = 26.0 * s;
+        let top = 62.0 * s;
+        let shown = (((h - top - 8.0 * s) / row) as usize).clamp(1, groups.len());
+        let chosen = self.ach_row.min(groups.len() - 1);
+        let first = chosen.saturating_sub(shown / 2).min(groups.len() - shown);
+        let right = w - 20.0 * s;
+        let bar_w = (right - x) * 0.35;
+        let bar_x = right - bar_w;
+        for (k, g) in groups.iter().enumerate().skip(first).take(shown) {
+            let y = top + (k - first) as f32 * row;
+            let a = showing(g, p, t);
+            let done = a.earned(p, t);
+            if k == chosen {
+                o.rect(x - 6.0 * s, y - 3.0 * s, right - x + 12.0 * s, row - 2.0 * s, [200, 150, 40, 90]);
+            }
+            let col = if done { gold } else { white };
+            let name = a.title();
+            o.text(x, y, s, col, &name);
+            // A mark for each tier earned, in its colour.
+            if a.tier != Tier::None {
+                let mut mx = x + Overlay::text_width(&name, s) + 6.0 * s;
+                for tier in g.iter() {
+                    let c = if tier.earned(p, t) { tier.tier.colour() } else { [60, 60, 58, 255] };
+                    o.rect(mx, y + 1.0 * s, 6.0 * s, 6.0 * s, c);
+                    mx += 8.0 * s;
+                }
+            }
+            o.text(x + 8.0 * s, y + 10.0 * s, s, dim, a.text);
+            // The bar, and the count over it.
+            let (have, goal) = a.progress(p, t);
+            let full = if done { 1.0 } else { have as f32 / goal.max(1) as f32 };
+            o.rect(bar_x, y + 9.0 * s, bar_w, 6.0 * s, [40, 40, 38, 220]);
+            o.rect(bar_x, y + 9.0 * s, bar_w * full, 6.0 * s, if done { gold } else { [120, 170, 230, 255] });
+            let tag = if done { "EARNED".to_string() } else { format!("{have}/{goal}") };
+            o.text(right - Overlay::text_width(&tag, s), y, s, col, &tag);
         }
     }
 
@@ -1024,6 +1098,10 @@ impl Menu {
         }
         if self.screen == Screen::Stats {
             self.stats_overlay(&mut o, w, h, s);
+            return o;
+        }
+        if self.screen == Screen::Achievements {
+            self.achievements_overlay(&mut o, w, h, s);
             return o;
         }
         if self.screen == Screen::Replays {

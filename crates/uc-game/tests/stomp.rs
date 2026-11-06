@@ -53,11 +53,14 @@ fn floored(health: i32) -> Option<(Level, Game, usize)> {
 /// Stamps once: the frames of her move.
 fn stamp(level: &Level, g: &mut Game) {
     let me = g.player.unwrap();
+    let before = g.record.stomps;
     g.update(DT, &Controls { kick: true, ..Default::default() }, level);
     assert_eq!(g.people[me].fig.anim(), anim::FIGHT_STOMP, "she kicked {}", g.people[me].fig.anim());
     for _ in 0..(1.2 / DT) as usize {
         g.update(DT, &Controls::default(), level);
     }
+    // Counted in the stats once (#517).
+    assert_eq!(g.record.stomps, before + 1);
 }
 
 #[test]
