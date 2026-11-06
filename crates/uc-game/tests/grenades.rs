@@ -108,6 +108,7 @@ fn attack_throws_with_the_throw_animation() {
     }
     assert!(thrown, "the throw never let it go");
     assert_eq!(g.people[p].grenades, 2);
+    assert_eq!(g.record.grenades, 1, "not in the stats");
     assert!(g.primed.is_none());
     assert!(matches!(g.people[p].state, uc_game::person::State::Move), "still throwing");
 }

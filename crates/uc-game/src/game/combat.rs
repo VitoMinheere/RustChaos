@@ -49,6 +49,9 @@ impl Game {
                     }
                     let was_down = self.people[victim].is_down();
                     if self.people[attacker].fig.anim() == uc_world::character::anim::FIGHT_STOMP {
+                        if Some(attacker) == self.player {
+                            self.record.stomps += 1;
+                        }
                         self.people[victim].hurt_by = Some(attacker);
                         let damage = self.hurt(victim, damage);
                         self.people[victim].take_stomp(damage);
@@ -82,6 +85,9 @@ impl Game {
                     let v = &mut self.people[victim];
                     if nad && matches!(v.state, State::Hurt) && v.fig.restart(uc_world::character::anim::KICK_NAD_TAKE, uc_world::Play::Once) {
                         v.fig.set_speed(1.0);
+                        if Some(attacker) == self.player {
+                            self.record.nad_kicks += 1;
+                        }
                         if male && (self.rand() & 0xff) < 75 {
                             let kind = self.people[attacker].kind;
                             self.people[attacker].cues.push(Sfx::Taunt { kind });

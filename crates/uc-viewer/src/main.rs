@@ -637,6 +637,7 @@ impl App {
             let name = m.entries[i].mission.clone();
             self.args.endless = false;
             self.args.beat = false;
+            self.args.time = menu::mission_time(&m.progress, &name, m.mission_time);
             self.args.trial = None;
             self.play(&name);
             self.input.pressed.clear();
@@ -665,6 +666,7 @@ impl App {
         if m.loading_ctf {
             self.args.endless = false;
             self.args.beat = false;
+            self.args.time = None;
             self.args.trial = None;
             self.play("Capflag1");
             self.input.pressed.clear();
@@ -676,6 +678,7 @@ impl App {
             self.args.endless = false;
             self.args.beat = false;
             self.args.trial = Some((i, m.trial_car(), m.progress.traffic()));
+            self.args.time = None;
             self.play(&course.mission);
             self.input.pressed.clear();
             return;
@@ -687,6 +690,7 @@ impl App {
             self.args.beat = beat;
             self.args.trial = None;
             self.args.shift = m.progress.shift();
+            self.args.time = m.progress.time();
             let label = if beat { progress::beat_key(&label, self.args.shift) } else { label };
             self.args.arena = (centre, radius);
             self.args.arena_name = Some(label);
@@ -737,6 +741,7 @@ impl App {
                         "CAPTURE THE FLAG" => m.loading_ctf = true,
                         "TIME TRIAL" => m.screen = menu::Screen::Trial,
                         "STATS" => m.screen = menu::Screen::Stats,
+                        "ACHIEVEMENTS" => (m.screen, m.ach_row) = (menu::Screen::Achievements, 0),
                         "REPLAYS" => m.show_replays(),
                         "OPTIONS" => (m.screen, m.options, m.option_row) = (menu::Screen::Options, options::Options::load(), 0),
                         "CREDITS" => m.show_credits(),
@@ -815,10 +820,26 @@ impl App {
                 if inp.hit(KeyCode::KeyE) && !m.entries.is_empty() {
                     m.loading_edit = Some(m.selected);
                 }
+                // T the time of day to replay a won mission at (#515).
+                if inp.hit(KeyCode::KeyT) || inp.pad.hit(Button::West) {
+                    m.mission_time = uc_world::TimeOfDay::cycle(m.mission_time);
+                }
             }
             menu::Screen::Stats => {
                 if back || go {
                     m.screen = menu::Screen::Main;
+                }
+            }
+            menu::Screen::Achievements => {
+                if back || go {
+                    m.screen = menu::Screen::Main;
+                }
+                let n = achievements::groups().len();
+                if up {
+                    m.ach_row = m.ach_row.saturating_sub(1);
+                }
+                if down {
+                    m.ach_row = (m.ach_row + 1).min(n - 1);
                 }
             }
             menu::Screen::Options => {
@@ -954,6 +975,10 @@ impl App {
                     let now = all.iter().position(|&s| s == m.progress.shift()).unwrap_or(1);
                     let step = if right { 1 } else { all.len() - 1 };
                     m.progress.set_shift(all[(now + step) % all.len()]);
+                }
+                // T the time of day (#515): the map's own, day, dusk, night, dawn.
+                if inp.hit(KeyCode::KeyT) || inp.pad.hit(Button::West) {
+                    m.progress.set_time(uc_world::TimeOfDay::cycle(m.progress.time()));
                 }
                 if up {
                     m.map_up();
@@ -1135,6 +1160,7 @@ impl App {
                     Some(c) if c.is_host() => c.choose(&name),
                     Some(_) => {}
                     None => {
+                        self.args.time = None;
                         self.play(&name);
                         return;
                     }
@@ -1174,14 +1200,14 @@ impl App {
         let counts = world.counts();
         if let (Some(b), Some(_), None, true) = (world.game.beat(), &world.game.outcome, world.endless_recorded, counts) {
             let mut p = progress::Progress::load();
-            let key = world.args.arena_name.clone().unwrap_or_else(|| progress::beat_key(&world.level.name, world.args.shift));
+            let key = best_key(&world.args, &world.level.name);
             let before = p.best_endless(&key);
             let best = p.record_endless(&key, b.score, b.handled);
             world.endless_recorded = Some((best, before));
         }
         if let (Some(e), Some(Outcome::Lost(_)), None, true) = (world.game.endless(), &world.game.outcome, world.endless_recorded, counts) {
             let mut p = progress::Progress::load();
-            let key = world.args.arena_name.clone().unwrap_or_else(|| world.level.name.clone());
+            let key = best_key(&world.args, &world.level.name);
             let before = p.best_endless(&key);
             let best = p.record_endless(&key, e.score, e.wave);
             world.endless_recorded = Some((best, before));
@@ -1211,6 +1237,10 @@ impl App {
             let s = &mut world.game.record;
             if s.arrests > 0 && s.shots == 0 && world.game.red_marks == 0 {
                 s.by_the_book += 1;
+            }
+            // Sharpshooter: 20 shots or more, and three in four of them hits.
+            if s.shots >= 20 && s.hits * 4 >= s.shots * 3 {
+                s.marksman += 1;
             }
             if world.thorough() {
                 world.game.record.perfect += 1;
@@ -1437,6 +1467,10 @@ fn headless_screenshot(mut world: World, path: &Path) -> Result<(), String> {
     save_png(path, size, &img)?;
     println!("saved {} ({}/{} chunks drawn, {} draw calls, {} triangles)", path.display(),
              r.stats.chunks_drawn, r.stats.chunks_total, r.stats.draw_calls, r.stats.triangles);
+    if world.args.bench > 0 {
+        let (mean, best) = r.time_frames(size, &cam, &world.settings(), &world.dynamic(), &hud, world.args.bench);
+        println!("{} frames: {mean:.2} ms a frame on average, {best:.2} ms the fastest", world.args.bench);
+    }
     Ok(())
 }
 

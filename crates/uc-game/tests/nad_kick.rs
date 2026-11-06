@@ -69,6 +69,8 @@ fn stepping_in_kicks_between_the_legs() {
     assert!(lost >= 50, "only {lost} for a kick between the legs");
     // And it sounds like it (`S_KICK_IN_THE_NUTS`, combat.cpp:2289).
     assert!(nuts, "no sound");
+    // And it's in the stats (#517).
+    assert_eq!(g.record.nad_kicks, 1);
 }
 
 #[test]
@@ -85,6 +87,7 @@ fn no_second_one_while_he_is_doubled_up() {
     assert!(g.people[foe].doubled(), "not doubled up");
     g.update(DT, &step_in_kick(&g, foe), &level);
     assert_ne!(g.people[me].fig.anim(), anim::KICK_NAD, "kicked there again while he was bent double");
+    assert_eq!(g.record.nad_kicks, 1);
 }
 
 /// From further off it's her ordinary kick.

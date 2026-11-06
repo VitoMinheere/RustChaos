@@ -16,13 +16,15 @@ use crate::wire::{In, Out};
 use crate::{Input, Setup, BUILD, HASH_EVERY};
 use std::io;
 use uc_game::{Difficulty, Game, Outcome, Weapon, TURN};
-use uc_world::Level;
+use uc_world::{Level, TimeOfDay};
 
 /// The file's first bytes, with the format's version in the last.
-pub const MAGIC: &[u8; 4] = b"UCR5";
+pub const MAGIC: &[u8; 4] = b"UCR6";
 
-/// The versions before inputs held the helicopter's stick (#465), before that looking
-/// round, and before that the strafe key (#309), still read.
+/// The versions before the start held the time of day (#515), before that inputs held the
+/// helicopter's stick (#465), before that looking round, and before that the strafe key
+/// (#309), still read.
+const MAGIC_5: &[u8; 4] = b"UCR5";
 const MAGIC_4: &[u8; 4] = b"UCR4";
 const MAGIC_3: &[u8; 4] = b"UCR3";
 const MAGIC_2: &[u8; 4] = b"UCR2";
@@ -70,13 +72,18 @@ pub struct Start {
     /// How far the camera sees, at least, in world units: where the city's extra people come
     /// and go (`--fog`).
     pub view_dist: Option<f32>,
+    /// The time of day the level's lit for (#515), none for the mission's own lighting. It
+    /// changes only what's drawn, but the level has to be lit for it
+    /// ([`Level::set_time`](uc_world::Level::set_time)) before [`Start::game`] makes the
+    /// game, for the cars' lights and the rain.
+    pub time: Option<TimeOfDay>,
 }
 
 impl Start {
     /// The mission at `difficulty` with badge stats `stats`, and nothing else.
     pub fn new(mission: &str, mode: Mode, difficulty: Difficulty, stats: [u8; 4]) -> Start {
         let d = Difficulty::ALL.iter().position(|&x| x == difficulty).unwrap_or(1);
-        Start { mission: mission.to_string(), mode, difficulty: d as u8, stats, weapon: Weapon::None, dogs: 0, view_dist: None }
+        Start { mission: mission.to_string(), mode, difficulty: d as u8, stats, weapon: Weapon::None, dogs: 0, view_dist: None, time: None }
     }
 
     /// What a co-op session plays.
@@ -214,6 +221,7 @@ impl Replay {
         o.u8(WEAPONS.iter().position(|&w| w == s.weapon).unwrap_or(0) as u8);
         o.u32(s.dogs);
         o.f32(s.view_dist.unwrap_or(-1.0));
+        o.u8(TimeOfDay::to_u8(s.time));
         o.u8(self.seats);
         o.str(&self.outcome);
         o.f32(self.time);
@@ -251,8 +259,8 @@ impl Replay {
 
     pub fn from_bytes(b: &[u8]) -> io::Result<Replay> {
         let bad = |why: &str| io::Error::new(io::ErrorKind::InvalidData, why.to_string());
-        let (b, version) = match [MAGIC, MAGIC_4, MAGIC_3, MAGIC_2].iter().enumerate().find_map(|(k, m)| b.strip_prefix(&m[..]).map(|b| (b, k))) {
-            Some((b, k)) => (b, 5 - k as u8),
+        let (b, version) = match [MAGIC, MAGIC_5, MAGIC_4, MAGIC_3, MAGIC_2].iter().enumerate().find_map(|(k, m)| b.strip_prefix(&m[..]).map(|b| (b, k))) {
+            Some((b, k)) => (b, 6 - k as u8),
             None => return Err(bad("not a replay, or another version")),
         };
         let mut i = In(b);
@@ -278,7 +286,8 @@ impl Replay {
         let weapon = WEAPONS.get(i.u8()? as usize).copied().unwrap_or(Weapon::None);
         let dogs = i.u32()?;
         let view_dist = Some(i.f32()?).filter(|&d| d >= 0.0);
-        let start = Start { mission, mode, difficulty, stats, weapon, dogs, view_dist };
+        let time = if version >= 6 { TimeOfDay::from_u8(i.u8()?) } else { None };
+        let start = Start { mission, mode, difficulty, stats, weapon, dogs, view_dist, time };
         let seats = i.u8()?;
         let outcome = i.str()?;
         let time = i.f32()?;
@@ -490,7 +499,7 @@ mod tests {
         let r = Replay {
             start: Start {
                 mission: "Assault1".into(), mode: Mode::Beat { seed: 7, centre: Some([256.0, -512.0]), shift: None },
-                difficulty: 2, stats: [1, 2, 3, 4], weapon: Weapon::Shotgun, dogs: 3, view_dist: Some(10240.0),
+                difficulty: 2, stats: [1, 2, 3, 4], weapon: Weapon::Shotgun, dogs: 3, view_dist: Some(10240.0), time: Some(TimeOfDay::Dusk),
             },
             build: "abc".into(), date: 1_700_000_000, seats: 2, outcome: "lost: Darci died".into(), time: 12.5,
             tally: Tally { badges: 2, sides: 1, score: -40, count: 7 },
