@@ -196,6 +196,7 @@ mod vault;
 mod walking_in_place;
 mod warefx;
 mod westcrime1;
+mod wet_roads;
 mod wstores1;
 mod yomp;
 mod zones;

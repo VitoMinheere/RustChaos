@@ -5,7 +5,7 @@
 use uc_game::Game;
 use uc_world::{Level, LoadOptions};
 
-mod common;
+use crate::common;
 
 /// Every mission in the game's list, and whether it rains.
 const MISSIONS: [(&str, bool); 33] = [
