@@ -1,0 +1,47 @@
+# The time trials' courses (#519). Not in the original.
+#
+# A course starts with its line:
+#   course <id> <mission> <laps> <name...>
+# The mission is the one whose map the course is on: it's loaded for the map, and its script
+# isn't run. Then, in squares (a map square is 256 world units):
+#   start <x> <z> <heading>   where the car starts, facing <heading> degrees (0 is down the
+#                             map's z, 90 down its x)
+#   radius <r>                how near a checkpoint the car has to come
+#   traffic <n>               the cars on the roads with traffic on
+#   medals <gold> <silver> <bronze>   times for the whole race, in seconds (set from the
+#                             tests' bot: about silver in the police car)
+#   cp <x> <z>                the checkpoints, in order; the first is the start and finish
+
+# Driving Bronze's track: the car where the mission parks it, the lap checkpoints of its
+# script (points 58 to 60, 62 and 63), and two in each bend where its point 61 is: up the
+# far straight, and back down the near one.
+course oval testdrive1a 3 Oval Circuit
+start 59.5 33.1 0
+radius 4.0
+traffic 4
+medals 50 56 66
+cp 61.7 38.5
+cp 61.4 55.8
+cp 61.8 82.2
+cp 60.0 92.0
+cp 48.0 91.0
+cp 47.2 70.1
+cp 47.1 47.8
+cp 48.0 30.0
+cp 60.0 30.0
+
+# West District (Gun Hunt's map): round the block of roads at x 12 to 114 and z 75 to 104,
+# read from the road graph (`ROAD_wander_calc`): along z 75, and back along z 104.
+course westblock police1 2 West District: round the block
+start 16.5 75.5 90
+radius 4.0
+traffic 7
+medals 52 60 72
+cp 24.5 75.5
+cp 53.0 75.5
+cp 90.0 75.5
+cp 114.5 89.5
+cp 90.0 104.5
+cp 53.0 104.5
+cp 24.0 104.5
+cp 12.5 89.5

@@ -231,7 +231,7 @@ impl World {
             let (badges, sides) = self.tally();
             let (nb, ns) = (self.goals.badges.len(), self.goals.sides.len());
             // Not in an endless run: its map's mission isn't being played.
-            if nb + ns > 0 && self.game.endless().is_none() && self.game.beat().is_none() {
+            if nb + ns > 0 && self.game.endless().is_none() && self.game.beat().is_none() && self.game.trial().is_none() {
                 let text = format!("  BADGES {badges}/{nb}   SIDE {sides}/{ns}");
                 let all = badges == nb && sides == ns;
                 o.text(x, by + bh + 4.0 * s, s, if all { [255, 210, 70, 255] } else { [190, 190, 180, 200] }, &text);
@@ -344,6 +344,46 @@ impl World {
             let x = x + o.text(x, y + 3.0 * s, s, [200, 210, 235, 230], &best);
             if let Some((text, col)) = split {
                 o.text(x, y, s * 2.0, col, &text);
+            }
+        }
+
+        // A time trial (#519), at the top: the lap and its clock, the last and best laps, the
+        // split against the ghost (green ahead, red behind), and why she's been sent back.
+        if let (Some(t), None) = (self.game.trial(), &self.game.outcome) {
+            let gold = [255, 210, 70, 255];
+            let c = t.course();
+            let big = s * 2.0;
+            let line = match t.lap_from {
+                Some(from) => {
+                    let now = (self.game.turns().saturating_sub(from)) as f32 * uc_game::TURN;
+                    format!("LAP {}/{}   {}", t.lap(), c.laps, progress::fine_clock(now))
+                }
+                None => "TO THE START LINE".to_string(),
+            };
+            o.text(w / 2.0 - Overlay::text_width(&line, big) / 2.0, 8.0 * s, big, gold, &line);
+            let laps = t.lap_times();
+            let best = self.lap_race.as_ref().and_then(|r| r.best.as_ref()).map(|b| b.time);
+            let mut parts = Vec::new();
+            if let Some(last) = laps.last() {
+                parts.push(format!("LAST {}", progress::fine_clock(*last)));
+            }
+            match (best, self.ghost_on) {
+                (Some(b), true) => parts.push(format!("GHOST {}", progress::fine_clock(b))),
+                (Some(b), false) => parts.push(format!("BEST {}  (B: ghost)", progress::fine_clock(b))),
+                (None, _) => parts.push("NO GHOST YET".to_string()),
+            }
+            let text = parts.join("   ");
+            let split = self.lap_race.as_ref().and_then(|r| r.split)
+                .map(|(d, _)| (format!("  {}", ghosts::split_text(d)), if d <= 0.0 { [110, 230, 110, 255] } else { [240, 90, 70, 255] }));
+            let tw = Overlay::text_width(&text, s) + split.as_ref().map_or(0.0, |(t, _)| Overlay::text_width(t, s * 2.0));
+            let (x, y) = (w / 2.0 - tw / 2.0, 26.0 * s);
+            let x = x + o.text(x, y + 3.0 * s, s, [200, 210, 235, 230], &text);
+            if let Some((text, col)) = split {
+                o.text(x, y, s * 2.0, col, &text);
+            }
+            if let Some((why, _)) = &t.notice {
+                let why = why.to_uppercase();
+                o.text(w / 2.0 - Overlay::text_width(&why, big) / 2.0, h * 0.25, big, [240, 90, 70, 255], &why);
             }
         }
 
@@ -573,6 +613,40 @@ impl World {
             o.rect(0.0, h * 0.33, w, 50.0 * s, [0, 0, 0, 160]);
             o.text(w / 2.0 - Overlay::text_width(&title, big) / 2.0, h * 0.33 + 8.0 * s, big, [255, 210, 70, 255], &title);
             o.text(w / 2.0 - Overlay::text_width(&sub, s) / 2.0, h * 0.33 + 36.0 * s, s, white, &sub);
+        } else if let (Some(t), Some(Outcome::Won)) = (self.game.trial(), &self.game.outcome) {
+            // A time trial over: the race's time against the best before, the medal, and
+            // each lap, the best of them picked out.
+            let total = t.total().unwrap_or_default();
+            let before = self.lap_race.as_ref().and_then(|r| r.before.0);
+            let time = match (self.lap_race.as_ref().and_then(|r| r.new_race), before) {
+                (Some(true), Some(b)) => format!("Time {}: a new best (was {})", progress::fine_clock(total), progress::fine_clock(b)),
+                (Some(true), None) => format!("Time {}: a new best", progress::fine_clock(total)),
+                (_, Some(b)) => format!("Time {} (best {})", progress::fine_clock(total), progress::fine_clock(b.min(total))),
+                _ => format!("Time {}", progress::fine_clock(total)),
+            };
+            let medal = match t.medal() {
+                Some(0) => "Gold",
+                Some(1) => "Silver",
+                Some(2) => "Bronze",
+                _ => "No medal",
+            };
+            let sub = format!("{time}   {medal}   {}", keys("R: again   Esc: menu"));
+            let big = s * 3.0;
+            o.rect(0.0, h * 0.33, w, 50.0 * s, [0, 0, 0, 160]);
+            let title = "RACE OVER";
+            o.text(w / 2.0 - Overlay::text_width(title, big) / 2.0, h * 0.33 + 8.0 * s, big, [120, 230, 120, 255], title);
+            o.text(w / 2.0 - Overlay::text_width(&sub, s) / 2.0, h * 0.33 + 36.0 * s, s, white, &sub);
+            let laps = t.lap_times();
+            let fastest = laps.iter().copied().fold(f32::MAX, f32::min);
+            let rows: Vec<String> = laps.iter().enumerate().map(|(n, &l)| {
+                let new = self.lap_race.as_ref().is_some_and(|r| r.new_laps.contains(&n));
+                format!("Lap {}  {}{}{}", n + 1, progress::fine_clock(l), if l == fastest { "  fastest" } else { "" }, if new { "  new best lap" } else { "" })
+            }).collect();
+            let below = h * 0.33 + 56.0 * s;
+            o.rect(0.0, below - 4.0 * s, w, (rows.len() as f32 * 11.0 + 6.0) * s, [0, 0, 0, 140]);
+            for (k, r) in rows.iter().enumerate() {
+                o.text(w / 2.0 - Overlay::text_width(r, s) / 2.0, below + k as f32 * 11.0 * s, s, white, r);
+            }
         } else if let Some(out) = &self.game.outcome {
             let (title, sub, col) = match out {
                 Outcome::Won => {

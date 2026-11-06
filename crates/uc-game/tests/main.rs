@@ -188,6 +188,7 @@ mod takeover1;
 mod talk;
 mod talk_timers;
 mod taunts;
+mod time_trial;
 mod tracks;
 mod tripwire;
 mod unreleased;
