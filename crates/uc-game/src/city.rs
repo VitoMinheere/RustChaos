@@ -468,8 +468,8 @@ impl Game {
     pub(crate) fn bang(&mut self, shooter: usize, at: Vec3) {
         for j in 0..self.people.len() {
             if j != shooter && (self.people[j].fig.pos - at).length() < GUNSHOT {
-                // (Whoever's following them keeps up: they still hear it.)
-                if !self.follows(j, shooter) {
+                // (Whoever's following someone keeps up: they still hear it.)
+                if !self.escorted(j) {
                     self.people[j].scare(Some(shooter), at);
                 }
                 self.people[j].hear(at);
