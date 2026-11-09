@@ -6,7 +6,9 @@
 //! handling them scores
 //! and brings the crime rate down, missing them puts it up. The shift ends when its time's
 //! up (a win; one of [`SHIFTS`], or open-ended), or when the crime rate reaches 100 or the
-//! player goes down. Everything comes from the shift's seed.
+//! player goes down. An unlimited shift (#520) has no clock and goes on past 100, the calls
+//! coming faster, until the player goes down or ends it ([`Game::end_shift`]). Everything
+//! comes from the shift's seed.
 
 use crate::*;
 use uc_world::character::person as ptype;
@@ -16,15 +18,53 @@ use uc_world::character::person as ptype;
 const QUIET_SHIFT: f32 = 20.0 * 60.0;
 const QUIET_RATE: u8 = 20;
 
-/// The shift lengths on offer, in minutes; `None` is open-ended, until the player drops.
-pub const SHIFTS: [Option<u32>; 5] = [Some(5), Some(10), Some(15), Some(20), None];
-/// The shift length a new player gets.
-pub const DEFAULT_SHIFT: Option<u32> = Some(10);
-
-/// A shift length as the menu and HUD say it: "10 MIN", or "OPEN-ENDED".
-pub fn shift_name(minutes: Option<u32>) -> String {
-    minutes.map_or("OPEN-ENDED".to_string(), |m| format!("{m} MIN"))
+/// How long a shift is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Shift {
+    /// This many minutes, then it's over (a win).
+    Minutes(u32),
+    /// No clock: until the crime rate reaches 100 or the player drops.
+    Open,
+    /// No clock, and the crime rate reaching 100 doesn't end it either (#520): a patrol at
+    /// the player's own pace, ended from the pause menu. No best is kept for it.
+    Unlimited,
 }
+
+impl Shift {
+    /// As the menu and HUD say it: "10 MIN", "OPEN-ENDED" or "UNLIMITED".
+    pub fn name(self) -> String {
+        match self {
+            Shift::Minutes(m) => format!("{m} MIN"),
+            Shift::Open => "OPEN-ENDED".into(),
+            Shift::Unlimited => "UNLIMITED".into(),
+        }
+    }
+
+    /// The shift's length in seconds, if it has a clock.
+    pub fn seconds(self) -> Option<f32> {
+        match self {
+            Shift::Minutes(m) => Some(m as f32 * 60.0),
+            Shift::Open | Shift::Unlimited => None,
+        }
+    }
+
+    /// Whether a best score is kept for it (and it counts towards the best-shift stat).
+    pub fn scored(self) -> bool {
+        self != Shift::Unlimited
+    }
+}
+
+impl Default for Shift {
+    fn default() -> Shift {
+        DEFAULT_SHIFT
+    }
+}
+
+/// The shift lengths on offer, in the menu's order.
+pub const SHIFTS: [Shift; 6] =
+    [Shift::Minutes(5), Shift::Minutes(10), Shift::Minutes(15), Shift::Minutes(20), Shift::Open, Shift::Unlimited];
+/// The shift length a new player gets.
+pub const DEFAULT_SHIFT: Shift = Shift::Minutes(10);
 /// How far round the start incidents happen, in squares, and no nearer the player than
 /// this when they're called in. A district with fewer than [`ROOMY`] spots that far from
 /// the start (Gangland's streets are hemmed in by the river) gets a wider beat, up to
@@ -61,6 +101,10 @@ const TALK_DOWN: f32 = 2.0;
 const DEFUSE: f32 = 3.0;
 /// Seeing to a man down: this long beside him, till the ambulance comes.
 const FIRST_AID: f32 = 4.0;
+/// The seconds between calls (this, and up to as long again at random); with the city out
+/// of control on an unlimited shift, these.
+const CALLS: f32 = 25.0;
+const CALLS_RIOT: f32 = 10.0;
 
 /// What dispatch says aloud (the lines are made voices, `talk2\beat\`, [`lines`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -267,13 +311,21 @@ pub struct Incident {
 #[derive(Debug, Clone)]
 pub struct Beat {
     pub seed: u32,
-    /// Seconds left of the shift; `None` when it's open-ended.
+    /// How long the shift is.
+    pub length: Shift,
+    /// Seconds left of the shift; `None` when it has no clock.
     pub shift: Option<f32>,
     /// Seconds on duty so far.
     pub on: f32,
     pub score: i64,
     pub handled: u32,
     pub missed: u32,
+    /// Arrests made in the incidents handled.
+    pub arrests: u32,
+    /// Ended from the pause menu ([`Game::end_shift`]).
+    pub ended: bool,
+    /// The crime rate is at 100 on an unlimited shift, and dispatch has said so.
+    riot: bool,
     pub incidents: Vec<Incident>,
     rng: u32,
     /// Seconds to the next call.
@@ -318,14 +370,20 @@ impl Beat {
 
 /// The end of a shift: what the summary says.
 pub fn summary(b: &Beat) -> String {
-    format!("Shift over. {} incidents handled, {} missed. Score {}", b.handled, b.missed, b.score)
+    format!("Shift over. {} incidents handled, {} missed, {} arrests. Score {}", b.handled, b.missed, b.arrests, b.score)
+}
+
+/// Seconds as the HUD says them: "4:05", or "1:04:05" past the hour.
+pub fn clock(secs: f32) -> String {
+    let s = secs.max(0.0) as u32;
+    if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{}:{:02}", s / 60, s % 60) }
 }
 
 impl Game {
-    /// Starts a shift of `minutes` (open-ended if `None`) on `level` with `seed`, round
-    /// `centre` (world xz; the start if none): no mission script, the city's crowd and
-    /// traffic as usual, the crime rate on the HUD, the first call a few seconds in.
-    pub fn new_beat(level: &Level, seed: u32, centre: Option<Vec2>, minutes: Option<u32>) -> Game {
+    /// Starts a shift of `length` on `level` with `seed`, round `centre` (world xz; the
+    /// start if none): no mission script, the city's crowd and traffic as usual, the crime
+    /// rate on the HUD, the first call a few seconds in.
+    pub fn new_beat(level: &Level, seed: u32, centre: Option<Vec2>, length: Shift) -> Game {
         let mut g = Game::new(level, false);
         if let Some(c) = centre {
             let y = level.ground.surface(&level.map, c.x, c.y, level.ground.surface(&level.map, c.x, c.y, 0.0) + 128.0);
@@ -371,7 +429,8 @@ impl Game {
         g.crime_rate = 40;
         g.beat = Some(Beat {
             // Stirred, so seeds a step apart don't make the same shift.
-            seed, shift: minutes.map(|m| m as f32 * 60.0), on: 0.0, score: 0, handled: 0, missed: 0, incidents: Vec::new(),
+            seed, length, shift: length.seconds(), on: 0.0, score: 0, handled: 0, missed: 0, arrests: 0, ended: false, riot: false,
+            incidents: Vec::new(),
             rng: (seed ^ 0x5bd1_e995).wrapping_mul(0x9e37_79b9),
             next: 4.0, next_way: FIRST_WAY, spots, radius, bins, recent: Vec::new(), last: None, yaw: 0.0, red_marks: 0,
         });
@@ -381,6 +440,19 @@ impl Game {
     /// The shift, if this is one.
     pub fn beat(&self) -> Option<&Beat> {
         self.beat.as_ref()
+    }
+
+    /// Ends the shift now, as from the pause menu (#520): over, a win, with dispatch's
+    /// summary. Nothing if this isn't a shift or it's over already.
+    pub fn end_shift(&mut self) {
+        let Some(mut b) = self.beat.take() else { return };
+        if self.outcome.is_none() {
+            b.ended = true;
+            self.messages.push(Message { text: summary(&b), left: 10.0, face: Some(talk::face::RADIO), filmed: false });
+            self.voice(Despatch::ShiftOver);
+            self.finish(Outcome::Won);
+        }
+        self.beat = Some(b);
     }
 
     /// Dispatch calls `kind` in now, whatever else is on (tests, and the console's `call`);
@@ -440,6 +512,7 @@ impl Game {
                     let bonus = 50 * inc.arrests as i64;
                     b.score += inc.kind.points() + bonus;
                     b.handled += 1;
+                    b.arrests += inc.arrests;
                     self.crime_rate = self.crime_rate.saturating_sub(5);
                     self.say(Despatch::Done(inc.kind));
                     self.sounds.push((Sfx::Found, inc.at));
@@ -456,10 +529,19 @@ impl Game {
                 None => k += 1,
             }
         }
-        if self.crime_rate >= 100 {
+        if self.crime_rate >= 100 && b.length != Shift::Unlimited {
             self.voice(Despatch::OutOfControl);
             self.finish(Outcome::Lost("The city's out of control".into()));
             return;
+        }
+        // On an unlimited shift it goes on: dispatch says so (once each time it gets there),
+        // and the calls come faster till it's back under.
+        if self.crime_rate >= 100 && !b.riot {
+            b.riot = true;
+            self.say(Despatch::OutOfControl);
+            b.next = b.next.min(CALLS_RIOT);
+        } else if self.crime_rate < 100 {
+            b.riot = false;
         }
         // The next call, when there's room for one.
         b.next -= dt;
@@ -482,7 +564,8 @@ impl Game {
                 }
                 kind = Kind::ALL[(b.rand() as usize) % Kind::ALL.len()];
             }
-            b.next = 25.0 + (b.rand() % 25) as f32;
+            let gap = if b.riot { CALLS_RIOT } else { CALLS };
+            b.next = gap + (b.rand() % gap as u32) as f32;
         }
     }
 

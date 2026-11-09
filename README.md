@@ -160,7 +160,7 @@ They need `torch`, `torchaudio` and `chatterbox-tts` (Python 3.11; also `setupto
 
 Each wave comes from a different side of the arena, marked with a beacon for its first seconds. Downed thugs often carry health or ammo, so search them. Arrests score more than knockouts, and innocents hurt cost points. The run ends when Darci goes down, or when the crime rate reaches 100: it only climbs while she keeps out of the fight (hiding or running), not while she's fighting, however slowly. The same seed gives the same waves, and each map keeps its best score. Dispatch talks you through it over the radio, in a made voice (`talk2\endless\`; make them with `cargo run -p uc-game --example endless_lines > endless.tsv` and `tools/voices/make_voices.py EXPORT OUT --beat endless.tsv`): an intro that Darci answers, a call as each wave comes (its own for a boss), a line when one's cleared, others at waves 5, 10, 15, 20, 25, 30, 40 and 50, a nag when the crime rate starts to climb, and Darci now and then between waves. Each has a few takes, and none comes round again straight away.
 
-**Beat Cop:** BEAT COP in the main menu, then a district (West District, Gangland, Southside Beach, Rio Canal, Botanical Gardens, Baseball Ground, Television Centre or West Block: the city streets with a crowd and traffic), or `--mission NAME --beat [--shift MINUTES|endless] [--seed N]`. A shift of 5, 10 (the default), 15 or 20 minutes, or an open-ended one (Left/Right on the map list picks it), with no mission script: dispatch calls in incidents, each with a beacon and a time limit:
+**Beat Cop:** BEAT COP in the main menu, then a district (West District, Gangland, Southside Beach, Rio Canal, Botanical Gardens, Baseball Ground, Television Centre or West Block: the city streets with a crowd and traffic), or `--mission NAME --beat [--shift MINUTES|open|unlimited] [--seed N]`. A shift of 5, 10 (the default), 15 or 20 minutes, an open-ended one, or an unlimited one (Left/Right on the map list picks it), with no mission script: dispatch calls in incidents, each with a beacon and a time limit:
 - a mugging;
 - an armed suspect;
 - a gun dumped in a bin or a skip somewhere on the beat: search it out;
@@ -180,7 +180,7 @@ Dispatch never calls the same kind twice running, and sends you somewhere other 
 
 The console's `call` command calls one in at once (`call drunk`, `call bomb` and so on), and `car` puts an empty car in front of you.
 
-Handling one scores, with arrests worth extra, and brings the crime rate down. Missing one puts it up. The shift ends when its time is up, or early if the crime rate reaches 100; an open-ended one only ends that way. The best score is kept per map and shift length.
+Handling one scores, with arrests worth extra, and brings the crime rate down. Missing one puts it up. The shift ends when its time is up, or early if the crime rate reaches 100; an open-ended one only ends that way. An unlimited shift is for patrolling at your own pace: the crime rate reaching 100 doesn't end it (dispatch says the city's out of control, and the calls come faster until it's back under), and END SHIFT in the pause menu goes off duty, with a summary of the time on duty, incidents handled and missed, arrests and the score. It works with the time of day (T on the map list) for a night patrol. The best score is kept per map and shift length, except for unlimited shifts.
 
 **Difficulty:** DIFFICULTY in the main menu switches between Easy, Normal and Hard. It changes:
 - enemy skill;

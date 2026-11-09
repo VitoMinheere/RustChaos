@@ -220,7 +220,8 @@ impl Game {
         if let Some(e) = &self.endless {
             self.record.furthest_wave = self.record.furthest_wave.max(e.wave);
         }
-        if let Some(b) = &self.beat {
+        // (Not an unlimited shift's, which has no end to its score.)
+        if let Some(b) = self.beat.as_ref().filter(|b| b.length.scored()) {
             self.record.best_shift = self.record.best_shift.max(b.score.max(0) as u32);
         }
         let Some(p) = self.player() else { return };

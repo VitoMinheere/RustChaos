@@ -15,6 +15,7 @@
 use crate::wire::{In, Out};
 use crate::{Input, Setup, BUILD, HASH_EVERY};
 use std::io;
+use uc_game::game::beat::Shift;
 use uc_game::{Difficulty, Game, Outcome, Weapon, TURN};
 use uc_world::{Level, TimeOfDay};
 
@@ -35,6 +36,26 @@ const WEAPONS: [Weapon; 10] = [
     Weapon::Explosives, Weapon::Sniper, Weapon::Grenade, Weapon::Hook,
 ];
 
+/// A shift's length in a file: 0 open-ended, [`UNLIMITED`] unlimited, else the minutes and
+/// one (as before there was an unlimited shift, so older files read the same).
+const UNLIMITED: u32 = u32::MAX;
+
+fn shift_code(s: Shift) -> u32 {
+    match s {
+        Shift::Open => 0,
+        Shift::Unlimited => UNLIMITED,
+        Shift::Minutes(m) => m + 1,
+    }
+}
+
+fn shift_named(n: u32) -> Shift {
+    match n {
+        0 => Shift::Open,
+        UNLIMITED => Shift::Unlimited,
+        n => Shift::Minutes(n - 1),
+    }
+}
+
 /// What kind of game.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
@@ -45,9 +66,8 @@ pub enum Mode {
     /// Endless mode on the mission's map (#129): the seed, the arena's middle (world units;
     /// the start if none) and its radius in squares.
     Endless { seed: u32, centre: Option<[f32; 2]>, radius: f32 },
-    /// A Beat Cop shift (#130): the seed, the arena's middle, and the shift's minutes (none
-    /// for an open-ended one).
-    Beat { seed: u32, centre: Option<[f32; 2]>, shift: Option<u32> },
+    /// A Beat Cop shift (#130): the seed, the arena's middle, and the shift's length.
+    Beat { seed: u32, centre: Option<[f32; 2]>, shift: Shift },
     /// The mission in co-op, Roper next to Darci.
     Coop,
     /// A time trial (#519): the course's place in `uc_game::game::trial::courses`, the car's
@@ -131,12 +151,15 @@ impl Start {
 pub enum Event {
     /// The mission lost, as the viewer loses a win with too many civilians dead.
     Lose(String),
+    /// A Beat Cop shift ended from the pause menu (#520).
+    EndShift,
 }
 
 impl Event {
     fn apply(&self, g: &mut Game) {
         match self {
             Event::Lose(why) => g.outcome = Some(Outcome::Lost(why.clone())),
+            Event::EndShift => g.end_shift(),
         }
     }
 }
@@ -206,7 +229,7 @@ impl Replay {
                 o.u8(3);
                 o.u32(seed);
                 centre(&mut o, c);
-                o.u32(shift.map_or(0, |m| m + 1));
+                o.u32(shift_code(shift));
             }
             Mode::Coop => o.u8(4),
             Mode::Trial { course, car, traffic } => {
@@ -238,6 +261,7 @@ impl Replay {
                     o.u8(0);
                     o.str(why);
                 }
+                Event::EndShift => o.u8(1),
             }
         }
         o.u32(self.hashes.len() as u32);
@@ -276,7 +300,7 @@ impl Replay {
             0 => Mode::Mission,
             1 => Mode::Explore,
             2 => Mode::Endless { seed: i.u32()?, centre: centre(&mut i)?, radius: i.f32()? },
-            3 => Mode::Beat { seed: i.u32()?, centre: centre(&mut i)?, shift: i.u32()?.checked_sub(1) },
+            3 => Mode::Beat { seed: i.u32()?, centre: centre(&mut i)?, shift: shift_named(i.u32()?) },
             4 => Mode::Coop,
             5 => Mode::Trial { course: i.u8()?, car: i.u8()?, traffic: i.u8()? != 0 },
             _ => return Err(bad("unknown kind of game")),
@@ -297,6 +321,7 @@ impl Replay {
             let turn = i.u32()?;
             match i.u8()? {
                 0 => events.push((turn, Event::Lose(i.str()?))),
+                1 => events.push((turn, Event::EndShift)),
                 _ => return Err(bad("unknown event")),
             }
         }
@@ -498,14 +523,14 @@ mod tests {
         let i = |x: f32, b: u16| Input { wish: [x, -x], drive: [0.5, x], buttons: b, strafe: (b & 1 != 0).then_some([x, 1.0]), look: (b & 2 != 0).then_some([x, 0.25]), fly: (b & 4 != 0).then_some([x, 0.5, -x, 1.0, 0.25, -x]) };
         let r = Replay {
             start: Start {
-                mission: "Assault1".into(), mode: Mode::Beat { seed: 7, centre: Some([256.0, -512.0]), shift: None },
+                mission: "Assault1".into(), mode: Mode::Beat { seed: 7, centre: Some([256.0, -512.0]), shift: Shift::Open },
                 difficulty: 2, stats: [1, 2, 3, 4], weapon: Weapon::Shotgun, dogs: 3, view_dist: Some(10240.0), time: Some(TimeOfDay::Dusk),
             },
             build: "abc".into(), date: 1_700_000_000, seats: 2, outcome: "lost: Darci died".into(), time: 12.5,
             tally: Tally { badges: 2, sides: 1, score: -40, count: 7 },
             turns: vec![vec![i(0.0, 0), i(1.0, 4)], vec![i(0.0, 0), i(1.0, 4)], vec![i(0.25, 1), i(0.0, 0)]],
             hashes: vec![(1, 0xdead_beef), (3, 42)],
-            events: vec![(2, Event::Lose("Too many civilian casualties".into()))],
+            events: vec![(2, Event::Lose("Too many civilian casualties".into())), (3, Event::EndShift)],
         };
         let b = r.to_bytes();
         assert_eq!(Replay::from_bytes(&b).unwrap(), r);
@@ -516,7 +541,8 @@ mod tests {
     #[test]
     fn every_mode_round_trips() {
         for mode in [Mode::Mission, Mode::Explore, Mode::Coop, Mode::Endless { seed: 1, centre: None, radius: 10.0 },
-                     Mode::Beat { seed: 2, centre: None, shift: Some(10) }, Mode::Trial { course: 1, car: 2, traffic: true }] {
+                     Mode::Beat { seed: 2, centre: None, shift: Shift::Minutes(10) },
+                     Mode::Beat { seed: 4, centre: None, shift: Shift::Unlimited }, Mode::Trial { course: 1, car: 2, traffic: true }] {
             let mut r = Replay::from_bytes(&empty()).unwrap();
             r.start.mode = mode;
             assert_eq!(Replay::from_bytes(&r.to_bytes()).unwrap().start.mode, mode);
