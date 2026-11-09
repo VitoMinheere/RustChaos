@@ -711,10 +711,13 @@ impl Menu {
                 o.rect(x - 4.0 * s, y - 2.0 * s, w * 0.55 - x - 8.0 * s, line, [200, 150, 40, 200]);
             }
             o.text(x, y, s, white, &format!("{} ({} laps)", c.name, c.laps));
+            // The best race in this car, and its medal (#516's markers) before it.
             let (race, _) = self.progress.best_trial(&progress::trial_key(&c.id, car));
             if let Some(t) = race {
                 let tag = format!("BEST {}", progress::fine_clock(t));
-                o.text(w * 0.55 - Overlay::text_width(&tag, s) - 16.0 * s, y, s, gold, &tag);
+                let tx = w * 0.55 - Overlay::text_width(&tag, s) - 16.0 * s;
+                o.text(tx, y, s, gold, &tag);
+                medals::dot(o, tx - 9.0 * s, y, s, medals::trial(c, t));
             }
         }
         // The course chosen: its bests in this car and the medal times.
@@ -723,7 +726,8 @@ impl Menu {
         let best = |t: Option<f32>| t.map_or("-".to_string(), progress::fine_clock);
         let y = top + (courses().len() as f32 + 1.0) * line;
         let rows = [
-            format!("Best race {}   Best lap {}", best(race), best(lap)),
+            format!("Best race {}{}   Best lap {}", best(race),
+                race.map_or(String::new(), |t| format!(" ({})", medals::trial(c, t).name())), best(lap)),
             format!("Gold {}   Silver {}   Bronze {}", progress::clock(c.medals[0]), progress::clock(c.medals[1]), progress::clock(c.medals[2])),
         ];
         for (k, r) in rows.iter().enumerate() {

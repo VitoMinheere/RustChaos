@@ -144,6 +144,24 @@ pub fn goals_line(m: Medals, thorough_goal: bool) -> Vec<(String, [u8; 4])> {
     out
 }
 
+/// The medal a time trial race of `secs` on course `c` earns (#519): its gold, silver and
+/// bronze times.
+pub fn trial(c: &uc_game::game::trial::Course, secs: f32) -> Tier {
+    match c.medals.iter().position(|&m| secs <= m) {
+        Some(0) => Tier::Gold,
+        Some(1) => Tier::Silver,
+        Some(2) => Tier::Bronze,
+        _ => Tier::None,
+    }
+}
+
+/// A single medal marker at `x`, `y` (a text row's top), as [`dots`] draws each; its width.
+pub fn dot(o: &mut Overlay, x: f32, y: f32, s: f32, t: Tier) -> f32 {
+    o.rect(x, y + 1.0 * s, 6.0 * s, 6.0 * s, [0, 0, 0, 220]);
+    o.rect(x + s, y + 2.0 * s, 4.0 * s, 4.0 * s, t.colour());
+    7.0 * s
+}
+
 /// Small markers for a mission's medals, at `x`, `y` (a text row's top): a dot for time, clean
 /// and thorough, coloured by the medal (dim when not won), the time's ringed in green for
 /// Mucky. `thorough_goal`: the mission has badges or side objectives. The width they take.
@@ -198,6 +216,17 @@ pub fn line_width(parts: &[(String, [u8; 4])], s: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A trial's medal by its times: on the time is still the medal, just over is the next.
+    #[test]
+    fn trial_medals_by_time() {
+        let c = &uc_game::game::trial::courses()[0];
+        let [g, sv, b] = c.medals;
+        assert_eq!(trial(c, g), Tier::Gold);
+        assert_eq!(trial(c, g + 0.1), Tier::Silver);
+        assert_eq!(trial(c, sv + 0.1), Tier::Bronze);
+        assert_eq!(trial(c, b + 0.1), Tier::None);
+    }
 
     /// Police1 (Alex Hood's 1:05): within 3x bronze, 2x silver, 1.25x gold, under it Mucky.
     #[test]

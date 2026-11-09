@@ -38,6 +38,9 @@ const TRAINING: [&str; 5] = ["ftutor1", "assault1", "testdrive1a", "fight1", "fi
 /// The playable missions with a Mucky Time, so with a time medal to win.
 const TIMED: u32 = 27;
 
+/// The time trial courses (`uc_game::game::trial::courses`), checked by a test.
+const COURSES: u32 = 10;
+
 fn completed(p: &Progress, missions: &[&str]) -> u32 {
     missions.iter().filter(|m| p.completed(m)).count() as u32
 }
@@ -52,6 +55,15 @@ fn gold(p: &Progress, _: &Stats) -> u32 {
 }
 
 /// The furthest endless wave: the saved best, or this run's.
+/// The time trial courses with a gold race, in any car.
+fn trial_golds(p: &Progress, _: &Stats) -> u32 {
+    use uc_game::game::trial::{courses, Car};
+    let gold = |c: &uc_game::game::trial::Course, car| {
+        p.best_trial(&crate::progress::trial_key(&c.id, car)).0.is_some_and(|t| crate::medals::trial(c, t) == Tier::Gold)
+    };
+    courses().iter().filter(|c| Car::ALL.into_iter().any(|car| gold(c, car))).count() as u32
+}
+
 fn wave(p: &Progress, s: &Stats) -> u32 {
     p.best_wave().max(s.furthest_wave)
 }
@@ -63,7 +75,7 @@ fn shift(p: &Progress, s: &Stats) -> u32 {
 
 use Tier::{Bronze, Gold, Silver};
 
-pub static ALL: [Achievement; 41] = [
+pub static ALL: [Achievement; 42] = [
     one("rookie", "Rookie", "Finish the training", TRAINING.len() as u32, |p, _| completed(p, &TRAINING)),
     one("by_the_book", "By the Book", "Win a mission with an arrest, no shots and no red marks", 1, |_, s| s.by_the_book),
     one("clean_record", "Clean Record", "Finish the campaign without a red mark", crate::menu::PLAYABLE.len() as u32,
@@ -109,6 +121,7 @@ pub static ALL: [Achievement; 41] = [
     // From the medals (#516).
     one("gold_rush", "Gold Rush", "Win a gold time medal on 10 missions", 10, gold),
     one("solid_gold", "Solid Gold", "Win a gold time medal on every mission that has one", TIMED, gold),
+    one("pole_position", "Pole Position", "Win gold on every time trial course, in any car", COURSES, trial_golds),
 ];
 
 impl Achievement {
@@ -161,6 +174,27 @@ mod tests {
 
     fn ids(p: &Progress, s: &Stats) -> Vec<&'static str> {
         newly(p, s).iter().map(|a| a.id).collect()
+    }
+
+    /// Pole Position (#519): gold on every course, in any car; a silver doesn't count, and
+    /// the count of courses is the courses file's.
+    #[test]
+    fn trial_golds_count() {
+        use crate::progress::trial_key;
+        use uc_game::game::trial::{courses, Car};
+        assert_eq!(courses().len() as u32, COURSES);
+        let mut p = Progress::default();
+        for (k, c) in courses().iter().enumerate() {
+            let car = Car::ALL[k % Car::ALL.len()];
+            p.record_race(&trial_key(&c.id, car), c.medals[0] - 0.5);
+        }
+        assert!(ids(&p, &Stats::default()).contains(&"pole_position"));
+        let first = &courses()[0];
+        let mut p = Progress::default();
+        p.record_race(&trial_key(&first.id, Car::Police), first.medals[1]);
+        assert_eq!(trial_golds(&p, &Stats::default()), 0);
+        p.record_race(&trial_key(&first.id, Car::Van), first.medals[0]);
+        assert_eq!(trial_golds(&p, &Stats::default()), 1);
     }
 
     #[test]

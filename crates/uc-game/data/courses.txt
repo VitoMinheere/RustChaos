@@ -150,3 +150,52 @@ cp 41.5 12.5
 cp 41.5 30.5
 cp 28.5 30.5
 cp 28.5 12.5
+
+course botanic botanicc 2 Botanical Gardens: round the gardens
+start 21.5 40.5 270
+radius 4.0
+traffic 7
+medals 79 90 115
+cp 16.5 40.5
+cp 16.5 118.5
+cp 59.5 118.5
+cp 59.5 71.5
+cp 91.5 71.5
+cp 91.5 7.5
+cp 27.5 7.5
+cp 27.5 40.5
+
+course tvcentre factory1 2 Television Centre: the studio blocks
+start 28.5 19.5 270
+radius 4.0
+traffic 6
+medals 66 75 94
+cp 23.5 19.5
+cp 23.5 81.5
+cp 53.5 81.5
+cp 53.5 91.5
+cp 99.5 91.5
+cp 99.5 55.5
+cp 69.5 55.5
+cp 69.5 19.5
+
+# Central Park has no traffic: its missions have no cars on the roads.
+course centralpark park2 2 Central Park: the park roads
+start 20.5 77.5 270
+radius 4.0
+traffic 0
+medals 90 101 124
+cp 15.5 77.5
+cp 15.5 105.5
+cp 65.5 105.5
+cp 65.5 77.5
+cp 83.5 77.5
+cp 83.5 41.5
+cp 105.5 41.5
+cp 105.5 16.5
+cp 78.5 16.5
+cp 78.5 8.5
+cp 53.5 8.5
+cp 53.5 32.5
+cp 47.5 32.5
+cp 47.5 77.5
