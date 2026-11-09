@@ -256,7 +256,8 @@ impl World {
                 self.orbit = Orbit::behind(p.fig.angle);
             }
         }
-        let dt = if v.paused { 0.0 } else { dt * v.speed() };
+        // (An endless run at speed plays back at its speed, #518.)
+        let dt = if v.paused { 0.0 } else { dt * v.speed() * self.game.pace() };
         v.playback.frame(&mut self.game, &self.level, dt);
         if let (true, true, None, Some(p)) = (idle, self.third_person, self.game.player_vehicle(), self.game.player()) {
             let behind = Orbit::behind(p.fig.angle).yaw;
@@ -345,7 +346,10 @@ mod tests {
         let Some(game) = uc_formats::default_install() else { return };
         let mission = Args { game, mission: "police1".into(), weapon: uc_game::Weapon::Pistol, dogs: 2, ..Args::default() };
         let endless = Args { endless: true, seed: Some(5), weapon: uc_game::Weapon::None, dogs: 0, ..mission.clone() };
-        for args in [mission, endless] {
+        // And with modifiers (#518): at speed, and Darci in one hit.
+        let mods = uc_game::game::endless::Mods::named("speed,onehit,heavy").unwrap();
+        let modded = Args { mods, ..endless.clone() };
+        for args in [mission, endless, modded] {
             let mut w = World::load(args.clone()).unwrap();
             for frame in 0..900 {
                 let dt = [0.007, 0.016, 0.040, 0.025][frame % 4];

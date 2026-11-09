@@ -79,6 +79,11 @@ pub struct Pin {
 /// mission's start if none) and its radius.
 pub type Arena = (String, String, Option<(f32, f32)>, f32);
 
+/// An endless run's score multiplier as the menu shows it: "x2.40".
+fn multiplier(mods: uc_game::game::endless::Mods) -> String {
+    format!("x{:.2}", mods.percent() as f32 / 100.0)
+}
+
 /// What each map's endless arena round its start is called: (map, name). The district it's
 /// in on the city map, and where in it when a district has more than one, or the place for
 /// the maps only the unreleased missions are on. A map not here is called after its first
@@ -149,6 +154,8 @@ pub enum Screen {
     Missions,
     /// Endless mode's maps.
     Endless,
+    /// An endless run's modifiers (#518), after its arena.
+    Mods,
     /// The time trials' courses (#519), and the car.
     Trial,
     /// The stats (#132).
@@ -241,6 +248,8 @@ pub struct Menu {
     pub loading_ctf: bool,
     /// The arena list is for a Beat Cop shift, not an endless run.
     pub for_beat: bool,
+    /// The modifier picked out on the modifiers screen.
+    pub mod_row: usize,
     /// The time of day to replay a won mission at (#515), none for its own lighting. Only
     /// while the menu's up: each replay at another time is chosen afresh.
     pub mission_time: Option<uc_world::TimeOfDay>,
@@ -371,7 +380,7 @@ impl Menu {
             .filter(|(m, _)| entries.iter().any(|e| e.mission.eq_ignore_ascii_case(m)))
             .map(|&(m, name)| (m.to_string(), name.to_string(), None, 10.0))
             .collect();
-        let mut m = Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, briefed: None, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false, mission_time: None,
+        let mut m = Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, briefed: None, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false, mod_row: 0, mission_time: None,
                trial_course: 0, trial_car: 0, loading_trial: None,
                coop: 0, address: "127.0.0.1".into(), status: String::new(), for_coop: false, lobby: None,
                replays: Vec::new(), replay_selected: 0, ach_row: 0, loading_replay: None, loading_edit: None, idle: 0.0, loading_demo: false,
@@ -393,7 +402,7 @@ impl Menu {
         let w = self.theme.word();
         match self.screen {
             Screen::Title | Screen::Main | Screen::Credits => format!("data\\TITLE {}1.TGA", w.to_ascii_uppercase()),
-            Screen::Missions | Screen::Endless | Screen::Trial | Screen::Stats | Screen::Achievements | Screen::Coop | Screen::Lobby | Screen::Replays | Screen::Options | Screen::Controls => format!("data\\map {w} darci.tga"),
+            Screen::Missions | Screen::Endless | Screen::Mods | Screen::Trial | Screen::Stats | Screen::Achievements | Screen::Coop | Screen::Lobby | Screen::Replays | Screen::Options | Screen::Controls => format!("data\\map {w} darci.tga"),
         }
     }
 
@@ -641,15 +650,23 @@ impl Menu {
         } else {
             ("ENDLESS", "Waves of thugs until you drop.", "map")
         };
+        let enter = if self.for_beat { "Enter play" } else { "Enter modifiers" };
         o.text(x, 16.0 * s, s * 3.0, gold, title);
-        o.text(x, 44.0 * s, s, [200, 200, 190, 220], &format!("{what}   Up/Down choose a {pick}   T time of day   Enter play   Esc back"));
+        o.text(x, 44.0 * s, s, [200, 200, 190, 220], &format!("{what}   Up/Down choose a {pick}   T time of day   {enter}   Esc back"));
         let mut tx = x + Overlay::text_width(title, s * 3.0) + 16.0 * s;
         if self.for_beat {
             let len = format!("SHIFT: < {} >", self.progress.shift().name());
             o.text(tx, 24.0 * s, s * 1.5, white, &len);
             tx += Overlay::text_width(&len, s * 1.5) + 16.0 * s;
         }
-        o.text(tx, 24.0 * s, s * 1.5, white, &format!("TIME: {}", time_name(self.progress.time())));
+        let time = format!("TIME: {}", time_name(self.progress.time()));
+        o.text(tx, 24.0 * s, s * 1.5, white, &time);
+        tx += Overlay::text_width(&time, s * 1.5) + 16.0 * s;
+        // The modifiers chosen, and the bests shown are with them.
+        let mods = self.progress.mods();
+        if !self.for_beat && !mods.is_empty() {
+            o.text(tx, 24.0 * s, s * 1.5, gold, &format!("MODS: {}  {}", mods.list().len(), multiplier(mods)));
+        }
         if let Some(i) = self.loading_endless {
             let text = format!("LOADING {}...", self.arenas()[i].1.to_uppercase());
             o.text(w / 2.0 - Overlay::text_width(&text, s * 2.0) / 2.0, h * 0.5, s * 2.0, white, &text);
@@ -670,13 +687,60 @@ impl Menu {
             } else if self.for_beat {
                 self.progress.best_endless(&progress::beat_key(label, self.progress.shift()))
             } else {
-                self.progress.best_endless(label)
+                self.progress.best_endless(&progress::endless_key(label, mods))
             };
             if let Some((score, wave)) = best {
                 let tag = if self.for_beat { format!("BEST {score} ({wave} HANDLED)") } else { format!("BEST {score} (WAVE {wave})") };
                 o.text(w * 0.55 - Overlay::text_width(&tag, s) - 16.0 * s, y, s, gold, &tag);
             }
         }
+    }
+
+    /// An endless run's modifiers (#518), after its arena: each with what it does and its
+    /// score multiplier, ticked if it's on, the multiplier they come to, and the arena's best
+    /// with them.
+    fn mods_overlay(&self, o: &mut Overlay, w: f32, h: f32, s: f32) {
+        use uc_game::game::endless::Mod;
+        o.backdrop(0.0, 0.0, w, h, [255, 255, 255, 255]);
+        self.kibble(o, w, h, s);
+        o.rect(0.0, 0.0, w * 0.62, h, [0, 0, 0, 170]);
+        let (white, gold, dim) = ([235, 235, 225, 255], [255, 210, 70, 255], [200, 200, 190, 220]);
+        let x = 20.0 * s;
+        o.text(x, 16.0 * s, s * 3.0, gold, "MODIFIERS");
+        let label = self.arenas().get(self.map_selected).map_or(String::new(), |a| a.1.clone());
+        o.text(x + Overlay::text_width("MODIFIERS", s * 3.0) + 16.0 * s, 24.0 * s, s * 1.5, white, &label);
+        o.text(x, 44.0 * s, s, dim, "Up/Down choose   Space or Left/Right switch   T time of day   Enter play   Esc back");
+        if let Some(i) = self.loading_endless {
+            let text = format!("LOADING {}...", self.arenas()[i].1.to_uppercase());
+            o.text(w / 2.0 - Overlay::text_width(&text, s * 2.0) / 2.0, h * 0.5, s * 2.0, white, &text);
+            return;
+        }
+        let mods = self.progress.mods();
+        let line = 22.0 * s;
+        let top = 64.0 * s;
+        let right = w * 0.62 - 16.0 * s;
+        for (k, m) in Mod::ALL.into_iter().enumerate() {
+            let y = top + k as f32 * line;
+            if k == self.mod_row {
+                o.rect(x - 4.0 * s, y - 3.0 * s, right - x + 8.0 * s, line - 2.0 * s, [200, 150, 40, 200]);
+            }
+            let on = mods.has(m);
+            // A box, filled when it's on.
+            o.rect(x, y, 9.0 * s, 9.0 * s, [0, 0, 0, 220]);
+            if on {
+                o.rect(x + 2.0 * s, y + 2.0 * s, 5.0 * s, 5.0 * s, gold);
+            }
+            o.text(x + 16.0 * s, y, s * 1.5, if on { gold } else { white }, m.name());
+            let clash = m.clash().map_or(String::new(), |c| format!("  (not with {})", c.name().to_lowercase()));
+            o.text(x + 16.0 * s, y + 11.0 * s, s, dim, &format!("{}{clash}", m.text()));
+            let mult = format!("x{:.2}", m.percent() as f32 / 100.0);
+            o.text(right - Overlay::text_width(&mult, s * 1.5), y, s * 1.5, white, &mult);
+        }
+        let y = top + Mod::ALL.len() as f32 * line + 8.0 * s;
+        o.text(x, y, s * 1.5, gold, &format!("SCORE {}", multiplier(mods)));
+        let best = self.progress.best_endless(&progress::endless_key(&label, mods));
+        let best = best.map_or("No best with these yet".to_string(), |(sc, wv)| format!("Best with these {sc} (wave {wv})"));
+        o.text(x, y + 16.0 * s, s, white, &best);
     }
 
     /// The car chosen for a time trial.
@@ -1093,7 +1157,11 @@ impl Menu {
             Mode::Mission => "The mission".to_string(),
             Mode::Explore => "Exploring (no script)".to_string(),
             Mode::Coop => "Co-op, with Roper".to_string(),
-            Mode::Endless { seed, .. } => format!("Endless (seed {seed})"),
+            Mode::Endless { seed, mods, .. } if mods.is_empty() => format!("Endless (seed {seed})"),
+            Mode::Endless { seed, mods, .. } => {
+                let names: Vec<String> = mods.list().into_iter().map(|m| m.name().to_lowercase()).collect();
+                format!("Endless (seed {seed}): {}", names.join(", "))
+            }
             Mode::Beat { shift, .. } => {
                 use uc_game::game::beat::Shift;
                 let len = match shift {
@@ -1185,6 +1253,10 @@ impl Menu {
         }
         if self.screen == Screen::Trial {
             self.trial_overlay(&mut o, w, h, s);
+            return o;
+        }
+        if self.screen == Screen::Mods {
+            self.mods_overlay(&mut o, w, h, s);
             return o;
         }
         if self.screen == Screen::Stats {

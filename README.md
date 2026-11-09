@@ -160,6 +160,17 @@ They need `torch`, `torchaudio` and `chatterbox-tts` (Python 3.11; also `setupto
 
 Each wave comes from a different side of the arena, marked with a beacon for its first seconds. Downed thugs often carry health or ammo, so search them. Arrests score more than knockouts, and innocents hurt cost points. The run ends when Darci goes down, or when the crime rate reaches 100: it only climbs while she keeps out of the fight (hiding or running), not while she's fighting, however slowly. The same seed gives the same waves, and each map keeps its best score. Dispatch talks you through it over the radio, in a made voice (`talk2\endless\`; make them with `cargo run -p uc-game --example endless_lines > endless.tsv` and `tools/voices/make_voices.py EXPORT OUT --beat endless.tsv`): an intro that Darci answers, a call as each wave comes (its own for a boss), a line when one's cleared, others at waves 5, 10, 15, 20, 25, 30, 40 and 50, a nag when the crime rate starts to climb, and Darci now and then between waves. Each has a few takes, and none comes round again straight away.
 
+**Endless modifiers:** after choosing an arena, pick rules for the run (Up/Down, Space or Left/Right to switch one, Enter to play), or `--endless --mods onehit,speed`. Each multiplies the score, and the multipliers multiply together:
+- **Fists only** (x1.20): no weapons on the map or the thugs, and no Men in Black, who always carry AKs. Not with a gun run.
+- **One hit** (x2.00): Darci goes down in one hit.
+- **Heavy hitters** (x1.50): every thug as tough as a boss.
+- **Gun run** (x1.30): every thug has a gun, ammo drops more often, and Darci starts with a pistol.
+- **Low gravity** (x1.00): everyone jumps twice as high and falls twice as far unhurt.
+- **Speed** (x1.25): the game runs at 1.5x (replays play back at it too).
+- **No regeneration** (x1.10): no health from sitting on a bench, only from pickups.
+
+The choice is remembered, the HUD shows it with the multiplier, and dispatch says what tonight's rules are before the first wave, which comes a few seconds later for each (with more than one, "they've stacked the deck" and then each in turn). Each arena keeps a best per set of modifiers; the plain run's best is the one it always had. The time of day (T) is on the modifiers screen too, for a night run.
+
 **Beat Cop:** BEAT COP in the main menu, then a district (West District, Gangland, Southside Beach, Rio Canal, Botanical Gardens, Baseball Ground, Television Centre or West Block: the city streets with a crowd and traffic), or `--mission NAME --beat [--shift MINUTES|open|unlimited] [--seed N]`. A shift of 5, 10 (the default), 15 or 20 minutes, an open-ended one, or an unlimited one (Left/Right on the map list picks it), with no mission script: dispatch calls in incidents, each with a beacon and a time limit:
 - a mugging;
 - an armed suspect;

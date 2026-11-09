@@ -690,8 +690,9 @@ impl App {
             self.args.beat = beat;
             self.args.trial = None;
             self.args.shift = m.progress.shift();
+            self.args.mods = if beat { uc_game::game::endless::Mods::NONE } else { m.progress.mods() };
             self.args.time = m.progress.time();
-            let label = if beat { progress::beat_key(&label, self.args.shift) } else { label };
+            let label = if beat { progress::beat_key(&label, self.args.shift) } else { progress::endless_key(&label, self.args.mods) };
             self.args.arena = (centre, radius);
             self.args.arena_name = Some(label);
             self.play(&name);
@@ -986,7 +987,42 @@ impl App {
                 if down {
                     m.map_down();
                 }
+                // An endless run's arena chosen: then its modifiers (#518).
                 if go && !m.arenas().is_empty() {
+                    if m.for_beat {
+                        m.loading_endless = Some(m.map_selected);
+                    } else {
+                        m.screen = menu::Screen::Mods;
+                    }
+                }
+            }
+            // The modifiers (#518): Up/Down choose one, Space or Left/Right switch it, Enter
+            // starts the run.
+            menu::Screen::Mods => {
+                use uc_game::game::endless::Mod;
+                if back {
+                    m.screen = menu::Screen::Endless;
+                }
+                let n = Mod::ALL.len();
+                if up {
+                    m.mod_row = (m.mod_row + n - 1) % n;
+                }
+                if down {
+                    m.mod_row = (m.mod_row + 1) % n;
+                }
+                let switch = inp.hit(KeyCode::Space) || inp.hit(KeyCode::ArrowLeft) || inp.hit(KeyCode::ArrowRight)
+                    || inp.hit(KeyCode::KeyA) || inp.hit(KeyCode::KeyD) || inp.pad.hit(Button::South)
+                    || inp.pad.hit(Button::DPadLeft) || inp.pad.hit(Button::DPadRight);
+                if switch {
+                    let mods = m.progress.mods().toggled(Mod::ALL[m.mod_row]);
+                    m.progress.set_mods(mods);
+                }
+                // T the time of day, as on the arena list.
+                if inp.hit(KeyCode::KeyT) || inp.pad.hit(Button::West) {
+                    m.progress.set_time(uc_world::TimeOfDay::cycle(m.progress.time()));
+                }
+                let start = inp.hit(KeyCode::Enter) || inp.hit(KeyCode::NumpadEnter) || inp.pad.hit(Button::Start);
+                if start && !m.arenas().is_empty() {
                     m.loading_endless = Some(m.map_selected);
                 }
             }

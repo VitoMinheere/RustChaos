@@ -908,7 +908,8 @@ impl Game {
                     while self.bench.clock >= 0.2 {
                         self.bench.clock -= 0.2;
                         self.bench.given += 1;
-                        if self.bench.given < 40 {
+                        // (Not with an endless run's no regeneration, #518.)
+                        if self.bench.given < 40 && !self.has_mod(game::endless::Mod::NoRegen) {
                             let p = &mut self.people[pi];
                             p.health = (p.health + 1).min(p.max_health);
                         }

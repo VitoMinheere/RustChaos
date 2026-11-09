@@ -17,7 +17,7 @@ fn start(args: &Args) -> Start {
         println!("endless: {} with seed {seed}", args.mission);
         let (centre, radius) = args.arena;
         let centre = centre.map(|(x, z)| [x * 256.0, z * 256.0]);
-        if args.beat { Mode::Beat { seed, centre, shift: args.shift } } else { Mode::Endless { seed, centre, radius } }
+        if args.beat { Mode::Beat { seed, centre, shift: args.shift } } else { Mode::Endless { seed, centre, radius, mods: args.mods } }
     } else if args.explore {
         Mode::Explore
     } else {
@@ -37,7 +37,7 @@ fn start(args: &Args) -> Start {
 /// the menu (a shift's with its length, [`progress::beat_key`]), else the mission's. The time
 /// of day isn't in it (#515): a run at night goes for the same best as one by day.
 pub(crate) fn best_key(args: &Args, mission: &str) -> String {
-    args.arena_name.clone().unwrap_or_else(|| if args.beat { progress::beat_key(mission, args.shift) } else { mission.to_string() })
+    args.arena_name.clone().unwrap_or_else(|| if args.beat { progress::beat_key(mission, args.shift) } else { progress::endless_key(mission, args.mods) })
 }
 
 /// A new game for `args`, and how it started.

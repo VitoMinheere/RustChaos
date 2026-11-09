@@ -335,7 +335,7 @@ impl Person {
     /// then the floor's hit lying as they fell (Person.cpp:16990), and the fall hurts as a
     /// landing does, which may finish them.
     fn step_topple(&mut self, vy: f32, land: Option<usize>, ground: &Ground, map: &Map, dt: f32) {
-        let vy = vy - GRAVITY * dt;
+        let vy = vy - self.gravity() * dt;
         let h = self.fig.hips();
         let p = self.fig.pos;
         let floor = ground.surface(map, h.x, h.z, p.y);
