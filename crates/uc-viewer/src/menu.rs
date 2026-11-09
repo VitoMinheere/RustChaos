@@ -645,7 +645,7 @@ impl Menu {
         o.text(x, 44.0 * s, s, [200, 200, 190, 220], &format!("{what}   Up/Down choose a {pick}   T time of day   Enter play   Esc back"));
         let mut tx = x + Overlay::text_width(title, s * 3.0) + 16.0 * s;
         if self.for_beat {
-            let len = format!("SHIFT: < {} >", uc_game::game::beat::shift_name(self.progress.shift()));
+            let len = format!("SHIFT: < {} >", self.progress.shift().name());
             o.text(tx, 24.0 * s, s * 1.5, white, &len);
             tx += Overlay::text_width(&len, s * 1.5) + 16.0 * s;
         }
@@ -665,7 +665,9 @@ impl Menu {
                 o.rect(x - 4.0 * s, y - 2.0 * s, w * 0.55 - x - 8.0 * s, line, [200, 150, 40, 200]);
             }
             o.text(x, y, s, white, label);
-            let best = if self.for_beat {
+            let best = if self.for_beat && !self.progress.shift().scored() {
+                None
+            } else if self.for_beat {
                 self.progress.best_endless(&progress::beat_key(label, self.progress.shift()))
             } else {
                 self.progress.best_endless(label)
@@ -1088,7 +1090,15 @@ impl Menu {
             Mode::Explore => "Exploring (no script)".to_string(),
             Mode::Coop => "Co-op, with Roper".to_string(),
             Mode::Endless { seed, .. } => format!("Endless (seed {seed})"),
-            Mode::Beat { shift, .. } => format!("Beat Cop: {} shift", shift.map_or("open-ended".into(), |m| format!("{m}-minute"))),
+            Mode::Beat { shift, .. } => {
+                use uc_game::game::beat::Shift;
+                let len = match shift {
+                    Shift::Minutes(m) => format!("{m}-minute"),
+                    Shift::Open => "open-ended".into(),
+                    Shift::Unlimited => "unlimited".into(),
+                };
+                format!("Beat Cop: {len} shift")
+            }
             Mode::Trial { course, car, traffic } => {
                 let name = uc_game::game::trial::courses().get(course as usize).map_or("?", |c| c.name.as_str());
                 let car = uc_game::game::trial::Car::from_index(car).name();

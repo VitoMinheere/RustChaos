@@ -569,10 +569,10 @@ impl World {
             let gold = [255, 210, 70, 255];
             // Time left, or for an open-ended shift the time on duty.
             let (what, secs) = match b.shift {
-                Some(left) => ("SHIFT", left.max(0.0) as u32),
-                None => ("ON DUTY", b.on as u32),
+                Some(left) => ("SHIFT", left),
+                None => ("ON DUTY", b.on),
             };
-            let line = format!("{what} {}:{:02}   SCORE {}", secs / 60, secs % 60, b.score);
+            let line = format!("{what} {}   SCORE {}", uc_game::game::beat::clock(secs), b.score);
             let big = s * 2.0;
             o.text(w / 2.0 - Overlay::text_width(&line, big) / 2.0, 8.0 * s, big, gold, &line);
             let tally = format!("HANDLED {}   MISSED {}", b.handled, b.missed);
@@ -588,6 +588,7 @@ impl World {
         let keys = |k: &'static str| if self.replay.is_some() { "" } else { k };
         if let (Some(b), Some(out)) = (self.game.beat(), &self.game.outcome) {
             let (title, col) = match out {
+                Outcome::Won if b.ended => ("OFF DUTY".to_string(), [120, 230, 120, 255]),
                 Outcome::Won => ("SHIFT OVER".to_string(), [120, 230, 120, 255]),
                 Outcome::Lost(why) => (format!("SHIFT LOST: {}", why.to_uppercase()), [240, 90, 70, 255]),
             };
@@ -596,7 +597,9 @@ impl World {
                 Some((false, Some((sc, n)))) => format!("Best {sc} ({n} handled)"),
                 _ => String::new(),
             };
-            let sub = format!("Handled {}   Missed {}   Score {}   {best}   {}", b.handled, b.missed, b.score, keys("R: again   Esc: menu"));
+            let on = uc_game::game::beat::clock(b.on);
+            let sub = format!("On duty {on}   Handled {}   Missed {}   Arrests {}   Score {}   {best}   {}",
+                b.handled, b.missed, b.arrests, b.score, keys("R: again   Esc: menu"));
             let big = s * 3.0;
             o.rect(0.0, h * 0.33, w, 50.0 * s, [0, 0, 0, 160]);
             o.text(w / 2.0 - Overlay::text_width(&title, big) / 2.0, h * 0.33 + 8.0 * s, big, col, &title);

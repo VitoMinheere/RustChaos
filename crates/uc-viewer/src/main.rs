@@ -1123,18 +1123,18 @@ impl App {
                     return;
                 }
                 None => {
-                    w.pause = Some(Pause::new(if lost { PauseMenu::Lost } else { PauseMenu::Paused }));
+                    w.pause = Some(Pause::new(if lost { PauseMenu::Lost } else { PauseMenu::paused(w) }));
                     if let Some(s) = self.sound.as_mut() {
                         s.stop();
                     }
                 }
-                Some(PauseMenu::Paused) => {
+                Some(PauseMenu::Paused | PauseMenu::OnShift) => {
                     w.pause = None;
                     if let Some(s) = self.sound.as_mut() {
                         s.resume();
                     }
                 }
-                Some(PauseMenu::Sure(lost)) => w.pause = Some(Pause::new(if lost { PauseMenu::Lost } else { PauseMenu::Paused })),
+                Some(PauseMenu::Sure(lost)) => w.pause = Some(Pause::new(if lost { PauseMenu::Lost } else { PauseMenu::paused(w) })),
                 Some(PauseMenu::Lost) => {
                     self.input.pressed.clear();
                     self.open_menu();
@@ -1198,7 +1198,8 @@ impl App {
         }
         // (Nothing a replay or an edited mission does goes into the progress.)
         let counts = world.counts();
-        if let (Some(b), Some(_), None, true) = (world.game.beat(), &world.game.outcome, world.endless_recorded, counts) {
+        // (No best is kept for an unlimited shift.)
+        if let (Some(b), Some(_), None, true) = (world.game.beat().filter(|b| b.length.scored()), &world.game.outcome, world.endless_recorded, counts) {
             let mut p = progress::Progress::load();
             let key = best_key(&world.args, &world.level.name);
             let before = p.best_endless(&key);

@@ -2,7 +2,7 @@
 //! culprits down handles one, letting the time run out misses it; the crime rate and score
 //! follow; the shift ends in a win. Skipped without an install.
 
-use uc_game::game::beat::Kind;
+use uc_game::game::beat::{Kind, Shift};
 use uc_game::person::ko;
 use uc_game::{Controls, Game, Outcome, Weapon};
 use uc_world::Level;
@@ -12,7 +12,7 @@ use common::DT;
 
 fn start(seed: u32) -> Option<(Level, Game)> {
     let level = common::load("police1")?;
-    let g = Game::new_beat(&level, seed, None, Some(20));
+    let g = Game::new_beat(&level, seed, None, Shift::Minutes(20));
     Some((level, g))
 }
 
@@ -144,14 +144,36 @@ fn the_shift_ends() {
 #[test]
 fn shift_lengths() {
     let Some(level) = common::load("police1") else { return };
-    let g = Game::new_beat(&level, 11, None, Some(5));
+    let g = Game::new_beat(&level, 11, None, Shift::Minutes(5));
     assert_eq!(g.beat().unwrap().shift, Some(300.0));
-    let mut g = Game::new_beat(&level, 11, None, None);
+    let mut g = Game::new_beat(&level, 11, None, Shift::Open);
     assert_eq!(g.beat().unwrap().shift, None);
     g.beat_mut().unwrap().on = 3600.0;
     run(&mut g, &level, 3.0);
     assert_eq!(g.outcome, None, "an open-ended shift ended on the clock");
     assert!(g.beat().unwrap().on > 3600.0);
+}
+
+/// An unlimited shift (#520) has no clock and goes on with the crime rate at 100, dispatch
+/// saying so once; an open-ended one is lost there. Ending it from the pause menu is a win.
+#[test]
+fn an_unlimited_shift_goes_on() {
+    let Some(level) = common::load("police1") else { return };
+    let mut g = Game::new_beat(&level, 11, None, Shift::Unlimited);
+    assert_eq!(g.beat().unwrap().shift, None);
+    g.crime_rate = 100;
+    run(&mut g, &level, 3.0);
+    assert_eq!(g.outcome, None, "an unlimited shift ended at 100");
+    let said = |g: &Game| g.messages.iter().filter(|m| m.text.contains("out of control")).count();
+    assert_eq!(said(&g), 1, "dispatch should say the city's out of control, once");
+    g.end_shift();
+    assert_eq!(g.outcome, Some(Outcome::Won));
+    assert!(g.beat().unwrap().ended);
+
+    let mut g = Game::new_beat(&level, 11, None, Shift::Open);
+    g.crime_rate = 100;
+    run(&mut g, &level, 1.0);
+    assert!(matches!(g.outcome, Some(Outcome::Lost(_))), "an open-ended shift goes on at 100");
 }
 
 /// Calls `kind` in, with nothing else on.
@@ -360,7 +382,7 @@ fn a_dumped_gun_is_in_a_bin_or_a_skip() {
 fn incidents_are_spread_about() {
     for mission in ["police1", "Gangorder1"] {
         let Some(level) = common::load(mission) else { return };
-        let mut g = Game::new_beat(&level, 3, None, Some(20));
+        let mut g = Game::new_beat(&level, 3, None, Shift::Minutes(20));
         run(&mut g, &level, 1.0);
         let at = calls(&level, &mut g, &[Kind::Mugging, Kind::Bomb, Kind::WantedMan, Kind::GangFight, Kind::DrugDeal, Kind::ManDown]);
         for (k, a) in at.iter().enumerate() {
@@ -377,7 +399,7 @@ fn incidents_are_spread_about() {
 #[test]
 fn southside_beach_gets_calls() {
     let Some(level) = common::load("e3") else { return };
-    let mut g = Game::new_beat(&level, 11, None, Some(20));
+    let mut g = Game::new_beat(&level, 11, None, Shift::Minutes(20));
     assert!(g.player().unwrap().fig.pos.y < 256.0, "still up on the roof");
     run(&mut g, &level, 1.0);
     calls(&level, &mut g, &[Kind::Mugging, Kind::Bomb, Kind::DrunkDriver]);

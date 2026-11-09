@@ -247,7 +247,7 @@ mod tests {
         // And from the saved bests, with nothing in the stats.
         let mut p = Progress::default();
         p.record_endless("Gangland", 900, 31);
-        p.record_endless(&crate::progress::beat_key("Gangland", Some(20)), 10_500, 40);
+        p.record_endless(&crate::progress::beat_key("Gangland", uc_game::game::beat::Shift::Minutes(20)), 10_500, 40);
         assert_eq!(ids(&p, &Stats::default()), ["riot_control", "last_stand_1", "last_stand_2", "on_the_beat_1", "on_the_beat_2", "on_the_beat_3"]);
     }
 

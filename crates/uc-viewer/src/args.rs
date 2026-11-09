@@ -16,7 +16,8 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
                     none (default: the progress folder's voices folder); --voices off for none
   --endless         endless mode on the mission's map: waves of thugs (with --seed N to repeat a run)
   --beat           a Beat Cop shift on the mission's map: incidents over the radio (--seed, --arena too)
-  --shift MINUTES  the shift's length (default 10), or endless for an open-ended one
+  --shift MINUTES  the shift's length (default 10), open for an open-ended one, or unlimited
+                   for one the crime rate doesn't end, left from the pause menu
   --arena X,Z,R     the endless arena: its middle in squares and its radius (default: 10 round the start)
   --time T          light the map for day, dusk, night or dawn (default: the mission's own lighting)
   --trial COURSE    a time trial on a course (oval, westblock, silver, gold, gangland, riocanal,
@@ -111,8 +112,8 @@ pub(crate) struct Args {
     pub(crate) endless: bool,
     /// A Beat Cop shift on the mission's map (#130).
     pub(crate) beat: bool,
-    /// The shift's length in minutes; `None` open-ended.
-    pub(crate) shift: Option<u32>,
+    /// The shift's length.
+    pub(crate) shift: uc_game::game::beat::Shift,
     pub(crate) seed: Option<u32>,
     /// The endless arena: its middle in squares (the start if none) and its radius.
     pub(crate) arena: (Option<(f32, f32)>, f32),
@@ -244,9 +245,11 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             "--beat" => a.beat = true,
             "--shift" => {
                 let v = value()?;
+                use uc_game::game::beat::Shift;
                 a.shift = match v.as_str() {
-                    "endless" | "open" | "0" => None,
-                    n => Some(n.parse().map_err(|e| format!("--shift: {e}"))?),
+                    "endless" | "open" | "0" => Shift::Open,
+                    "unlimited" => Shift::Unlimited,
+                    n => Shift::Minutes(n.parse().map_err(|e| format!("--shift: {e}"))?),
                 };
             }
             "--arena" => {

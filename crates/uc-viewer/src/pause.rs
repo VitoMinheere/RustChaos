@@ -7,15 +7,23 @@ use crate::*;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum PauseMenu {
     Paused,
+    /// Paused on an unlimited Beat Cop shift (#520), which is ended from here.
+    OnShift,
     Lost,
     /// "Are you sure?", and the menu to go back to.
     Sure(bool),
 }
 
 impl PauseMenu {
+    /// The menu for pausing `w`: with END SHIFT on an unlimited shift.
+    pub(crate) fn paused(w: &World) -> PauseMenu {
+        let clockless = w.game.beat().is_some_and(|b| b.length == uc_game::game::beat::Shift::Unlimited && w.game.outcome.is_none());
+        if clockless && w.replay.is_none() { PauseMenu::OnShift } else { PauseMenu::Paused }
+    }
+
     pub(crate) fn title(self) -> &'static str {
         match self {
-            PauseMenu::Paused => "GAME PAUSED",
+            PauseMenu::Paused | PauseMenu::OnShift => "GAME PAUSED",
             PauseMenu::Lost => "LEVEL LOST",
             PauseMenu::Sure(_) => "ARE YOU SURE?",
         }
@@ -24,6 +32,7 @@ impl PauseMenu {
     pub(crate) fn items(self) -> &'static [&'static str] {
         match self {
             PauseMenu::Paused => &["RESUME LEVEL", "RESTART LEVEL", "ABANDON GAME"],
+            PauseMenu::OnShift => &["RESUME LEVEL", "END SHIFT", "RESTART LEVEL", "ABANDON GAME"],
             PauseMenu::Lost => &["RESTART LEVEL", "ABANDON GAME"],
             PauseMenu::Sure(_) => &["OKAY", "CANCEL"],
         }
@@ -138,6 +147,17 @@ impl App {
                     s.resume();
                 }
             }
+            // Off duty: the shift over, its summary up.
+            "END SHIFT" => {
+                w.pause = None;
+                w.game.end_shift();
+                if let Some(r) = w.recorder.as_mut() {
+                    r.event(&mut w.game, uc_net::replay::Event::EndShift);
+                }
+                if let Some(s) = self.sound.as_mut() {
+                    s.resume();
+                }
+            }
             "ABANDON GAME" => w.pause = Some(Pause::new(PauseMenu::Sure(p.menu == PauseMenu::Lost))),
             "OKAY" => {
                 self.input.pressed.clear();
@@ -145,7 +165,7 @@ impl App {
                 return true;
             }
             _ => {
-                let back = if p.menu == PauseMenu::Sure(true) { PauseMenu::Lost } else { PauseMenu::Paused };
+                let back = if p.menu == PauseMenu::Sure(true) { PauseMenu::Lost } else { PauseMenu::paused(w) };
                 w.pause = Some(Pause::new(back));
             }
         }

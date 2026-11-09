@@ -47,8 +47,8 @@ pub struct Progress {
     endless: BTreeMap<String, (i64, u32)>,
     /// The difficulty chosen in the menu.
     difficulty: uc_game::Difficulty,
-    /// The Beat Cop shift length chosen in the menu, in minutes (`None` open-ended).
-    shift: Option<u32>,
+    /// The Beat Cop shift length chosen in the menu.
+    shift: uc_game::game::beat::Shift,
     /// The time of day chosen for Endless and Beat Cop in the menu (#515), none for the
     /// map's own lighting.
     time: Option<uc_world::TimeOfDay>,
@@ -71,8 +71,33 @@ fn key(map: &str) -> String {
 }
 
 /// The key a Beat Cop shift's best score is kept under: one per map and shift length.
-pub fn beat_key(label: &str, minutes: Option<u32>) -> String {
-    format!("beat{}:{label}", minutes.map_or("open".to_string(), |m| m.to_string()))
+pub fn beat_key(label: &str, shift: uc_game::game::beat::Shift) -> String {
+    use uc_game::game::beat::Shift;
+    let len = match shift {
+        Shift::Minutes(m) => m.to_string(),
+        Shift::Open => "open".into(),
+        Shift::Unlimited => "unlimited".into(),
+    };
+    format!("beat{len}:{label}")
+}
+
+/// A shift's length in the progress file: the minutes, 0 for open-ended, or "unlimited".
+fn shift_code(s: uc_game::game::beat::Shift) -> String {
+    use uc_game::game::beat::Shift;
+    match s {
+        Shift::Minutes(m) => m.to_string(),
+        Shift::Open => "0".into(),
+        Shift::Unlimited => "unlimited".into(),
+    }
+}
+
+fn shift_named(s: &str) -> Option<uc_game::game::beat::Shift> {
+    use uc_game::game::beat::Shift;
+    match s {
+        "unlimited" => Some(Shift::Unlimited),
+        "0" => Some(Shift::Open),
+        n => n.parse().ok().map(Shift::Minutes),
+    }
 }
 
 /// The key a time trial's bests are kept under: one per course and car.
@@ -139,8 +164,8 @@ impl Progress {
             .collect();
         let difficulty = text.lines().find_map(|l| l.strip_prefix("@difficulty ")?.trim().parse::<usize>().ok())
             .and_then(|n| uc_game::Difficulty::ALL.get(n).copied()).unwrap_or_default();
-        let shift = text.lines().find_map(|l| l.strip_prefix("@shift ")?.trim().parse::<u32>().ok())
-            .map_or(uc_game::game::beat::DEFAULT_SHIFT, |m| (m > 0).then_some(m));
+        let shift = text.lines().find_map(|l| shift_named(l.strip_prefix("@shift ")?.trim()))
+            .unwrap_or(uc_game::game::beat::DEFAULT_SHIFT);
         let time = text.lines().find_map(|l| uc_world::TimeOfDay::named(l.strip_prefix("@time ")?.trim()));
         let mut stats = uc_game::game::stats::Stats::default();
         for l in text.lines().filter_map(|l| l.strip_prefix("@stat ")) {
@@ -223,12 +248,12 @@ impl Progress {
         self.save();
     }
 
-    pub fn shift(&self) -> Option<u32> {
+    pub fn shift(&self) -> uc_game::game::beat::Shift {
         self.shift
     }
 
-    pub fn set_shift(&mut self, minutes: Option<u32>) {
-        self.shift = minutes;
+    pub fn set_shift(&mut self, shift: uc_game::game::beat::Shift) {
+        self.shift = shift;
         self.save();
     }
 
@@ -368,7 +393,7 @@ impl Progress {
             })
             .chain((self.civ_warnings > 0).then(|| format!("@civ_warnings {}\n", self.civ_warnings)))
             .chain(self.endless.iter().map(|(m, (s, w))| format!("@endless {m} {s} {w}\n")))
-            .chain((self.shift != uc_game::game::beat::DEFAULT_SHIFT).then(|| format!("@shift {}\n", self.shift.unwrap_or(0))))
+            .chain((self.shift != uc_game::game::beat::DEFAULT_SHIFT).then(|| format!("@shift {}\n", shift_code(self.shift))))
             .chain(self.time.map(|t| format!("@time {}\n", t.name())))
             .chain(self.totals.fields().into_iter().filter(|(_, v)| *v != 0.0).map(|(n, v)| format!("@stat {n} {v}\n")))
             .chain(self.achieved.iter().map(|a| format!("@ach {a}\n")))
@@ -537,12 +562,22 @@ mod tests {
     #[test]
     fn shift_bests_are_kept_apart() {
         let mut p = Progress::default();
-        let (five, open) = (beat_key("West District: the park", Some(5)), beat_key("West District: the park", None));
+        use uc_game::game::beat::Shift;
+        let (five, open) = (beat_key("West District: the park", Shift::Minutes(5)), beat_key("West District: the park", Shift::Open));
         p.record_endless(&five, 900, 4);
         p.record_endless(&open, 300, 2);
         assert_eq!(p.best_endless(&five), Some((900, 4)));
         assert_eq!(p.best_endless(&open), Some((300, 2)));
         assert!(!key(&five).contains(' '));
+        assert_ne!(beat_key("Gangland", Shift::Unlimited), beat_key("Gangland", Shift::Open));
+    }
+
+    /// Every shift length goes into the progress file and comes back the same (#520).
+    #[test]
+    fn shift_lengths_round_trip() {
+        for s in uc_game::game::beat::SHIFTS {
+            assert_eq!(shift_named(&shift_code(s)), Some(s));
+        }
     }
 
     /// A renamed arena keeps its records: the endless run's and each shift length's, not
@@ -552,13 +587,13 @@ mod tests {
         let mut p = Progress::default();
         let old = "Combat Tutorial: round the start (fight1)";
         p.record_endless(old, 500, 3);
-        p.record_endless(&beat_key(old, Some(10)), 950, 4);
-        p.record_endless(&beat_key("Gangland", Some(10)), 3450, 15);
+        p.record_endless(&beat_key(old, uc_game::game::beat::Shift::Minutes(10)), 950, 4);
+        p.record_endless(&beat_key("Gangland", uc_game::game::beat::Shift::Minutes(10)), 3450, 15);
         assert!(p.rename_endless(old, "Combat Centre"));
         assert_eq!(p.best_endless("Combat Centre"), Some((500, 3)));
-        assert_eq!(p.best_endless(&beat_key("Combat Centre", Some(10))), Some((950, 4)));
+        assert_eq!(p.best_endless(&beat_key("Combat Centre", uc_game::game::beat::Shift::Minutes(10))), Some((950, 4)));
         assert_eq!(p.best_endless(old), None);
-        assert_eq!(p.best_endless(&beat_key("Gangland", Some(10))), Some((3450, 15)));
+        assert_eq!(p.best_endless(&beat_key("Gangland", uc_game::game::beat::Shift::Minutes(10))), Some((3450, 15)));
         p.record_endless("West Block", 100, 1);
         p.record_endless("Insane Assault: round the start (balbash1)", 900, 9);
         assert!(!p.rename_endless("Insane Assault: round the start (balbash1)", "West Block"));

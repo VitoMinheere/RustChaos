@@ -6,6 +6,7 @@
 use glam::{vec3, Vec3};
 use uc_game::chopper::{State as Heli, Stick};
 use uc_game::person::State;
+use uc_game::game::beat::Shift;
 use uc_game::{Controls, Game};
 
 use crate::common;
@@ -92,7 +93,7 @@ fn she_can_drop_out_from_low_down() {
 #[test]
 fn beat_cop_parks_one() {
     let Some(level) = common::load("police1") else { return };
-    let g = Game::new_beat(&level, 1, None, Some(5));
+    let g = Game::new_beat(&level, 1, None, Shift::Minutes(5));
     assert!(g.choppers.iter().any(|c| c.parked));
 }
 
@@ -114,7 +115,7 @@ fn a_mission_s_chopper_stays_the_ai_s() {
 #[test]
 fn the_searchlight_picks_out_the_gang() {
     let Some(level) = common::load("police1") else { return };
-    let g = Game::new_beat(&level, 3, None, None);
+    let g = Game::new_beat(&level, 3, None, Shift::Open);
     let mut r = common::Run { level, g, seen: Vec::new(), heal: true, stop_at_outcome: true, each_turn: None };
     r.play(1.0, Controls::default());
     assert!(r.g.call_in_now(uc_game::game::beat::Kind::GangFight, &r.level));
