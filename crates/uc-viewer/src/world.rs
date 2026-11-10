@@ -43,6 +43,10 @@ pub(crate) fn best_key(args: &Args, mission: &str) -> String {
 /// A new game for `args`, and how it started.
 fn new_game(level: &Level, args: &Args) -> (Game, Start) {
     let start = start(args);
+    // The sparring room (#547) isn't a way a replay starts: it's never kept as one.
+    if args.spar {
+        return (Game::new_spar(level), start);
+    }
     let game = start.game(level);
     if args.dogs > 0 {
         println!("dogs: {} of {} let loose", game.dogs.len(), args.dogs);
@@ -133,6 +137,10 @@ pub(crate) struct World {
     pub(crate) editor: Option<editor::Editor>,
     /// An edited mission being played: nothing it does goes into the progress or a replay.
     pub(crate) edited: bool,
+    /// The move list (#547), up over the pause menu.
+    pub(crate) moves: Option<moves::Page>,
+    /// The sparring room's line for the move it's waiting for, in the keys bound now.
+    pub(crate) want_line: String,
     /// Which of [`hud::BEACON_COLOURS`] each beacon shown is in, so it keeps its colour while
     /// others come and go ([`hud::beacon_colours`]).
     pub(crate) beacon_colours: std::cell::RefCell<Vec<(String, usize)>>,
@@ -171,7 +179,7 @@ impl World {
 
     /// `mission`, an edit of `args.mission`, played.
     pub(crate) fn load_edited(args: Args, mission: uc_formats::ucm::Mission) -> Result<World, String> {
-        let args = Args { explore: false, endless: false, beat: false, trial: None, cam: None, time: None, ..args };
+        let args = Args { explore: false, endless: false, beat: false, trial: None, spar: false, cam: None, time: None, ..args };
         let mut w = World::load_with(args, None, None, Some(mission), new_game)?;
         w.edited = true;
         w.recorder = None;
@@ -183,7 +191,7 @@ impl World {
     /// Whether this game goes into the progress (best times, stats, achievements): not a
     /// replay, and not an edited mission.
     pub(crate) fn counts(&self) -> bool {
-        self.replay.is_none() && !self.edited && self.editor.is_none()
+        self.replay.is_none() && !self.edited && self.editor.is_none() && !self.args.spar
     }
 
     /// `replay`, to watch.
@@ -197,7 +205,7 @@ impl World {
                 _ => None,
             },
             dogs: start.dogs as usize, weapon: start.weapon, cam: None, time: start.time,
-            no_character: false, ..args
+            no_character: false, spar: false, ..args
         };
         World::load_with(args, None, Some(replay), None, |level, _| (start.game(level), start.clone()))
     }
@@ -205,7 +213,7 @@ impl World {
     /// A co-op game's mission, as `setup` has it, played from `seat`. Nothing here may
     /// change the game but `setup`: every player's machine has to start the same one.
     pub(crate) fn load_coop(args: Args, setup: &uc_net::Setup, seat: usize) -> Result<World, String> {
-        let args = Args { mission: setup.mission.clone(), explore: false, endless: false, beat: false, trial: None, dogs: 0, weapon: uc_game::Weapon::None, cam: None, time: None, ..args };
+        let args = Args { mission: setup.mission.clone(), explore: false, endless: false, beat: false, trial: None, spar: false, dogs: 0, weapon: uc_game::Weapon::None, cam: None, time: None, ..args };
         World::load_with(args, Some(seat), None, None, |level, _| {
             let mut game = setup.game(level);
             game.focus(seat);
@@ -249,7 +257,7 @@ impl World {
         let race = if seat.is_none() && replay.is_none() { race(&mut game, &level, &args) } else { None };
         let lap_race = if seat.is_none() && replay.is_none() { ghosts::LapRace::start(&mut game) } else { None };
         // Kept from turn 0 (not without the people: that's for looking at the level).
-        let recorder = (replay.is_none() && !args.no_character).then(|| Recorder::new(&mut game, how));
+        let recorder = (replay.is_none() && !args.no_character && !args.spar).then(|| Recorder::new(&mut game, how));
         let replay = replay.map(replays::Viewing::new);
         Ok(World {
             fly: FlyCam::from(start),
@@ -295,6 +303,8 @@ impl World {
             replay,
             editor: None,
             edited: false,
+            moves: None,
+            want_line: String::new(),
             beacon_colours: Default::default(),
         })
     }
@@ -330,12 +340,19 @@ impl World {
 
     /// Adds this game's stats to the saved totals, once: when it's over, or left.
     pub(crate) fn save_stats(&mut self) {
-        if self.stats_saved || !self.counts() {
-            return;
-        }
+        let Some(record) = self.record().filter(|_| !self.stats_saved) else { return };
         self.stats_saved = true;
-        progress::Progress::load().add_stats(&self.game.record);
+        progress::Progress::load().add_stats(&record);
         self.known = progress::Progress::load();
+    }
+
+    /// What of this game goes into the totals: all of it, nothing of a replay or an edited
+    /// mission, and of a visit to the sparring room only the moves ticked off.
+    fn record(&self) -> Option<uc_game::game::stats::Stats> {
+        if self.args.spar && self.replay.is_none() {
+            return Some(uc_game::game::stats::Stats { sparred: self.game.record.sparred, ..Default::default() });
+        }
+        self.counts().then(|| self.game.record.clone())
     }
 
     /// Once a second: achievements earned (by the totals with this game's added), popped up
@@ -350,10 +367,8 @@ impl World {
             return;
         }
         self.ach_clock = 1.0;
-        if !self.counts() {
-            return;
-        }
-        let totals = if self.stats_saved { self.known.totals.clone() } else { self.known.totals.plus(&self.game.record) };
+        let Some(record) = self.record() else { return };
+        let totals = if self.stats_saved { self.known.totals.clone() } else { self.known.totals.plus(&record) };
         for a in achievements::newly(&self.known, &totals) {
             self.known.achieved.insert(a.id.to_string());
             progress::Progress::load().achieve(a.id);
@@ -437,6 +452,10 @@ impl World {
         if self.editor.is_some() {
             return self.fly.camera();
         }
+        // The move list's is on its figure.
+        if let Some(cam) = self.moves.as_ref().and_then(|m| m.camera(self)) {
+            return cam;
+        }
         // A mission's fly-by takes over the camera.
         if let Some((pos, target)) = self.game.camera() {
             return Camera { pos: pos / uc_world::UNIT, target: target / uc_world::UNIT, fov_y: 60f32.to_radians(), ortho: None };
@@ -507,7 +526,7 @@ impl World {
     /// finds no clear place (fc.cpp:819). Under a roof (in a warehouse) it's the other way
     /// round: the camera stays under it. The original first tries swinging the camera round a
     /// little; here the player steers the orbit, so it only comes in.
-    fn clear_of_buildings(&self, eye: Vec3, want: Vec3) -> Vec3 {
+    pub(crate) fn clear_of_buildings(&self, eye: Vec3, want: Vec3) -> Vec3 {
         let (map, ground, unit) = (&self.level.map, &self.level.ground, uc_world::UNIT);
         let under = |p: Vec3| ground.map_height(map, p.x * unit, p.z * unit) > p.y * unit;
         let indoors = under(eye);

@@ -231,7 +231,7 @@ impl World {
             let (badges, sides) = self.tally();
             let (nb, ns) = (self.goals.badges.len(), self.goals.sides.len());
             // Not in an endless run: its map's mission isn't being played.
-            if nb + ns > 0 && self.game.endless().is_none() && self.game.beat().is_none() && self.game.trial().is_none() {
+            if nb + ns > 0 && self.game.endless().is_none() && self.game.beat().is_none() && self.game.trial().is_none() && self.game.spar().is_none() {
                 let text = format!("  BADGES {badges}/{nb}   SIDE {sides}/{ns}");
                 let all = badges == nb && sides == ns;
                 o.text(x, by + bh + 4.0 * s, s, if all { [255, 210, 70, 255] } else { [190, 190, 180, 200] }, &text);
@@ -559,6 +559,49 @@ impl World {
                 let names: Vec<&str> = e.mods.list().into_iter().map(|m| m.name()).collect();
                 let rules = format!("{}   x{:.2}", names.join(" / "), e.mods.percent() as f32 / 100.0);
                 o.text(w / 2.0 - Overlay::text_width(&rules, s) / 2.0, 36.0 * s, s, gold, &rules);
+            }
+        }
+
+        // The sparring room (#547): what he's doing and the moves ticked off, the move it's
+        // waiting for, and down the right the blows that landed with what each took off him.
+        if let (Some(sp), None) = (self.game.spar(), &self.moves) {
+            let (gold, green, dim) = ([255, 210, 70, 255], [120, 220, 120, 255], [170, 170, 160, 220]);
+            let big = s * 2.0;
+            let title = "SPARRING";
+            o.text(w / 2.0 - Overlay::text_width(title, big) / 2.0, 8.0 * s, big, gold, title);
+            let who = if sp.two { "TWO OF THEM: EACH" } else { "HE" };
+            let line = format!("{who} {}   MOVES {}/{}", sp.stance.name(), sp.done.len(), uc_game::moves::sparred());
+            o.text(w / 2.0 - Overlay::text_width(&line, s) / 2.0, 26.0 * s, s, white, &line);
+            let now = self.game.time;
+            match sp.ticked.filter(|t| now - t.1 < 3.0) {
+                Some((t, _)) => {
+                    let done = format!("DONE: {}", uc_game::moves::entry(t).name);
+                    o.text(w / 2.0 - Overlay::text_width(&done, big) / 2.0, 50.0 * s, big, green, &done);
+                }
+                None if !self.want_line.is_empty() => {
+                    // (Where to stand for it, if it says, on a line of its own.)
+                    let (what, hint) = self.want_line.split_once("   (").unwrap_or((&self.want_line, ""));
+                    o.text(w / 2.0 - Overlay::text_width(what, big) / 2.0, 50.0 * s, big, gold, what);
+                    let hint = hint.trim_end_matches(')');
+                    o.text(w / 2.0 - Overlay::text_width(hint, s) / 2.0, 70.0 * s, s, dim, hint);
+                }
+                None => {}
+            }
+            // The newest lowest, each fading out over its last second of five.
+            let mut y = h * 0.34;
+            for l in sp.landed.iter().filter(|l| now - l.at < 5.0) {
+                let fade = ((5.0 - (now - l.at)).min(1.0) * 255.0) as u8;
+                let text = if l.damage > 0 { format!("{}  -{}", l.name, l.damage) } else { l.name.to_string() };
+                o.text(w - Overlay::text_width(&text, big) - 12.0 * s, y, big, [235, 235, 225, fade], &text);
+                y += 20.0 * s;
+            }
+            if sp.combo >= 2 {
+                let hits = format!("{} HITS", sp.combo);
+                o.text(w - Overlay::text_width(&hits, s * 3.0) - 12.0 * s, h * 0.34 - 30.0 * s, s * 3.0, gold, &hits);
+            }
+            if self.pause.is_none() {
+                let keys = "Tab move list   O opponent   P one or two";
+                o.text(w / 2.0 - Overlay::text_width(keys, s) / 2.0, 37.0 * s, s, dim, keys);
             }
         }
 

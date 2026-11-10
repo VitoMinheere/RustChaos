@@ -54,7 +54,9 @@ impl Game {
                         }
                         self.people[victim].hurt_by = Some(attacker);
                         let damage = self.hurt(victim, damage);
+                        let before = self.people[victim].health;
                         self.people[victim].take_stomp(damage);
+                        self.spar_hit(attacker, victim, before - self.people[victim].health);
                         let at = self.people[victim].body_pos();
                         self.gunfx.bleed(at, 1);
                         continue;
@@ -71,6 +73,7 @@ impl Game {
                     let damage = self.hurt(victim, damage);
                     let before = self.people[victim].health;
                     self.people[victim].take_hit(from, damage, ko, high, low, weapon);
+                    self.spar_hit(attacker, victim, before - self.people[victim].health);
                     self.set_on(victim, attacker);
                     if !weapon.is_gun() {
                         self.people[victim].hit_in_a_fight();
@@ -262,7 +265,9 @@ impl Game {
                         self.people[victim].hurt_by = Some(attacker);
                         let damage = self.hurt(victim, damage);
                         let behind = self.people[victim].hit_from_behind(from);
+                        let before = self.people[victim].health;
                         self.people[victim].take_hit(from, damage, ko, true, false, weapon);
+                        self.spar_hit(attacker, victim, before - self.people[victim].health);
                         self.set_on(victim, attacker);
                         // Shot dead on the street, not on a roof (`person_on_floor`,
                         // `OnFace == 0`), they die as the shot had it (combat.cpp:2433): the

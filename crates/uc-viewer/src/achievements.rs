@@ -38,6 +38,9 @@ const TRAINING: [&str; 5] = ["ftutor1", "assault1", "testdrive1a", "fight1", "fi
 /// The playable missions with a Mucky Time, so with a time medal to win.
 const TIMED: u32 = 27;
 
+/// The moves the sparring room ticks off (`uc_game::moves::sparred`), checked by a test.
+const SPARRED: u32 = 20;
+
 /// The time trial courses (`uc_game::game::trial::courses`), checked by a test.
 const COURSES: u32 = 10;
 
@@ -75,7 +78,7 @@ fn shift(p: &Progress, s: &Stats) -> u32 {
 
 use Tier::{Bronze, Gold, Silver};
 
-pub static ALL: [Achievement; 42] = [
+pub static ALL: [Achievement; 43] = [
     one("rookie", "Rookie", "Finish the training", TRAINING.len() as u32, |p, _| completed(p, &TRAINING)),
     one("by_the_book", "By the Book", "Win a mission with an arrest, no shots and no red marks", 1, |_, s| s.by_the_book),
     one("clean_record", "Clean Record", "Finish the campaign without a red mark", crate::menu::PLAYABLE.len() as u32,
@@ -121,6 +124,8 @@ pub static ALL: [Achievement; 42] = [
     // From the medals (#516).
     one("gold_rush", "Gold Rush", "Win a gold time medal on 10 missions", 10, gold),
     one("solid_gold", "Solid Gold", "Win a gold time medal on every mission that has one", TIMED, gold),
+    // The sparring room (#547).
+    one("black_belt", "Black Belt", "Do every move the sparring room ticks off, in one visit", SPARRED, |_, s| s.sparred),
     one("pole_position", "Pole Position", "Win gold on every time trial course, in any car", COURSES, trial_golds),
 ];
 
@@ -174,6 +179,16 @@ mod tests {
 
     fn ids(p: &Progress, s: &Stats) -> Vec<&'static str> {
         newly(p, s).iter().map(|a| a.id).collect()
+    }
+
+    /// Black Belt (#547): every move the sparring room ticks off, in one visit; one short
+    /// isn't it, and the count is the move list's.
+    #[test]
+    fn black_belt_takes_every_sparred_move() {
+        assert_eq!(uc_game::moves::sparred() as u32, SPARRED);
+        let p = Progress::default();
+        assert!(ids(&p, &Stats { sparred: SPARRED, ..Default::default() }).contains(&"black_belt"));
+        assert!(!ids(&p, &Stats { sparred: SPARRED - 1, ..Default::default() }).contains(&"black_belt"));
     }
 
     /// Pole Position (#519): gold on every course, in any car; a silver doesn't count, and

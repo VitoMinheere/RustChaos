@@ -20,6 +20,8 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --beat           a Beat Cop shift on the mission's map: incidents over the radio (--seed, --arena too)
   --shift MINUTES  the shift's length (default 10), open for an open-ended one, or unlimited
                    for one the crime rate doesn't end, left from the pause menu
+  --spar            the sparring room: one opponent to try the moves on (Tab: the move list)
+  --moves N         with --screenshot: the move list up, on its Nth move (testing)
   --arena X,Z,R     the endless arena: its middle in squares and its radius (default: 10 round the start)
   --time T          light the map for day, dusk, night or dawn (default: the mission's own lighting)
   --trial COURSE    a time trial on a course (oval, westblock, silver, gold, gangland, riocanal,
@@ -128,6 +130,10 @@ pub(crate) struct Args {
     pub(crate) arena_name: Option<String>,
     /// A time trial (#519): the course (its place in the list), the car, and traffic.
     pub(crate) trial: Option<(usize, uc_game::game::trial::Car, bool)>,
+    /// The sparring room (#547).
+    pub(crate) spar: bool,
+    /// `--moves`: the move list up for the screenshot, on this row.
+    pub(crate) moves_row: Option<usize>,
     /// In a window rather than full screen.
     pub(crate) windowed: bool,
     pub(crate) weapon: uc_game::Weapon,
@@ -192,6 +198,8 @@ impl Default for Args {
             arena_name: None,
             time: None,
             trial: None,
+            spar: false,
+            moves_row: None,
             windowed: false,
             weapon: uc_game::Weapon::None,
             dogs: 0,
@@ -287,6 +295,8 @@ pub(crate) fn parse_args() -> Result<Args, String> {
                 a.trial = Some((course, car, true));
             }
             "--seed" => a.seed = Some(value()?.parse().map_err(|e| format!("--seed: {e}"))?),
+            "--spar" => a.spar = true,
+            "--moves" => a.moves_row = Some(value()?.parse().map_err(|e| format!("--moves: {e}"))?),
             "--windowed" => a.windowed = true,
             "--weapon" => {
                 a.weapon = match value()?.as_str() {
@@ -340,6 +350,11 @@ pub(crate) fn parse_args() -> Result<Args, String> {
     // A time trial is on its course's map.
     if let Some((course, ..)) = a.trial {
         a.mission = uc_game::game::trial::courses()[course].mission.clone();
+        a.mission_given = true;
+    }
+    // The sparring room is on the combat tutorial's map.
+    if a.spar {
+        a.mission = moves::ROOM.to_string();
         a.mission_given = true;
     }
     if !a.game.exists() {

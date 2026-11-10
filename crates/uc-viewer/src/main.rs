@@ -19,6 +19,7 @@ mod hud;
 mod input;
 mod medals;
 mod menu;
+mod moves;
 mod options;
 mod par;
 mod pause;
@@ -171,7 +172,41 @@ impl App {
         let pad = &inp.pad;
         let Some(w) = self.world.as_mut() else { return };
         let delta = inp.mouse;
-        w.checklist = inp.held(KeyCode::Tab) && !inp.bindings.uses(KeyCode::Tab);
+        w.checklist = inp.held(KeyCode::Tab) && !inp.bindings.uses(KeyCode::Tab) && w.game.spar().is_none();
+        // The sparring room (#547): Tab for the move list, O for what the opponent does next,
+        // P for a second man,
+        // and the move it's waiting for written in the keys bound now.
+        if let Some(sp) = w.game.spar() {
+            use uc_game::game::spar::Stance;
+            let pad_last = pad.mv.length() > 0.5 || !pad.held.is_empty();
+            w.want_line = sp.want.map_or(String::new(), |t| {
+                let m = uc_game::moves::entry(t);
+                // (Where the second man stands for the kicks he's there for.)
+                let where_to = match t {
+                    uc_game::moves::Tech::SideKick => "   (stand close to one: the other's on her left)",
+                    uc_game::moves::Tech::BackKick => "   (stand close to one: the other's behind her)",
+                    _ => "",
+                };
+                format!("TRY: {}   {}{where_to}", m.name, moves::keys(m.input, &inp.bindings, pad_last))
+            });
+            let (stance, two) = (sp.stance, sp.two);
+            if inp.own(KeyCode::KeyP) && w.console.line.is_none() {
+                w.game.spar_two(!two);
+            }
+            if inp.own(KeyCode::KeyO) && w.console.line.is_none() {
+                let k = Stance::ALL.iter().position(|&s| s == stance).unwrap_or(0);
+                w.game.spar_stance(Stance::ALL[(k + 1) % Stance::ALL.len()]);
+            }
+            if inp.own(KeyCode::Tab) && w.console.line.is_none() {
+                let mut p = Pause::new(PauseMenu::Sparring);
+                p.up = 1.0;
+                (w.pause, w.moves) = (Some(p), Some(moves::Page::new(moves::From::Game, false)));
+                if let Some(s) = self.sound.as_mut() {
+                    s.stop();
+                }
+                return;
+            }
+        }
         w.game.show = w.args.show;
         if w.help {
             w.help_lines = inp.bindings.help();
@@ -591,6 +626,11 @@ impl App {
             w.save_stats();
             m.select(&w.level.name);
             m.screen = if left_coop { menu::Screen::Coop } else { menu::Screen::Missions };
+            // From the sparring room: the main menu, on its row.
+            if w.args.spar {
+                m.screen = menu::Screen::Main;
+                m.main = menu::MAIN.iter().position(|&r| r == "SPARRING").unwrap_or(0);
+            }
             // The game finished: the credits, as the original's outro (Game.cpp:2730).
             if w.level.name.eq_ignore_ascii_case("Finale1") && w.game.outcome == Some(Outcome::Won)
                 && w.replay.is_none() && w.editor.is_none() && !left_coop
@@ -672,6 +712,27 @@ impl App {
             self.input.pressed.clear();
             return;
         }
+        // The sparring room (#547), or the move list over it.
+        if let Some(list) = m.loading_spar.take() {
+            let pad_used = !inp.pad.pressed.is_empty();
+            self.args.endless = false;
+            self.args.beat = false;
+            self.args.time = None;
+            self.args.trial = None;
+            self.args.spar = true;
+            self.play(moves::ROOM);
+            self.args.spar = false;
+            if let (true, Some(w)) = (list, self.world.as_mut().filter(|w| w.args.spar)) {
+                let mut p = Pause::new(PauseMenu::Sparring);
+                p.up = 1.0;
+                (w.pause, w.moves) = (Some(p), Some(moves::Page::new(moves::From::Menu, pad_used)));
+                if let Some(s) = self.sound.as_mut() {
+                    s.stop();
+                }
+            }
+            self.input.pressed.clear();
+            return;
+        }
         // A time trial (#519): the course's map, the car and traffic as chosen.
         if let Some(i) = m.loading_trial {
             let course = &uc_game::game::trial::courses()[i];
@@ -741,6 +802,8 @@ impl App {
                         }
                         "CAPTURE THE FLAG" => m.loading_ctf = true,
                         "TIME TRIAL" => m.screen = menu::Screen::Trial,
+                        "SPARRING" => m.loading_spar = Some(false),
+                        "MOVES" => m.loading_spar = Some(true),
                         "STATS" => m.screen = menu::Screen::Stats,
                         "ACHIEVEMENTS" => (m.screen, m.ach_row) = (menu::Screen::Achievements, 0),
                         "REPLAYS" => m.show_replays(),
@@ -1131,6 +1194,14 @@ impl App {
             }
             return;
         }
+        // The move list up (#547): Esc (or Start) closes it, before it's the pause menu's.
+        if self.world.as_ref().is_some_and(|w| w.moves.is_some()) && (self.input.hit(KeyCode::Escape) || self.input.pad.hit(Button::Start)) {
+            self.input.pressed.remove(&KeyCode::Escape);
+            self.input.pad.pressed.remove(&Button::Start);
+            if self.close_moves() {
+                return;
+            }
+        }
         let won = self.world.as_ref().is_some_and(|w| w.game.outcome == Some(Outcome::Won));
         // Esc (or Start) pauses (`GAMEMENU_process`, gamemenu.cpp:279): the sound stops and
         // the menu comes up; again, and it's gone. After a win it's back to the mission list;
@@ -1164,7 +1235,7 @@ impl App {
                         s.stop();
                     }
                 }
-                Some(PauseMenu::Paused | PauseMenu::OnShift) => {
+                Some(PauseMenu::Paused | PauseMenu::OnShift | PauseMenu::Sparring) => {
                     w.pause = None;
                     if let Some(s) = self.sound.as_mut() {
                         s.resume();
@@ -1322,7 +1393,14 @@ impl App {
             }
         }
         let size = (g.config.width, g.config.height);
-        let mut hud = if world.editor.is_some() { world.editor_overlay(&cam, size) } else { world.hud(size) };
+        // (The move list has the screen to itself.)
+        let mut hud = if world.editor.is_some() {
+            world.editor_overlay(&cam, size)
+        } else if world.moves.is_some() {
+            Overlay::new()
+        } else {
+            world.hud(size)
+        };
         if world.pause.is_none() && world.editor.is_none() {
             draw_sights(&mut hud, &world.game.gun_sights(), &cam, size);
             if let Some(path) = world.game.grenade_path(&world.level) {
@@ -1333,8 +1411,10 @@ impl App {
             c.overlay(&mut hud, size);
         }
         world.game.end_draw();
-        if let Some(p) = &world.pause {
-            p.overlay(&mut hud, size);
+        if let Some(page) = &world.moves {
+            page.overlay(&mut hud, size, world, &self.input.bindings);
+        } else if let Some(p) = &world.pause {
+            p.overlay(&mut hud, size, world.game.spar().map(|s| (s.stance.name(), s.two)));
             let s = (size.1 as f32 / 360.0).round().max(1.0);
             let text = format!("DIFFICULTY: {}", world.game.difficulty().name().to_uppercase());
             hud.text(size.0 as f32 / 2.0 - Overlay::text_width(&text, s) / 2.0, size.1 as f32 * 0.9, s, [200, 200, 190, 220], &text);
@@ -1495,11 +1575,27 @@ fn headless_screenshot(mut world: World, path: &Path) -> Result<(), String> {
             }
         }
     }
+    // `--moves N`: the move list up on its Nth move, the figure part of the way through it.
+    if let Some(row) = world.args.moves_row {
+        let mut page = moves::Page::new(moves::From::Pause, false);
+        page.sel = row.min(uc_game::moves::MOVES.len() - 1);
+        page.show(&mut world, 0.35);
+        world.moves = Some(page);
+    }
     let mut r = Renderer::headless(!world.args.linear)?;
     world.upload(&mut r);
     let size = world.args.size;
     let cam = world.camera();
-    let hud = if world.editor.is_some() { world.editor_overlay(&cam, size) } else { world.hud(size) };
+    let mut hud = if world.editor.is_some() {
+        world.editor_overlay(&cam, size)
+    } else if world.moves.is_some() {
+        Overlay::new()
+    } else {
+        world.hud(size)
+    };
+    if let Some(page) = &world.moves {
+        page.overlay(&mut hud, size, &world, &bindings::Bindings::load());
+    }
     let img = r.render_to_image(size, &cam, &world.settings(), &world.dynamic(), &hud);
     save_png(path, size, &img)?;
     println!("saved {} ({}/{} chunks drawn, {} draw calls, {} triangles)", path.display(),
