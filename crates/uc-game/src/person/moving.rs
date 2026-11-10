@@ -460,7 +460,7 @@ impl Person {
     /// `step` in [`State::Fall`].
     #[allow(clippy::too_many_arguments)]
     pub(super) fn step_fall(&mut self, mut vy: f32, mut vel: Vec2, me: usize, c: &Controls, snaps: &[Snap], ground: &Ground, map: &Map, dt: f32, events: &mut Vec<Event>) {
-        vy -= GRAVITY * dt;
+        vy -= self.gravity() * dt;
         let running = vel.length() > 100.0;
         self.fly_kick(running, me, c, snaps, events);
         if self.fly_kick.is_some() {

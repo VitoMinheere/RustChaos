@@ -1221,7 +1221,7 @@ impl Game {
         p.cycle_target |= input.cycle_target;
         p.scope |= input.scope;
         p.taunt |= input.taunt;
-        self.turn_clock += dt;
+        self.turn_clock += dt * self.pace();
         while self.turn_clock >= TURN {
             self.turn_clock -= TURN;
             let p = std::mem::take(&mut self.pending);
@@ -1725,6 +1725,7 @@ impl Game {
                 self.rngs.main = rng;
                 c
             };
+            self.people[i].floaty = self.has_mod(game::endless::Mod::LowGravity);
             self.people[i].step(i, &c, &snaps, &level.ground, &level.map, dt, &mut events);
         }
         self.raise_alerts();

@@ -49,6 +49,8 @@ pub struct Progress {
     difficulty: uc_game::Difficulty,
     /// The Beat Cop shift length chosen in the menu.
     shift: uc_game::game::beat::Shift,
+    /// The endless modifiers chosen in the menu (#518).
+    mods: uc_game::game::endless::Mods,
     /// The time of day chosen for Endless and Beat Cop in the menu (#515), none for the
     /// map's own lighting.
     time: Option<uc_world::TimeOfDay>,
@@ -79,6 +81,12 @@ pub fn beat_key(label: &str, shift: uc_game::game::beat::Shift) -> String {
         Shift::Unlimited => "unlimited".into(),
     };
     format!("beat{len}:{label}")
+}
+
+/// The key an endless run's best is kept under (#518): the arena's, as before, with no
+/// modifiers; else one per set of them.
+pub fn endless_key(label: &str, mods: uc_game::game::endless::Mods) -> String {
+    if mods.is_empty() { label.to_string() } else { format!("mods-{}:{label}", mods.ids()) }
 }
 
 /// A shift's length in the progress file: the minutes, 0 for open-ended, or "unlimited".
@@ -167,6 +175,7 @@ impl Progress {
         let shift = text.lines().find_map(|l| shift_named(l.strip_prefix("@shift ")?.trim()))
             .unwrap_or(uc_game::game::beat::DEFAULT_SHIFT);
         let time = text.lines().find_map(|l| uc_world::TimeOfDay::named(l.strip_prefix("@time ")?.trim()));
+        let mods = text.lines().find_map(|l| uc_game::game::endless::Mods::named(l.strip_prefix("@mods ")?.trim())).unwrap_or_default();
         let mut stats = uc_game::game::stats::Stats::default();
         for l in text.lines().filter_map(|l| l.strip_prefix("@stat ")) {
             let mut f = l.split_whitespace();
@@ -182,7 +191,7 @@ impl Progress {
             Some((f.next()?.to_string(), (secs(f.next()), secs(f.next()))))
         }).collect();
         let traffic = text.lines().any(|l| l.trim() == "@traffic on");
-        Progress { done, civ_warnings, endless, difficulty, shift, time, ghosts, trials, traffic, totals: stats, achieved, path }
+        Progress { done, civ_warnings, endless, difficulty, shift, mods, time, ghosts, trials, traffic, totals: stats, achieved, path }
     }
 
     pub fn ghosts(&self) -> bool {
@@ -257,6 +266,15 @@ impl Progress {
         self.save();
     }
 
+    pub fn mods(&self) -> uc_game::game::endless::Mods {
+        self.mods
+    }
+
+    pub fn set_mods(&mut self, mods: uc_game::game::endless::Mods) {
+        self.mods = mods;
+        self.save();
+    }
+
     pub fn time(&self) -> Option<uc_world::TimeOfDay> {
         self.time
     }
@@ -298,14 +316,14 @@ impl Progress {
         self.endless.get(&key(map)).copied()
     }
 
-    /// The records kept under arena `old`'s name go under `new`'s, an endless run's and every
-    /// Beat Cop shift length's, unless there's one there already (an arena renamed). Whether
+    /// The records kept under arena `old`'s name go under `new`'s, an endless run's (with any
+    /// modifiers) and every Beat Cop shift length's, unless there's one there already (an arena renamed). Whether
     /// any moved; saved if so.
     pub fn rename_endless(&mut self, old: &str, new: &str) -> bool {
         let (old, new) = (key(old), key(new));
         let moving: Vec<(String, String)> = self.endless.keys()
             .filter_map(|k| {
-                let (shift, name) = k.split_once(':').filter(|(s, _)| s.starts_with("beat")).map_or(("", k.as_str()), |(s, n)| (s, n));
+                let (shift, name) = k.split_once(':').filter(|(s, _)| s.starts_with("beat") || s.starts_with("mods-")).map_or(("", k.as_str()), |(s, n)| (s, n));
                 (name == old).then(|| (k.clone(), if shift.is_empty() { new.clone() } else { format!("{shift}:{new}") }))
             })
             .filter(|(_, to)| !self.endless.contains_key(to))
@@ -394,6 +412,7 @@ impl Progress {
             .chain((self.civ_warnings > 0).then(|| format!("@civ_warnings {}\n", self.civ_warnings)))
             .chain(self.endless.iter().map(|(m, (s, w))| format!("@endless {m} {s} {w}\n")))
             .chain((self.shift != uc_game::game::beat::DEFAULT_SHIFT).then(|| format!("@shift {}\n", shift_code(self.shift))))
+            .chain((!self.mods.is_empty()).then(|| format!("@mods {}\n", self.mods.ids())))
             .chain(self.time.map(|t| format!("@time {}\n", t.name())))
             .chain(self.totals.fields().into_iter().filter(|(_, v)| *v != 0.0).map(|(n, v)| format!("@stat {n} {v}\n")))
             .chain(self.achieved.iter().map(|a| format!("@ach {a}\n")))
@@ -570,6 +589,25 @@ mod tests {
         assert_eq!(p.best_endless(&open), Some((300, 2)));
         assert!(!key(&five).contains(' '));
         assert_ne!(beat_key("Gangland", Shift::Unlimited), beat_key("Gangland", Shift::Open));
+    }
+
+    /// An endless run's best with modifiers is kept apart from the plain run's, which keeps
+    /// its old key; a renamed arena takes both with it (#518).
+    #[test]
+    fn modded_bests_are_kept_apart() {
+        use uc_game::game::endless::Mods;
+        let mods = Mods::named("onehit,speed").unwrap();
+        assert_eq!(endless_key("Gangland", Mods::NONE), "Gangland");
+        let modded = endless_key("Gangland", mods);
+        assert_ne!(modded, "Gangland");
+        let mut p = Progress::default();
+        p.record_endless("Gangland", 500, 3);
+        p.record_endless(&modded, 2400, 5);
+        assert_eq!(p.best_endless("Gangland"), Some((500, 3)));
+        assert_eq!(p.best_endless(&modded), Some((2400, 5)));
+        assert!(p.rename_endless("Gangland", "Gangland: the yard"));
+        assert_eq!(p.best_endless(&endless_key("Gangland: the yard", mods)), Some((2400, 5)));
+        assert_eq!(p.best_endless("Gangland: the yard"), Some((500, 3)));
     }
 
     /// Every shift length goes into the progress file and comes back the same (#520).

@@ -16,6 +16,7 @@ use crate::wire::{In, Out};
 use crate::{Input, Setup, BUILD, HASH_EVERY};
 use std::io;
 use uc_game::game::beat::Shift;
+use uc_game::game::endless::{Mod, Mods};
 use uc_game::{Difficulty, Game, Outcome, Weapon, TURN};
 use uc_world::{Level, TimeOfDay};
 
@@ -64,8 +65,8 @@ pub enum Mode {
     /// The map without the script (`--explore`).
     Explore,
     /// Endless mode on the mission's map (#129): the seed, the arena's middle (world units;
-    /// the start if none) and its radius in squares.
-    Endless { seed: u32, centre: Option<[f32; 2]>, radius: f32 },
+    /// the start if none), its radius in squares, and the modifiers it's played with (#518).
+    Endless { seed: u32, centre: Option<[f32; 2]>, radius: f32, mods: Mods },
     /// A Beat Cop shift (#130): the seed, the arena's middle, and the shift's length.
     Beat { seed: u32, centre: Option<[f32; 2]>, shift: Shift },
     /// The mission in co-op, Roper next to Darci.
@@ -121,7 +122,7 @@ impl Start {
         let mut g = match self.mode {
             Mode::Mission | Mode::Coop => Game::new(level, true),
             Mode::Explore => Game::new(level, false),
-            Mode::Endless { seed, centre: c, radius } => Game::new_endless(level, seed, centre(c), radius),
+            Mode::Endless { seed, centre: c, radius, mods } => Game::new_endless_with(level, seed, centre(c), radius, mods),
             Mode::Beat { seed, centre: c, shift } => Game::new_beat(level, seed, centre(c), shift),
             Mode::Trial { course, car, traffic } => {
                 Game::new_trial(level, course as usize, uc_game::game::trial::Car::from_index(car), traffic)
@@ -135,7 +136,8 @@ impl Start {
         if self.mode == Mode::Coop {
             g.add_partner(level);
         }
-        if let Some(p) = g.player {
+        // (Not with fists only.)
+        if let (Some(p), false) = (g.player, g.has_mod(Mod::Fists)) {
             g.people[p].give(self.weapon);
             g.people[p].weapon = self.weapon;
         }
@@ -219,11 +221,16 @@ impl Replay {
         match s.mode {
             Mode::Mission => o.u8(0),
             Mode::Explore => o.u8(1),
-            Mode::Endless { seed, centre: c, radius } => {
-                o.u8(2);
+            // With modifiers, kind 6: as 2, and the modifiers after (so a plain run's file is
+            // as it was).
+            Mode::Endless { seed, centre: c, radius, mods } => {
+                o.u8(if mods.is_empty() { 2 } else { 6 });
                 o.u32(seed);
                 centre(&mut o, c);
                 o.f32(radius);
+                if !mods.is_empty() {
+                    o.u8(mods.bits());
+                }
             }
             Mode::Beat { seed, centre: c, shift } => {
                 o.u8(3);
@@ -299,7 +306,8 @@ impl Replay {
         let mode = match i.u8()? {
             0 => Mode::Mission,
             1 => Mode::Explore,
-            2 => Mode::Endless { seed: i.u32()?, centre: centre(&mut i)?, radius: i.f32()? },
+            2 => Mode::Endless { seed: i.u32()?, centre: centre(&mut i)?, radius: i.f32()?, mods: Mods::NONE },
+            6 => Mode::Endless { seed: i.u32()?, centre: centre(&mut i)?, radius: i.f32()?, mods: Mods::from_bits(i.u8()?) },
             3 => Mode::Beat { seed: i.u32()?, centre: centre(&mut i)?, shift: shift_named(i.u32()?) },
             4 => Mode::Coop,
             5 => Mode::Trial { course: i.u8()?, car: i.u8()?, traffic: i.u8()? != 0 },
@@ -540,7 +548,9 @@ mod tests {
 
     #[test]
     fn every_mode_round_trips() {
-        for mode in [Mode::Mission, Mode::Explore, Mode::Coop, Mode::Endless { seed: 1, centre: None, radius: 10.0 },
+        let mods = Mods::NONE.toggled(Mod::OneHit).toggled(Mod::Speed);
+        for mode in [Mode::Mission, Mode::Explore, Mode::Coop, Mode::Endless { seed: 1, centre: None, radius: 10.0, mods: Mods::NONE },
+                     Mode::Endless { seed: 3, centre: Some([1.0, 2.0]), radius: 8.0, mods },
                      Mode::Beat { seed: 2, centre: None, shift: Shift::Minutes(10) },
                      Mode::Beat { seed: 4, centre: None, shift: Shift::Unlimited }, Mode::Trial { course: 1, car: 2, traffic: true }] {
             let mut r = Replay::from_bytes(&empty()).unwrap();

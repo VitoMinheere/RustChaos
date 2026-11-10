@@ -554,6 +554,12 @@ impl World {
             o.text(w / 2.0 - Overlay::text_width(&line, big) / 2.0, 8.0 * s, big, gold, &line);
             let score = format!("SCORE {}", e.score);
             o.text(w / 2.0 - Overlay::text_width(&score, s) / 2.0, 26.0 * s, s, white, &score);
+            // The run's modifiers (#518), and what they multiply the score by.
+            if !e.mods.is_empty() {
+                let names: Vec<&str> = e.mods.list().into_iter().map(|m| m.name()).collect();
+                let rules = format!("{}   x{:.2}", names.join(" / "), e.mods.percent() as f32 / 100.0);
+                o.text(w / 2.0 - Overlay::text_width(&rules, s) / 2.0, 36.0 * s, s, gold, &rules);
+            }
         }
 
         // Achievements just earned.

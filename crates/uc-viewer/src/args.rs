@@ -15,6 +15,8 @@ uc-viewer [--game DIR] [--mission NAME] [--windowed] [--explore] [--overrides DI
   --voices DIR      voice lines made for the unreleased missions, said where the install has
                     none (default: the progress folder's voices folder); --voices off for none
   --endless         endless mode on the mission's map: waves of thugs (with --seed N to repeat a run)
+  --mods LIST       the endless run's modifiers, joined with commas: fists, onehit, heavy, gunrun,
+                    lowgravity, speed, noregen
   --beat           a Beat Cop shift on the mission's map: incidents over the radio (--seed, --arena too)
   --shift MINUTES  the shift's length (default 10), open for an open-ended one, or unlimited
                    for one the crime rate doesn't end, left from the pause menu
@@ -111,6 +113,8 @@ pub(crate) struct Args {
     pub(crate) voices: Option<PathBuf>,
     /// Endless mode on the mission's map (#129), with this seed or a new one.
     pub(crate) endless: bool,
+    /// The endless run's modifiers (#518).
+    pub(crate) mods: uc_game::game::endless::Mods,
     /// A Beat Cop shift on the mission's map (#130).
     pub(crate) beat: bool,
     /// The shift's length.
@@ -180,6 +184,7 @@ impl Default for Args {
             mute: false,
             voices: crate::progress::Progress::folder().map(|f| f.join("voices")),
             endless: false,
+            mods: uc_game::game::endless::Mods::NONE,
             beat: false,
             shift: uc_game::game::beat::DEFAULT_SHIFT,
             seed: None,
@@ -243,6 +248,10 @@ pub(crate) fn parse_args() -> Result<Args, String> {
             "--mute" => a.mute = true,
             "--voices" => a.voices = Some(value()?).filter(|v| v != "off").map(PathBuf::from),
             "--endless" => a.endless = true,
+            "--mods" => {
+                let v = value()?;
+                a.mods = uc_game::game::endless::Mods::named(&v).ok_or(format!("--mods: not modifiers: {v}"))?;
+            }
             "--beat" => a.beat = true,
             "--shift" => {
                 let v = value()?;

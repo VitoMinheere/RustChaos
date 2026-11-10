@@ -341,3 +341,128 @@ fn a_boss_wave_cleared_unhurt_counts() {
     assert!(matches!(g.endless().unwrap().phase, Phase::Breather(_)), "wave ten wasn't cleared");
     assert_eq!(g.record.boss_unhurt, 0);
 }
+
+/// A run with modifiers `mods` (#518).
+fn start_with(seed: u32, mods: &[uc_game::game::endless::Mod]) -> Option<(Level, Game)> {
+    use uc_game::game::endless::Mods;
+    let level = common::load("police1")?;
+    let mods = mods.iter().fold(Mods::NONE, |m, &x| m.toggled(x));
+    let g = Game::new_endless_with(&level, seed, None, 10.0, mods);
+    Some((level, g))
+}
+
+/// The modifiers as a set: fists only and a gun run can't go together, the multipliers
+/// multiply, and the ids go to words and back in one order whatever order they're given in.
+#[test]
+fn modifiers_make_a_set() {
+    use uc_game::game::endless::{Mod, Mods};
+    let m = Mods::NONE.toggled(Mod::Fists).toggled(Mod::OneHit);
+    assert!(m.has(Mod::Fists) && m.has(Mod::OneHit));
+    let m = m.toggled(Mod::GunRun);
+    assert!(m.has(Mod::GunRun) && !m.has(Mod::Fists), "fists only and a gun run together");
+    assert_eq!(m.percent(), 200 * 130 / 100);
+    assert_eq!(m.scaled(1000), 2600);
+    assert_eq!(Mods::NONE.percent(), 100);
+    assert_eq!(m.ids(), "onehit-gunrun");
+    assert_eq!(Mods::named("gunrun,onehit"), Some(m));
+    assert_eq!(Mods::named("onehit,nonsense"), None);
+    assert_eq!(Mods::from_bits(m.bits()), m);
+    assert_eq!(m.toggled(Mod::OneHit).toggled(Mod::GunRun), Mods::NONE);
+}
+
+/// Fists only: no weapons on the map, nobody in the waves armed, even late on, and nothing
+/// but health found on them. Heavy hitters: each of the wave four times as tough.
+#[test]
+fn fists_only_and_heavy_hitters() {
+    use uc_game::game::endless::Mod;
+    let Some((level, mut g)) = start_with(7, &[Mod::Fists, Mod::Heavy]) else { return };
+    assert!(g.items.iter().all(|it| Weapon::from_item(it.kind).is_none()), "a weapon left on the map");
+    skip_to_wave(&mut g, &level, 16);
+    let wave = standing(&g);
+    assert!(!wave.is_empty());
+    for &i in &wave {
+        let p = &g.people[i];
+        assert_eq!(p.weapon, Weapon::None, "armed with fists only");
+        assert!(p.drop.is_none_or(|d| d == 3), "ammo on him with fists only: {:?}", p.drop);
+        let base = uc_world::character::person::HEALTH[p.kind as usize];
+        assert!(p.max_health >= base * 4, "{} of {base}: no heavier", p.max_health);
+    }
+}
+
+/// A gun run: Darci starts with a pistol, and the wave carries guns from the first.
+#[test]
+fn a_gun_run_arms_everyone() {
+    use uc_game::game::endless::Mod;
+    let Some((level, mut g)) = start_with(7, &[Mod::GunRun]) else { return };
+    assert!(g.player().unwrap().has(Weapon::Pistol), "no pistol to start with");
+    let first = g.endless().unwrap().breather().unwrap();
+    run(&mut g, &level, first + 1.0);
+    let wave = standing(&g);
+    assert!(!wave.is_empty());
+    assert!(wave.iter().all(|&i| g.people[i].weapon.is_gun()), "someone unarmed on a gun run");
+}
+
+/// One hit: she has a point of health, so any hit puts her down; and dispatch says so
+/// before the first wave, which comes a little later for it.
+#[test]
+fn one_hit_and_the_rules_are_said() {
+    use uc_game::game::endless::Mod;
+    let Some((level, mut g)) = start_with(3, &[Mod::OneHit]) else { return };
+    assert!(g.endless().unwrap().breather().unwrap() > FIRST_BREATHER);
+    for _ in 0..(9.0 / DT) as usize {
+        g.update(DT, &Controls::default(), &level);
+    }
+    assert_eq!(g.player().unwrap().health, 1);
+    assert!(g.messages.iter().any(|m| m.text.contains("One hit and you're down")), "dispatch didn't say the rules");
+    // Two together: the stacked deck, then each rule in turn, all before the first wave
+    // (twenty seconds at speed being thirty).
+    let Some((level, mut g)) = start_with(3, &[Mod::OneHit, Mod::Speed]) else { return };
+    let mut said = Vec::new();
+    for _ in 0..(20.0 / DT) as usize {
+        g.update(DT, &Controls::default(), &level);
+        for m in &g.messages {
+            if m.text.starts_with("Despatch") && !said.contains(&m.text) {
+                said.push(m.text.clone());
+            }
+        }
+    }
+    assert_eq!(g.endless().unwrap().wave, 0, "the first wave came before the rules were said");
+    let at = |t: &str| said.iter().position(|s| s.contains(t)).unwrap_or_else(|| panic!("not said: {t} in {said:?}"));
+    assert!(at("stacked the deck") < at("One hit and you're down"));
+    assert!(at("One hit and you're down") < at("all happening fast"));
+}
+
+/// Speed: a second plays half as many turns again. Low gravity: a standing jump goes higher.
+#[test]
+fn speed_and_low_gravity() {
+    use uc_game::game::endless::Mod;
+    let Some((level, mut g)) = start_with(3, &[Mod::Speed]) else { return };
+    let before = g.turns();
+    g.update(1.0, &Controls::default(), &level);
+    assert_eq!(g.turns() - before, 45);
+    let peak = |mods: &[Mod]| {
+        let (level, mut g) = start_with(3, mods).unwrap();
+        g.update(0.5, &Controls::default(), &level);
+        let ground = g.player().unwrap().fig.pos.y;
+        g.update(uc_game::TURN, &Controls { jump: true, ..Default::default() }, &level);
+        let mut top = ground;
+        for _ in 0..90 {
+            g.update(uc_game::TURN, &Controls::default(), &level);
+            top = top.max(g.player().unwrap().fig.pos.y);
+        }
+        top - ground
+    };
+    let (normal, floaty) = (peak(&[]), peak(&[Mod::LowGravity]));
+    assert!(normal > 20.0, "no jump: {normal}");
+    assert!(floaty > normal * 1.5, "jumped {floaty} against {normal}");
+}
+
+/// Each modifier has its line for dispatch, and the files are all different.
+#[test]
+fn every_modifier_has_its_line() {
+    use uc_game::game::endless::Mod;
+    let lines = uc_game::game::endless::lines();
+    for m in Mod::ALL {
+        assert!(lines.iter().any(|(f, _, _)| f.contains(m.id())), "no line for {}", m.id());
+    }
+}

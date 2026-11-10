@@ -4,6 +4,10 @@
 //! fight). Each wave comes from one side of the arena, a different one from the last, marked
 //! with a beacon; every tenth brings a boss. Every wave comes from the run's own seed, so the
 //! same seed gives the same waves.
+//!
+//! A run can be played with modifiers ([`Mods`], #518), rules chosen before it starts that
+//! change how it plays, each with a score multiplier. None of them are in the original, as
+//! none of endless mode is.
 
 use crate::*;
 use uc_world::character::person as ptype;
@@ -29,6 +33,190 @@ const NOT_NEARER: f32 = 6.0 * 256.0;
 const BOSS_EVERY: u32 = 10;
 /// Seconds before the first wave: long enough for the intro, and Darci's answer.
 pub const FIRST_BREATHER: f32 = 11.0;
+/// The extra seconds before the first wave with modifiers on, for dispatch to say so.
+const RULES_TIME: f32 = 4.0;
+
+/// How fast a run with `mods` goes: one and a half times with the speed modifier.
+fn pace(mods: Mods) -> f32 {
+    if mods.has(Mod::Speed) { 1.5 } else { 1.0 }
+}
+
+/// What dispatch says of the run's rules before the first wave: the one modifier's line, or
+/// the stacked deck and then each of theirs.
+fn rules(mods: Mods) -> Vec<Riot> {
+    let each = mods.list().into_iter().map(|m| Riot::Rules(Mod::ALL.iter().position(|&x| x == m).unwrap() as u8));
+    match mods.list().len() {
+        0 | 1 => each.collect(),
+        _ => std::iter::once(Riot::Stacked).chain(each).collect(),
+    }
+}
+
+/// A rule an endless run can be played by (#518).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mod {
+    /// No weapons on the map or the waves: fists and feet.
+    Fists,
+    /// Darci goes down in one hit.
+    OneHit,
+    /// Every one of the wave as tough as a boss (four times the health).
+    Heavy,
+    /// Every one of the wave armed with a gun, ammo dropped more often, and Darci starts with
+    /// a pistol.
+    GunRun,
+    /// Everyone falls at half the weight: jumps twice as high, falls twice as far unhurt.
+    LowGravity,
+    /// The game runs at one and a half times the speed.
+    Speed,
+    /// No health back from sitting on a bench: only from what's picked up.
+    NoRegen,
+}
+
+impl Mod {
+    pub const ALL: [Mod; 7] = [Mod::Fists, Mod::OneHit, Mod::Heavy, Mod::GunRun, Mod::LowGravity, Mod::Speed, Mod::NoRegen];
+
+    fn bit(self) -> u8 {
+        1 << Mod::ALL.iter().position(|&m| m == self).unwrap()
+    }
+
+    /// One word for it, as it's kept in the progress file and given on the command line.
+    pub fn id(self) -> &'static str {
+        match self {
+            Mod::Fists => "fists",
+            Mod::OneHit => "onehit",
+            Mod::Heavy => "heavy",
+            Mod::GunRun => "gunrun",
+            Mod::LowGravity => "lowgravity",
+            Mod::Speed => "speed",
+            Mod::NoRegen => "noregen",
+        }
+    }
+
+    pub fn named(id: &str) -> Option<Mod> {
+        Mod::ALL.into_iter().find(|m| m.id().eq_ignore_ascii_case(id))
+    }
+
+    /// As the menu and HUD say it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Mod::Fists => "FISTS ONLY",
+            Mod::OneHit => "ONE HIT",
+            Mod::Heavy => "HEAVY HITTERS",
+            Mod::GunRun => "GUN RUN",
+            Mod::LowGravity => "LOW GRAVITY",
+            Mod::Speed => "SPEED",
+            Mod::NoRegen => "NO REGENERATION",
+        }
+    }
+
+    /// What it does, for the menu.
+    pub fn text(self) -> &'static str {
+        match self {
+            Mod::Fists => "No weapons on the streets or the thugs",
+            Mod::OneHit => "Darci goes down in one hit",
+            Mod::Heavy => "Every thug as tough as a boss",
+            Mod::GunRun => "Every thug has a gun, more ammo drops, and you start with a pistol",
+            Mod::LowGravity => "Jump twice as high, fall twice as far unhurt",
+            Mod::Speed => "The game runs at 1.5x",
+            Mod::NoRegen => "No health from benches, only pickups",
+        }
+    }
+
+    /// Its score multiplier, in hundredths.
+    pub fn percent(self) -> u32 {
+        match self {
+            Mod::Fists => 120,
+            Mod::OneHit => 200,
+            Mod::Heavy => 150,
+            Mod::GunRun => 130,
+            Mod::LowGravity => 100,
+            Mod::Speed => 125,
+            Mod::NoRegen => 110,
+        }
+    }
+
+    /// The modifier it can't be played with.
+    pub fn clash(self) -> Option<Mod> {
+        match self {
+            Mod::Fists => Some(Mod::GunRun),
+            Mod::GunRun => Some(Mod::Fists),
+            _ => None,
+        }
+    }
+
+    /// What dispatch says of it before the first wave.
+    fn line(self) -> &'static str {
+        match self {
+            Mod::Fists => "Word is they've left the guns at home tonight. Fists only, Darci.",
+            Mod::OneHit => "One hit and you're down tonight, Darci. Don't let them touch you.",
+            Mod::Heavy => "These boys are built like tanks tonight. Hit them hard.",
+            Mod::GunRun => "Everyone's packing tonight, Darci. Shoot first.",
+            Mod::LowGravity => "Strange reports from the street tonight. People are floating off the kerb.",
+            Mod::Speed => "It's all happening fast tonight, Darci. Keep up.",
+            Mod::NoRegen => "No medics on call tonight, Darci. Make every pickup count.",
+        }
+    }
+}
+
+/// The modifiers a run is played with (#518): a set of [`Mod`]s.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct Mods(u8);
+
+impl Mods {
+    pub const NONE: Mods = Mods(0);
+
+    pub fn has(self, m: Mod) -> bool {
+        self.0 & m.bit() != 0
+    }
+
+    /// With `m` switched: on (and what it clashes with off), or off.
+    pub fn toggled(self, m: Mod) -> Mods {
+        if self.has(m) {
+            Mods(self.0 & !m.bit())
+        } else {
+            let off = m.clash().map_or(0, Mod::bit);
+            Mods((self.0 & !off) | m.bit())
+        }
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// The modifiers on, in [`Mod::ALL`]'s order.
+    pub fn list(self) -> Vec<Mod> {
+        Mod::ALL.into_iter().filter(|&m| self.has(m)).collect()
+    }
+
+    /// The score multiplier, in hundredths: each one's, multiplied together.
+    pub fn percent(self) -> u32 {
+        self.list().into_iter().fold(100, |p, m| p * m.percent() / 100)
+    }
+
+    /// As a file stores it, and back (unknown bits dropped).
+    pub fn bits(self) -> u8 {
+        self.0
+    }
+
+    pub fn from_bits(b: u8) -> Mods {
+        Mods(b & ((1 << Mod::ALL.len()) - 1))
+    }
+
+    /// Their ids joined with `-`, in [`Mod::ALL`]'s order (so the same set is always the same
+    /// words), or "" for none; and back, None for a word that isn't one.
+    pub fn ids(self) -> String {
+        self.list().into_iter().map(Mod::id).collect::<Vec<_>>().join("-")
+    }
+
+    /// `points`, by the multiplier.
+    pub fn scaled(self, points: i64) -> i64 {
+        points * self.percent() as i64 / 100
+    }
+
+    pub fn named(ids: &str) -> Option<Mods> {
+        ids.split(['-', ',', '+']).filter(|s| !s.is_empty()).try_fold(Mods::NONE, |m, id| Some(Mods(m.0 | Mod::named(id)?.bit())))
+    }
+}
+
 /// The waves dispatch marks with a line of its own when they're cleared.
 const MILESTONES: [u32; 8] = [5, 10, 15, 20, 25, 30, 40, 50];
 
@@ -58,6 +246,10 @@ pub enum Riot {
     Slacking(u8),
     /// The crime rate's reached 100.
     Lost,
+    /// Before the first wave, the run's one modifier: its place in [`Mod::ALL`].
+    Rules(u8),
+    /// Before the first wave, with more than one modifier.
+    Stacked,
 }
 
 impl Riot {
@@ -71,7 +263,8 @@ impl Riot {
 
     /// Every line.
     pub fn all() -> Vec<Riot> {
-        let mut v = vec![Riot::Intro, Riot::Ready, Riot::Lost];
+        let mut v = vec![Riot::Intro, Riot::Ready, Riot::Lost, Riot::Stacked];
+        v.extend((0..Mod::ALL.len() as u8).map(Riot::Rules));
         v.extend((0..Riot::INCOMING).map(Riot::Incoming));
         v.extend((0..Riot::BOSS_INCOMING).map(Riot::BossIncoming));
         v.extend((0..Riot::CLEARED).map(Riot::Cleared));
@@ -100,6 +293,8 @@ impl Riot {
             Riot::Quip(k) => format!("quip{k}"),
             Riot::Slacking(k) => format!("slacking{k}"),
             Riot::Lost => "lost".to_string(),
+            Riot::Rules(k) => format!("rules_{}", Mod::ALL[k as usize].id()),
+            Riot::Stacked => "rules_stacked".to_string(),
         };
         format!("endless/{name}.wav")
     }
@@ -145,6 +340,8 @@ impl Riot {
             Riot::Slacking(1) => "You're losing the street. Get stuck in!",
             Riot::Slacking(_) => "They're running riot out there. Do something!",
             Riot::Lost => "That's it, we've lost the streets. Pull out!",
+            Riot::Rules(k) => Mod::ALL[k as usize].line(),
+            Riot::Stacked => "They've stacked the deck against you tonight, Darci. Good luck.",
         }
     }
 }
@@ -178,6 +375,10 @@ struct Foe {
 #[derive(Debug, Clone)]
 pub struct Endless {
     pub seed: u32,
+    /// The rules it's played by.
+    pub mods: Mods,
+    /// Seconds before the first wave: [`FIRST_BREATHER`], longer with modifiers to say.
+    first: f32,
     /// The wave on, or the last one done (0 before the first).
     pub wave: u32,
     pub phase: Phase,
@@ -268,6 +469,11 @@ impl Game {
     /// `centre` (world xz; the player's start if none), the player put there: no mission
     /// script, the city's crowd about as usual, the crime rate on the HUD.
     pub fn new_endless(level: &Level, seed: u32, centre: Option<Vec2>, radius: f32) -> Game {
+        Game::new_endless_with(level, seed, centre, radius, Mods::NONE)
+    }
+
+    /// [`Game::new_endless`], played with modifiers `mods` (#518).
+    pub fn new_endless_with(level: &Level, seed: u32, centre: Option<Vec2>, radius: f32, mods: Mods) -> Game {
         let mut g = Game::new(level, false);
         if let Some(c) = centre {
             g.teleport(Vec3::new(c.x, 1.0e5, c.y), level);
@@ -286,8 +492,18 @@ impl Game {
         let spots = grid.values().map(|(at, _)| *at).collect();
         g.show_crime_rate = true;
         g.crime_rate = 20;
+        // Fists only: none of the map's weapons. A gun run: a pistol to start with.
+        if mods.has(Mod::Fists) {
+            g.items.retain(|it| Weapon::from_item(it.kind).is_none());
+        }
+        if let (true, Some(p)) = (mods.has(Mod::GunRun), g.player) {
+            g.people[p].give(Weapon::Pistol);
+            g.people[p].give(Weapon::Pistol);
+        }
+        // Room for each of dispatch's rules lines, in game seconds (more of them at speed).
+        let first = (FIRST_BREATHER + RULES_TIME * rules(mods).len() as f32) * pace(mods);
         g.endless = Some(Endless {
-            seed, wave: 0, phase: Phase::Breather(FIRST_BREATHER), score: 0, arrests: 0, downed: 0,
+            seed, mods, first, wave: 0, phase: Phase::Breather(first), score: 0, arrests: 0, downed: 0,
             rng: seed | 1, centre, spots, grid, to_come: 0, foes: Vec::new(), red_marks: 0, crime_clock: 0.0,
             idle: 0.0, wave_health: 0, side: SIDES, side_beacon: 0.0, boss_due: false,
             talk_rng: (seed ^ 0x2545_f491).wrapping_mul(0x9e37_79b9), heard: Vec::new(),
@@ -299,6 +515,16 @@ impl Game {
     /// The endless run, if this is one.
     pub fn endless(&self) -> Option<&Endless> {
         self.endless.as_ref()
+    }
+
+    /// Whether this is an endless run played with modifier `m`.
+    pub fn has_mod(&self, m: Mod) -> bool {
+        self.endless.as_ref().is_some_and(|e| e.mods.has(m))
+    }
+
+    /// How fast the game runs: one and a half times with the speed modifier.
+    pub fn pace(&self) -> f32 {
+        self.endless.as_ref().map_or(1.0, |e| pace(e.mods))
     }
 
     /// For tests: the run, to skip ahead.
@@ -351,15 +577,29 @@ impl Game {
             e.score -= 200 * (self.red_marks - e.red_marks) as i64;
             e.red_marks = self.red_marks;
         }
+        // One hit: she has the one point of health, whatever she picks up.
+        if let (true, Some(p)) = (e.mods.has(Mod::OneHit), self.player) {
+            let p = &mut self.people[p];
+            p.max_health = 1;
+            p.health = p.health.min(1);
+        }
         match e.phase {
             Phase::Breather(t) => {
                 let crossed = |at: f32| t > at && t - dt <= at;
                 if e.wave == 0 {
                     // The run's start: dispatch sets the scene, and Darci answers.
-                    if crossed(FIRST_BREATHER - 0.3) {
+                    if crossed(e.first - 0.3) {
                         self.riot(e, Riot::Intro);
                     }
-                    if crossed(3.5) {
+                    // And what tonight's rules are, if there are any: one to a few seconds,
+                    // the last ending before Darci answers.
+                    let (lines, pace) = (rules(e.mods), pace(e.mods));
+                    for (k, &line) in lines.iter().enumerate() {
+                        if crossed((2.5 + RULES_TIME * (lines.len() - k) as f32) * pace) {
+                            self.riot(e, line);
+                        }
+                    }
+                    if crossed(3.5 * pace) {
                         self.riot(e, Riot::Ready);
                     }
                 } else {
@@ -420,11 +660,11 @@ impl Game {
             if p.arrested {
                 f.counted = true;
                 e.arrests += 1;
-                e.score += 150 * mult;
+                e.score += e.mods.scaled(150 * mult);
             } else if p.knocked_out || p.is_dead() || p.removed {
                 f.counted = true;
                 e.downed += 1;
-                e.score += 100 * mult;
+                e.score += e.mods.scaled(100 * mult);
             }
             if f.counted {
                 self.crime_rate = self.crime_rate.saturating_sub(2);
@@ -522,7 +762,7 @@ impl Game {
         }
         // All down: a bonus, and a breather.
         if e.to_come == 0 && e.foes.iter().all(|f| f.counted) {
-            e.score += 250 * mult;
+            e.score += e.mods.scaled(250 * mult);
             e.phase = Phase::Breather(BREATHER);
             if e.wave.is_multiple_of(BOSS_EVERY) && !e.hurt {
                 self.record.boss_unhurt += 1;
@@ -546,7 +786,8 @@ impl Game {
         // could only be shot.
         let kind = if boss {
             ptype::THUG_RED
-        } else if n >= 15 && e.rand().is_multiple_of(4) {
+        // (Not the Men in Black with fists only: they always have their AKs.)
+        } else if n >= 15 && !e.mods.has(Mod::Fists) && e.rand().is_multiple_of(4) {
             [ptype::MIB1, ptype::MIB2, ptype::MIB3][(e.rand() % 3) as usize]
         } else {
             [ptype::THUG_GREY, ptype::THUG_RED, ptype::THUG_RASTA][(e.rand() % 3) as usize]
@@ -559,22 +800,36 @@ impl Game {
             11..=14 => &[Weapon::Bat, Weapon::Knife, Weapon::Pistol, Weapon::Shotgun],
             _ => &[Weapon::Knife, Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47],
         };
+        // A gun run: pistols, then shotguns, then AKs, as many as there are.
+        let gun_run: &[Weapon] = match n {
+            0..=6 => &[Weapon::Pistol],
+            7..=14 => &[Weapon::Pistol, Weapon::Shotgun],
+            _ => &[Weapon::Pistol, Weapon::Shotgun, Weapon::Ak47],
+        };
+        let arms = if e.mods.has(Mod::GunRun) { gun_run } else { arms };
         let mut weapon = arms[(e.rand() as usize) % arms.len()];
         // No more guns about at once than one, and another every four waves.
         let guns = e.foes.iter().filter(|f| !f.counted && self.people[f.person].weapon.is_gun()).count() as u32;
-        if weapon.is_gun() && guns > n / 4 {
+        if weapon.is_gun() && guns > n / 4 && !e.mods.has(Mod::GunRun) {
             weapon = if n >= 11 { Weapon::Bat } else { Weapon::Knife };
         }
         if boss {
-            weapon = if n >= 20 { Weapon::Ak47 } else { Weapon::Bat };
+            weapon = if n >= 20 || e.mods.has(Mod::GunRun) { Weapon::Ak47 } else { Weapon::Bat };
+        }
+        if e.mods.has(Mod::Fists) {
+            weapon = Weapon::None;
         }
         // Something to find on them: health or ammo, less often as the waves go on, but
         // always some chance of health.
         let find = e.rand() % 100;
         let health_chance = (30 - n as i32 + self.difficulty().finds()).max(15) as u32;
+        // (Plenty of ammo on a gun run; none with fists only, with nothing to put it in.)
+        let ammo_chance = (25 + self.difficulty().finds()).max(0) as u32 + if e.mods.has(Mod::GunRun) { 30 } else { 0 };
         let drop = if find < health_chance {
             Some(3)
-        } else if find < health_chance + (25 + self.difficulty().finds()).max(0) as u32 {
+        } else if e.mods.has(Mod::Fists) {
+            None
+        } else if find < health_chance + ammo_chance {
             match weapon {
                 Weapon::Shotgun => Some(11),
                 Weapon::Ak47 => Some(12),
@@ -595,9 +850,12 @@ impl Game {
         p.weapon = weapon;
         p.give(weapon);
         p.drop = drop;
-        if boss {
+        // A boss, or any of them with heavy hitters, takes four times the beating.
+        if boss || e.mods.has(Mod::Heavy) {
             p.max_health *= 4;
             p.health = p.max_health;
+        }
+        if boss {
             p.drop = Some(3);
         }
         p.go_for();
