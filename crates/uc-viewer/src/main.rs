@@ -174,15 +174,25 @@ impl App {
         let delta = inp.mouse;
         w.checklist = inp.held(KeyCode::Tab) && !inp.bindings.uses(KeyCode::Tab) && w.game.spar().is_none();
         // The sparring room (#547): Tab for the move list, O for what the opponent does next,
+        // P for a second man,
         // and the move it's waiting for written in the keys bound now.
         if let Some(sp) = w.game.spar() {
             use uc_game::game::spar::Stance;
             let pad_last = pad.mv.length() > 0.5 || !pad.held.is_empty();
             w.want_line = sp.want.map_or(String::new(), |t| {
                 let m = uc_game::moves::entry(t);
-                format!("TRY: {}   {}", m.name, moves::keys(m.input, &inp.bindings, pad_last))
+                // (Where the second man stands for the kicks he's there for.)
+                let where_to = match t {
+                    uc_game::moves::Tech::SideKick => "   (stand close to one: the other's on her left)",
+                    uc_game::moves::Tech::BackKick => "   (stand close to one: the other's behind her)",
+                    _ => "",
+                };
+                format!("TRY: {}   {}{where_to}", m.name, moves::keys(m.input, &inp.bindings, pad_last))
             });
-            let stance = sp.stance;
+            let (stance, two) = (sp.stance, sp.two);
+            if inp.own(KeyCode::KeyP) && w.console.line.is_none() {
+                w.game.spar_two(!two);
+            }
             if inp.own(KeyCode::KeyO) && w.console.line.is_none() {
                 let k = Stance::ALL.iter().position(|&s| s == stance).unwrap_or(0);
                 w.game.spar_stance(Stance::ALL[(k + 1) % Stance::ALL.len()]);
@@ -1404,7 +1414,7 @@ impl App {
         if let Some(page) = &world.moves {
             page.overlay(&mut hud, size, world, &self.input.bindings);
         } else if let Some(p) = &world.pause {
-            p.overlay(&mut hud, size, world.game.spar().map(|s| s.stance.name()));
+            p.overlay(&mut hud, size, world.game.spar().map(|s| (s.stance.name(), s.two)));
             let s = (size.1 as f32 / 360.0).round().max(1.0);
             let text = format!("DIFFICULTY: {}", world.game.difficulty().name().to_uppercase());
             hud.text(size.0 as f32 / 2.0 - Overlay::text_width(&text, s) / 2.0, size.1 as f32 * 0.9, s, [200, 200, 190, 220], &text);

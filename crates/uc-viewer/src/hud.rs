@@ -569,7 +569,8 @@ impl World {
             let big = s * 2.0;
             let title = "SPARRING";
             o.text(w / 2.0 - Overlay::text_width(title, big) / 2.0, 8.0 * s, big, gold, title);
-            let line = format!("HE {}   MOVES {}/{}", sp.stance.name(), sp.done.len(), uc_game::moves::sparred());
+            let who = if sp.two { "TWO OF THEM: EACH" } else { "HE" };
+            let line = format!("{who} {}   MOVES {}/{}", sp.stance.name(), sp.done.len(), uc_game::moves::sparred());
             o.text(w / 2.0 - Overlay::text_width(&line, s) / 2.0, 26.0 * s, s, white, &line);
             let now = self.game.time;
             match sp.ticked.filter(|t| now - t.1 < 3.0) {
@@ -578,7 +579,11 @@ impl World {
                     o.text(w / 2.0 - Overlay::text_width(&done, big) / 2.0, 50.0 * s, big, green, &done);
                 }
                 None if !self.want_line.is_empty() => {
-                    o.text(w / 2.0 - Overlay::text_width(&self.want_line, big) / 2.0, 50.0 * s, big, gold, &self.want_line);
+                    // (Where to stand for it, if it says, on a line of its own.)
+                    let (what, hint) = self.want_line.split_once("   (").unwrap_or((&self.want_line, ""));
+                    o.text(w / 2.0 - Overlay::text_width(what, big) / 2.0, 50.0 * s, big, gold, what);
+                    let hint = hint.trim_end_matches(')');
+                    o.text(w / 2.0 - Overlay::text_width(hint, s) / 2.0, 70.0 * s, s, dim, hint);
                 }
                 None => {}
             }
@@ -595,7 +600,7 @@ impl World {
                 o.text(w - Overlay::text_width(&hits, s * 3.0) - 12.0 * s, h * 0.34 - 30.0 * s, s * 3.0, gold, &hits);
             }
             if self.pause.is_none() {
-                let keys = "Tab move list   O opponent";
+                let keys = "Tab move list   O opponent   P one or two";
                 o.text(w / 2.0 - Overlay::text_width(keys, s) / 2.0, 37.0 * s, s, dim, keys);
             }
         }

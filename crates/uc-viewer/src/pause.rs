@@ -42,7 +42,7 @@ impl PauseMenu {
         match self {
             PauseMenu::Paused => &["RESUME LEVEL", "MOVES", "RESTART LEVEL", "ABANDON GAME"],
             PauseMenu::OnShift => &["RESUME LEVEL", "MOVES", "END SHIFT", "RESTART LEVEL", "ABANDON GAME"],
-            PauseMenu::Sparring => &["RESUME LEVEL", "MOVES", "OPPONENT", "RESTART LEVEL", "ABANDON GAME"],
+            PauseMenu::Sparring => &["RESUME LEVEL", "MOVES", "OPPONENT", "OPPONENTS", "RESTART LEVEL", "ABANDON GAME"],
             PauseMenu::Lost => &["RESTART LEVEL", "ABANDON GAME"],
             PauseMenu::Sure(_) => &["OKAY", "CANCEL"],
         }
@@ -66,7 +66,7 @@ impl Pause {
 
     /// The in-game menu over the game: the screen darkening over 0.64 s, the menu sliding in
     /// once it's under way (`GAMEMENU_fadein_x`), the choice picked out.
-    pub(crate) fn overlay(&self, o: &mut Overlay, size: (u32, u32), opponent: Option<&str>) {
+    pub(crate) fn overlay(&self, o: &mut Overlay, size: (u32, u32), opponent: Option<(&str, bool)>) {
         let (w, h) = (size.0 as f32, size.1 as f32);
         let s = (h / 360.0).round().max(1.0);
         let dark = (self.up / 0.64).min(1.0);
@@ -85,7 +85,8 @@ impl Pause {
         for (i, item) in self.menu.items().iter().enumerate() {
             // What the sparring room's opponent does, beside his row.
             let label = match opponent {
-                Some(does) if *item == "OPPONENT" => format!("OPPONENT: {does}"),
+                Some((does, _)) if *item == "OPPONENT" => format!("OPPONENT: {does}"),
+                Some((_, two)) if *item == "OPPONENTS" => format!("OPPONENTS: {}", if two { "TWO" } else { "ONE" }),
                 _ => item.to_string(),
             };
             let item = &label.as_str();
@@ -192,6 +193,11 @@ impl App {
                 let now = w.game.spar().map_or(Stance::Still, |s| s.stance);
                 let k = Stance::ALL.iter().position(|&s| s == now).unwrap_or(0);
                 w.game.spar_stance(Stance::ALL[(k + 1) % Stance::ALL.len()]);
+            }
+            // One man or two (two for the kicks to the side and behind).
+            "OPPONENTS" => {
+                let two = w.game.spar().is_some_and(|s| s.two);
+                w.game.spar_two(!two);
             }
             "RESUME LEVEL" => {
                 w.pause = None;

@@ -278,6 +278,7 @@ impl Page {
         let note = match spar {
             Some(sp) if sp.done.contains(&m.tech) => Some(("Done.", green)),
             Some(_) if waited => Some(("The room's waiting for this one.", gold)),
+            Some(_) if uc_game::game::spar::Spar::takes_two(m.tech) => Some(("A second man comes in for this one, and keeps where it lands.", dim)),
             Some(_) if !m.sparred => Some(("Not one the room can see done.", dim)),
             _ => None,
         };

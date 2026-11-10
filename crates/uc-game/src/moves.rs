@@ -98,8 +98,8 @@ const fn e(tech: Tech, name: &'static str, group: Group, input: &'static str, wh
 pub const MOVES: [Entry; 35] = [
     e(Tech::PunchCombo, "PUNCH COMBO", Group::Fists, "{punch} {punch} {punch}", "Each press as the last blow lands. The third puts them down.", anim::PUNCH_COMBO3, true),
     e(Tech::KickCombo, "KICK COMBO", Group::Fists, "{kick} {kick} {kick}", "Each press as the last blow lands. The third puts them down.", anim::KICK_COMBO3, true),
-    e(Tech::SideKick, "SIDE KICK", Group::Fists, "{left}+{kick}  or  {right}+{kick}", "In a fight, at someone to her side.", anim::KICK_LEFT, true),
-    e(Tech::BackKick, "BACK KICK", Group::Fists, "{back}+{kick}", "In a fight, at someone behind her.", anim::KICK_BEHIND, true),
+    e(Tech::SideKick, "SIDE KICK", Group::Fists, "{left}+{kick}  or  {right}+{kick}", "In a fight, at someone to her side: she faces the nearest, so it takes two.", anim::KICK_LEFT, true),
+    e(Tech::BackKick, "BACK KICK", Group::Fists, "{back}+{kick}", "In a fight, at someone behind her: she faces the nearest, so it takes two.", anim::KICK_BEHIND, true),
     e(Tech::GroinKick, "GROIN KICK", Group::Fists, "{forward}+{kick}", "Stepping in on someone close. Darci's alone.", anim::KICK_NAD, true),
     e(Tech::JumpKick, "JUMP KICK", Group::Fists, "{jump}", "In a fight, standing still. Nothing lands on her while she's in the air.", anim::KICK_NS, true),
     e(Tech::SlideTackle, "SLIDE TACKLE", Group::Fists, "{run}+{forward}, then {kick}", "Running. Takes the legs from under anyone in the way.", anim::SLIDER_START, true),

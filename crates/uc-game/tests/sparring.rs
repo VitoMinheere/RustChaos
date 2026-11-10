@@ -52,7 +52,8 @@ fn the_room_has_the_two_of_them_and_no_script() {
     let Some((level, mut g)) = room() else { return };
     let s = g.spar().unwrap().clone();
     let (me, him) = (g.player.unwrap(), s.opponent);
-    assert_eq!(g.people.len(), 2, "the tutorial's own people aren't here");
+    assert_eq!(g.people.iter().filter(|p| !p.removed).count(), 2, "the tutorial's own people aren't here");
+    assert!(!s.two && s.second.is_some_and(|k| g.people[k].removed), "the second man waits outside");
     assert_eq!(s.stance, Stance::Still);
     let apart = (g.people[me].fig.pos - g.people[him].fig.pos).length();
     assert!((300.0..800.0).contains(&apart), "{apart} apart");
@@ -296,16 +297,50 @@ fn every_kind_of_move_is_seen() {
         let standing = matches!(g.people[g.player.unwrap()].state, State::Move);
         Controls { wish: if standing { d } else { Vec2::ZERO }, kick: i % 20 == 4, ..Default::default() }
     });
-    // The kicks to the side and behind: done, whether or not there's anyone there to take them.
+    // The kicks to the side and behind land on nobody with one man in the room: she's turned
+    // to face him. Asked for, they bring the second in, and land on whoever of the two is
+    // at her side or behind her.
     for tech in [Tech::SideKick, Tech::BackKick] {
         on_his_feet(&mut g, &level);
+        g.spar_two(false);
         let d = square_up(&mut g, &level, 110.0);
         let turn = if tech == Tech::SideKick { vec2(-d.y, d.x) } else { -d };
-        until_done(&mut g, &level, 6.0, tech, |g, i| {
+        let kicking = |g: &Game, i: usize| {
             let standing = matches!(g.people[g.player.unwrap()].state, State::Move);
             Controls { wish: if standing { turn } else { Vec2::ZERO }, kick: standing && i % 20 == 4, ..Default::default() }
+        };
+        for i in 0..(3.0 / DT) as usize {
+            let c = kicking(&g, i);
+            g.update(DT, &c, &level);
+        }
+        assert!(!g.spar().unwrap().done.contains(&tech), "{tech:?} landed with nobody there");
+        on_his_feet(&mut g, &level);
+        g.spar_want(Some(tech));
+        let second = g.spar().unwrap().second.unwrap();
+        assert!(g.spar().unwrap().two && !g.people[second].removed, "no second man for {tech:?}");
+        // The second man where the kick goes, a little further off than the first, whom
+        // she faces.
+        // He comes over by himself to where the kick goes: behind her, or at her side.
+        let d = square_up(&mut g, &level, 90.0);
+        let turn = if tech == Tech::SideKick { vec2(d.y, -d.x) } else { -d };
+        let spot = g.people[me].fig.pos + vec3(turn.x, 0.0, turn.y) * 125.0;
+        for _ in 0..(15.0 / DT) as usize {
+            if (g.people[second].fig.pos - spot).length() < 60.0 {
+                break;
+            }
+            g.update(DT, &Controls::default(), &level);
+        }
+        let off = (g.people[second].fig.pos - spot).length();
+        assert!(off < 60.0, "the second man is {off} from where the {tech:?} goes");
+        // (The way and the kick together: a step that way first and it's him she'd face.)
+        until_done(&mut g, &level, 6.0, tech, |g, i| {
+            let now = matches!(g.people[g.player.unwrap()].state, State::Move) && i % 30 == 0;
+            Controls { wish: if now { turn } else { Vec2::ZERO }, kick: now, ..Default::default() }
         });
+        assert_eq!(g.spar().unwrap().want, None);
     }
+    g.spar_two(false);
+    assert!(g.people[g.spar().unwrap().second.unwrap()].removed);
     on_his_feet(&mut g, &level);
     square_up(&mut g, &level, 100.0);
     until_done(&mut g, &level, 5.0, Tech::JumpKick, |_, i| Controls { jump: i % 30 == 5, ..Default::default() });
