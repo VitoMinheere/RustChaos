@@ -190,7 +190,7 @@ pub const COOP: [&str; 2] = ["HOST", "JOIN"];
 
 /// The main menu's items (`raw_menu_data`, frontend.cpp:376): the ones there's something
 /// behind here.
-pub const MAIN: [&str; 13] = ["START", "CO-OP", "ENDLESS", "BEAT COP", "CAPTURE THE FLAG", "TIME TRIAL", "DIFFICULTY", "STATS", "ACHIEVEMENTS", "REPLAYS", "OPTIONS", "CREDITS", "EXIT"];
+pub const MAIN: [&str; 15] = ["START", "CO-OP", "ENDLESS", "BEAT COP", "CAPTURE THE FLAG", "TIME TRIAL", "SPARRING", "MOVES", "DIFFICULTY", "STATS", "ACHIEVEMENTS", "REPLAYS", "OPTIONS", "CREDITS", "EXIT"];
 
 /// The menus' look, by how far through the game (`menu_theme`, set in
 /// `FRONTEND_MissionHierarchy`, frontend.cpp:3337): leaves for the first eight missions done,
@@ -246,6 +246,8 @@ pub struct Menu {
     pub loading_endless: Option<usize>,
     /// Capture the flag chosen, to load on the next frame.
     pub loading_ctf: bool,
+    /// The sparring room chosen (#547): with the move list up over it, or not.
+    pub loading_spar: Option<bool>,
     /// The arena list is for a Beat Cop shift, not an endless run.
     pub for_beat: bool,
     /// The modifier picked out on the modifiers screen.
@@ -380,7 +382,7 @@ impl Menu {
             .filter(|(m, _)| entries.iter().any(|e| e.mission.eq_ignore_ascii_case(m)))
             .map(|&(m, name)| (m.to_string(), name.to_string(), None, 10.0))
             .collect();
-        let mut m = Menu { entries, screen: Screen::Title, main: 0, theme, since: std::time::Instant::now(), selected: 0, briefed: None, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false, mod_row: 0, mission_time: None,
+        let mut m = Menu { entries, screen: Screen::Title, main: 0, theme, loading_spar: None, since: std::time::Instant::now(), selected: 0, briefed: None, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false, mod_row: 0, mission_time: None,
                trial_course: 0, trial_car: 0, loading_trial: None,
                coop: 0, address: "127.0.0.1".into(), status: String::new(), for_coop: false, lobby: None,
                replays: Vec::new(), replay_selected: 0, ach_row: 0, loading_replay: None, loading_edit: None, idle: 0.0, loading_demo: false,

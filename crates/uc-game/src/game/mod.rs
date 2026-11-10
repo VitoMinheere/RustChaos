@@ -37,6 +37,7 @@ pub mod hook;
 pub mod balloons;
 pub mod ctf;
 pub mod trial;
+pub mod spar;
 pub(crate) mod coop;
 pub mod stats;
 mod litter;

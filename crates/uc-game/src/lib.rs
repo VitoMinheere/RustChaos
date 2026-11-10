@@ -32,6 +32,7 @@ pub mod lights;
 pub mod gunfx;
 pub mod hm;
 pub mod mist;
+pub mod moves;
 pub mod person;
 pub mod plat;
 pub mod puddle;
@@ -624,6 +625,11 @@ pub struct Game {
     ctf: Option<game::ctf::Ctf>,
     /// A time trial (#519), if this is one.
     trial: Option<game::trial::Trial>,
+    /// The sparring room (#547), if this is it.
+    spar: Option<game::spar::Spar>,
+    /// Drawn in the player's place, when there is one: the move list's figure showing a
+    /// move (#547). Only drawn: nothing in the game looks at it.
+    pub stand_in: Option<Figure>,
     /// The console's switches (#147).
     pub cheats: game::cheats::Cheats,
     /// What the player's done this mission (#132).
@@ -918,6 +924,8 @@ impl Game {
             difficulty: Difficulty::Normal,
             ctf: None,
             trial: None,
+            spar: None,
+            stand_in: None,
             cheats: Default::default(),
             record: Default::default(),
             stats_track: Default::default(),
@@ -1721,7 +1729,14 @@ impl Game {
             } else {
                 let mut rng = self.rngs.main;
                 let mut rand = || crate::rand(&mut rng);
-                let c = if frozen || self.cheats.freeze { Controls::default() } else { self.people[i].think(i, &snaps, &level.ground, dt, &mut rand) };
+                // (The sparring room's opponent does as he's told.)
+                let c = if frozen || self.cheats.freeze {
+                    Controls::default()
+                } else if let Some(c) = self.spar_puppet(i) {
+                    c
+                } else {
+                    self.people[i].think(i, &snaps, &level.ground, dt, &mut rand)
+                };
                 self.rngs.main = rng;
                 c
             };
@@ -1774,6 +1789,7 @@ impl Game {
         self.splatter(level);
         self.run_balloons(dt, level);
 
+        self.run_spar(dt, level);
         // Capture the flag: knocked out, she comes back at home ([`Game::run_ctf`]).
         if let (Some(p), None, None) = (self.player, &self.outcome, &self.ctf) {
             if self.people[p].knocked_out {

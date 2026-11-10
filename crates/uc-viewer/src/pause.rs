@@ -9,6 +9,8 @@ pub(crate) enum PauseMenu {
     Paused,
     /// Paused on an unlimited Beat Cop shift (#520), which is ended from here.
     OnShift,
+    /// Paused in the sparring room (#547), where the opponent is told what to do.
+    Sparring,
     Lost,
     /// "Are you sure?", and the menu to go back to.
     Sure(bool),
@@ -18,12 +20,19 @@ impl PauseMenu {
     /// The menu for pausing `w`: with END SHIFT on an unlimited shift.
     pub(crate) fn paused(w: &World) -> PauseMenu {
         let clockless = w.game.beat().is_some_and(|b| b.length == uc_game::game::beat::Shift::Unlimited && w.game.outcome.is_none());
-        if clockless && w.replay.is_none() { PauseMenu::OnShift } else { PauseMenu::Paused }
+        if w.game.spar().is_some() {
+            PauseMenu::Sparring
+        } else if clockless && w.replay.is_none() {
+            PauseMenu::OnShift
+        } else {
+            PauseMenu::Paused
+        }
     }
 
     pub(crate) fn title(self) -> &'static str {
         match self {
             PauseMenu::Paused | PauseMenu::OnShift => "GAME PAUSED",
+            PauseMenu::Sparring => "SPARRING",
             PauseMenu::Lost => "LEVEL LOST",
             PauseMenu::Sure(_) => "ARE YOU SURE?",
         }
@@ -31,8 +40,9 @@ impl PauseMenu {
 
     pub(crate) fn items(self) -> &'static [&'static str] {
         match self {
-            PauseMenu::Paused => &["RESUME LEVEL", "RESTART LEVEL", "ABANDON GAME"],
-            PauseMenu::OnShift => &["RESUME LEVEL", "END SHIFT", "RESTART LEVEL", "ABANDON GAME"],
+            PauseMenu::Paused => &["RESUME LEVEL", "MOVES", "RESTART LEVEL", "ABANDON GAME"],
+            PauseMenu::OnShift => &["RESUME LEVEL", "MOVES", "END SHIFT", "RESTART LEVEL", "ABANDON GAME"],
+            PauseMenu::Sparring => &["RESUME LEVEL", "MOVES", "OPPONENT", "RESTART LEVEL", "ABANDON GAME"],
             PauseMenu::Lost => &["RESTART LEVEL", "ABANDON GAME"],
             PauseMenu::Sure(_) => &["OKAY", "CANCEL"],
         }
@@ -56,7 +66,7 @@ impl Pause {
 
     /// The in-game menu over the game: the screen darkening over 0.64 s, the menu sliding in
     /// once it's under way (`GAMEMENU_fadein_x`), the choice picked out.
-    pub(crate) fn overlay(&self, o: &mut Overlay, size: (u32, u32)) {
+    pub(crate) fn overlay(&self, o: &mut Overlay, size: (u32, u32), opponent: Option<&str>) {
         let (w, h) = (size.0 as f32, size.1 as f32);
         let s = (h / 360.0).round().max(1.0);
         let dark = (self.up / 0.64).min(1.0);
@@ -73,6 +83,12 @@ impl Pause {
         o.text(x - Overlay::text_width(title, big) / 2.0, y, big, gold, title);
         y += 40.0 * s;
         for (i, item) in self.menu.items().iter().enumerate() {
+            // What the sparring room's opponent does, beside his row.
+            let label = match opponent {
+                Some(does) if *item == "OPPONENT" => format!("OPPONENT: {does}"),
+                _ => item.to_string(),
+            };
+            let item = &label.as_str();
             let tw = Overlay::text_width(item, s * 2.0);
             if i == self.sel {
                 o.rect(x - tw / 2.0 - 6.0 * s, y - 3.0 * s, tw + 12.0 * s, 20.0 * s, [200, 150, 40, 200]);
@@ -84,7 +100,33 @@ impl Pause {
 }
 
 impl App {
-    /// Back to the mission list.
+    /// Closes the move list: back to wherever it was opened from, the pause menu, the main
+    /// menu or the sparring. Whether it left the game.
+    pub(crate) fn close_moves(&mut self) -> bool {
+        let Some(w) = self.world.as_mut() else { return false };
+        let Some(page) = w.moves.take() else { return false };
+        w.game.stand_in = None;
+        match page.from {
+            moves::From::Pause => false,
+            // Straight back to the sparring.
+            moves::From::Game => {
+                w.pause = None;
+                if let Some(s) = self.sound.as_mut() {
+                    s.resume();
+                }
+                false
+            }
+            moves::From::Menu => {
+                self.input.pressed.clear();
+                self.open_menu();
+                if let Some(m) = self.menu.as_mut() {
+                    m.main = menu::MAIN.iter().position(|&r| r == "MOVES").unwrap_or(0);
+                }
+                true
+            }
+        }
+    }
+
     /// The in-game menu a frame (`GAMEMENU_process`): the game slowing to a stop over the
     /// first second, then up and down to choose and Enter to pick, once it's been up a fifth
     /// of a second. Returns whether it left the mission.
@@ -94,6 +136,32 @@ impl App {
         let up = inp.hit(KeyCode::ArrowUp) || inp.hit(KeyCode::KeyW) || inp.pad.hit(Button::DPadUp);
         let down = inp.hit(KeyCode::ArrowDown) || inp.hit(KeyCode::KeyS) || inp.pad.hit(Button::DPadDown);
         let choose = inp.hit(KeyCode::Enter) || inp.hit(KeyCode::NumpadEnter) || inp.hit(KeyCode::Space) || inp.pad.hit(Button::South);
+        let pad_used = !inp.pad.pressed.is_empty();
+        // The move list over it (#547): its own keys, until it's closed.
+        if let Some(mut page) = self.world.as_mut().and_then(|w| w.moves.take()) {
+            let w = self.world.as_mut().unwrap();
+            // (In co-op the game goes on meanwhile, as it does under the pause menu.)
+            if let Some(c) = self.coop.as_mut() {
+                c.frame(w, dt, &Controls::default(), false);
+            }
+            match page.frame(w, inp, dt) {
+                moves::Left::Stay => w.moves = Some(page),
+                moves::Left::Close => {
+                    w.moves = Some(page);
+                    return self.close_moves();
+                }
+                // Off to try it: the room waits for the move.
+                moves::Left::Try(tech) => {
+                    w.game.stand_in = None;
+                    w.game.spar_want(Some(tech));
+                    w.pause = None;
+                    if let Some(s) = self.sound.as_mut() {
+                        s.resume();
+                    }
+                }
+            }
+            return false;
+        }
         let Some(w) = self.world.as_mut() else { return false };
         let Some(mut p) = w.pause else { return false };
         let slow = (1.0 - p.up).max(0.0);
@@ -117,6 +185,14 @@ impl App {
             return false;
         }
         match p.menu.items()[p.sel] {
+            "MOVES" => w.moves = Some(moves::Page::new(moves::From::Pause, pad_used)),
+            // The next thing for him to do.
+            "OPPONENT" => {
+                use uc_game::game::spar::Stance;
+                let now = w.game.spar().map_or(Stance::Still, |s| s.stance);
+                let k = Stance::ALL.iter().position(|&s| s == now).unwrap_or(0);
+                w.game.spar_stance(Stance::ALL[(k + 1) % Stance::ALL.len()]);
+            }
             "RESUME LEVEL" => {
                 w.pause = None;
                 if let Some(s) = self.sound.as_mut() {

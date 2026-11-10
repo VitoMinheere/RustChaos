@@ -172,6 +172,7 @@ mod sniper;
 mod snipers;
 mod snow1;
 mod snow2;
+mod sparring;
 mod spawn_heights;
 mod stamina;
 mod stamina_marks;

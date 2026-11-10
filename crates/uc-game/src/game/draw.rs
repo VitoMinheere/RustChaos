@@ -66,7 +66,12 @@ impl Game {
         let show = self.show;
         // Looking through the scope from her head, she isn't drawn.
         let scoped = self.snipe.is_some();
-        for p in self.people.iter().filter(|p| !p.removed && !p.aboard() && !(scoped && p.player)) {
+        // The move list's figure stands where the player does, and she isn't drawn (#547).
+        let shown = self.stand_in.as_ref().zip(self.player);
+        if let Some((fig, _)) = shown {
+            fig.append_batches(&mut out, lighter.as_ref());
+        }
+        for (_, p) in self.people.iter().enumerate().filter(|(i, p)| !p.removed && !p.aboard() && !(scoped && p.player) && shown.is_none_or(|s| s.1 != *i)) {
             p.fig.append_batches(&mut out, lighter.as_ref());
             // People cast their own shapes (below); the knocked out still bleed a pool.
             if show.shadows && p.blood().is_some() {

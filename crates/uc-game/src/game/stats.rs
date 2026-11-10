@@ -54,10 +54,12 @@ pub struct Stats {
     /// added up.
     pub furthest_wave: u32,
     pub best_shift: u32,
+    /// The most moves ticked off in one visit to the sparring room (#547). A best too.
+    pub sparred: u32,
 }
 
 /// The counts that are bests, kept as the higher of two when added.
-const BESTS: [&str; 3] = ["longest_zip", "furthest_wave", "best_shift"];
+const BESTS: [&str; 4] = ["longest_zip", "furthest_wave", "best_shift", "sparred"];
 
 impl Game {
     /// The win screen's criminals (`ScoresDraw`, Attract.cpp:684): the gangs and the Men in
@@ -117,6 +119,7 @@ impl Stats {
             ("quiet_shifts", self.quiet_shifts as f64),
             ("furthest_wave", self.furthest_wave as f64),
             ("best_shift", self.best_shift as f64),
+            ("sparred", self.sparred as f64),
         ]
     }
 
@@ -154,6 +157,7 @@ impl Stats {
             "quiet_shifts" => self.quiet_shifts = n,
             "furthest_wave" => self.furthest_wave = n,
             "best_shift" => self.best_shift = n,
+            "sparred" => self.sparred = n,
             _ => {}
         }
     }
@@ -223,6 +227,9 @@ impl Game {
         // (Not an unlimited shift's, which has no end to its score.)
         if let Some(b) = self.beat.as_ref().filter(|b| b.length.scored()) {
             self.record.best_shift = self.record.best_shift.max(b.score.max(0) as u32);
+        }
+        if let Some(s) = &self.spar {
+            self.record.sparred = self.record.sparred.max(s.done.len() as u32);
         }
         let Some(p) = self.player() else { return };
         let (pos, state) = (p.fig.pos, p.state.clone());
