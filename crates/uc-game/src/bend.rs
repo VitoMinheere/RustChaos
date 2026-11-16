@@ -52,7 +52,7 @@ pub fn knock(bits: u8, damage: u8, yaw: i32, from: (f32, f32), random: u32) -> u
 
 /// The bendable props, as drawn: all of them in one set of batches, built again only when one
 /// is knocked.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Bends {
     /// The props ([`Level::bendable`]).
     props: Vec<usize>,

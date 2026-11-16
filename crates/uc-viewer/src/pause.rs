@@ -57,11 +57,37 @@ pub(crate) struct Pause {
     pub(crate) menu: PauseMenu,
     pub(crate) sel: usize,
     pub(crate) up: f32,
+    /// There's a checkpoint to go back to, and the run can be saved and left (#544): their
+    /// rows are on the menu.
+    checkpoint: bool,
+    save: bool,
 }
 
 impl Pause {
     pub(crate) fn new(menu: PauseMenu) -> Pause {
-        Pause { menu, sel: 0, up: 0.0 }
+        Pause { menu, sel: 0, up: 0.0, checkpoint: false, save: false }
+    }
+
+    /// `menu` over `w`'s game, with the rows the run has earned.
+    pub(crate) fn over(menu: PauseMenu, w: &World) -> Pause {
+        Pause { checkpoint: w.checkpoints.time().is_some(), save: w.can_save(), ..Pause::new(menu) }
+    }
+
+    /// The menu's rows: its own, with RESTART FROM CHECKPOINT above RESTART LEVEL and SAVE
+    /// AND QUIT above ABANDON GAME where there's a checkpoint and a run to save.
+    pub(crate) fn items(&self) -> Vec<&'static str> {
+        let mut out = Vec::new();
+        let plain = matches!(self.menu, PauseMenu::Paused | PauseMenu::Lost);
+        for &item in self.menu.items() {
+            if plain && self.checkpoint && item == "RESTART LEVEL" {
+                out.push("RESTART FROM CHECKPOINT");
+            }
+            if self.menu == PauseMenu::Paused && self.save && item == "ABANDON GAME" {
+                out.push("SAVE AND QUIT");
+            }
+            out.push(item);
+        }
+        out
     }
 
     /// The in-game menu over the game: the screen darkening over 0.64 s, the menu sliding in
@@ -82,7 +108,7 @@ impl Pause {
         let mut y = h * 0.35;
         o.text(x - Overlay::text_width(title, big) / 2.0, y, big, gold, title);
         y += 40.0 * s;
-        for (i, item) in self.menu.items().iter().enumerate() {
+        for (i, item) in self.items().iter().enumerate() {
             // What the sparring room's opponent does, beside his row.
             let label = match opponent {
                 Some((does, _)) if *item == "OPPONENT" => format!("OPPONENT: {does}"),
@@ -173,7 +199,7 @@ impl App {
             w.game.update(dt * slow, &Controls::default(), &w.level);
         }
         p.up += dt;
-        let n = p.menu.items().len();
+        let n = p.items().len();
         let ready = p.up > 0.2;
         if ready && up {
             p.sel = (p.sel + n - 1) % n;
@@ -185,7 +211,7 @@ impl App {
         if !(ready && choose) {
             return false;
         }
-        match p.menu.items()[p.sel] {
+        match p.items()[p.sel] {
             "MOVES" => w.moves = Some(moves::Page::new(moves::From::Pause, pad_used)),
             // The next thing for him to do.
             "OPPONENT" => {
@@ -240,6 +266,24 @@ impl App {
                     s.resume();
                 }
             }
+            // Back to the last checkpoint (#544).
+            "RESTART FROM CHECKPOINT" => {
+                w.restart_from_checkpoint();
+                w.pause = None;
+                if let Some(s) = self.sound.as_mut() {
+                    s.audio.hush();
+                    s.resume();
+                }
+            }
+            // Left, to be picked up from the mission list.
+            "SAVE AND QUIT" => {
+                if w.save_and_quit() {
+                    self.input.pressed.clear();
+                    self.open_menu();
+                    return true;
+                }
+                w.pause = Some(Pause::over(PauseMenu::paused(w), w));
+            }
             "ABANDON GAME" => w.pause = Some(Pause::new(PauseMenu::Sure(p.menu == PauseMenu::Lost))),
             "OKAY" => {
                 self.input.pressed.clear();
@@ -248,7 +292,7 @@ impl App {
             }
             _ => {
                 let back = if p.menu == PauseMenu::Sure(true) { PauseMenu::Lost } else { PauseMenu::paused(w) };
-                w.pause = Some(Pause::new(back));
+                w.pause = Some(Pause::over(back, w));
             }
         }
         false

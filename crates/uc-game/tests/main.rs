@@ -168,6 +168,7 @@ mod skymiss2;
 mod slide_dust;
 mod slide_odd;
 mod slopes;
+mod snapshot;
 mod sniper;
 mod snipers;
 mod snow1;

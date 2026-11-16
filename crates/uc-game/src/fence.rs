@@ -23,6 +23,7 @@ const SHAKE: [f32; 32] = [
 ];
 
 /// One of the map's fences, as it's drawn.
+#[derive(Clone)]
 pub struct Fence {
     /// Its quads, standing still.
     quads: Vec<FacetQuad>,
@@ -34,7 +35,7 @@ pub struct Fence {
 }
 
 /// The map's fences.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Fences {
     pub fences: Vec<Fence>,
 }

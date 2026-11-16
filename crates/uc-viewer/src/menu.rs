@@ -273,6 +273,9 @@ pub struct Menu {
     /// The saved replays, newest first, as they were when the list was shown.
     pub replays: Vec<replays::Listed>,
     pub replay_selected: usize,
+    /// The missions left to be picked up again (#544), by mission in lower case, as they
+    /// were when the menu came up.
+    pub saves: BTreeMap<String, crate::saves::Listed>,
     /// The achievement chosen on their screen, which scrolls the list.
     pub ach_row: usize,
     /// A replay chosen, to load on the next frame.
@@ -385,7 +388,7 @@ impl Menu {
         let mut m = Menu { entries, screen: Screen::Title, main: 0, theme, loading_spar: None, since: std::time::Instant::now(), selected: 0, briefed: None, loading: None, progress, maps, beats, map_selected: 0, loading_endless: None, loading_ctf: false, for_beat: false, mod_row: 0, mission_time: None,
                trial_course: 0, trial_car: 0, loading_trial: None,
                coop: 0, address: "127.0.0.1".into(), status: String::new(), for_coop: false, lobby: None,
-               replays: Vec::new(), replay_selected: 0, ach_row: 0, loading_replay: None, loading_edit: None, idle: 0.0, loading_demo: false,
+               replays: Vec::new(), replay_selected: 0, saves: crate::saves::list(), ach_row: 0, loading_replay: None, loading_edit: None, idle: 0.0, loading_demo: false,
                pins, pin: 0, on_map: true, credits: Credits::default(), options: Options::load(), option_row: 0,
                bindings: Bindings::default(), bind_row: 0, binding: false };
         m.show_map();
@@ -607,7 +610,7 @@ impl Menu {
         // Along the bottom: the mission chosen, how it's gone, and the keys.
         o.rect(0.0, h - 44.0 * s, w, 44.0 * s, [0, 0, 0, 170]);
         if let Some(i) = self.loading.or(self.loading_edit) {
-            let text = format!("LOADING {}...", self.entries[i].title.to_uppercase());
+            let text = self.loading_text(i);
             o.text(w / 2.0 - Overlay::text_width(&text, s * 2.0) / 2.0, h - 34.0 * s, s * 2.0, white, &text);
             return;
         }
@@ -617,7 +620,8 @@ impl Menu {
                 (Some(t), Some(d)) => format!("Best time {}, completed on {}", clock(t), d.hardest.name()),
                 _ => "Not completed yet".to_string(),
             };
-            o.text(12.0 * s, h - 25.0 * s, s, white, &best);
+            let saved = self.saved_line(&e.mission);
+            o.text(12.0 * s, h - 25.0 * s, s, if saved.is_some() { gold } else { white }, saved.as_ref().unwrap_or(&best));
             // Its medals' time targets, at the right.
             if let Some(m) = self.medals(e) {
                 let parts = medals::targets(&e.mission, m.time, false);
@@ -1318,7 +1322,7 @@ impl Menu {
                             self.entries.len());
         o.text(x, 56.0 * s, s, gold, &tally);
         if let Some(i) = self.loading.or(self.loading_edit) {
-            let text = format!("LOADING {}...", self.entries[i].title.to_uppercase());
+            let text = self.loading_text(i);
             o.text(w / 2.0 - Overlay::text_width(&text, s * 2.0) / 2.0, h * 0.5, s * 2.0, white, &text);
             return o;
         }
@@ -1344,7 +1348,9 @@ impl Menu {
             // The medals (#516) just before it.
             let dots = if self.medals(e).is_some() { 22.0 * s } else { 0.0 };
             self.medal_dots(&mut o, right - bw - dots - 2.0 * s, y, s, e);
-            o.text(x + 10.0 * s, y, s, col, &fit(&e.title, right - bw - dots - 12.0 * s - (x + 10.0 * s), s));
+            // (A mission left to be picked up again says so, #544.)
+            let title = if self.saved(&e.mission).is_some() { format!("{} (saved)", e.title) } else { e.title.clone() };
+            o.text(x + 10.0 * s, y, s, col, &fit(&title, right - bw - dots - 12.0 * s - (x + 10.0 * s), s));
             o.text(right - bw, y, s, gold, &best);
         }
         // The selected mission in a panel on the right: its title, the best time (or not
@@ -1365,6 +1371,7 @@ impl Menu {
                 }
                 _ => ("Not completed yet".to_string(), [170, 170, 160, 255]),
             };
+            let (best, best_col) = self.saved_line(&e.mission).map_or((best, best_col), |l| (l, gold));
             let list_h = checklist::height(&items, bw, s);
             // The medals' targets (#516): the times (shortened if they don't fit), then the
             // other goals.
@@ -1409,6 +1416,36 @@ impl Menu {
 }
 
 /// Entry `e` has badges or side objectives to do (so a thorough medal to win).
+impl Menu {
+    /// Mission `mission`'s save (#544), when the list is for playing alone.
+    pub fn saved(&self, mission: &str) -> Option<&crate::saves::Listed> {
+        self.saves.get(&mission.to_ascii_lowercase()).filter(|_| !self.for_coop)
+    }
+
+    /// Whether Enter on `mission` carries on a saved game of it: only this build's save.
+    pub fn resumes(&self, mission: &str) -> bool {
+        self.saved(mission).is_some_and(|s| s.same_build)
+    }
+
+    /// What the mission panel says of `mission`'s save, if it has one.
+    fn saved_line(&self, mission: &str) -> Option<String> {
+        let s = self.saved(mission)?;
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        Some(if s.same_build {
+            format!("Saved {} in, {}: Enter carries on, Del discards it", clock(s.time), replays::ago(s.date, now))
+        } else {
+            format!("Saved on another build ({}), so it can't be carried on: Enter starts afresh", s.build)
+        })
+    }
+
+    /// "LOADING" or, for a saved game, "RESUMING" entry `i`.
+    fn loading_text(&self, i: usize) -> String {
+        let e = &self.entries[i];
+        let what = if self.loading == Some(i) && self.resumes(&e.mission) { "RESUMING" } else { "LOADING" };
+        format!("{what} {}...", e.title.to_uppercase())
+    }
+}
+
 /// How a time of day shows in the menu: none is the map's own lighting.
 fn time_name(t: Option<uc_world::TimeOfDay>) -> String {
     t.map_or("MAP'S OWN".to_string(), |t| t.name().to_uppercase())

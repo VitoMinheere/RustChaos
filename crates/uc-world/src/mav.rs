@@ -55,6 +55,7 @@ pub struct Action {
 }
 
 /// The navigation map.
+#[derive(Clone)]
 pub struct Mav {
     /// `MAV_height`, x-major.
     height: Vec<i8>,

@@ -176,6 +176,7 @@ impl Piece {
     }
 }
 
+#[derive(Clone)]
 struct Tree {
     x: i32,
     z: i32,
@@ -228,6 +229,7 @@ impl Floor for uc_formats::iam::Map {
 }
 
 /// All the dirt (`DIRT_dirt`), kept round a focus.
+#[derive(Clone)]
 pub struct Dirt {
     /// `MAX_DIRT` slots, `None` for `DIRT_TYPE_UNUSED`.
     pub pieces: Vec<Option<Piece>>,

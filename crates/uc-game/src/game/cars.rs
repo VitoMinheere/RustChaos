@@ -4,6 +4,7 @@ use crate::*;
 
 /// The streets: the roads cars wander along, who's driving them, the pavements the city's
 /// extra people walk and what they say when spoken to.
+#[derive(Clone)]
 pub(crate) struct Streets {
     pub(crate) roads: road::Roads,
     /// What each person at the wheel is doing, by person.

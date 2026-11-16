@@ -393,6 +393,7 @@ fn ko_moves(ai: u8, other: i32) -> u8 {
     if ai == PCOM_AI_FIGHT_TEST { (other >> 16) as u8 } else { 0 }
 }
 
+#[derive(Clone)]
 struct Way {
     ep: EventPoint,
     text: Option<String>,
@@ -446,6 +447,7 @@ impl Way {
     }
 }
 
+#[derive(Clone)]
 pub struct Script {
     ways: Vec<Option<Way>>,
     counters: [u32; 16],
