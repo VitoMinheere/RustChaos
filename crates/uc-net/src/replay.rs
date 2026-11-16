@@ -401,6 +401,41 @@ impl Recorder {
         self.replay.turns.len()
     }
 
+    /// Carries on the run `saved` left off (#544): its turns played into `game` (made by its
+    /// start and not yet played, this recorder its own) as fast as they go, kept as they
+    /// were the first time, so the run's replay is whole. `each` runs after every turn. If
+    /// the game doesn't come out as `saved` has it (another build's save), the first turn
+    /// whose hash differs.
+    pub fn resume(&mut self, game: &mut Game, level: &Level, saved: &Replay, mut each: impl FnMut(&Game, &Recorder)) -> Result<(), u32> {
+        self.replay.date = saved.date;
+        let mut events = saved.events.iter().peekable();
+        let mut checked = self.replay.hashes.len();
+        for (n, inputs) in saved.turns.iter().enumerate() {
+            while let Some((_, e)) = events.next_if(|e| e.0 as usize <= n) {
+                e.apply(game);
+                self.event(game, e.clone());
+            }
+            crate::play_turn(game, level, inputs);
+            self.take(game);
+            for h in &self.replay.hashes[checked..] {
+                if !saved.hashes.contains(h) {
+                    return Err(h.0);
+                }
+            }
+            checked = self.replay.hashes.len();
+            each(game, self);
+        }
+        for (_, e) in events {
+            e.apply(game);
+            self.event(game, e.clone());
+        }
+        // (A save with fewer hashes than its turns make isn't the run it says it is.)
+        if self.replay.hashes.len() != saved.hashes.len() {
+            return Err(saved.turns.len() as u32);
+        }
+        Ok(())
+    }
+
     /// The replay, as `game` stands now: its outcome, time, and an endless run's or shift's
     /// score (the badges and side objectives are the caller's to fill in, who knows the
     /// mission's).

@@ -3,6 +3,9 @@
 use uc_formats::units::radians;
 use crate::*;
 
+/// The most splits the win screen lists (#545): the last ones, the finish among them.
+const SPLIT_ROWS: usize = 8;
+
 /// The gun sights (`PANEL_draw_gun_sight`, DDEngine/Source/panel.cpp:728): four strokes
 /// round the point, 84 to 164 out (times the sight's scale over 256), at `accuracy` (in
 /// 2048ths of a turn) either side of left and right, so they close up into two level strokes
@@ -330,20 +333,42 @@ impl World {
             o.text(w / 2.0 - Overlay::text_width(&text, big) / 2.0, 10.0 * s, big, col, &text);
         }
 
-        // The ghost race (#186), under the clock: the best run's time, and how this run stood
-        // against it at the last checkpoint, green ahead and red behind.
+        // The mission clock always up, for those who want it (#545's option): where a
+        // countdown would be, on the missions without one.
+        if self.args.clock && self.game.countdown().is_none() && self.game.trial().is_none() && self.game.outcome.is_none()
+            && self.game.cutscene.is_none() && self.editor.is_none() && !self.args.spar {
+            let text = progress::clock(self.game.time);
+            let big = s * 1.5;
+            o.text(w / 2.0 - Overlay::text_width(&text, big) / 2.0, 12.0 * s, big, [215, 215, 205, 230], &text);
+        }
+
+        // The ghost race (#186, #545), under the clock: the best run's time, and at a split
+        // the objective done (if it's one), this run's time there and how it stood against
+        // the ghost, green ahead and red behind. With no ghost yet there's nothing to say
+        // until an objective's split.
         if let (Some(r), None) = (&self.race, &self.game.outcome) {
             let best = match (&r.best, self.ghost_on) {
                 (Some(b), true) => format!("GHOST {}", progress::clock(b.time)),
                 (Some(b), false) => format!("BEST {}  (B: ghost)", progress::clock(b.time)),
+                (None, _) if r.split.is_some() => String::new(),
                 (None, _) => "NO GHOST YET".to_string(),
             };
-            let split = r.split.map(|(d, _)| (format!("  {}", ghosts::split_text(d)), if d <= 0.0 { [110, 230, 110, 255] } else { [240, 90, 70, 255] }));
-            let tw = Overlay::text_width(&best, s) + split.as_ref().map_or(0.0, |(t, _)| Overlay::text_width(t, s * 2.0));
+            // (The training courses said so from the start, before there were story ghosts.)
+            let quiet = r.best.is_none() && r.split.is_none() && medals::story(&self.level.name);
+            let at = r.split.as_ref().map(|sh| match &sh.name {
+                Some(n) => format!("  {n}  {}", progress::fine_clock(sh.time)),
+                None => format!("  {}", progress::fine_clock(sh.time)),
+            });
+            let diff = r.split.as_ref().and_then(|sh| sh.diff).map(|d| (format!("  {}", ghosts::split_text(d)), ghosts::split_colour(d)));
+            let tw = Overlay::text_width(&best, s) + at.as_ref().map_or(0.0, |t| Overlay::text_width(t, s))
+                + diff.as_ref().map_or(0.0, |(t, _)| Overlay::text_width(t, s * 2.0));
             let (x, y) = (w / 2.0 - tw / 2.0, 30.0 * s);
-            let x = x + o.text(x, y + 3.0 * s, s, [200, 210, 235, 230], &best);
-            if let Some((text, col)) = split {
-                o.text(x, y, s * 2.0, col, &text);
+            if !quiet {
+                let x = x + o.text(x, y + 3.0 * s, s, [200, 210, 235, 230], &best);
+                let x = x + at.map_or(0.0, |t| o.text(x, y + 3.0 * s, s, white, &t));
+                if let Some((text, col)) = diff {
+                    o.text(x, y, s * 2.0, col, &text);
+                }
             }
         }
 
@@ -374,7 +399,7 @@ impl World {
             }
             let text = parts.join("   ");
             let split = self.lap_race.as_ref().and_then(|r| r.split)
-                .map(|(d, _)| (format!("  {}", ghosts::split_text(d)), if d <= 0.0 { [110, 230, 110, 255] } else { [240, 90, 70, 255] }));
+                .map(|(d, _)| (format!("  {}", ghosts::split_text(d)), ghosts::split_colour(d)));
             let tw = Overlay::text_width(&text, s) + split.as_ref().map_or(0.0, |(t, _)| Overlay::text_width(t, s * 2.0));
             let (x, y) = (w / 2.0 - tw / 2.0, 26.0 * s);
             let x = x + o.text(x, y + 3.0 * s, s, [200, 210, 235, 230], &text);
@@ -750,6 +775,31 @@ impl World {
                     medals::draw_line(&mut o, w / 2.0 - medals::line_width(parts, s) / 2.0, y, s, parts);
                 }
                 below += (n as f32 * 11.0 + 8.0) * s;
+                // The splits (#545): the objectives done and the finish, each with the
+                // ghost's time there and the difference, then the sum of the best stretches.
+                if let Some(r) = &self.race {
+                    let rows = r.rows(secs);
+                    let rows = &rows[rows.len().saturating_sub(SPLIT_ROWS)..];
+                    let sum = r.sum_of_best.map(|t| format!("Sum of best splits {}", progress::fine_clock(t)));
+                    let n = rows.len() + sum.is_some() as usize;
+                    o.rect(w * 0.2, below - 4.0 * s, w * 0.6, (n as f32 * 11.0 + 6.0) * s, [0, 0, 0, 140]);
+                    for (k, row) in rows.iter().enumerate() {
+                        let y = below + k as f32 * 11.0 * s;
+                        o.text(w * 0.2 + 8.0 * s, y, s, white, &menu::fit(&row.name, w * 0.3, s));
+                        let time = progress::fine_clock(row.time);
+                        o.text(w * 0.6 - Overlay::text_width(&time, s), y, s, white, &time);
+                        if let Some(b) = row.best {
+                            let best = progress::fine_clock(b);
+                            o.text(w * 0.7 - Overlay::text_width(&best, s), y, s, [200, 210, 235, 230], &best);
+                            let d = ghosts::split_text(row.time - b);
+                            o.text(w * 0.8 - 8.0 * s - Overlay::text_width(&d, s), y, s, ghosts::split_colour(row.time - b), &d);
+                        }
+                    }
+                    if let Some(text) = &sum {
+                        o.text(w / 2.0 - Overlay::text_width(text, s) / 2.0, below + rows.len() as f32 * 11.0 * s, s, [255, 210, 70, 255], text);
+                    }
+                    below += (n as f32 * 11.0 + 8.0) * s;
+                }
             }
             // The chief's word on the civilians killed (`deadcivs.tga`'s message).
             if let Some(warning) = &self.civ_warning {
@@ -775,8 +825,17 @@ impl World {
             let won = self.game.outcome == Some(Outcome::Won);
             let (badges, _) = self.tally();
             let done = self.game.sides_done(&self.goals);
-            let items = checklist::items(&self.objectives, won, &self.goals, badges,
-                                         |id| self.kept.sides.contains(&id) || done.contains(&id));
+            let mut items = checklist::items(&self.objectives, won, &self.goals, badges,
+                                             |id| self.kept.sides.contains(&id) || done.contains(&id));
+            // A side objective done this run, with its split (#545): when, and against the
+            // ghost.
+            for (k, g) in self.goals.sides.iter().enumerate() {
+                let split = g.rewards.first().and_then(|&p| self.race.as_ref()?.objective(p));
+                if let (Some(p), Some(item)) = (split, items.get_mut(self.objectives.len() + k)) {
+                    let diff = p.diff.map_or(String::new(), |d| format!(" ({})", ghosts::split_text(d)));
+                    item.text = format!("{}   {}{diff}", item.text, progress::fine_clock(p.time));
+                }
+            }
             let pw = (w * 0.5).max(300.0 * s).min(w - 20.0 * s);
             let bw = pw - 24.0 * s;
             let ph = 52.0 * s + checklist::height(&items, bw, s);

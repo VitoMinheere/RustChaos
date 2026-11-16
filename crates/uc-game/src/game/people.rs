@@ -49,6 +49,7 @@ pub(crate) struct Route {
 }
 
 /// Route-finding: the navigation map (`MAV_precalculate`) and each person's last route.
+#[derive(Clone)]
 pub(crate) struct Routes {
     pub(crate) mav: uc_world::mav::Mav,
     /// The one for inside the warehouses ([`uc_world::mav::Mav::inside`]), if there are any.

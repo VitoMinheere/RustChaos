@@ -393,6 +393,7 @@ fn ko_moves(ai: u8, other: i32) -> u8 {
     if ai == PCOM_AI_FIGHT_TEST { (other >> 16) as u8 } else { 0 }
 }
 
+#[derive(Clone)]
 struct Way {
     ep: EventPoint,
     text: Option<String>,
@@ -446,6 +447,7 @@ impl Way {
     }
 }
 
+#[derive(Clone)]
 pub struct Script {
     ways: Vec<Option<Way>>,
     counters: [u32; 16],
@@ -466,7 +468,7 @@ pub struct Script {
 }
 
 /// Triggers that go off when someone (or something) gets to a place: the checkpoints a run
-/// passes, for a ghost race's splits.
+/// passes, for a ghost race's splits (with the objectives done, see `activate`).
 const PLACES: [u8; 7] = [trigger::RADIUS, trigger::CUBOID, trigger::ENEMY_RADIUS, trigger::PLAYER_USES_RADIUS,
                           trigger::TRIPWIRE, trigger::THING_RADIUS_DIR, trigger::MOVE_RADIUS_DIR];
 
@@ -782,7 +784,9 @@ impl Script {
         let w = self.ways[i].as_mut().unwrap();
         w.active = true;
         let ep = w.ep.clone();
-        if PLACES.contains(&ep.trigger) {
+        // (And an objective done, #545: bonus points given, or a side objective's reward made.)
+        let objective = ep.kind == waypoint::BONUS_POINTS || ep.kind == waypoint::CREATE_TREASURE && ep.trigger != trigger::NONE;
+        if PLACES.contains(&ep.trigger) || objective {
             self.passed.push(ep.index);
         }
         let pos = w.pos();

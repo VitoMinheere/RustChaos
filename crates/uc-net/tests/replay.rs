@@ -115,3 +115,58 @@ fn a_changed_replay_says_where_it_drifted() {
     let (_, p) = play_back(&level, &replay);
     assert_eq!(p.drift, Some(330));
 }
+
+/// A run left and carried on (#544): the game made again and played up to where the save
+/// was taken stands as the one left, the two play on the same turn for turn, and the replay
+/// of the run carried on is the replay of one never left.
+#[test]
+fn a_saved_run_carries_on_the_same() {
+    let Some(level) = load("police1") else { return };
+    let start = Start { weapon: Weapon::Pistol, dogs: 1, ..Start::new("police1", Mode::Mission, Difficulty::Normal, [1, 0, 2, 0]) };
+    let turn = |g: &mut Game, t: usize| {
+        play_turn(g, &level, &[Input::new(&bot_input(0, t / 30), t == 40)]);
+    };
+    let mut g = start.game(&level);
+    let mut rec = Recorder::new(&mut g, start.clone());
+    for t in 0..30 * 25 + 7 {
+        turn(&mut g, t);
+    }
+    let saved = Replay::from_bytes(&rec.finish(&mut g).to_bytes()).unwrap();
+
+    let mut back = saved.start.game(&level);
+    let mut again = Recorder::new(&mut back, saved.start.clone());
+    let mut turns = 0;
+    again.resume(&mut back, &level, &saved, |_, r| {
+        turns += 1;
+        assert_eq!(r.turns(), turns);
+    }).unwrap();
+    assert_eq!(turns as u64, g.turns());
+    assert_eq!(back.state_hash(), g.state_hash());
+    for t in 30 * 25 + 7..30 * 45 {
+        turn(&mut g, t);
+        turn(&mut back, t);
+        assert_eq!(back.state_hash(), g.state_hash(), "after turn {t}");
+    }
+    let (whole, carried) = (rec.finish(&mut g), again.finish(&mut back));
+    assert_eq!(carried, whole);
+    let (_, p) = play_back(&level, &carried);
+    assert_eq!(p.drift, None);
+}
+
+/// A save that isn't of this game (as another build's wouldn't be) is refused at the first
+/// hash that differs.
+#[test]
+fn a_save_that_has_drifted_is_refused() {
+    let Some(level) = load("police1") else { return };
+    let start = Start::new("police1", Mode::Mission, Difficulty::Normal, [0; 4]);
+    let mut g = start.game(&level);
+    let mut rec = Recorder::new(&mut g, start.clone());
+    for t in 0..30 * 12 {
+        play_turn(&mut g, &level, &[Input::new(&bot_input(0, t / 30), t == 40)]);
+    }
+    let mut saved = rec.finish(&mut g);
+    saved.hashes[5].1 ^= 1;
+    let mut back = start.game(&level);
+    let mut again = Recorder::new(&mut back, start);
+    assert_eq!(again.resume(&mut back, &level, &saved, |_, _| {}), Err(saved.hashes[5].0));
+}

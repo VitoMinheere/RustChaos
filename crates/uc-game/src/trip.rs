@@ -21,6 +21,7 @@ const RANGE: f32 = 0x500 as f32;
 /// A tripped wire stays tripped for 4 of the original's 20 ticks a second.
 const HOLD: f32 = 4.0 / 20.0;
 
+#[derive(Clone)]
 pub struct Wire {
     pub y: f32,
     pub a: Vec2,
@@ -33,7 +34,7 @@ pub struct Wire {
     pub off: bool,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Trips {
     pub wires: Vec<Wire>,
     /// The wire each `tripwire` point watches.

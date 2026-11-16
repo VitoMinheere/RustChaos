@@ -13,6 +13,7 @@ use crate::road;
 
 const N: i32 = MAP_SIZE as i32;
 
+#[derive(Clone)]
 pub struct Wander {
     squares: Vec<bool>,
 }

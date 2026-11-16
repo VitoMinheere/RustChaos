@@ -949,6 +949,7 @@ pub struct Scare {
     pub goal: Option<Vec3>,
 }
 
+#[derive(Clone)]
 pub struct Person {
     pub fig: Figure,
     /// The event point that created this person (0 = none).

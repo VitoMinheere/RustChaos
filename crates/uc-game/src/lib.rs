@@ -234,6 +234,7 @@ struct Driving {
 }
 
 /// A camera fly-by in progress.
+#[derive(Clone)]
 pub struct Cutscene {
     shot: Shot,
     /// Index of the waypoint being flown to.
@@ -267,6 +268,7 @@ impl Cutscene {
 }
 
 /// A conversation being said, one line at a time.
+#[derive(Clone)]
 struct Convo {
     way: usize,
     /// The recordings' number.
@@ -587,6 +589,9 @@ impl Before {
     }
 }
 
+/// A game being played. A clone is a snapshot of it (#544): it plays on exactly as the one
+/// it was made from, given the same inputs (a checkpoint is one).
+#[derive(Clone)]
 pub struct Game {
     pub people: Vec<Person>,
     pub player: Option<usize>,

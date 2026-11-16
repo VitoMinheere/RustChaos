@@ -25,6 +25,7 @@ mod par;
 mod pause;
 mod progress;
 mod replays;
+mod saves;
 mod sound;
 mod world;
 
@@ -494,6 +495,25 @@ impl App {
         }
     }
 
+    /// Carries on the saved mission `save` (#544), which is then gone: it's this run again.
+    /// One that can't be carried on is gone too, and false says to start the mission afresh.
+    fn resume(&mut self, save: &saves::Save) -> bool {
+        let mission = &save.replay.start.mission;
+        let loaded = World::load_save(self.args.clone(), save);
+        saves::discard(mission);
+        match loaded {
+            Ok(w) => {
+                println!("{mission}: resumed {} in", progress::clock(w.game.time));
+                self.show(w, true);
+                true
+            }
+            Err(e) => {
+                eprintln!("{mission}: {e}");
+                false
+            }
+        }
+    }
+
     /// Loads the replay at `path` and starts watching it.
     fn watch(&mut self, path: &Path) {
         let loaded = replays::load(path).and_then(|r| World::load_replay(self.args.clone(), r));
@@ -679,7 +699,11 @@ impl App {
             self.args.beat = false;
             self.args.time = menu::mission_time(&m.progress, &name, m.mission_time);
             self.args.trial = None;
-            self.play(&name);
+            // A saved game of it (#544) is carried on, not started again.
+            let save = if m.resumes(&name) { saves::load(&name) } else { None };
+            if !save.is_some_and(|s| self.resume(&s)) {
+                self.play(&name);
+            }
             self.input.pressed.clear();
             return;
         }
@@ -883,6 +907,13 @@ impl App {
                 }
                 if inp.hit(KeyCode::KeyE) && !m.entries.is_empty() {
                     m.loading_edit = Some(m.selected);
+                }
+                // Del lets a saved game go (#544), to start the mission afresh.
+                if let (true, Some(e)) = (inp.hit(KeyCode::Delete), m.entries.get(m.selected)) {
+                    if m.saved(&e.mission).is_some() {
+                        saves::discard(&e.mission);
+                        m.saves.remove(&e.mission.to_ascii_lowercase());
+                    }
                 }
                 // T the time of day to replay a won mission at (#515).
                 if inp.hit(KeyCode::KeyT) || inp.pad.hit(Button::West) {
@@ -1230,7 +1261,7 @@ impl App {
                     return;
                 }
                 None => {
-                    w.pause = Some(Pause::new(if lost { PauseMenu::Lost } else { PauseMenu::paused(w) }));
+                    w.pause = Some(Pause::over(if lost { PauseMenu::Lost } else { PauseMenu::paused(w) }, w));
                     if let Some(s) = self.sound.as_mut() {
                         s.stop();
                     }
@@ -1241,7 +1272,7 @@ impl App {
                         s.resume();
                     }
                 }
-                Some(PauseMenu::Sure(lost)) => w.pause = Some(Pause::new(if lost { PauseMenu::Lost } else { PauseMenu::paused(w) })),
+                Some(PauseMenu::Sure(lost)) => w.pause = Some(Pause::over(if lost { PauseMenu::Lost } else { PauseMenu::paused(w) }, w)),
                 Some(PauseMenu::Lost) => {
                     self.input.pressed.clear();
                     self.open_menu();
@@ -1330,7 +1361,8 @@ impl App {
             world.kept = p.get(&world.level.name).cloned().unwrap_or_default();
             world.result = Some((world.game.time, before));
             // Medals (#516): a story mission's, won fairly.
-            world.fair = world.recorder.is_some();
+            // (And not helped along by a checkpoint, #544.)
+            world.fair = world.recorder.is_some() && !world.checkpoints.used;
             if world.fair && medals::story(&world.level.name) {
                 let won = world.medals_won();
                 let before = p.record_medals(&world.level.name, won);
@@ -1338,7 +1370,7 @@ impl App {
                 world.medals = Some((won, before));
             }
             if let Some(r) = world.race.as_mut() {
-                r.won(&world.game, &world.level.name);
+                r.won(&world.game, &world.level.name, world.fair);
             }
             // By the book: an arrest, not a shot fired and no red mark. Thorough: everything
             // in the mission done.
@@ -1362,6 +1394,7 @@ impl App {
         if let Some(r) = world.recorder.as_mut() {
             r.take(&mut world.game);
         }
+        world.note_checkpoint();
         world.check_achievements(dt);
         let shift = self.input.held(KeyCode::ShiftLeft) || self.input.held(KeyCode::ShiftRight);
         let screenshot = self.input.hit(KeyCode::F12) && !shift;

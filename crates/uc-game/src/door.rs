@@ -20,6 +20,7 @@ const AJAR: f32 = 15.0;
 const SPEED: f32 = 4.0 * 4.0 * 20.0;
 
 /// One of the map's doors, as it's drawn.
+#[derive(Clone)]
 pub struct Door {
     /// Its quads, shut.
     quads: Vec<FacetQuad>,
@@ -34,7 +35,7 @@ pub struct Door {
 }
 
 /// The map's doors, one for each of [`Ground::doors`].
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Doors {
     pub doors: Vec<Door>,
 }

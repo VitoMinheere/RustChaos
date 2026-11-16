@@ -137,6 +137,8 @@ pub(crate) struct World {
     pub(crate) editor: Option<editor::Editor>,
     /// An edited mission being played: nothing it does goes into the progress or a replay.
     pub(crate) edited: bool,
+    /// The run's checkpoints (#544).
+    pub(crate) checkpoints: saves::Checkpoints,
     /// The move list (#547), up over the pause menu.
     pub(crate) moves: Option<moves::Page>,
     /// The sparring room's line for the move it's waiting for, in the keys bound now.
@@ -149,7 +151,7 @@ pub(crate) struct World {
 /// The ghost race for a new game of `level`, if it's one of the missions raced (and played
 /// as the mission, not explored or as an endless run).
 fn race(game: &mut Game, level: &Level, args: &Args) -> Option<ghosts::Race> {
-    (ghosts::raced(&level.name) && !args.explore && !args.endless && !args.beat && args.trial.is_none()).then(|| ghosts::Race::start(game, &level.name))
+    (ghosts::raced(&level.name) && !args.explore && !args.endless && !args.beat && args.trial.is_none()).then(|| ghosts::Race::start(game, level))
 }
 
 impl World {
@@ -194,10 +196,9 @@ impl World {
         self.replay.is_none() && !self.edited && self.editor.is_none() && !self.args.spar
     }
 
-    /// `replay`, to watch.
-    pub(crate) fn load_replay(args: Args, replay: Replay) -> Result<World, String> {
-        let start = replay.start.clone();
-        let args = Args {
+    /// `args` for a game that started as `start` did, whatever they were for.
+    fn args_for(args: Args, start: &Start) -> Args {
+        Args {
             mission: start.mission.clone(), explore: start.mode == Mode::Explore, endless: matches!(start.mode, Mode::Endless { .. }),
             beat: matches!(start.mode, Mode::Beat { .. }),
             trial: match start.mode {
@@ -206,8 +207,19 @@ impl World {
             },
             dogs: start.dogs as usize, weapon: start.weapon, cam: None, time: start.time,
             no_character: false, spar: false, ..args
-        };
-        World::load_with(args, None, Some(replay), None, |level, _| (start.game(level), start.clone()))
+        }
+    }
+
+    /// `replay`, to watch.
+    pub(crate) fn load_replay(args: Args, replay: Replay) -> Result<World, String> {
+        let start = replay.start.clone();
+        World::load_with(World::args_for(args, &start), None, Some(replay), None, |level, _| (start.game(level), start.clone()))
+    }
+
+    /// A game to play that starts as `start` has it, not as `args` and the progress would
+    /// start one now: a saved mission's (#544).
+    pub(crate) fn load_started(args: Args, start: Start) -> Result<World, String> {
+        World::load_with(World::args_for(args, &start), None, None, None, |level, _| (start.game(level), start.clone()))
     }
 
     /// A co-op game's mission, as `setup` has it, played from `seat`. Nothing here may
@@ -303,6 +315,7 @@ impl World {
             replay,
             editor: None,
             edited: false,
+            checkpoints: Default::default(),
             moves: None,
             want_line: String::new(),
             beacon_colours: Default::default(),
@@ -404,6 +417,7 @@ impl World {
         self.race = if counts { race(&mut self.game, &self.level, &self.args) } else { None };
         self.lap_race = if counts { ghosts::LapRace::start(&mut self.game) } else { None };
         self.endless_recorded = None;
+        self.checkpoints = Default::default();
     }
 
     pub(crate) fn settings(&self) -> Settings {

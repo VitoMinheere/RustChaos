@@ -309,8 +309,8 @@ fn backing_out_of_a_dead_end_isnt_a_miss() {
     let c = courses()[course_index("silver").unwrap()].clone();
     // Put on each checkpoint in turn up to the dead end (checkpoint 8), then back on
     // checkpoint 7 on the way out to 9.
-    for k in 0..=8 {
-        put_car(&mut g, &level, c.checkpoints[k], 0.0);
+    for &at in &c.checkpoints[..=8] {
+        put_car(&mut g, &level, at, 0.0);
         g.update(DT, &Controls::default(), &level);
     }
     assert_eq!(g.trial().unwrap().next, 9, "never reached the dead end");
