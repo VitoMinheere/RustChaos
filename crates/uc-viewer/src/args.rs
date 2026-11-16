@@ -150,6 +150,8 @@ pub(crate) struct Args {
     pub(crate) bench: usize,
     /// The roads wet on a rainy night (#522).
     pub(crate) wet: bool,
+    /// The mission clock always on the HUD (#545; the Options screen's).
+    pub(crate) clock: bool,
     pub(crate) fullbright: bool,
     pub(crate) fog: Option<(f32, f32)>,
     /// Walls with a crinkle stand out in relief up close (#113).
@@ -209,6 +211,7 @@ impl Default for Args {
             bloom: 0.0,
             bench: 0,
             wet: true,
+            clock: false,
             fullbright: false,
             fog: Some((20.0, 40.0)),
             crinkles: true,

@@ -33,6 +33,8 @@ pub(crate) struct Options {
     pub(crate) bloom: u8,
     /// The roads wet on a rainy night (#522), on the spot.
     pub(crate) wet: bool,
+    /// The mission clock always on the HUD (#545), on the spot.
+    pub(crate) clock: bool,
     /// `--overrides DIR`: the textures for this run, whatever's set here. Not saved.
     pub(crate) forced: Option<PathBuf>,
 }
@@ -54,18 +56,19 @@ impl Default for Options {
     fn default() -> Options {
         Options {
             master: 10, effects: 10, music: 10, shadows: true, dirt: true, mist: true, rain: true, skyline: true, moon: true,
-            crinkles: true, fog: true, linear: false, upscaled: false, textures_dir: None, relief: 0, bloom: 0, wet: true, forced: None,
+            crinkles: true, fog: true, linear: false, upscaled: false, textures_dir: None, relief: 0, bloom: 0, wet: true, clock: false, forced: None,
         }
     }
 }
 
 /// The rows of the screen, top to bottom: the settings, then the controls' page and back.
-pub(crate) const ROWS: usize = 18;
+pub(crate) const ROWS: usize = 19;
 pub(crate) const TEXTURES_ROW: usize = 12;
 pub(crate) const RELIEF_ROW: usize = 13;
 pub(crate) const BLOOM_ROW: usize = 14;
 pub(crate) const WET_ROW: usize = 15;
-pub(crate) const CONTROLS_ROW: usize = 16;
+pub(crate) const CLOCK_ROW: usize = 16;
+pub(crate) const CONTROLS_ROW: usize = 17;
 
 /// The effects and music at full volume before these were here (`Audio`'s defaults).
 const EFFECTS: f32 = 0.8;
@@ -105,6 +108,7 @@ impl Options {
                 "relief" => o.relief = RELIEF_NAMES.iter().position(|&n| n == value).unwrap_or(0) as u8,
                 "bloom" => o.bloom = RELIEF_NAMES.iter().position(|&n| n == value).unwrap_or(0) as u8,
                 "wet" => o.wet = on,
+                "clock" => o.clock = on,
                 "textures_dir" if !value.is_empty() => o.textures_dir = Some(PathBuf::from(value)),
                 _ => {}
             }
@@ -125,11 +129,11 @@ impl Options {
         let on = |b: bool| if b { "on" } else { "off" };
         let dir = self.textures_dir.as_ref().map_or(String::new(), |d| format!("textures_dir={}\n", d.display()));
         format!(
-            "master={}\neffects={}\nmusic={}\nshadows={}\ndirt={}\nmist={}\nrain={}\nskyline={}\nmoon={}\ncrinkles={}\nfog={}\nfiltering={}\ntextures={}\nrelief={}\nbloom={}\nwet={}\n{dir}",
+            "master={}\neffects={}\nmusic={}\nshadows={}\ndirt={}\nmist={}\nrain={}\nskyline={}\nmoon={}\ncrinkles={}\nfog={}\nfiltering={}\ntextures={}\nrelief={}\nbloom={}\nwet={}\nclock={}\n{dir}",
             self.master, self.effects, self.music, on(self.shadows), on(self.dirt), on(self.mist), on(self.rain),
             on(self.skyline), on(self.moon), on(self.crinkles), on(self.fog), if self.linear { "smooth" } else { "crisp" },
             if self.upscaled { "upscaled" } else { "original" }, RELIEF_NAMES[self.relief as usize % 3],
-            RELIEF_NAMES[self.bloom as usize % 3], on(self.wet),
+            RELIEF_NAMES[self.bloom as usize % 3], on(self.wet), on(self.clock),
         )
     }
 
@@ -173,6 +177,7 @@ impl Options {
             }),
             BLOOM_ROW => ("BLOOM", ["OFF", "SOFT", "STRONG"][self.bloom as usize % 3].into()),
             WET_ROW => ("WET ROADS", on(self.wet)),
+            CLOCK_ROW => ("MISSION CLOCK", if self.clock { "ALWAYS SHOWN".into() } else { "OFF".into() }),
             CONTROLS_ROW => ("CONTROLS", String::new()),
             _ => ("BACK", String::new()),
         }
@@ -198,6 +203,7 @@ impl Options {
             RELIEF_ROW => self.relief = (self.relief as i8 + by).rem_euclid(3) as u8,
             BLOOM_ROW => self.bloom = (self.bloom as i8 + by).rem_euclid(3) as u8,
             WET_ROW => self.wet = !self.wet,
+            CLOCK_ROW => self.clock = !self.clock,
             _ => {}
         }
     }
@@ -241,6 +247,7 @@ impl Options {
         args.relief = RELIEF[self.relief as usize % 3];
         args.bloom = BLOOM[self.bloom as usize % 3];
         args.wet = self.wet;
+        args.clock = self.clock;
         args.crinkles = self.crinkles;
         args.fog = if self.fog { fog } else { None };
         args.rain = self.rain;
@@ -292,7 +299,7 @@ mod tests {
     #[test]
     fn saved_and_read_back_the_same() {
         let mut o = Options::default();
-        for k in [1, 1, 2, 4, 9, 11, WET_ROW] {
+        for k in [1, 1, 2, 4, 9, 11, WET_ROW, CLOCK_ROW] {
             o.change(k, -1);
         }
         assert_eq!(Options::parse(&o.text()), o);

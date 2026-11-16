@@ -202,4 +202,11 @@ fn rta_side_objectives_can_all_be_done() {
     }
     println!("outcome {:?}", r.g.outcome);
     assert_eq!(done.len(), 4);
+    // Each one done is a split of the run (#545): its reward's point among the checkpoints
+    // passed, with the turn it was made on.
+    let passed = r.g.checkpoints();
+    for s in &goals.sides {
+        let at = passed.iter().find(|c| c.0 == s.rewards[0]).unwrap_or_else(|| panic!("no split for {}", s.label));
+        assert!(at.1 > 0 && at.1 <= r.g.turns(), "{at:?}");
+    }
 }

@@ -10,7 +10,36 @@
 use crate::*;
 
 /// The file's first bytes, with the format's version in the last.
-const MAGIC: &[u8; 4] = b"UCG1";
+const MAGIC: &[u8; 4] = b"UCG2";
+
+/// The version before a pose on foot was packed small (#545), still read.
+const MAGIC_1: &[u8; 4] = b"UCG1";
+
+/// A pose on foot as a file has it since [`MAGIC`], in 14 bytes for the 29 it was: a whole
+/// mission's ghost is about 25 KB a minute. Where she is to the world unit (a 256th of a
+/// square), the angle to a 65536th of a turn, the keyframes, and the tween to a 256th. None
+/// if it doesn't fit (off the map, or a keyframe past 65535), and it's written in full.
+fn pack_foot(pos: Vec3, angle: f32, cur: u32, next: u32, tween: f32) -> Option<[u8; 13]> {
+    let whole = |v: f32, lo: f32, hi: f32| (v.is_finite() && (lo..=hi).contains(&v.round())).then(|| v.round());
+    let (x, y, z) = (whole(pos.x, 0.0, 65535.0)? as u16, whole(pos.y, -32768.0, 32767.0)? as i16, whole(pos.z, 0.0, 65535.0)? as u16);
+    let (cur, next) = (u16::try_from(cur).ok()?, u16::try_from(next).ok()?);
+    if !angle.is_finite() {
+        return None;
+    }
+    let turn = (angle.rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU * 65536.0).round() as u32 as u16;
+    let mut out = [0; 13];
+    for (k, w) in [x.to_le_bytes(), y.to_le_bytes(), z.to_le_bytes(), turn.to_le_bytes(), cur.to_le_bytes(), next.to_le_bytes()].iter().enumerate() {
+        out[k * 2..k * 2 + 2].copy_from_slice(w);
+    }
+    out[12] = tween.round().clamp(0.0, 255.0) as u8;
+    Some(out)
+}
+
+fn unpack_foot(b: [u8; 13]) -> Pose {
+    let w = |k: usize| u16::from_le_bytes([b[k * 2], b[k * 2 + 1]]);
+    let pos = Vec3::new(w(0) as f32, w(1) as i16 as f32, w(2) as f32);
+    Pose::Foot { pos, angle: w(3) as f32 / 65536.0 * std::f32::consts::TAU, cur: w(4) as u32, next: w(5) as u32, tween: b[12] as f32 }
+}
 
 /// The player as one turn left them.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -92,15 +121,21 @@ impl Track {
         for p in &self.poses {
             match *p {
                 Pose::None => out.push(0),
-                Pose::Foot { pos, angle, cur, next, tween } => {
-                    out.push(1);
-                    for x in [pos.x, pos.y, pos.z, angle] {
-                        f(&mut out, x);
+                Pose::Foot { pos, angle, cur, next, tween } => match pack_foot(pos, angle, cur, next, tween) {
+                    Some(packed) => {
+                        out.push(4);
+                        out.extend_from_slice(&packed);
                     }
-                    u(&mut out, cur);
-                    u(&mut out, next);
-                    f(&mut out, tween);
-                }
+                    None => {
+                        out.push(1);
+                        for x in [pos.x, pos.y, pos.z, angle] {
+                            f(&mut out, x);
+                        }
+                        u(&mut out, cur);
+                        u(&mut out, next);
+                        f(&mut out, tween);
+                    }
+                },
                 Pose::Car { vehicle, pos, yaw, pitch, roll, steer, spin } => {
                     out.push(2);
                     u(&mut out, vehicle);
@@ -130,7 +165,7 @@ impl Track {
 
     /// A track from [`Track::to_bytes`]; None if it isn't one, or is cut short.
     pub fn from_bytes(bytes: &[u8]) -> Option<Track> {
-        let mut r = Reader(bytes.strip_prefix(MAGIC)?);
+        let mut r = Reader(bytes.strip_prefix(MAGIC).or_else(|| bytes.strip_prefix(MAGIC_1))?);
         let time = r.f()?;
         let n = r.u()? as usize;
         let mut poses = Vec::with_capacity(n.min(1 << 20));
@@ -151,6 +186,11 @@ impl Track {
                     let (x, y, z, yaw) = (r.f()?, r.f()?, r.f()?, r.f()?);
                     let (rx, ry, rz, angle) = (r.f()?, r.f()?, r.f()?, r.f()?);
                     Pose::Bike { bike, pos: Vec3::new(x, y, z), yaw, rider: Vec3::new(rx, ry, rz), angle, cur: r.u()?, next: r.u()?, tween: r.f()? }
+                }
+                4 => {
+                    let (b, rest) = r.0.split_first_chunk::<13>()?;
+                    r.0 = rest;
+                    unpack_foot(*b)
                 }
                 _ => return None,
             });
@@ -314,7 +354,7 @@ mod tests {
 
     fn track() -> Track {
         let car = Pose::Car { vehicle: 3, pos: Vec3::new(1.0, 2.0, 3.0), yaw: 0.5, pitch: 0.01, roll: -0.02, steer: 0.3, spin: 6.0 };
-        Track { time: 41.5, poses: vec![Pose::None, foot(0.0, 0.0, 0.0), foot(100.0, 1.0, 128.0), car], splits: vec![(58, 2), (59, 3), (58, 3)] }
+        Track { time: 41.5, poses: vec![Pose::None, foot(0.0, 0.0, 0.0), foot(100.0, std::f32::consts::FRAC_PI_2, 128.0), car], splits: vec![(58, 2), (59, 3), (58, 3)] }
     }
 
     #[test]
@@ -324,8 +364,46 @@ mod tests {
         assert_eq!(Track::from_bytes(&bytes), Some(t));
         // Cut short, or not a track at all: nothing, rather than half of one.
         assert_eq!(Track::from_bytes(&bytes[..bytes.len() - 1]), None);
-        assert_eq!(Track::from_bytes(b"UCG2\0\0\0\0"), None);
+        assert_eq!(Track::from_bytes(b"UCG3\0\0\0\0"), None);
         assert_eq!(Track::from_bytes(&[]), None);
+    }
+
+    /// On foot a pose is packed into 14 bytes (#545), near enough to draw the same: to the
+    /// world unit, a 65536th of a turn and a 256th of the tween. What doesn't fit (off the
+    /// map, a keyframe past 65535) is written in full, exactly; and a file from before, with
+    /// every pose in full, still reads.
+    #[test]
+    fn a_pose_on_foot_is_packed_small() {
+        let p = Pose::Foot { pos: Vec3::new(12345.4, -200.6, 30000.5), angle: -1.0, cur: 2100, next: 2101, tween: 130.3 };
+        let off = Pose::Foot { pos: Vec3::new(-5.25, 0.0, 70000.0), angle: 0.3, cur: 1, next: 2, tween: 7.5 };
+        let far = Pose::Foot { pos: Vec3::new(1.0, 2.0, 3.0), angle: 0.3, cur: 70000, next: 2, tween: 7.5 };
+        let t = Track { time: 9.0, poses: vec![p, off, far], splits: Vec::new() };
+        let bytes = t.to_bytes();
+        assert_eq!(bytes.len(), 4 + 4 + 4 + 14 + 29 + 29 + 4);
+        let back = Track::from_bytes(&bytes).unwrap();
+        match back.poses[0] {
+            Pose::Foot { pos, angle, cur, next, tween } => {
+                assert_eq!(pos, Vec3::new(12345.0, -201.0, 30001.0));
+                assert!((angle - (std::f32::consts::TAU - 1.0)).abs() < 1e-4, "{angle}");
+                assert_eq!((cur, next, tween), (2100, 2101, 130.0));
+            }
+            p => panic!("{p:?}"),
+        }
+        assert_eq!(back.poses[1..], t.poses[1..]);
+        // Packed again it's the same bytes: a ghost loaded and saved doesn't wander.
+        assert_eq!(back.to_bytes(), bytes);
+        let mut old = b"UCG1".to_vec();
+        old.extend_from_slice(&9.0f32.to_le_bytes());
+        old.extend_from_slice(&1u32.to_le_bytes());
+        old.push(1);
+        for x in [12345.4f32, -200.6, 30000.5, -1.0] {
+            old.extend_from_slice(&x.to_le_bytes());
+        }
+        old.extend_from_slice(&2100u32.to_le_bytes());
+        old.extend_from_slice(&2101u32.to_le_bytes());
+        old.extend_from_slice(&130.3f32.to_le_bytes());
+        old.extend_from_slice(&0u32.to_le_bytes());
+        assert_eq!(Track::from_bytes(&old), Some(Track { time: 9.0, poses: vec![p], splits: Vec::new() }));
     }
 
     /// On the bike (a time trial's, #519): the bike and its rider, read back as written, and
@@ -352,7 +430,7 @@ mod tests {
         match t.pose_at(1.5) {
             Pose::Foot { pos, angle, tween, .. } => {
                 assert!((pos.x - 50.0).abs() < 1e-3, "{pos}");
-                assert!((angle - 0.5).abs() < 1e-3 && (tween - 64.0).abs() < 1e-3, "{angle} {tween}");
+                assert!((angle - std::f32::consts::FRAC_PI_4).abs() < 1e-3 && (tween - 64.0).abs() < 1e-3, "{angle} {tween}");
             }
             p => panic!("{p:?}"),
         }

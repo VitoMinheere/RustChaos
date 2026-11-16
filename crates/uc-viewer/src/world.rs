@@ -151,7 +151,7 @@ pub(crate) struct World {
 /// The ghost race for a new game of `level`, if it's one of the missions raced (and played
 /// as the mission, not explored or as an endless run).
 fn race(game: &mut Game, level: &Level, args: &Args) -> Option<ghosts::Race> {
-    (ghosts::raced(&level.name) && !args.explore && !args.endless && !args.beat && args.trial.is_none()).then(|| ghosts::Race::start(game, &level.name))
+    (ghosts::raced(&level.name) && !args.explore && !args.endless && !args.beat && args.trial.is_none()).then(|| ghosts::Race::start(game, level))
 }
 
 impl World {

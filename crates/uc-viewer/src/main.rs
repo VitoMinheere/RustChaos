@@ -1370,7 +1370,7 @@ impl App {
                 world.medals = Some((won, before));
             }
             if let Some(r) = world.race.as_mut() {
-                r.won(&world.game, &world.level.name);
+                r.won(&world.game, &world.level.name, world.fair);
             }
             // By the book: an arrest, not a shot fired and no red mark. Thorough: everything
             // in the mission done.
